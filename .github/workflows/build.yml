@@ -52,3 +52,28 @@ jobs:
         with:
           name: armored-corer-${{ matrix.name }}
           path: out/
+
+  # Original Xbox: the engine core built with nxdk into a small test program
+  # (default.xbe and an .iso for xemu or a softmodded console).
+  xbox:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install nxdk prerequisites
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y clang llvm lld bison flex cmake git
+
+      - name: Get nxdk
+        run: git clone --depth 1 --recurse-submodules --shallow-submodules https://github.com/XboxDev/nxdk.git "$HOME/nxdk"
+
+      - name: Build
+        run: make -C src/platform/xbox NXDK_DIR="$HOME/nxdk" -j"$(nproc)"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: armored-corer-xbox-core-test
+          path: |
+            src/platform/xbox/bin/default.xbe
+            src/platform/xbox/*.iso

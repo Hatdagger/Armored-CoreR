@@ -33,6 +33,8 @@ empty arena with Gen 1 movement.
 | AC graphics | stand-in boxes; real models not imported yet |
 | Lock-on, rifle / missile / blade, damage (first version, target dummy) | in progress |
 | Two players on one machine (split screen) | first version |
+| Renderer: OpenGL 2.1, PS1-style lighting and fog, native resolution | first version |
+| Original Xbox build of the core (nxdk test program) | in automatic builds |
 | Computer opponent, online | not started |
 
 ## Building

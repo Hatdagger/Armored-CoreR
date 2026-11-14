@@ -7,3 +7,6 @@ Memory Card/
 *.cue
 *.iso
 *.chd
+src/platform/xbox/bin/
+src/platform/xbox/*.obj
+src/platform/xbox/*.d

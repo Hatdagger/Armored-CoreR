@@ -19,9 +19,15 @@ weapons, damage, two-player test build (see `docs/research/`).
 
 ## Order
 
-0. **Renderer**: a real 3D renderer (depth, textures, lighting) behind a
-   thin layer, so an Xbox back end can replace it later. Needed by models,
-   the garage preview and arenas.
+0. **Renderer** (first version done): OpenGL 2.1 fixed function, loaded at
+   run time; lighting done on the CPU like the PS1 (ambient + up to 3
+   directional lights, per face or vertex) plus distance fog, so every
+   platform shows the same picture. Native resolution and any screen shape;
+   the HUD sits on a 480-high grid whose width follows the screen. The
+   engine core also builds for the original Xbox (nxdk) in the automatic
+   builds. Still to come: paletted textures and a per-platform cook step,
+   and settings for render scale, anti-aliasing, texture filtering and an
+   authentic (low resolution) mode.
 1. **Model formats** (research): trace in the recomp which files the game
    loads for an AC and how it draws them; decode mesh, texture and skeleton
    formats. The animation records already read for root motion also hold

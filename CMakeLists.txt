@@ -29,6 +29,11 @@ add_library(acr_gen1 STATIC
 target_include_directories(acr_gen1 PUBLIC src/gen1)
 target_link_libraries(acr_gen1 PUBLIC acr_core)
 
+# Renderer: CPU lighting (PS1-style) and an OpenGL 2.1 back end loaded at
+# run time, so nothing links against a GL library.
+add_library(acr_light STATIC src/render/acr_light.c)
+target_include_directories(acr_light PUBLIC src/render)
+
 # Disc importer.
 add_library(acr_import_lib STATIC
     tools/acr_import/acr_disc.c
@@ -59,6 +64,9 @@ add_test(NAME gen1_sim COMMAND test_gen1_sim)
 add_executable(test_gen1_battle tests/test_gen1_battle.c)
 target_link_libraries(test_gen1_battle PRIVATE acr_gen1)
 add_test(NAME gen1_battle COMMAND test_gen1_battle)
+add_executable(test_light tests/test_light.c)
+target_link_libraries(test_light PRIVATE acr_light)
+add_test(NAME light COMMAND test_light)
 add_executable(test_import tests/test_import.c)
 target_link_libraries(test_import PRIVATE acr_import_lib)
 add_test(NAME import COMMAND test_import ${CMAKE_CURRENT_BINARY_DIR}/test_import_work)
@@ -74,7 +82,9 @@ if(ACR_BUILD_GAME)
         GIT_SHALLOW TRUE)
     FetchContent_MakeAvailable(SDL3)
     add_executable(armored-corer WIN32 src/platform/sdl3/main.c src/platform/sdl3/demo_data.c)
-    target_link_libraries(armored-corer PRIVATE acr_core acr_gen1 acr_import_lib SDL3::SDL3-static)
+    add_library(acr_render_gl STATIC src/render/acr_render_gl.c)
+    target_include_directories(acr_render_gl PUBLIC src/render)
+    target_link_libraries(armored-corer PRIVATE acr_core acr_gen1 acr_import_lib acr_light acr_render_gl SDL3::SDL3-static)
     if(NOT MSVC)
         target_link_libraries(armored-corer PRIVATE m)
     endif()

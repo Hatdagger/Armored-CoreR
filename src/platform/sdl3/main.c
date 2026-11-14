@@ -24,10 +24,11 @@
 #include "../../core/acr_pools.h"
 #include "demo_data.h"
 #include "acr_import.h"
+#include "../../render/acr_render.h"
+#include "../../render/acr_light.h"
 
-#define VIEW_W 640
-#define VIEW_H 480
-static float g_vw = VIEW_W, g_vh = VIEW_H;   /* the view being drawn (split screen halves) */
+/* HUD grid of the view being drawn: 480 high, width set by its shape. */
+static float g_vw = 640, g_vh = 480;
 #define ARENA  20000          /* half width, world units */
 
 /* ---------------- input ---------------- */
@@ -67,45 +68,33 @@ static acr_gen1_input read_input(SDL_Gamepad *pad, int keyboard) {
     return in;
 }
 
-/* ---------------- a tiny 3D view ---------------- */
+/* ---------------- the 3D view ----------------
+ * Scenes are built on the CPU each frame: faces lit like the PS1 (flat,
+ * per face, acr_light.h), then drawn by the renderer with depth and fog. */
 
 typedef struct vec3 { float x, y, z; } vec3;
-typedef struct camera { vec3 pos, right, up, fwd; float focal; } camera;
-
 static vec3 v3(float x, float y, float z) { vec3 v = { x, y, z }; return v; }
-static vec3 vsub(vec3 a, vec3 b) { return v3(a.x - b.x, a.y - b.y, a.z - b.z); }
-static float vdot(vec3 a, vec3 b) { return a.x * b.x + a.y * b.y + a.z * b.z; }
 
-/* World (y up) -> camera space; z is depth. */
-static vec3 to_cam(const camera *c, vec3 p) {
-    const vec3 d = vsub(p, c->pos);
-    return v3(vdot(d, c->right), vdot(d, c->up), vdot(d, c->fwd));
-}
-static SDL_FPoint project(const camera *c, vec3 q) {
-    SDL_FPoint s = { g_vw * 0.5f + q.x * c->focal / q.z, g_vh * 0.55f - q.y * c->focal / q.z };
-    return s;
-}
+#define MAX_TRIS  (4096 * 3)
+#define MAX_LINES (1024 * 2)
+static acr_vtx g_tris[MAX_TRIS], g_lines[MAX_LINES];
+static int g_tri_count, g_line_count;
+static acr_lighting g_light;
 
-static void line3(SDL_Renderer *r, const camera *c, vec3 a, vec3 b) {
-    vec3 qa = to_cam(c, a), qb = to_cam(c, b);
-    const float near = 50.0f;
-    if (qa.z < near && qb.z < near) return;
-    if (qa.z < near || qb.z < near) {              /* clip at the near plane */
-        const float t = (near - qa.z) / (qb.z - qa.z);
-        const vec3 m = v3(qa.x + (qb.x - qa.x) * t, qa.y + (qb.y - qa.y) * t, near);
-        if (qa.z < near) qa = m; else qb = m;
-    }
-    const SDL_FPoint pa = project(c, qa), pb = project(c, qb);
-    SDL_RenderLine(r, pa.x, pa.y, pb.x, pb.y);
+static acr_vtx vtx(vec3 p, const uint8_t c[3]) {
+    acr_vtx o = { p.x, p.y, p.z, c[0], c[1], c[2], 255, 0, 0 };
+    return o;
 }
 
-/* Boxes are drawn as sorted faces (painter's order), shaded by facing. */
-#define MAX_FACES 512
-typedef struct face { SDL_Vertex v[4]; float depth; } face;
-static face g_faces[MAX_FACES];
-static int g_face_count;
+static void line3(vec3 a, vec3 b, uint8_t r, uint8_t g, uint8_t bl) {
+    if (g_line_count + 2 > MAX_LINES) return;
+    const uint8_t c[3] = { r, g, bl };
+    g_lines[g_line_count++] = vtx(a, c);
+    g_lines[g_line_count++] = vtx(b, c);
+}
 
-static void add_box(const camera *c, vec3 centre, float yaw, vec3 half, SDL_FColor col) {
+/* A box turned by yaw about y; colour 0..1 like before. */
+static void add_box(vec3 centre, float yaw, vec3 half, float cr, float cg, float cb) {
     const float s = sinf(yaw), co = cosf(yaw);
     vec3 corner[8];
     for (int i = 0; i < 8; ++i) {
@@ -115,64 +104,72 @@ static void add_box(const camera *c, vec3 centre, float yaw, vec3 half, SDL_FCol
         corner[i] = v3(centre.x + lx * co + lz * s, centre.y + ly, centre.z - lx * s + lz * co);
     }
     static const int quads[6][4] = { {0,1,3,2}, {4,6,7,5}, {0,4,5,1}, {2,3,7,6}, {0,2,6,4}, {1,5,7,3} };
-    static const float shade[6] = { 0.55f, 0.85f, 0.45f, 1.0f, 0.7f, 0.75f };
-    for (int f = 0; f < 6 && g_face_count < MAX_FACES; ++f) {
-        face *fc = &g_faces[g_face_count];
-        float depth = 0;
-        int ok = 1;
-        vec3 q[4];
-        for (int k = 0; k < 4; ++k) {
-            q[k] = to_cam(c, corner[quads[f][k]]);
-            if (q[k].z < 50.0f) ok = 0;
-            depth += q[k].z;
-        }
-        if (!ok) continue;
-        for (int k = 0; k < 4; ++k) {
-            fc->v[k].position = project(c, q[k]);
-            fc->v[k].color = (SDL_FColor){ col.r * shade[f], col.g * shade[f], col.b * shade[f], 1.0f };
-            fc->v[k].tex_coord = (SDL_FPoint){ 0, 0 };
-        }
-        fc->depth = depth;
-        ++g_face_count;
+    /* local normals: -z, +z, -y, +y, -x, +x */
+    static const float normal[6][3] = { {0,0,-1}, {0,0,1}, {0,-1,0}, {0,1,0}, {-1,0,0}, {1,0,0} };
+    const uint8_t base[3] = { (uint8_t)(cr * 255), (uint8_t)(cg * 255), (uint8_t)(cb * 255) };
+    for (int f = 0; f < 6 && g_tri_count + 6 <= MAX_TRIS; ++f) {
+        const float nx = normal[f][0] * co + normal[f][2] * s, ny = normal[f][1],
+                    nz = -normal[f][0] * s + normal[f][2] * co;
+        uint8_t c[3];
+        acr_light_color(&g_light, (int32_t)(nx * 4096), (int32_t)(ny * 4096), (int32_t)(nz * 4096),
+                        base[0], base[1], base[2], c);
+        const int *q = quads[f];
+        g_tris[g_tri_count++] = vtx(corner[q[0]], c);
+        g_tris[g_tri_count++] = vtx(corner[q[1]], c);
+        g_tris[g_tri_count++] = vtx(corner[q[2]], c);
+        g_tris[g_tri_count++] = vtx(corner[q[0]], c);
+        g_tris[g_tri_count++] = vtx(corner[q[2]], c);
+        g_tris[g_tri_count++] = vtx(corner[q[3]], c);
     }
 }
 
-static int face_cmp(const void *a, const void *b) {
-    const float da = ((const face *)a)->depth, db = ((const face *)b)->depth;
-    return da < db ? 1 : da > db ? -1 : 0;
-}
-
-static void flush_faces(SDL_Renderer *r) {
-    qsort(g_faces, (size_t)g_face_count, sizeof g_faces[0], face_cmp);
-    static SDL_Vertex verts[MAX_FACES * 6];
-    int n = 0;
-    for (int i = 0; i < g_face_count; ++i) {
-        const SDL_Vertex *v = g_faces[i].v;
-        verts[n++] = v[0]; verts[n++] = v[1]; verts[n++] = v[2];
-        verts[n++] = v[0]; verts[n++] = v[2]; verts[n++] = v[3];
-    }
-    if (n) SDL_RenderGeometry(r, NULL, verts, n, NULL, 0);
-    g_face_count = 0;
+static void flush_scene(void) {
+    if (g_line_count) acr_render_lines(g_lines, g_line_count);
+    if (g_tri_count) acr_render_tris(g_tris, g_tri_count, 0);
+    g_tri_count = g_line_count = 0;
 }
 
 /* Stand-in AC, about 700 units tall, facing +z locally. */
-static void add_ac(const camera *c, vec3 p, float yaw, float crouch, int enemy) {
-    const SDL_FColor body = enemy ? (SDL_FColor){ 0.55f, 0.35f, 0.35f, 1 } : (SDL_FColor){ 0.62f, 0.66f, 0.70f, 1 },
-                     trim = enemy ? (SDL_FColor){ 0.85f, 0.2f, 0.2f, 1 } : (SDL_FColor){ 0.95f, 0.62f, 0.15f, 1 },
-                     dark = { 0.30f, 0.33f, 0.36f, 1 };
+static void add_ac(vec3 p, float yaw, float crouch, int enemy) {
     const float s = sinf(yaw), co = cosf(yaw);
     #define AT(lx, ly, lz) v3(p.x + (lx) * co + (lz) * s, p.y + (ly), p.z - (lx) * s + (lz) * co)
+    #define BODY  (enemy ? 0.55f : 0.62f), (enemy ? 0.35f : 0.66f), (enemy ? 0.35f : 0.70f)
+    #define TRIM  (enemy ? 0.85f : 0.95f), (enemy ? 0.2f : 0.62f), (enemy ? 0.2f : 0.15f)
+    #define DARK  0.30f, 0.33f, 0.36f
     const float leg_h = 340.0f - crouch;
-    add_box(c, AT(-120, leg_h * 0.5f, 0), yaw, v3(55, leg_h * 0.5f, 70), dark);
-    add_box(c, AT(120, leg_h * 0.5f, 0), yaw, v3(55, leg_h * 0.5f, 70), dark);
-    add_box(c, AT(0, leg_h + 140, 0), yaw, v3(200, 140, 150), body);           /* core */
-    add_box(c, AT(0, leg_h + 330, 40), yaw, v3(75, 50, 80), trim);             /* head */
-    add_box(c, AT(-270, leg_h + 170, 30), yaw, v3(55, 110, 70), body);         /* arms */
-    add_box(c, AT(270, leg_h + 170, 30), yaw, v3(55, 110, 70), body);
-    add_box(c, AT(270, leg_h + 90, 190), yaw, v3(30, 30, 140), dark);          /* rifle */
-    add_box(c, AT(-110, leg_h + 300, -150), yaw, v3(60, 70, 60), trim);        /* back units */
-    add_box(c, AT(110, leg_h + 300, -150), yaw, v3(60, 70, 60), trim);
+    add_box(AT(-120, leg_h * 0.5f, 0), yaw, v3(55, leg_h * 0.5f, 70), DARK);
+    add_box(AT(120, leg_h * 0.5f, 0), yaw, v3(55, leg_h * 0.5f, 70), DARK);
+    add_box(AT(0, leg_h + 140, 0), yaw, v3(200, 140, 150), BODY);           /* core */
+    add_box(AT(0, leg_h + 330, 40), yaw, v3(75, 50, 80), TRIM);             /* head */
+    add_box(AT(-270, leg_h + 170, 30), yaw, v3(55, 110, 70), BODY);         /* arms */
+    add_box(AT(270, leg_h + 170, 30), yaw, v3(55, 110, 70), BODY);
+    add_box(AT(270, leg_h + 90, 190), yaw, v3(30, 30, 140), DARK);          /* rifle */
+    add_box(AT(-110, leg_h + 300, -150), yaw, v3(60, 70, 60), TRIM);        /* back units */
+    add_box(AT(110, leg_h + 300, -150), yaw, v3(60, 70, 60), TRIM);
     #undef AT
+    #undef BODY
+    #undef TRIM
+    #undef DARK
+}
+
+/* World point -> HUD grid (hud_w x 480) through proj*view; 0 if behind. */
+static int to_hud(const float proj[16], const float view[16], vec3 p, float hud_w, float *hx, float *hy) {
+    float e[4], c[4];
+    const float in[4] = { p.x, p.y, p.z, 1 };
+    for (int r = 0; r < 4; ++r) e[r] = view[r] * in[0] + view[4 + r] * in[1] + view[8 + r] * in[2] + view[12 + r] * in[3];
+    for (int r = 0; r < 4; ++r) c[r] = proj[r] * e[0] + proj[4 + r] * e[1] + proj[8 + r] * e[2] + proj[12 + r] * e[3];
+    if (c[3] < 50.0f) return 0;
+    *hx = (c[0] / c[3] * 0.5f + 0.5f) * hud_w;
+    *hy = (0.5f - c[1] / c[3] * 0.5f) * 480.0f;
+    return 1;
+}
+
+/* SDL hands GL functions back as function pointers; the renderer wants void *. */
+static void *gl_proc(const char *name) {
+    SDL_FunctionPointer f = SDL_GL_GetProcAddress(name);
+    void *p;
+    memcpy(&p, &f, sizeof p);
+    return p;
 }
 
 /* ---------------- main ---------------- */
@@ -237,27 +234,28 @@ static int is_disc(const char *path) {
     return dot && (!SDL_strcasecmp(dot, ".cue") || !SDL_strcasecmp(dot, ".bin") || !SDL_strcasecmp(dot, ".iso"));
 }
 
-/* Shows a message (several lines) centred, then presents. */
-static void show_message(SDL_Renderer *r, const char *text) {
-    SDL_SetRenderDrawColor(r, 18, 22, 28, 255);
-    SDL_RenderClear(r);
-    SDL_SetRenderDrawColor(r, 220, 230, 235, 255);
+/* Shows a message (several lines), then presents. */
+static void show_message(SDL_Window *w, const char *text) {
+    int pw = 0, ph = 0;
+    SDL_GetWindowSizeInPixels(w, &pw, &ph);
+    acr_render_begin(pw, ph, 18, 22, 28);
+    acr_render_hud(0, 0, pw, ph);
     float y = 60;
     for (const char *p = text; *p; ) {
         const char *nl = strchr(p, '\n');
         const size_t n = nl ? (size_t)(nl - p) : strlen(p);
         char line[96];
         SDL_snprintf(line, sizeof line, "%.*s", (int)(n < 95 ? n : 95), p);
-        SDL_RenderDebugText(r, 24, y, line);
+        acr_hud_text(24, y, line, 220, 230, 235);
         y += 14;
         p += n;
         if (*p) ++p;
     }
-    SDL_RenderPresent(r);
+    SDL_GL_SwapWindow(w);
 }
 
 /* Imports a disc into dir, showing progress text. */
-static int import_disc(SDL_Renderer *r, const char *disc, const char *dir, char *err, int err_size) {
+static int import_disc(SDL_Window *r, const char *disc, const char *dir, char *err, int err_size) {
     show_message(r, "IMPORTING YOUR DISC...\n\nTHIS TAKES A MOMENT.");
     acr_import_stats stats;
     char why[512] = "";
@@ -280,15 +278,33 @@ int main(int argc, char **argv) {
     int parts[SLOT_COUNT];
     parse_args(argc, argv, &dir, parts);
 
-    SDL_Window *window = NULL;
-    SDL_Renderer *renderer = NULL;
-    if (!SDL_CreateWindowAndRenderer("Armored-CoreR test build", 1280, 960, SDL_WINDOW_RESIZABLE,
-                                     &window, &renderer)) {
+    /* OpenGL 2.1 at the screen's own resolution, 4x anti-aliasing when the
+     * driver offers it. */
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 1);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_COMPATIBILITY);
+    SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
+    SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+    const SDL_WindowFlags wflags = SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY;
+    SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 1);
+    SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, 4);
+    SDL_Window *window = SDL_CreateWindow("Armored-CoreR test build", 1280, 720, wflags);
+    SDL_GLContext gl = window ? SDL_GL_CreateContext(window) : NULL;
+    if (!gl) {
+        if (window) SDL_DestroyWindow(window);
+        SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 0);
+        SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, 0);
+        window = SDL_CreateWindow("Armored-CoreR test build", 1280, 720, wflags);
+        gl = window ? SDL_GL_CreateContext(window) : NULL;
+    }
+    if (!gl || !acr_render_init(gl_proc)) {
+        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Armored-CoreR",
+                                 "This computer's graphics driver does not offer OpenGL 2.1.", window);
         SDL_Quit();
         return 1;
     }
-    SDL_SetRenderVSync(renderer, 1);
-    SDL_SetRenderLogicalPresentation(renderer, VIEW_W, VIEW_H, SDL_LOGICAL_PRESENTATION_LETTERBOX);
+    SDL_GL_SetSwapInterval(1);
+    acr_light_default(&g_light);
     SDL_Gamepad *pad = open_first_gamepad();
 
     /* A disc given on the command line (or dropped on the program) is
@@ -299,7 +315,7 @@ int main(int argc, char **argv) {
     if (is_disc(dir)) {
         const char *disc = dir;
         dir = default_dir;
-        import_disc(renderer, disc, dir, err, sizeof err);
+        import_disc(window, disc, dir, err, sizeof err);
     }
     /* No usable import yet: ask for the disc, which can be dropped on the window. */
     int loaded = err[0] ? 0 : demo_load(dir, parts, &ac_data[0], err, sizeof err);
@@ -310,7 +326,7 @@ int main(int argc, char **argv) {
                      "DROP YOUR MASTER OF ARENA DISC (.CUE OR .BIN)\n"
                      "ON THIS WINDOW TO IMPORT IT.\n\n"
                      "ESC / BACK: QUIT\n\n%s", err);
-        show_message(renderer, text);
+        show_message(window, text);
         SDL_Event e;
         if (!SDL_WaitEvent(&e)) continue;
         if (e.type == SDL_EVENT_QUIT ||
@@ -326,7 +342,7 @@ int main(int argc, char **argv) {
             }
             dir = default_dir;
             err[0] = 0;
-            if (import_disc(renderer, e.drop.data, dir, err, sizeof err))
+            if (import_disc(window, e.drop.data, dir, err, sizeof err))
                 loaded = demo_load(dir, parts, &ac_data[0], err, sizeof err);
         }
     }
@@ -557,19 +573,14 @@ int main(int argc, char **argv) {
             }
         }
 
-        SDL_SetRenderViewport(renderer, NULL);
-        SDL_SetRenderDrawColor(renderer, 18, 22, 28, 255);
-        SDL_RenderClear(renderer);
+        int pw = 0, ph = 0;
+        SDL_GetWindowSizeInPixels(window, &pw, &ph);
+        if (pw < 1 || ph < 1) { SDL_Delay(10); continue; }
+        acr_render_begin(pw, ph, 18, 22, 28);
         const int views = two_players ? 2 : 1;
         for (int view = 0; view < views; ++view) {
-        g_vw = (float)VIEW_W / views;
-        g_vh = VIEW_H;
-        const SDL_Rect vp = { (int)(view * g_vw), 0, (int)g_vw, VIEW_H };
-        SDL_SetRenderViewport(renderer, &vp);
-        const SDL_Rect clip = { 0, 0, (int)g_vw, VIEW_H };
-        SDL_SetRenderClipRect(renderer, &clip);
+        const int vx = view * pw / views, vpw = (view + 1) * pw / views - vx;
         const acr_gen1_ac ac = battle.f[view].ac;
-        const float rc_y = two_players ? 130.0f : g_vh - 80.0f;   /* right-hand HUD column */
         const acr_gen1_ac prev = prevs[view];
         const acr_gen1_ac *const T = &battle.f[1 - view].ac;
         const acr_gen1_ac tprev = prevs[1 - view];
@@ -583,94 +594,88 @@ int main(int argc, char **argv) {
         if (dyaw < -2048) dyaw += 4096;
         const float yaw = ((float)prev.yaw + dyaw * a) * (6.2831853f / 4096.0f);
 
-        camera cam;
-        cam.fwd = v3(sinf(yaw), -0.22f, cosf(yaw));
-        const float fl = sqrtf(vdot(cam.fwd, cam.fwd));
-        cam.fwd = v3(cam.fwd.x / fl, cam.fwd.y / fl, cam.fwd.z / fl);
-        cam.right = v3(cosf(yaw), 0, -sinf(yaw));
-        cam.up = v3(cam.fwd.y * cam.right.z - cam.fwd.z * cam.right.y,
-                    cam.fwd.z * cam.right.x - cam.fwd.x * cam.right.z,
-                    cam.fwd.x * cam.right.y - cam.fwd.y * cam.right.x);
-        if (cam.up.y < 0) cam.up = v3(-cam.up.x, -cam.up.y, -cam.up.z);
-        cam.pos = v3(px - sinf(yaw) * 2200.0f, py + 1200.0f, pz - cosf(yaw) * 2200.0f);
-        cam.focal = g_vh * 0.9f;
+        /* Camera behind and above, looking slightly down. The engine's
+         * right is (cos, 0, -sin) of the facing, so x is mirrored after the
+         * usual look-at. The view centre sits a little below the middle
+         * of the screen, as before. */
+        float proj[16], viewm[16];
+        acr_mat_perspective(proj, 58.0f * 3.14159265f / 180.0f, (float)vpw / (float)ph, 50.0f, 80000.0f);
+        for (int k = 0; k < 4; ++k) proj[1 + 4 * k] -= 0.1f * proj[3 + 4 * k];   /* centre 5% low */
+        {
+            const float eye[3] = { px - sinf(yaw) * 2200.0f, py + 1200.0f, pz - cosf(yaw) * 2200.0f };
+            const float fwd[3] = { sinf(yaw), -0.22f, cosf(yaw) }, up[3] = { 0, 1, 0 };
+            acr_mat_look(viewm, eye, fwd, up);
+            for (int k = 0; k < 4; ++k) viewm[4 * k] = -viewm[4 * k];
+        }
+        const acr_fog fog = { 30000.0f, 60000.0f, 18, 22, 28 };
+        acr_render_view3d(vx, 0, vpw, ph, proj, viewm, &fog);
 
         /* floor grid and walls */
-        SDL_SetRenderDrawColor(renderer, 52, 70, 76, 255);
         for (int g = -ARENA; g <= ARENA; g += 2000) {
-            line3(renderer, &cam, v3((float)g, 0, (float)-ARENA), v3((float)g, 0, (float)ARENA));
-            line3(renderer, &cam, v3((float)-ARENA, 0, (float)g), v3((float)ARENA, 0, (float)g));
+            line3(v3((float)g, 0, (float)-ARENA), v3((float)g, 0, (float)ARENA), 52, 70, 76);
+            line3(v3((float)-ARENA, 0, (float)g), v3((float)ARENA, 0, (float)g), 52, 70, 76);
         }
-        SDL_SetRenderDrawColor(renderer, 120, 150, 160, 255);
         for (int w = 0; w < 4; ++w) {
             const float s0 = (w & 1) ? ARENA : -ARENA;
             for (int h = 0; h <= 3000; h += 1000) {
-                if (w < 2) line3(renderer, &cam, v3(s0, (float)h, -ARENA), v3(s0, (float)h, ARENA));
-                else line3(renderer, &cam, v3(-ARENA, (float)h, s0), v3(ARENA, (float)h, s0));
+                if (w < 2) line3(v3(s0, (float)h, -ARENA), v3(s0, (float)h, ARENA), 120, 150, 160);
+                else line3(v3(-ARENA, (float)h, s0), v3(ARENA, (float)h, s0), 120, 150, 160);
             }
         }
-        /* pillars for a sense of speed, the AC's shadow, then the AC */
+        /* pillars for a sense of speed, then the ACs and shots */
         for (int i = -2; i <= 2; ++i)
             for (int j = -2; j <= 2; ++j)
-                if (i || j) add_box(&cam, v3(i * 7000.0f, 1500, j * 7000.0f), 0, v3(300, 1500, 300),
-                                    (SDL_FColor){ 0.35f, 0.42f, 0.48f, 1 });
+                if (i || j) add_box(v3(i * 7000.0f, 1500, j * 7000.0f), 0, v3(300, 1500, 300), 0.35f, 0.42f, 0.48f);
         float crouch = 0;
         if (ac.state == ACR_GEN1_CROUCH) crouch = 90;
         if (ac.state == ACR_GEN1_LANDING) crouch = 70;
         if (battle.f[view].kneeling) crouch = 150;
-        add_ac(&cam, v3(px, py, pz), yaw, crouch, 0);
+        add_ac(v3(px, py, pz), yaw, crouch, 0);
         const float tx = (tprev.x + (T->x - tprev.x) * a) / 64.0f, ty = -(tprev.y + (T->y - tprev.y) * a) / 64.0f,
                     tz = (tprev.z + (T->z - tprev.z) * a) / 64.0f;
-        if (battle.f[1 - view].ap > 0) add_ac(&cam, v3(tx, ty, tz), T->yaw * (6.2831853f / 4096.0f), 0, 1);
+        if (battle.f[1 - view].ap > 0) add_ac(v3(tx, ty, tz), T->yaw * (6.2831853f / 4096.0f), 0, 1);
         for (int k = 0; k < ACR_GEN1_MAX_SHOTS; ++k) {
             const acr_gen1_shot *sh = &battle.shot[k];
             if (!sh->active) continue;
             const int missile = battle.f[sh->owner].weapon[sh->weapon].kind == ACR_GEN1_MISSILE;
-            add_box(&cam, v3(sh->x / 64.0f, -sh->y / 64.0f, sh->z / 64.0f), 0,
-                    missile ? v3(40, 40, 40) : v3(20, 20, 20),
-                    missile ? (SDL_FColor){ 1.0f, 0.55f, 0.15f, 1 } : (SDL_FColor){ 1.0f, 0.95f, 0.5f, 1 });
+            if (missile) add_box(v3(sh->x / 64.0f, -sh->y / 64.0f, sh->z / 64.0f), 0, v3(40, 40, 40), 1.0f, 0.55f, 0.15f);
+            else add_box(v3(sh->x / 64.0f, -sh->y / 64.0f, sh->z / 64.0f), 0, v3(20, 20, 20), 1.0f, 0.95f, 0.5f);
         }
-        flush_faces(renderer);
         if (battle.f[view].swing) {                       /* blade arc */
-            SDL_SetRenderDrawColor(renderer, 120, 200, 255, 255);
             const float r = 700.0f;
             for (int k = -3; k < 3; ++k) {
                 const float a0 = yaw + k * 0.25f, a1 = yaw + (k + 1) * 0.25f;
-                line3(renderer, &cam, v3(px + sinf(a0) * r, py + 450, pz + cosf(a0) * r),
-                      v3(px + sinf(a1) * r, py + 450, pz + cosf(a1) * r));
+                line3(v3(px + sinf(a0) * r, py + 450, pz + cosf(a0) * r),
+                      v3(px + sinf(a1) * r, py + 450, pz + cosf(a1) * r), 120, 200, 255);
             }
         }
-        if (py > 1.0f) {                                   /* height marker */
-            SDL_SetRenderDrawColor(renderer, 230, 160, 40, 255);
-            line3(renderer, &cam, v3(px, 0, pz), v3(px, py, pz));
-        }
+        if (py > 1.0f) line3(v3(px, 0, pz), v3(px, py, pz), 230, 160, 40);   /* height marker */
+        flush_scene();
 
-        /* HUD */
+        /* HUD, on a 480-high grid as wide as this view's shape. */
+        g_vw = acr_render_hud(vx, 0, vpw, ph);
+        g_vh = 480.0f;
+        const float rc_y = two_players ? 130.0f : g_vh - 80.0f;   /* right-hand HUD column */
         const acr_gen1_stats *st = &ac_data[view].def.stats;
         const float e_frac = (float)ac.energy / (float)(st->energy_capacity ? st->energy_capacity : 1);
         const float red = (float)st->red_zone / (float)(st->energy_capacity ? st->energy_capacity : 1);
-        SDL_FRect bar = { 20, g_vh - 30, 300, 10 };
-        SDL_SetRenderDrawColor(renderer, 40, 40, 40, 255);
-        SDL_RenderFillRect(renderer, &bar);
-        bar.w = 300 * e_frac;
-        if (ac.drained) SDL_SetRenderDrawColor(renderer, 200, 50, 40, 255);
-        else SDL_SetRenderDrawColor(renderer, 90, 220, 140, 255);
-        SDL_RenderFillRect(renderer, &bar);
-        SDL_SetRenderDrawColor(renderer, 230, 60, 50, 255);
-        SDL_RenderLine(renderer, 20 + 300 * red, g_vh - 33, 20 + 300 * red, g_vh - 17);
+        acr_hud_rect(20, g_vh - 30, 300, 10, 40, 40, 40, 255, 1);
+        if (ac.drained) acr_hud_rect(20, g_vh - 30, 300 * e_frac, 10, 200, 50, 40, 255, 1);
+        else acr_hud_rect(20, g_vh - 30, 300 * e_frac, 10, 90, 220, 140, 255, 1);
+        acr_hud_line(20 + 300 * red, g_vh - 33, 20 + 300 * red, g_vh - 17, 230, 60, 50, 255);
 
         static const char *const k_state[] = { "GROUND", "CROUCH", "AIR", "LANDING" };
         const int dx = (ac.x - prev.x) / 64, dz = (ac.z - prev.z) / 64, dy = (ac.y - prev.y) / 64;
         char line[160];
-        SDL_SetRenderDrawColor(renderer, 220, 230, 235, 255);
+        #define TEXT(x, y, s) acr_hud_text((x), (y), (s), 220, 230, 235)
         SDL_snprintf(line, sizeof line, "ENERGY %5d  %-7s  SPEED %3d  RISE %4d", (int)ac.energy,
                      k_state[ac.state], (int)sqrtf((float)(dx * dx + dz * dz)), -dy);
-        SDL_RenderDebugText(renderer, 20, g_vh - 48, line);
+        TEXT(20, g_vh - 48, line);
         SDL_snprintf(line, sizeof line, "LEGS %s  BOOSTER %s  GENERATOR %s", ac_data[view].names[SLOT_LEGS],
                      ac_data[view].names[SLOT_BOOSTER], ac_data[view].names[SLOT_GEN]);
-        SDL_RenderDebugText(renderer, 20, 12, line);
+        TEXT(20, 12, line);
         SDL_snprintf(line, sizeof line, "%d STEPS/S%s", g_tick_rate, g_tick_rate == 22 ? " (GEN 1)" : "");
-        SDL_RenderDebugText(renderer, g_vw - 150, rc_y + 32, line);
+        TEXT(g_vw - 150, rc_y + 32, line);
         /* Weapon, ammo, AP, lock box and the target's marker. */
         {
             const acr_gen1_fighter *me = &battle.f[view], *tg = &battle.f[1 - view];
@@ -678,95 +683,89 @@ int main(int argc, char **argv) {
                 const acr_gen1_weapon *w = &me->weapon[me->current];
                 if (w->ammo) SDL_snprintf(line, sizeof line, "%-12s %4d", w->name, me->ammo[me->current]);
                 else SDL_snprintf(line, sizeof line, "%-12s", w->name);
-                SDL_RenderDebugText(renderer, g_vw - 150, rc_y + 16, line);
+                TEXT(g_vw - 150, rc_y + 16, line);
                 if (w->stance && !me->human_plus) {
                     const char *hint = me->legs == ACR_GEN1_LEGS_TRACKS ? NULL
                                      : me->legs == ACR_GEN1_LEGS_FOUR ? (acr_gen1_stance_ok(me) ? NULL : "LAND TO FIRE")
                                      : !me->kneeling ? "FIRE TO KNEEL" : acr_gen1_stance_ok(me) ? "KNEELING" : "KNEELING...";
-                    if (hint) SDL_RenderDebugText(renderer, g_vw - 150, rc_y, hint);
+                    if (hint) TEXT(g_vw - 150, rc_y, hint);
                 }
                 if (w->box_w) {
-                    /* the box as the original sizes it (its screen is about 512 wide) */
-                    const float bw = w->box_w * (g_vw / 512.0f), bh = w->box_h * (g_vw / 512.0f);
-                    const SDL_FRect box = { g_vw * 0.5f - bw * 0.5f, g_vh * 0.45f - bh * 0.5f, bw, bh };
+                    /* The box as the original sizes it: its screen is about
+                     * 512 wide at 4:3, so a unit is 1.25 of our 480 grid. */
+                    const float bw = w->box_w * 1.25f, bh = w->box_h * 1.25f;
                     /* The FCS box takes the lock's colour once the target is locked. */
-                    if (me->locked) SDL_SetRenderDrawColor(renderer, 255, 60, 50, 255);
-                    else SDL_SetRenderDrawColor(renderer, 90, 200, 120, 255);
-                    SDL_RenderRect(renderer, &box);
+                    if (me->locked) acr_hud_rect(g_vw * 0.5f - bw * 0.5f, g_vh * 0.45f - bh * 0.5f, bw, bh, 255, 60, 50, 255, 0);
+                    else acr_hud_rect(g_vw * 0.5f - bw * 0.5f, g_vh * 0.45f - bh * 0.5f, bw, bh, 90, 200, 120, 255, 0);
                 }
-                if (tg->ap > 0 && acr_gen1_in_lock_box(&battle, view, w)) {
-                    const vec3 q = to_cam(&cam, v3(tx, ty + 400, tz));
-                    if (q.z > 50) {
-                        const SDL_FPoint sp = project(&cam, q);
-                        const SDL_FRect m = { sp.x - 18, sp.y - 18, 36, 36 };
-                        if (me->locked) SDL_SetRenderDrawColor(renderer, 255, 60, 50, 255);
-                        else SDL_SetRenderDrawColor(renderer, 240, 220, 60, 255);
-                        SDL_RenderRect(renderer, &m);
-                        if (me->locked) SDL_RenderDebugText(renderer, sp.x - 24, sp.y + 22, "LOCK");
+                float sx, sy;
+                if (tg->ap > 0 && acr_gen1_in_lock_box(&battle, view, w) &&
+                    to_hud(proj, viewm, v3(tx, ty + 400, tz), g_vw, &sx, &sy)) {
+                    if (me->locked) {
+                        acr_hud_rect(sx - 18, sy - 18, 36, 36, 255, 60, 50, 255, 0);
+                        acr_hud_text(sx - 16, sy + 22, "LOCK", 255, 60, 50);
+                    } else {
+                        acr_hud_rect(sx - 18, sy - 18, 36, 36, 240, 220, 60, 255, 0);
                     }
                 }
             }
-            SDL_SetRenderDrawColor(renderer, 220, 230, 235, 255);
-            if (me->human_plus) SDL_RenderDebugText(renderer, 20, g_vh - 64, "HUMAN PLUS");
+            if (me->human_plus) TEXT(20, g_vh - 64, "HUMAN PLUS");
             SDL_snprintf(line, sizeof line, "AP %5d", (int)me->ap);
-            SDL_RenderDebugText(renderer, g_vw - 150, rc_y + 48, line);
-            SDL_FRect tb = { g_vw - 220, 96, 200, 8 };
-            SDL_SetRenderDrawColor(renderer, 40, 40, 40, 255);
-            SDL_RenderFillRect(renderer, &tb);
-            tb.w = 200.0f * (float)tg->ap / (float)(tg->ap_max ? tg->ap_max : 1);
-            SDL_SetRenderDrawColor(renderer, 230, 70, 60, 255);
-            SDL_RenderFillRect(renderer, &tb);
-            SDL_SetRenderDrawColor(renderer, 220, 230, 235, 255);
+            TEXT(g_vw - 150, rc_y + 48, line);
+            acr_hud_rect(g_vw - 220, 96, 200, 8, 40, 40, 40, 255, 1);
+            acr_hud_rect(g_vw - 220, 96, 200.0f * (float)tg->ap / (float)(tg->ap_max ? tg->ap_max : 1), 8,
+                         230, 70, 60, 255, 1);
             SDL_snprintf(line, sizeof line, tg->ap > 0 ? "TARGET AP %5d" : "TARGET DESTROYED", (int)tg->ap);
-            SDL_RenderDebugText(renderer, g_vw - 220, 108, line);
+            TEXT(g_vw - 220, 108, line);
         }
         if (show_help && !two_players) {
-            SDL_RenderDebugText(renderer, 20, 28, "MOVE: STICK/DPAD UP-DOWN  TURN: LEFT-RIGHT");
-            SDL_RenderDebugText(renderer, 20, 40, "STRAFE: LB/RB  BOOST: A OR RT (NO DIRECTION = RISE)");
-            SDL_RenderDebugText(renderer, 20, 52, "FIRE: X (F)  SWITCH WEAPON: Y (TAB)");
-            SDL_RenderDebugText(renderer, 20, 64, "BACK+X/Y/B/RB (B/G/C/L): BOOSTER/GENERATOR/BACK WEAPON/LEGS");
-            SDL_RenderDebugText(renderer, 20, 88, "BACK+A (H): HUMAN PLUS  BACK (T): SPEED");
-            SDL_RenderDebugText(renderer, 20, 100, "BACK+LB (F2): TWO PLAYERS");
-            SDL_RenderDebugText(renderer, 20, 76, "START/R: RESET  F1: HIDE HELP  ESC: QUIT");
-        }
-        if (two_players && view == 1) {
-            SDL_SetRenderClipRect(renderer, NULL);
-            SDL_SetRenderViewport(renderer, NULL);
-            SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
-            SDL_RenderLine(renderer, VIEW_W / 2.0f, 0, VIEW_W / 2.0f, VIEW_H);
+            TEXT(20, 28, "MOVE: STICK/DPAD UP-DOWN  TURN: LEFT-RIGHT");
+            TEXT(20, 40, "STRAFE: LB/RB  BOOST: A OR RT (NO DIRECTION = RISE)");
+            TEXT(20, 52, "FIRE: X (F)  SWITCH WEAPON: Y (TAB)");
+            TEXT(20, 64, "BACK+X/Y/B/RB (B/G/C/L): BOOSTER/GENERATOR/BACK WEAPON/LEGS");
+            TEXT(20, 76, "START/R: RESET  F1: HIDE HELP  ESC: QUIT");
+            TEXT(20, 88, "BACK+A (H): HUMAN PLUS  BACK (T): SPEED");
+            TEXT(20, 100, "BACK+LB (F2): TWO PLAYERS");
         }
         }
-        SDL_SetRenderViewport(renderer, NULL);
-        SDL_SetRenderClipRect(renderer, NULL);
-        g_vw = VIEW_W;
-        g_vh = VIEW_H;
+        /* Whole-screen HUD: the split line, round clock and result. */
+        const float full_w = acr_render_hud(0, 0, pw, ph);
         if (two_players) {
+            acr_hud_rect(full_w / 2.0f - 1, 0, 2, 480, 0, 0, 0, 255, 1);
             char clock_text[16];
             SDL_snprintf(clock_text, sizeof clock_text, "%d:%02d", (int)(round_ms / 60000), (int)(round_ms / 1000 % 60));
-            SDL_SetRenderDrawColor(renderer, 240, 240, 240, 255);
-            SDL_RenderDebugText(renderer, VIEW_W / 2.0f - 16, 4, clock_text);
+            acr_hud_text(full_w / 2.0f - 16, 464, clock_text, 240, 240, 240);   /* between the energy bars */
         }
         if (two_players && round_over) {
             /* Winner: the AC still standing, or on time the larger share of AP. */
             const int64_t s0 = (int64_t)battle.f[0].ap * (battle.f[1].ap_max ? battle.f[1].ap_max : 1);
             const int64_t s1 = (int64_t)battle.f[1].ap * (battle.f[0].ap_max ? battle.f[0].ap_max : 1);
-            SDL_SetRenderDrawColor(renderer, 255, 230, 120, 255);
-            SDL_RenderDebugText(renderer, VIEW_W / 2.0f - 120, VIEW_H / 2.0f,
-                                s0 > s1 ? "PLAYER 1 WINS - START TO RESET" :
-                                s1 > s0 ? "PLAYER 2 WINS - START TO RESET" : "DRAW - START TO RESET");
-            if (round_ms <= 0) SDL_RenderDebugText(renderer, VIEW_W / 2.0f - 40, VIEW_H / 2.0f + 14, "TIME UP");
+            acr_hud_text(full_w / 2.0f - 120, 240,
+                         s0 > s1 ? "PLAYER 1 WINS - START TO RESET" :
+                         s1 > s0 ? "PLAYER 2 WINS - START TO RESET" : "DRAW - START TO RESET", 255, 230, 120);
+            if (round_ms <= 0) acr_hud_text(full_w / 2.0f - 40, 254, "TIME UP", 255, 230, 120);
         }
+        #undef TEXT
         const char *shot = SDL_getenv("ACR_SHOT");
         if (shot && (now - start_ns) / 1000000 >= (Uint64)SDL_atoi(SDL_getenv("ACR_SHOT_MS") ? SDL_getenv("ACR_SHOT_MS") : "2000")) {
-            SDL_Surface *img = SDL_RenderReadPixels(renderer, NULL);
-            if (img) { SDL_SaveBMP(img, shot); SDL_DestroySurface(img); }
+            SDL_Surface *img = SDL_CreateSurface(pw, ph, SDL_PIXELFORMAT_RGBA32);
+            uint8_t *buf = img ? malloc((size_t)pw * (size_t)ph * 4) : NULL;
+            if (buf) {
+                acr_render_read(pw, ph, buf);
+                for (int y = 0; y < ph; ++y)      /* GL rows run bottom up */
+                    memcpy((uint8_t *)img->pixels + (size_t)y * (size_t)img->pitch,
+                           buf + (size_t)(ph - 1 - y) * (size_t)pw * 4, (size_t)pw * 4);
+                SDL_SaveBMP(img, shot);
+            }
+            free(buf);
+            if (img) SDL_DestroySurface(img);
             running = 0;
         }
-        SDL_RenderPresent(renderer);
+        SDL_GL_SwapWindow(window);
     }
 
     for (int k = 0; k < 2; ++k) if (pads[k]) SDL_CloseGamepad(pads[k]);
-    SDL_DestroyRenderer(renderer);
+    SDL_GL_DestroyContext(gl);
     SDL_DestroyWindow(window);
     SDL_Quit();
     free(block);
