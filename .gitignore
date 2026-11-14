@@ -10,3 +10,4 @@ Memory Card/
 src/platform/xbox/bin/
 src/platform/xbox/*.obj
 src/platform/xbox/*.d
+__pycache__/
