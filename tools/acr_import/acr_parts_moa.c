@@ -5,6 +5,7 @@
  * ("HUMANOID LEGS", "SNIPER RIFLE"...), then little-endian stats. Field meanings come from the game's own compile routine
  * (docs/research/gen1-movement.md); fields not yet understood are kept in
  * `raw` so nothing is lost. */
+#include "acr_gen1_fit.h"
 #include "acr_parts_moa.h"
 
 #include <ctype.h>
@@ -109,6 +110,31 @@ static void field(FILE *f, const char *key, uint32_t value, const char *note) {
     fputc('\n', f);
 }
 
+/* Fitting-rule flags (src/gen1/acr_gen1_fit.h), so mods can opt new parts in. */
+static void write_fit(FILE *f, const char *c, uint32_t index) {
+    acr_gen1_slot slot;
+    if (!strcmp(c, "arms")) slot = ACR_GEN1_SLOT_ARMS;
+    else if (!strcmp(c, "legs")) slot = ACR_GEN1_SLOT_LEGS;
+    else if (!strcmp(c, "hand")) slot = ACR_GEN1_SLOT_HAND;
+    else if (!strcmp(c, "back")) slot = ACR_GEN1_SLOT_BACK_L;
+    else return;
+    static const struct { uint16_t bit; const char *name; } k[] = {
+        { ACR_GEN1_FIT_ARM_WEAPON, "arm-weapon" }, { ACR_GEN1_FIT_CATERPILLAR, "caterpillar" },
+        { ACR_GEN1_FIT_RADAR, "radar" }, { ACR_GEN1_FIT_TWO_SLOT, "two-slot" },
+        { ACR_GEN1_FIT_HEAVY_HAND, "heavy-hand" }, { ACR_GEN1_FIT_NO_HEAVY_HAND, "no-heavy-hand" },
+        { ACR_GEN1_FIT_NO_BACK_WEAPONS, "no-back-weapons" }, { ACR_GEN1_FIT_BACK_WEAPON, "back-weapon" },
+    };
+    uint16_t flags = acr_gen1_fit_flags_moa(slot, index);
+    fprintf(f, "fit            = [");
+    int first = 1;
+    for (size_t i = 0; i < sizeof k / sizeof k[0]; ++i) {
+        if (!(flags & k[i].bit)) continue;
+        fprintf(f, "%s\"%s\"", first ? "" : ", ", k[i].name);
+        first = 0;
+    }
+    fprintf(f, "]   # fitting rules, see docs/research/gen1-fitting-rules.md\n");
+}
+
 static int write_part(const char *dir, const table *t, uint32_t index, const uint8_t *rec,
                       const char *name, const char *type) {
     char file_name[64], path[1200];
@@ -143,7 +169,7 @@ static int write_part(const char *dir, const table *t, uint32_t index, const uin
         field(f, "defense_energy", u16(rec + 0x30), NULL);
     }
     if (!strcmp(c, "core")) {
-        field(f, "arm_load_limit", u16(rec + 0x32), "hand weapon + blade weight");
+        field(f, "arm_load_limit", u16(rec + 0x32), "arms + hand weapon + blade weight (weapon arms: arms alone)");
         field(f, "option_slots", u16(rec + 0x36), NULL);
     }
     if (!strcmp(c, "legs")) {
@@ -153,6 +179,7 @@ static int write_part(const char *dir, const table *t, uint32_t index, const uin
         field(f, "boost_drain", u16(rec + 0x44), "used when no booster is fitted");
     }
     if (!strcmp(c, "blade")) field(f, "attack", u16(rec + 0x2C), NULL);
+    write_fit(f, c, index);
     /* Everything after the type text as 16-bit words, so fields not yet
      * named stay available. */
     fprintf(f, "raw            = [");
