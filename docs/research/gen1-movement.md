@@ -65,6 +65,26 @@ A full 28,000 bar is about 64 steps (3 seconds) of continuous rise.
 
 X alone rises; X with a direction boosts along the ground.
 
+## The compiled AC holds these numbers
+
+When a match starts, the game compiles the AC's parts into a 324-byte stat
+block at player block +592 (compile routine `0x8007E730` in the menu module,
+FDAT 206). The battle engine reads movement values from it. On the default AC:
+
+| Compiled field (u16) | Value | Matches |
+| --- | --- | --- |
+| +18 | 28,000 | full energy |
+| +20 | 436 | energy per step while rising (ground boost costs half) |
+| +22 | 210 | energy refill per step |
+| +26 | 127 | energy refill while still coasting |
+| +28 | 2,050 | rise height (the AC climbed exactly 2,050 units) |
+| +36 | 38 | top turning speed |
+
+Parts sit at compiled +0x29 (12 bytes). Part tables (name, price, weight,
+drain, AP, defence, booster power, generator output) are in the menu module
+too. Next: decode the compile routine so every stat comes from a formula over
+part stats, for any build.
+
 ## Still to measure
 
 - How each figure depends on parts: legs (weight, type), boosters, generator.
