@@ -61,6 +61,13 @@ missile_use = 0.5
 energy_care = 0.7          # how much boost energy it keeps in reserve
 ```
 
+**AI builder (planned from the start):** an in-game screen, beside the AC
+garage, for making and editing profiles with sliders, the same way the recomp
+launcher's AI Battle builder worked: pick a preset, adjust the sliders, save,
+load or delete. It writes the same TOML file, so built and hand-written
+profiles are interchangeable. More controls get added to the builder later as
+the AI grows.
+
 The five presets match the AI Battle choices from the recomp. A Raven card
 without AI settings flies **Balanced**. Difficulty (for example in the
 roguelike tree) scales reaction time and aim, never the AC's stats, so a hard
