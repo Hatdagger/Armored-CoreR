@@ -69,6 +69,15 @@ int main(void) {
     for (int i = 0; i < 20; ++i) acr_gen1_ac_step(&ac, &d, none);
     EXPECT(ac.state == ACR_GEN1_GROUND);
 
+    /* Boost hop: boost forward, let go one step, press again -> airborne at speed. */
+    acr_gen1_ac_spawn(&ac, &d, 0, 0, 0);
+    for (int i = 0; i < 12; ++i) acr_gen1_ac_step(&ac, &d, boost);
+    const acr_gen1_input fwd_only = { 1, 0, 0, 0 };
+    acr_gen1_ac_step(&ac, &d, fwd_only);
+    EXPECT(ac.state == ACR_GEN1_GROUND && ac.vz > 0);
+    acr_gen1_ac_step(&ac, &d, boost);
+    EXPECT(ac.state == ACR_GEN1_AIR && ac.vy < 0 && ac.vz > 0);
+
     if (failures) { printf("%d failure(s)\n", failures); return 1; }
     printf("gen1 sim: all passed\n");
     return 0;

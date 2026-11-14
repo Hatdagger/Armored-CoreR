@@ -149,12 +149,30 @@ void acr_gen1_ac_step(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
     ac->yaw = (uint16_t)((ac->yaw + ac->turn_rate) & 4095);
 
     const int can_boost = in.boost && !ac->drained && ac->energy > 0;
+    const int fresh_press = in.boost && !ac->boost_was_down;
+    ac->boost_was_down = in.boost;
     int32_t drain = 0, mx = 0, mz = 0, dx = 0, dz = 0;
     const int dir = stick_dir(ac->yaw, in, &dx, &dz);
     int moving = dir;
 
     switch (ac->state) {
     case ACR_GEN1_GROUND:
+        /* Boost hop: let go of the booster during a ground boost and press it
+         * again while still sliding, and the AC jumps straight into the air,
+         * keeping its speed (humanoid, reverse-joint and four-legged legs;
+         * as described by a player, not yet measured). */
+        if (can_boost && fresh_press && (ac->vx || ac->vz) && !def->no_boost_hop) {
+            int32_t vy;
+            uint16_t crouch;
+            takeoff(def, &crouch, &vy);
+            ac->vy = vy;
+            ac->state = ACR_GEN1_AIR;
+            set_anim(ac, ACR_GEN1_ANIM_IDLE);
+            mx = ac->vx;
+            mz = ac->vz;
+            moving = 1;
+            break;
+        }
         if (can_boost && dir) {
             ac->vx += dx * (int32_t)m->boost_accel / 4096;
             ac->vz += dz * (int32_t)m->boost_accel / 4096;
@@ -195,9 +213,16 @@ void acr_gen1_ac_step(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
             if (ac->vy > ACR_GEN1_FALL_MAX) ac->vy = ACR_GEN1_FALL_MAX;
         }
         if (can_boost && dir) {
-            ac->vx += dx * (int32_t)m->air_accel / 4096;
-            ac->vz += dz * (int32_t)m->air_accel / 4096;
-            limit_length(&ac->vx, &ac->vz, m->air_max);
+            /* Faster than the air boost allows (e.g. carried over from a
+             * ground boost): ease down to it instead of adding more. */
+            const uint64_t len2 = (uint64_t)((int64_t)ac->vx * ac->vx) + (uint64_t)((int64_t)ac->vz * ac->vz);
+            if (len2 > (uint64_t)m->air_max * m->air_max) {
+                slow_down(&ac->vx, &ac->vz, m->air_accel / 4);
+            } else {
+                ac->vx += dx * (int32_t)m->air_accel / 4096;
+                ac->vz += dz * (int32_t)m->air_accel / 4096;
+                limit_length(&ac->vx, &ac->vz, m->air_max);
+            }
         } else {
             slow_down(&ac->vx, &ac->vz, m->air_accel / 4);
         }

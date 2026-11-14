@@ -224,6 +224,7 @@ int demo_load(const char *import_dir, const int parts[SLOT_COUNT], demo_ac *out,
     acr_gen1_compile(&b, &out->def.stats);
     acr_gen1_motion_from_stats(&out->def.stats, &out->def.motion);
     out->def.landing_steps = 20;
+    out->def.no_boost_hop = parts[SLOT_LEGS] >= 27;   /* caterpillars */
 
     out->model = pick_model(import_dir, parts);
     if (out->model < 0 || !load_tracks(import_dir, out->model, out)) {
