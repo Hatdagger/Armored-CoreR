@@ -17,13 +17,14 @@ A Master of Arena style gameplay loop with arenas and online play.
 
 ## Status
 
-Phase 0, the foundation. Nothing is playable yet.
+Phase 1, matching the feel. Nothing is playable yet.
 
 | Part | State |
 | --- | --- |
 | Core: fixed-point math, fixed-step clock, Xbox memory budget | done |
-| Disc importer (`acr-import`) for Master of Arena | first version |
+| Disc importer (`acr-import`) for Master of Arena | works on a real disc |
 | Window and input shell (SDL3) | first version |
+| Gen 1 timing: 22.0 logic steps a second, measured from MoA | done |
 | Gameplay | not started |
 
 ## Building

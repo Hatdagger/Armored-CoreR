@@ -3,6 +3,7 @@
 
 #include "acr_clock.h"
 #include "acr_fixed.h"
+#include "acr_gen1.h"
 #include "acr_pools.h"
 
 static int failures;
@@ -40,6 +41,14 @@ static void test_clock(void) {
     CHECK(ta == tb && ta == 60);
 }
 
+static void test_gen1_timing(void) {
+    CHECK(ACR_GEN1_TICK_NS == 45448886ull);          /* 715 NTSC lines */
+    acr_clock c;
+    acr_clock_init_ns(&c, ACR_GEN1_TICK_NS, 1000);
+    CHECK(acr_clock_advance(&c, 1000000000ull) == 22);   /* 22.0 steps a second */
+    CHECK(acr_clock_advance(&c, 9000000000ull) == 198);  /* 10 s: 220 steps */
+}
+
 static void test_pools(void) {
     void *block = malloc(ACR_POOLS_TOTAL_BYTES);
     acr_pools p;
@@ -61,6 +70,7 @@ static void test_pools(void) {
 int main(void) {
     test_fixed();
     test_clock();
+    test_gen1_timing();
     test_pools();
     if (failures) return 1;
     printf("core: all checks passed\n");

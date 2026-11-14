@@ -38,8 +38,9 @@ AC keeps its own generation's ruleset, so its quirks carry over.
 - Gameplay math uses **20.12 fixed point** (`src/core/acr_fixed.h`), the
   precision the PS1 itself used. The same inputs give the same results on every
   PC and on the Xbox, which online play and replays depend on.
-- Gen 1's tick rate is still to be measured from the recomp. Until then it is a
-  setting, not a constant.
+- Gen 1 runs **22.0 logic steps a second** (one step per 715 NTSC scanlines),
+  measured from Master of Arena: [research/gen1-timing.md](research/gen1-timing.md).
+  The engine draws as fast as the screen allows and interpolates between steps.
 
 ## Legal
 

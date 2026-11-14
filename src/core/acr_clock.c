@@ -1,7 +1,12 @@
 #include "acr_clock.h"
 
 void acr_clock_init(acr_clock *c, uint32_t ticks_per_second, uint32_t max_catch_up) {
-    c->tick_ns = ticks_per_second ? 1000000000ull / ticks_per_second : 1000000000ull;
+    acr_clock_init_ns(c, ticks_per_second ? 1000000000ull / ticks_per_second : 1000000000ull,
+                      max_catch_up);
+}
+
+void acr_clock_init_ns(acr_clock *c, uint64_t tick_ns, uint32_t max_catch_up) {
+    c->tick_ns = tick_ns ? tick_ns : 1;
     c->accumulated_ns = 0;
     c->tick = 0;
     c->max_catch_up = max_catch_up ? max_catch_up : 1;

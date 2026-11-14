@@ -8,12 +8,11 @@
 
 #include "../../core/acr_clock.h"
 #include "../../core/acr_fixed.h"
+#include "../../core/acr_gen1.h"
 #include "../../core/acr_pools.h"
 
 #define VIEW_W 640
 #define VIEW_H 480
-/* Gen 1's real tick rate is measured from the recomp in Phase 1. */
-#define TICKS_PER_SECOND 30
 
 typedef struct marker { acr_fx x, y, prev_x, prev_y; } marker;
 
@@ -27,7 +26,7 @@ static SDL_Gamepad *open_first_gamepad(void) {
 
 /* One logic tick: integer-only, so it gives the same result everywhere. */
 static void tick(marker *m, int move_x, int move_y) {
-    const acr_fx speed = acr_fx_from_int(6);
+    const acr_fx speed = acr_fx_from_int(8);
     m->prev_x = m->x;
     m->prev_y = m->y;
     m->x += move_x * speed / 128;
@@ -58,7 +57,7 @@ int main(int argc, char **argv) {
     SDL_Gamepad *pad = open_first_gamepad();
 
     acr_clock clock;
-    acr_clock_init(&clock, TICKS_PER_SECOND, 8);
+    acr_clock_init_ns(&clock, ACR_GEN1_TICK_NS, 8);   /* Gen 1: 22 steps a second */
     marker m = { acr_fx_from_int(VIEW_W / 2), acr_fx_from_int(VIEW_H / 2), 0, 0 };
     m.prev_x = m.x;
     m.prev_y = m.y;

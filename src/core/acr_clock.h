@@ -14,6 +14,8 @@ typedef struct acr_clock {
 } acr_clock;
 
 void acr_clock_init(acr_clock *c, uint32_t ticks_per_second, uint32_t max_catch_up);
+/* For rates that are not a whole number of ticks a second (Gen 1: acr_gen1.h). */
+void acr_clock_init_ns(acr_clock *c, uint64_t tick_ns, uint32_t max_catch_up);
 
 /* Feed the real time since the last frame. Returns how many ticks to run now.
  * Time past max_catch_up ticks is dropped, so a long stall never makes the
