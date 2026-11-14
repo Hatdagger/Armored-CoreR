@@ -656,7 +656,9 @@ int main(int argc, char **argv) {
                     /* the box as the original sizes it (its screen is about 512 wide) */
                     const float bw = w->box_w * (g_vw / 512.0f), bh = w->box_h * (g_vw / 512.0f);
                     const SDL_FRect box = { g_vw * 0.5f - bw * 0.5f, g_vh * 0.45f - bh * 0.5f, bw, bh };
-                    SDL_SetRenderDrawColor(renderer, 90, 200, 120, 255);
+                    /* The FCS box takes the lock's colour once the target is locked. */
+                    if (me->locked) SDL_SetRenderDrawColor(renderer, 255, 60, 50, 255);
+                    else SDL_SetRenderDrawColor(renderer, 90, 200, 120, 255);
                     SDL_RenderRect(renderer, &box);
                 }
                 if (tg->ap > 0 && acr_gen1_in_lock_box(&battle, view, w)) {
