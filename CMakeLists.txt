@@ -23,7 +23,8 @@ target_include_directories(acr_core PUBLIC src/core)
 add_library(acr_gen1 STATIC
     src/gen1/acr_gen1_compile.c
     src/gen1/acr_gen1_fit.c
-    src/gen1/acr_gen1_anim.c)
+    src/gen1/acr_gen1_anim.c
+    src/gen1/acr_gen1_sim.c)
 target_include_directories(acr_gen1 PUBLIC src/gen1)
 target_link_libraries(acr_gen1 PUBLIC acr_core)
 
@@ -51,6 +52,9 @@ add_test(NAME gen1_fit COMMAND test_gen1_fit)
 add_executable(test_gen1_anim tests/test_gen1_anim.c)
 target_link_libraries(test_gen1_anim PRIVATE acr_gen1)
 add_test(NAME gen1_anim COMMAND test_gen1_anim)
+add_executable(test_gen1_sim tests/test_gen1_sim.c)
+target_link_libraries(test_gen1_sim PRIVATE acr_gen1)
+add_test(NAME gen1_sim COMMAND test_gen1_sim)
 add_executable(test_import tests/test_import.c)
 target_link_libraries(test_import PRIVATE acr_import_lib)
 add_test(NAME import COMMAND test_import ${CMAKE_CURRENT_BINARY_DIR}/test_import_work)
@@ -65,6 +69,9 @@ if(ACR_BUILD_GAME)
         GIT_TAG release-3.2.10
         GIT_SHALLOW TRUE)
     FetchContent_MakeAvailable(SDL3)
-    add_executable(armored-corer WIN32 src/platform/sdl3/main.c)
-    target_link_libraries(armored-corer PRIVATE acr_core SDL3::SDL3-static)
+    add_executable(armored-corer WIN32 src/platform/sdl3/main.c src/platform/sdl3/demo_data.c)
+    target_link_libraries(armored-corer PRIVATE acr_core acr_gen1 SDL3::SDL3-static)
+    if(NOT MSVC)
+        target_link_libraries(armored-corer PRIVATE m)
+    endif()
 endif()
