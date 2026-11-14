@@ -246,10 +246,20 @@ void acr_gen1_ac_step(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
     if (ac->state == ACR_GEN1_AIR) {
         ac->y += ac->vy;
         if (ac->y >= 0 && ac->vy >= 0) {          /* touch down: stop dead */
+            ac->vy_at_touchdown = ac->vy;
             ac->y = 0;
             ac->vx = ac->vy = ac->vz = 0;
             ac->state = ACR_GEN1_LANDING;
-            ac->timer = def->landing_steps;
+            /* Landing recovery grows with the speed of the fall, so feathering
+             * the booster before touching down softens it. Full recovery at
+             * 5,000 and above (a hop's touchdown); the scaling below that is a
+             * stand-in until measured. */
+            const int32_t fall = ac->vy_at_touchdown;
+            uint32_t steps = fall >= 5000 ? def->landing_steps
+                                          : (uint32_t)def->landing_steps * (uint32_t)fall / 5000u;
+            if (def->step_rate && def->gen1_rate) steps = steps * def->step_rate / def->gen1_rate;
+            ac->timer = (uint16_t)steps;
+            if (!ac->timer) ac->state = ACR_GEN1_GROUND;
             set_anim(ac, ACR_GEN1_ANIM_IDLE);
         }
     }
@@ -262,6 +272,12 @@ void acr_gen1_ac_step(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
      *   and the lock lifts only when it is completely full. */
     int32_t cost = s->rise_drain;
     int32_t refill = (moving || ac->vx || ac->vz) ? s->refill_moving : s->refill_standing;
+    if (def->step_rate && def->gen1_rate) {      /* same energy per second at any step rate */
+        cost = cost * def->gen1_rate / def->step_rate;
+        refill = refill * def->gen1_rate / def->step_rate;
+        if (!cost) cost = 1;
+        if (!refill) refill = 1;
+    }
     if (ac->drained) {
         ac->energy += refill >> 1;
         if (ac->energy >= s->energy_capacity) { ac->energy = s->energy_capacity; ac->drained = 0; }

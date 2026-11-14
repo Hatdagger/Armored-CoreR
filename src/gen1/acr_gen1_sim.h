@@ -36,7 +36,12 @@ typedef struct acr_gen1_ac_def {
     acr_gen1_stats  stats;
     acr_gen1_motion motion;
     const acr_gen1_root_track *anim[ACR_GEN1_ANIM_COUNT];   /* NULL = missing */
-    uint16_t landing_steps;   /* recovery after touching down (measured: about 20) */
+    uint16_t landing_steps;   /* recovery after a hard landing (measured: about 20 after a hop
+                                 that touched down at 5,000+) */
+    /* Running faster than Gen 1's 22 steps a second: energy and recovery
+     * times are kept per second by scaling with gen1_rate / step_rate.
+     * 0 / 0 = Gen 1's own pace. */
+    uint16_t step_rate, gen1_rate;
     uint8_t  no_boost_hop;    /* caterpillars: re-pressing boost while sliding does not jump */
 } acr_gen1_ac_def;
 
@@ -52,6 +57,7 @@ typedef struct acr_gen1_ac {
     uint8_t  boost_was_down;   /* booster button last step, to see a fresh press */
     uint8_t  state;
     uint16_t timer;
+    int32_t  vy_at_touchdown;
     uint8_t  anim;
     uint16_t anim_frame;
     uint16_t span_left;

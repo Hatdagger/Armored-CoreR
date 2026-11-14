@@ -8,7 +8,7 @@
  *
  *   armored-corer [import folder | disc.cue] [--legs N] [--booster N]
  *                 [--core N] [--arms N] [--gen N] (Master of Arena indices)
- *                 [--tick N]  steps a second (default 30 for now; 22 = Gen 1)
+ *                 [--tick N]  steps a second (default 60 for now; 22 = Gen 1)
  *
  * With no import yet it asks for the disc: drop the .cue or .bin on the
  * window (or on the program) and it imports it next to the program. */
@@ -173,7 +173,34 @@ static void add_ac(const camera *c, vec3 p, float yaw, float crouch) {
 
 /* ---------------- main ---------------- */
 
-static int g_tick_rate = 30;   /* test: 30 steps a second; --tick 22 for Gen 1's own pace */
+static int g_tick_rate = 60;   /* test: steps a second; 22 = Gen 1's own pace */
+static const int k_tick_rates[] = { 22, 30, 45, 60 };
+
+/* Starts the clock at the chosen rate. Faster than Gen 1, movement per step
+ * stays as the game has it (so it runs faster), while energy and recovery
+ * times are kept per second. */
+static void set_rate(acr_clock *clock, acr_gen1_ac_def *def, int rate) {
+    if (rate == 22 || rate <= 0) {
+        acr_clock_init_ns(clock, ACR_GEN1_TICK_NS, 8);
+        def->step_rate = def->gen1_rate = 0;
+    } else {
+        acr_clock_init(clock, (uint32_t)rate, 8);
+        def->step_rate = (uint16_t)rate;
+        def->gen1_rate = 22;
+    }
+}
+
+/* Next part index in a slot that exists in the import (wraps around). */
+static int next_part(const char *dir, int parts[SLOT_COUNT], int slot, demo_ac *data) {
+    const int start = parts[slot];
+    char err[256];
+    for (int step = 1; step <= 40; ++step) {
+        parts[slot] = (start + step) % 40;
+        if (demo_load(dir, parts, data, err, sizeof err)) return 1;
+    }
+    parts[slot] = start;
+    return demo_load(dir, parts, data, err, sizeof err);
+}
 
 static int parse_args(int argc, char **argv, const char **dir, int parts[SLOT_COUNT]) {
     /* Master of Arena's starting AC. */
@@ -290,14 +317,10 @@ int main(int argc, char **argv) {
                 loaded = demo_load(dir, parts, &ac_data, err, sizeof err);
         }
     }
-    const acr_gen1_ac_def *def = &ac_data.def;
+    acr_gen1_ac_def *def = &ac_data.def;
 
     acr_clock clock;
-    /* Gen 1 runs 22 steps a second (ACR_GEN1_TICK_NS); this test build
-     * defaults to 30 to try a quicker pace. The rules are per step, so
-     * everything runs faster with it. */
-    if (g_tick_rate == 22 || g_tick_rate <= 0) acr_clock_init_ns(&clock, ACR_GEN1_TICK_NS, 8);
-    else acr_clock_init(&clock, (uint32_t)g_tick_rate, 8);
+    set_rate(&clock, def, g_tick_rate);
     acr_gen1_ac ac, prev;
     acr_gen1_ac_spawn(&ac, def, 0, 0, 0);
     prev = ac;
@@ -319,9 +342,29 @@ int main(int argc, char **argv) {
             if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_R) {
                 acr_gen1_ac_spawn(&ac, def, 0, 0, 0); prev = ac;
             }
+            int cycle_rate = 0, cycle_slot = -1;
             if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) {
-                if (e.gbutton.button == SDL_GAMEPAD_BUTTON_BACK) show_help = !show_help;
+                if (e.gbutton.button == SDL_GAMEPAD_BUTTON_BACK) cycle_rate = 1;
+                if (e.gbutton.button == SDL_GAMEPAD_BUTTON_WEST) cycle_slot = SLOT_BOOSTER;
+                if (e.gbutton.button == SDL_GAMEPAD_BUTTON_NORTH) cycle_slot = SLOT_GEN;
                 if (e.gbutton.button == SDL_GAMEPAD_BUTTON_START) { acr_gen1_ac_spawn(&ac, def, 0, 0, 0); prev = ac; }
+            }
+            if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_T) cycle_rate = 1;
+            if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_B) cycle_slot = SLOT_BOOSTER;
+            if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_G) cycle_slot = SLOT_GEN;
+            if (cycle_rate) {
+                int idx = 0;
+                const int n = (int)(sizeof k_tick_rates / sizeof k_tick_rates[0]);
+                for (int i = 0; i < n; ++i) if (k_tick_rates[i] == g_tick_rate) idx = i;
+                g_tick_rate = k_tick_rates[(idx + 1) % n];
+                set_rate(&clock, def, g_tick_rate);
+                last = SDL_GetTicksNS();
+            }
+            if (cycle_slot >= 0 && !(cycle_slot == SLOT_BOOSTER && parts[SLOT_LEGS] >= 27)) {
+                next_part(dir, parts, cycle_slot, &ac_data);
+                set_rate(&clock, def, g_tick_rate);
+                last = SDL_GetTicksNS();
+                if (ac.energy > def->stats.energy_capacity) ac.energy = def->stats.energy_capacity;
             }
         }
         acr_gen1_input in = read_input(pad);
@@ -429,13 +472,16 @@ int main(int argc, char **argv) {
         SDL_snprintf(line, sizeof line, "ENERGY %5d  %-7s  SPEED %3d  RISE %4d", (int)ac.energy,
                      k_state[ac.state], (int)sqrtf((float)(dx * dx + dz * dz)), -dy);
         SDL_RenderDebugText(renderer, 20, VIEW_H - 48, line);
-        SDL_snprintf(line, sizeof line, "LEGS %s  BOOSTER %s  SET %d  %d STEPS/S", ac_data.names[SLOT_LEGS],
-                     ac_data.names[SLOT_BOOSTER], ac_data.model, g_tick_rate == 22 || g_tick_rate <= 0 ? 22 : g_tick_rate);
+        SDL_snprintf(line, sizeof line, "LEGS %s  BOOSTER %s  GENERATOR %s", ac_data.names[SLOT_LEGS],
+                     ac_data.names[SLOT_BOOSTER], ac_data.names[SLOT_GEN]);
         SDL_RenderDebugText(renderer, 20, 12, line);
+        SDL_snprintf(line, sizeof line, "%d STEPS/S%s", g_tick_rate, g_tick_rate == 22 ? " (GEN 1)" : "");
+        SDL_RenderDebugText(renderer, VIEW_W - 150, VIEW_H - 48, line);
         if (show_help) {
             SDL_RenderDebugText(renderer, 20, 28, "MOVE: STICK/DPAD UP-DOWN  TURN: LEFT-RIGHT");
             SDL_RenderDebugText(renderer, 20, 40, "STRAFE: LB/RB  BOOST: A OR RT (NO DIRECTION = RISE)");
-            SDL_RenderDebugText(renderer, 20, 52, "START/R: RESET  BACK/F1: HIDE HELP  ESC: QUIT");
+            SDL_RenderDebugText(renderer, 20, 52, "X/B: NEXT BOOSTER  Y/G: NEXT GENERATOR  BACK/T: SPEED");
+            SDL_RenderDebugText(renderer, 20, 64, "START/R: RESET  F1: HIDE HELP  ESC: QUIT");
         }
         const char *shot = SDL_getenv("ACR_SHOT");
         if (shot && (now - start_ns) / 1000000 >= (Uint64)SDL_atoi(SDL_getenv("ACR_SHOT_MS") ? SDL_getenv("ACR_SHOT_MS") : "2000")) {

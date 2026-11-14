@@ -211,7 +211,10 @@ int demo_load(const char *import_dir, const int parts[SLOT_COUNT], demo_ac *out,
     acr_gen1_part *by_slot[SLOT_COUNT] = { &b.core, &b.booster, &b.head, &b.arms, &b.blade, &b.hand,
                                            &b.back_l, &b.back_r, &b.generator, &b.fcs, &b.legs };
     for (int s = 0; s < SLOT_COUNT; ++s) {
-        if (parts[s] == 255) { SDL_strlcpy(out->names[s], "-", sizeof out->names[s]); continue; }
+        if (parts[s] == 255 || (s == SLOT_BOOSTER && parts[SLOT_LEGS] >= 27)) {   /* caterpillars: no booster */
+            SDL_strlcpy(out->names[s], "-", sizeof out->names[s]);
+            continue;
+        }
         char *t = load_part(import_dir, s, parts[s]);
         if (!t) {
             SDL_snprintf(err, err_size, "(No %s part %d in %s/parts.)", k_category[s], parts[s],
