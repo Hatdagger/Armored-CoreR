@@ -35,7 +35,7 @@ checks. Not modelled yet, by design; it comes later.
 | Caterpillars (legs 27+) can't carry a booster | "Can't equip with a caterpillar." / "Unequipped the booster." | yes |
 | Caterpillars can't carry radars 40, 41, 42, 44, 46 (radars 43, 45, 47 are allowed) | "Can't equip with a caterpillar." / "Unequipped the radar." | yes |
 | WG-1-KARASAWA (hand 15) can't go on legs 5 (LN-SSVR), 21-24 and 26 (four legs) or 27, 28, 30-32 (caterpillars) | "Can't equip with current legs." / "Unequipped the right ARM weapon." | yes |
-| ANKS-1A46J (arms 5) can't carry back weapons 0-39 or 53 (radars and other two-slot units are fine) | "Unable to equip" / "Unequipped the (left/right) BACK weapon(s)." | |
+| ANKS-1A46J (arms 5) can't carry back weapons 0-39 or 53 (radars and other two-slot units are fine) | "Unable to equip" / "Unequipped the (left/right) BACK weapon(s)." | yes |
 | Back units 52-57 take both back slots: fitting one empties the other slot | "Unequipped the left/right BACK weapon." | no (see below) |
 | Fitting into one back slot the only copy of the unit in the other slot moves it | "Moved the BACK weapons." | n/a |
 
@@ -66,6 +66,9 @@ Test ACs written to a memory card, loaded with DATA LOAD, then VS START
 | Legs 5 (LN-SSVR) + Karasawa | Karasawa removed |
 | Legs 27 (caterpillar) + Karasawa + booster + radar 40 | all three removed |
 | Back L 52 (two-slot) + back R 0 | both kept, match starts |
+| Legs 27 (caterpillar) + radar 43 | kept |
+| Arms 5 (ANKS-1A46J) + back L 0 | back L removed |
+| Same AC: hand + blade 1243 under the core's 2450, but arms + hand + blade 3363 over it | VS START refused (arms weight counts) |
 
 So a card can carry a two-slot unit and a second back weapon; only the
 garage prevents it. The engine keeps that on load (`fitted_to =
