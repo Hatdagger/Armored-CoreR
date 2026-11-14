@@ -77,6 +77,23 @@ battle exactly. Online play sends the same inputs, so replays come with it.
 - **Tests:** recorded replays with their expected checksums go in `tests/`, so
   any change that alters gameplay shows up as a failing replay.
 
+## Connecting players
+
+No servers for now; any server feature is optional and comes later.
+
+- **System Link (LAN) is the main multiplayer path on the Xbox.** Games find
+  each other by broadcasting on the local network, so there are no codes to
+  type: open lobbies, ongoing missions open to invasion and King of the
+  Mountain arenas just appear in a list. PC builds use the same LAN protocol,
+  so an Xbox and a PC on one network can play together when their
+  simulation versions match.
+- **Over the internet (PC):** peer-to-peer with libjuice and copy-paste
+  connection codes, using public STUN servers. Players who can't connect
+  directly can use a VPN-style LAN (Tailscale, ZeroTier), which makes it look
+  like System Link again.
+- Both paths use the same messages, the same handshake and the same
+  simulation; only discovery differs.
+
 ## Connection handshake
 
 Online, each machine runs the battle itself from the shared inputs, so both must
@@ -98,8 +115,10 @@ header carries the same fields, so a replay is checked the same way.
 
 ## Players and joining
 
-- The simulation has **player slots** (up to 4), never a fixed "player 1 and
-  player 2". Early versions may only use two; nothing in the core assumes it.
+- The simulation has **player slots** (up to **9**), never a fixed "player 1 and
+  player 2". The cap is one constant; early versions may use fewer, and
+  nothing in the core assumes a number. Nine fits 3v3v3 teams, a full
+  King of the Mountain gauntlet and free-for-alls.
   (Master of Arena hard-wires two AC slots, which is what blocked 3-4 unit
   battles in the recomp.)
 - **Joining mid-battle or mid-mission:** the host picks a future tick, sends a
@@ -148,9 +167,53 @@ this is a mid-mission join (above); the rest is game design and discovery.
      invadable"; other games on the network show the alert.
   2. **Friends:** games that have connected before remember each other and can
      show "your friend's mission is open", joined with a fresh code.
-  3. **Optional invasion board:** a tiny free serverless room-code service
-     listing open missions and their codes. The only way to get random
-     internet invasions; can be left out.
+  3. **Later, if servers are ever added:** an invasion board listing open
+     missions, for random internet invasions. Not part of the current plan.
+
+## Survival arena
+
+A 1v1 that never ends: when an AC is defeated, the next challenger enters,
+until the player is defeated or extracts.
+
+- **Entrants come from a challenger queue** in arena data: AI profiles, or
+  open slots that players join through the normal mid-battle join. AI
+  entrants are spawned by the simulation, no network needed.
+- **Damage, ammo and AP carry over** between entrants, with an optional small
+  repair per kill (a rule in the data).
+- **Extraction:** an extract zone, or an extract option after each kill. The
+  payout grows with every AC beaten and is lost on defeat.
+- **Entry points** are chosen far from the surviving AC.
+
+## King of the Mountain
+
+Teams of one to three hold the arena; challengers join as a team or solo.
+Winners stay, losers are eliminated, and the next challengers come in.
+
+- **Teams are factions** (engine rule 9). Up to three teams in the arena at
+  once fits the 9-slot cap.
+- **The champions host.** If the challengers win, the host sends a snapshot
+  to the new champions and hosting moves to them. If the host quits mid-round,
+  that round ends.
+- **Rules data:** repair between rounds (none, partial, full), a reign limit,
+  streak rewards, and whether challengers see the champions' builds.
+- **The queue waits as spectators** and sees the round they are about to
+  join.
+- Found through System Link like any lobby; over the internet, the champions
+  share a code.
+
+## Spectating
+
+Every mode, single player included, can be watched.
+
+- **A spectator is a live replay:** it receives the snapshot plus everyone's
+  inputs and runs the simulation itself. It never sends inputs, so it adds
+  nothing to rollback or input delay.
+- **A few seconds of delay** stops spectators feeding information to players
+  and means a spectator never has to roll back.
+- **Bandwidth is tiny** (inputs only), and a spectator can relay the stream to
+  other spectators so the host doesn't serve everyone.
+- **Cameras:** follow a player, free camera, overhead. The same cameras work
+  in replays.
 
 ## Engine rules
 
@@ -176,6 +239,9 @@ Cheap to follow from the start, expensive to retrofit:
 9. **Factions:** every unit has a side and AI targets by side, never by
    "attack the player". This is what makes co-op, versus and invasions work
    with the same AI.
+10. **Camera and HUD sit outside the simulation:** they only read its state.
+    Spectators, replays and split views can then look at any unit from any
+    angle without touching the simulation.
 
 ## Legal
 
