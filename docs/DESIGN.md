@@ -31,6 +31,12 @@ Gen 1, 2 and 3 each get a **ruleset** (how ACs move, how energy, heat and stats
 work) and an **importer** (reads that generation's discs). In a crossover, every
 AC keeps its own generation's ruleset, so its quirks carry over.
 
+## Enemy AI
+
+AI flies an AC through the same commands a controller gives, sees the battle
+only through a perception view, and is split into profile, tactics and brain
+layers so later generations and modes can add their own. See [AI.md](AI.md).
+
 ## Deterministic simulation
 
 - Game logic runs at a **fixed tick**. Rendering interpolates between ticks, so
