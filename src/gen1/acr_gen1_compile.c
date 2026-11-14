@@ -127,4 +127,5 @@ void acr_gen1_motion_from_stats(const acr_gen1_stats *s, acr_gen1_motion *out) {
     out->turn_accel = (uint16_t)((s->turn_accel * 5u) >> 4);
     out->turn_max = (uint16_t)((s->turn_speed * 15u) >> 4);
     out->friction = s->friction;
+    out->axis_step_max = ACR_GEN1_AXIS_STEP_MAX;
 }

@@ -197,22 +197,36 @@ the limit is applied).
 **Ground speed limit per axis.** Position never moves more than 75 units
 per step along x or along z, whatever the speed: the LB-4400 build reached
 speed 9,000 (140 a step) but moved 75 on each axis; the light AC moved
-(32, 75). Diagonal boosting is faster than straight boosting. Where the
-limit is applied is not found yet (not a literal in the VS engine or the
-EXE); it holds in every measurement.
+(32, 75). Diagonal boosting is faster than straight boosting. Taken as
+measured (where the game applies it was not searched for further); the
+engine keeps it as `acr_gen1_motion.axis_step_max`, so a ruleset can raise
+or remove it.
 
-**Walking is animation-driven.** Walking speed follows the legs' gait
-animation: humanoid LN-1001-PX-0 repeats 31/37 units per step, reverse
-joint LB-4400 repeats 32/48/32. Weight barely changes it (the stripped-down
-AC walked 32/38 on the same legs). The engine needs each legs model's
-animation root motion, which the importer can read from the disc.
+**Walking, strafing and the jump take-off are animation-driven.** Each
+animation carries a root-motion track: keys of (frame, x, y, z), the
+root's displacement since the animation began, in 1/4 world units. The
+game moves the AC by the difference between keys, spread over the frames
+between them by an integer stepper (EXE `0x800135DC`, run per step by
+`0x80054FF8`), one animation frame per step.
 
-**Rise take-off is animation-driven too.** After about 7 steps of crouch,
-the AC leaves the ground with an upward speed taken from the jump
-animation's motion (`0x8007B200`: displacement x 64 / frames): 3,200
-(50 a step) on humanoid legs whatever the weight, 6,016 (94 a step) on
-LB-4400. Rise acceleration then applies while the button is held, and
-gravity after release.
+| Default AC (set 0) | Track | Per step |
+| --- | --- | --- |
+| Walk (anim 2, 16 frames) | z -249, -499, -799, ... every 2 frames | 31, 31, 37, 38 ... (measured 31/37) |
+| Jump (anim 22) | 7 frames still, then y -399 over 2 frames | take-off 3,200 = 50 a step (measured) |
+| LB-4400 walk (set 48) | z -382, -765 ... every 2 or 3 frames | 48, 32 (measured 48/32) |
+
+Weight does not enter, which is why the stripped-down AC walked almost
+the same as the default.
+
+**Animation sets.** The game picks one of 72 sets from the core, arms and
+legs (table at `0x800D4A64` in the menu module: core, then lists of arms
+and legs indices; cores 3 and 4 count as core 0). Set n is entry 1 of
+`GG/P<n/20>/PA<nn>.T`. Animations seen in play: 0 idle, 1/2 walk start and
+loop, 8/9 strafe left, 11/12 strafe right, 14/15 walk back, 21 turn,
+22 jump, 24 in the air, 48/49 boost. `acr-import` writes every set's tracks
+to `<out>/motion/model-NN.toml` and the table to `motion/models.toml`; the
+engine side (`src/gen1/acr_gen1_anim.{h,c}`) has the stepper and track
+lookup.
 
 The engine port is in `src/gen1/acr_gen1_compile.c`
 (`acr_gen1_compile` and `acr_gen1_motion_from_stats`), tested against an
@@ -224,5 +238,5 @@ instruction-level transcription on 600 random builds.
   reach; both are clear from the code.
 - Boost and landing friction after release (`0x80014790` takes the
   acceleration / 4 as deceleration).
-- Where the 75-per-axis limit is applied.
-- Walking and jump animation root motion per legs model.
+- The exact rounding from track units (1/4) to world units when the AC
+  faces an angle (the track is rotated by the facing before stepping).

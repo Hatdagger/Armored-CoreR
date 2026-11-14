@@ -19,6 +19,8 @@ int main(int argc, char **argv) {
            (unsigned)stats.archives, (unsigned)stats.archive_entries);
     if (stats.parts)
         printf("Wrote %u parts as readable files in %s/parts.\n", (unsigned)stats.parts, argv[2]);
+    if (stats.motion_sets)
+        printf("Wrote %u animation sets' root motion in %s/motion.\n", (unsigned)stats.motion_sets, argv[2]);
     if (stats.archives_skipped)
         printf("Left %u .T files as they are: their tables did not check out.\n",
                (unsigned)stats.archives_skipped);

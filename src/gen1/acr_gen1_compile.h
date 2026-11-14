@@ -60,12 +60,14 @@ typedef struct acr_gen1_motion {
     uint16_t turn_accel;       /* +12 x 5 / 16 */
     uint16_t turn_max;         /* +13 x 15 / 16 */
     uint16_t friction;         /* +14, taken off each ground axis per step */
+    uint16_t axis_step_max;    /* world units per step on each ground axis; 0 = no limit */
 } acr_gen1_motion;
 
 /* Fixed by the engine, not by parts. */
 #define ACR_GEN1_GRAVITY        256   /* added to vertical speed per step */
 #define ACR_GEN1_FALL_MAX       9600
-#define ACR_GEN1_AXIS_STEP_MAX  75    /* world units per step on each ground axis (measured) */
+#define ACR_GEN1_AXIS_STEP_MAX  75    /* world units per step on each ground axis (measured);
+                                         acr_gen1_motion.axis_step_max starts here and a ruleset may raise it */
 
 /* Optional parts (bit n = option n, Master of Arena's option table). */
 #define ACR_GEN1_OPTION_RADAR          0x0001u /* SP-MAW */
