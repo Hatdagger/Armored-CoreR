@@ -254,12 +254,27 @@ Same method, default AC and LB-4400 + B-PT000:
   for the default AC). The earlier note "coasts at 75 for about 10 steps"
   was the 75-per-axis limit hiding the first part of the slowdown. Part of
   the 2-3 steps may be input delay in the test driver.
-- The ground friction byte (+14) did not show in these runs; it applies
-  elsewhere (walking or landing), still to place.
+- The ground friction byte (+14) has no effect in VS Mode: the only code
+  that uses it there (`0x8007DFC0`, take +14 off each ground axis per
+  step) is never called. The arena engine (FDAT 210) reads it in its
+  opponent AI and AI setup instead. The engine keeps it as
+  `acr_gen1_motion.friction` but VS rules do not apply it.
+
+## Landing (measured)
+
+AC states (object +0x45): 0 standing, 1 walking, 64 jump take-off, 65
+rising, 75 falling, 97 landing.
+
+- Touching down stops the AC dead: any sideways speed left is dropped
+  and it does not slide.
+- After a short hop the default AC stayed in the landing state for 56
+  screen refreshes (about 20 steps) before it could move again.
+- Longer falls (both ACs after a full rise) were still landing when the
+  recording ended, so whether recovery grows with fall speed is open.
 
 ## Still to measure
 
-- Where ground friction (+14) applies.
-- Landing: speed and recovery when an airborne AC touches down.
+- Landing recovery after longer falls, and whether it depends on fall
+  speed, weight or the legs.
 - The exact rounding from track units (1/4) to world units when the AC
   faces an angle (the track is rotated by the facing before stepping).
