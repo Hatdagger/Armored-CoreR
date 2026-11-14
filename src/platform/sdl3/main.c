@@ -8,6 +8,7 @@
  *
  *   armored-corer [import folder | disc.cue] [--legs N] [--booster N]
  *                 [--core N] [--arms N] [--gen N] (Master of Arena indices)
+ *                 [--tick N]  steps a second (default 30 for now; 22 = Gen 1)
  *
  * With no import yet it asks for the disc: drop the .cue or .bin on the
  * window (or on the program) and it imports it next to the program. */
@@ -172,6 +173,8 @@ static void add_ac(const camera *c, vec3 p, float yaw, float crouch) {
 
 /* ---------------- main ---------------- */
 
+static int g_tick_rate = 30;   /* test: 30 steps a second; --tick 22 for Gen 1's own pace */
+
 static int parse_args(int argc, char **argv, const char **dir, int parts[SLOT_COUNT]) {
     /* Master of Arena's starting AC. */
     static const int k_default[SLOT_COUNT] = { 0, 0, 5, 1, 0, 1, 0, 40, 0, 0, 3 };
@@ -183,6 +186,7 @@ static int parse_args(int argc, char **argv, const char **dir, int parts[SLOT_CO
         else if (!strcmp(argv[i], "--core")) slot = SLOT_CORE;
         else if (!strcmp(argv[i], "--arms")) slot = SLOT_ARMS;
         else if (!strcmp(argv[i], "--gen")) slot = SLOT_GEN;
+        if (!strcmp(argv[i], "--tick") && i + 1 < argc) { g_tick_rate = atoi(argv[++i]); continue; }
         if (slot >= 0 && i + 1 < argc) parts[slot] = atoi(argv[++i]);
         else if (argv[i][0] != '-') *dir = argv[i];
     }
@@ -289,7 +293,11 @@ int main(int argc, char **argv) {
     const acr_gen1_ac_def *def = &ac_data.def;
 
     acr_clock clock;
-    acr_clock_init_ns(&clock, ACR_GEN1_TICK_NS, 8);   /* Gen 1: 22 steps a second */
+    /* Gen 1 runs 22 steps a second (ACR_GEN1_TICK_NS); this test build
+     * defaults to 30 to try a quicker pace. The rules are per step, so
+     * everything runs faster with it. */
+    if (g_tick_rate == 22 || g_tick_rate <= 0) acr_clock_init_ns(&clock, ACR_GEN1_TICK_NS, 8);
+    else acr_clock_init(&clock, (uint32_t)g_tick_rate, 8);
     acr_gen1_ac ac, prev;
     acr_gen1_ac_spawn(&ac, def, 0, 0, 0);
     prev = ac;
@@ -421,8 +429,8 @@ int main(int argc, char **argv) {
         SDL_snprintf(line, sizeof line, "ENERGY %5d  %-7s  SPEED %3d  RISE %4d", (int)ac.energy,
                      k_state[ac.state], (int)sqrtf((float)(dx * dx + dz * dz)), -dy);
         SDL_RenderDebugText(renderer, 20, VIEW_H - 48, line);
-        SDL_snprintf(line, sizeof line, "LEGS %s  BOOSTER %s  SET %d", ac_data.names[SLOT_LEGS],
-                     ac_data.names[SLOT_BOOSTER], ac_data.model);
+        SDL_snprintf(line, sizeof line, "LEGS %s  BOOSTER %s  SET %d  %d STEPS/S", ac_data.names[SLOT_LEGS],
+                     ac_data.names[SLOT_BOOSTER], ac_data.model, g_tick_rate == 22 || g_tick_rate <= 0 ? 22 : g_tick_rate);
         SDL_RenderDebugText(renderer, 20, 12, line);
         if (show_help) {
             SDL_RenderDebugText(renderer, 20, 28, "MOVE: STICK/DPAD UP-DOWN  TURN: LEFT-RIGHT");

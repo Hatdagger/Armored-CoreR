@@ -90,8 +90,13 @@ static void walk(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_input in,
         int32_t d[3];
         unsigned frames;
         if (!acr_gen1_root_span(t, ac->anim_frame, d, &frames)) { ac->anim_frame = t->length; return; }
+        /* Walking diagonally (forward or back with a strafe): the walk
+         * track turned 45 degrees toward the strafe side. The game's own
+         * diagonal walking is not measured yet. */
+        int turn = 0;
+        if (in.move && in.strafe) turn = (in.move > 0 ? in.strafe : -in.strafe) * 512;
         int32_t wx, wz;
-        to_world(ac->yaw, d[0], d[2], &wx, &wz);
+        to_world((uint16_t)((ac->yaw + turn) & 4095), d[0], d[2], &wx, &wz);
         acr_gen1_stepper_init(&ac->step[0], (int)frames, div_round(wx, 4));
         acr_gen1_stepper_init(&ac->step[1], (int)frames, div_round(d[1], 4));
         acr_gen1_stepper_init(&ac->step[2], (int)frames, div_round(wz, 4));

@@ -67,6 +67,8 @@ type: `legs/humanoid`, `back/missile`, `option` and so on.
 2. Run `armored-corer`. You fly Master of Arena's starting AC. Try other
    parts with `--legs N`, `--booster N`, `--core N`, `--arms N`, `--gen N`
    (Master of Arena part numbers, as in the part file names).
+   The test build runs 30 steps a second for now; `--tick 22` gives Gen 1's
+   own pace.
 
 | Action | Controller | Keyboard |
 | --- | --- | --- |

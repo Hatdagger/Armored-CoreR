@@ -43,6 +43,12 @@ int main(void) {
     for (int i = 0; i < 4; ++i) { acr_gen1_ac_step(&ac, &d, fwd); got[i] = (ac.z - last) / 64; last = ac.z; }
     EXPECT(got[0] + got[1] == 62 && got[2] + got[3] == 75);
 
+    /* Walking forward and right at facing 0 moves along the diagonal. */
+    acr_gen1_ac_spawn(&ac, &d, 0, 0, 0);
+    const acr_gen1_input diag = { 1, 0, 1, 0, 0 };
+    for (int i = 0; i < 4; ++i) acr_gen1_ac_step(&ac, &d, diag);
+    EXPECT(ac.x > 0 && ac.z > 0 && ac.x - ac.z < 4 * 64 && ac.z - ac.x < 4 * 64);
+
     /* Turning: +6 a step up to 38. */
     acr_gen1_ac_spawn(&ac, &d, 0, 0, 0);
     const acr_gen1_input turn = { 0, 1, 0, 0, 0 };
