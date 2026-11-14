@@ -135,6 +135,7 @@ void acr_gen1_ac_spawn(acr_gen1_ac *ac, const acr_gen1_ac_def *def, int32_t x, i
     ac->x = x;
     ac->z = z;
     ac->yaw = yaw;
+    ac->yaw_fine = (int32_t)yaw << 8;
     ac->energy = def->stats.energy_capacity;
     ac->state = ACR_GEN1_GROUND;
 }
@@ -143,15 +144,23 @@ void acr_gen1_ac_step(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
     const acr_gen1_motion *m = &def->motion;
     const acr_gen1_stats *s = &def->stats;
 
-    /* Turning: speeds up each step to the top rate, stops at once on release. */
+    /* Turning: speeds up each step to the top rate, stops at once on release.
+     * Kept per second at faster step rates (top speed x r, acceleration x r^2,
+     * r = gen1_rate / step_rate), in 1/256 units so small steps add up. */
+    const int scaled = def->step_rate && def->gen1_rate;
+    const int64_t rn = scaled ? def->gen1_rate : 1, rd = scaled ? def->step_rate : 1;
     if (in.turn && ac->state != ACR_GEN1_LANDING) {
-        ac->turn_rate = (int16_t)(ac->turn_rate + in.turn * (int)m->turn_accel);
-        if (ac->turn_rate > (int)m->turn_max) ac->turn_rate = (int16_t)m->turn_max;
-        if (ac->turn_rate < -(int)m->turn_max) ac->turn_rate = (int16_t)-(int)m->turn_max;
+        const int32_t accel = (int32_t)((int64_t)m->turn_accel * 256 * rn * rn / (rd * rd));
+        const int32_t top = (int32_t)((int64_t)m->turn_max * 256 * rn / rd);
+        ac->turn_fine += in.turn * (accel ? accel : 1);
+        if (ac->turn_fine > top) ac->turn_fine = top;
+        if (ac->turn_fine < -top) ac->turn_fine = -top;
     } else {
-        ac->turn_rate = 0;
+        ac->turn_fine = 0;
     }
-    ac->yaw = (uint16_t)((ac->yaw + ac->turn_rate) & 4095);
+    ac->turn_rate = (int16_t)(ac->turn_fine * rd / rn / 256);
+    ac->yaw_fine = (ac->yaw_fine + ac->turn_fine) & (4096 * 256 - 1);
+    ac->yaw = (uint16_t)(ac->yaw_fine >> 8);
 
     const int can_boost = in.boost && !ac->drained && ac->energy > 0;
     const int fresh_press = in.boost && (!ac->boost_was_down || in.boost_tapped);
@@ -182,6 +191,7 @@ void acr_gen1_ac_step(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
             ac->vx += dx * (int32_t)m->boost_accel / 4096;
             ac->vz += dz * (int32_t)m->boost_accel / 4096;
             limit_length(&ac->vx, &ac->vz, m->boost_max);
+            ac->coast = (uint16_t)(3 * rd / rn);   /* measured: 2-3 steps at full speed */
             drain = 2;                          /* marker: ground boost (half cost) */
             set_anim(ac, ACR_GEN1_ANIM_IDLE);
         } else if (can_boost && ac->vx == 0 && ac->vz == 0) {
@@ -189,7 +199,10 @@ void acr_gen1_ac_step(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
             ac->state = ACR_GEN1_CROUCH;
             set_anim(ac, ACR_GEN1_ANIM_JUMP);
         } else if (ac->vx || ac->vz) {
-            slow_down(&ac->vx, &ac->vz, m->boost_accel);
+            /* Slide: keep full speed a moment, then slow by the boost
+             * acceleration a step (per second at faster step rates). */
+            if (ac->coast) --ac->coast;
+            else slow_down(&ac->vx, &ac->vz, (uint32_t)(m->boost_accel * rn / rd));
         } else {
             walk(ac, def, in, &mx, &mz);
         }
@@ -238,6 +251,9 @@ void acr_gen1_ac_step(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
     case ACR_GEN1_LANDING:
         if (ac->timer) --ac->timer;
         if (!ac->timer) ac->state = ACR_GEN1_GROUND;
+        slow_down(&ac->vx, &ac->vz, (uint32_t)(m->boost_accel * rn / rd));
+        mx = ac->vx;
+        mz = ac->vz;
         break;
     }
 
@@ -245,22 +261,26 @@ void acr_gen1_ac_step(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
     ac->z += mz;
     if (ac->state == ACR_GEN1_AIR) {
         ac->y += ac->vy;
-        if (ac->y >= 0 && ac->vy >= 0) {          /* touch down: stop dead */
+        if (ac->y >= 0 && ac->vy >= 0) {          /* touch down */
             ac->vy_at_touchdown = ac->vy;
             ac->y = 0;
-            ac->vx = ac->vy = ac->vz = 0;
+            ac->vy = 0;
+            /* Sideways speed carries into a ground slide (the game was only
+             * measured landing with none left). */
+            ac->coast = 0;
             ac->state = ACR_GEN1_LANDING;
-            /* Landing recovery grows with the speed of the fall, so feathering
-             * the booster before touching down softens it. Full recovery at
-             * 5,000 and above (a hop's touchdown); the scaling below that is a
-             * stand-in until measured. */
+            set_anim(ac, ACR_GEN1_ANIM_IDLE);
+            /* Recovery grows with the speed of the fall: none below 2,000, the
+             * full measured stagger at 5,000 and above (a hop's touchdown), so
+             * feathering the booster before landing softens it. Counted in
+             * steps, so it shortens at faster step rates like movement. The
+             * curve below 5,000 is a stand-in until measured. */
             const int32_t fall = ac->vy_at_touchdown;
-            uint32_t steps = fall >= 5000 ? def->landing_steps
-                                          : (uint32_t)def->landing_steps * (uint32_t)fall / 5000u;
-            if (def->step_rate && def->gen1_rate) steps = steps * def->step_rate / def->gen1_rate;
+            uint32_t steps = 0;
+            if (fall >= 5000) steps = def->landing_steps;
+            else if (fall > 2000) steps = (uint32_t)def->landing_steps * (uint32_t)(fall - 2000) / 3000u;
             ac->timer = (uint16_t)steps;
             if (!ac->timer) ac->state = ACR_GEN1_GROUND;
-            set_anim(ac, ACR_GEN1_ANIM_IDLE);
         }
     }
 

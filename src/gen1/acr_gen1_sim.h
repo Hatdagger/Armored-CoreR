@@ -38,8 +38,9 @@ typedef struct acr_gen1_ac_def {
     const acr_gen1_root_track *anim[ACR_GEN1_ANIM_COUNT];   /* NULL = missing */
     uint16_t landing_steps;   /* recovery after a hard landing (measured: about 20 after a hop
                                  that touched down at 5,000+) */
-    /* Running faster than Gen 1's 22 steps a second: energy and recovery
-     * times are kept per second by scaling with gen1_rate / step_rate.
+    /* Running faster than Gen 1's 22 steps a second (gen1_rate / step_rate):
+     * movement speeds stay per step (so the game runs faster), while energy,
+     * turning and the slide after a ground boost are kept per second.
      * 0 / 0 = Gen 1's own pace. */
     uint16_t step_rate, gen1_rate;
     uint8_t  no_boost_hop;    /* caterpillars: re-pressing boost while sliding does not jump */
@@ -51,7 +52,10 @@ typedef struct acr_gen1_ac {
     int32_t  x, y, z;
     int32_t  vx, vy, vz;
     uint16_t yaw;
-    int16_t  turn_rate;
+    int16_t  turn_rate;        /* facing units per step at Gen 1's pace */
+    int32_t  yaw_fine;         /* facing in 1/256 units (lets faster step rates turn smoothly) */
+    int32_t  turn_fine;        /* turn speed in 1/256 units per step */
+    uint16_t coast;            /* steps left at full speed after a ground boost ends */
     int32_t  energy;
     uint8_t  drained;          /* ran out: no boosting until the bar is full again */
     uint8_t  boost_was_down;   /* booster button last step, to see a fresh press */
