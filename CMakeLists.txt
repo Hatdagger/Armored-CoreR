@@ -19,10 +19,17 @@ add_library(acr_core STATIC
     src/core/acr_pools.c)
 target_include_directories(acr_core PUBLIC src/core)
 
+# Gen 1 (Armored Core, Project Phantasma, Master of Arena) rules.
+add_library(acr_gen1 STATIC
+    src/gen1/acr_gen1_compile.c)
+target_include_directories(acr_gen1 PUBLIC src/gen1)
+target_link_libraries(acr_gen1 PUBLIC acr_core)
+
 # Disc importer.
 add_library(acr_import_lib STATIC
     tools/acr_import/acr_disc.c
-    tools/acr_import/acr_import.c)
+    tools/acr_import/acr_import.c
+    tools/acr_import/acr_parts_moa.c)
 target_include_directories(acr_import_lib PUBLIC tools/acr_import)
 add_executable(acr-import tools/acr_import/main.c)
 target_link_libraries(acr-import PRIVATE acr_import_lib)
@@ -31,6 +38,9 @@ enable_testing()
 add_executable(test_core tests/test_core.c)
 target_link_libraries(test_core PRIVATE acr_core)
 add_test(NAME core COMMAND test_core)
+add_executable(test_gen1 tests/test_gen1.c)
+target_link_libraries(test_gen1 PRIVATE acr_gen1)
+add_test(NAME gen1 COMMAND test_gen1)
 add_executable(test_import tests/test_import.c)
 target_link_libraries(test_import PRIVATE acr_import_lib)
 add_test(NAME import COMMAND test_import ${CMAKE_CURRENT_BINARY_DIR}/test_import_work)

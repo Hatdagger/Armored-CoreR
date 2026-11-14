@@ -80,7 +80,8 @@ bytes per part), core `0x800CEAC8` (56), legs `0x800CED30` (72), arms
 +0x28 weight, +0x2A energy drain (legs: drain while moving; generator: output),
 +0x2C AP / booster rise power / generator capacity, +0x2E booster drain /
 generator red zone, +0x32 legs: carry limit, +0x34 legs: drain standing,
-+0x40 legs: turning.
++0x40 legs: stability. Bytes 18-35 hold the game's type text ("HUMANOID
+LEGS", "SNIPER RIFLE"...).
 
 **Garage parts** (`0x80036FB0`, 12 bytes): core, booster, head, arms, blade,
 hand weapon, back L, back R, generator, FCS, (unused), legs. Default AC:
@@ -95,13 +96,49 @@ GPS-VVA, COMDEX-C7, LN-1001-PX-0.
 | +24 red zone | generator +0x2E | 7,800 |
 | +26 refill moving | (generator output - moving drain) x 64 / 1000, limited to 1-192 | 127 |
 | +28 blade power | blade +0x2C | 2,050 |
-| +36 turn | (legs turning x 4096 / 1018) x (carried weight x 256 / 1000 / 512) / 16384, limited to 32-255 | 38 |
+| +36 stability | (legs stability [+800 with SP-ABS, +1600 with SP-ABS_Re] x 4096 / 1018) x (carried weight x 256 / 1000 / 512) / 16384, limited to 32-255 | 38 |
 
 Standing drain = head + arms + core + FCS drains + legs standing drain (2,706);
 moving drain uses the legs' moving drain instead (4,009). Carried weight = all
 parts except the generator, capped at legs weight + legs carry limit (5,496).
 Integer division throughout (the game uses multiply-by-reciprocal tricks that
-round down). Every value above was checked against the live compiled block.
+round down). Every value above was checked against the live compiled block of
+three builds: the default AC, reverse-joint legs (LB-4400), and caterpillar
+legs with no booster (LC-UKI60, whose rise drain comes from the legs). The C
+port (`src/gen1/acr_gen1_compile.c`) matches an instruction-level
+transcription on 600 random builds (`tests/test_gen1.c`).
+
+**Correction:** +36 was first read as turn speed because it equals the
+measured top turn rate (38) on the default AC. The two bits that raise it are
+both Balancers ("Decreases Impact shock"), and it grows with weight, so it is
+stability. The turn speed is most likely the byte pair at +10/+11 (38, 38),
+which the battle engine scales at match start (x14 and x140); to confirm.
+
+## Optional parts
+
+13 options, 44-byte records at `0x800D1AA0` (code name, full name, u32 price,
+u16 slot cost); bit n of the AC's option mask (`0x8003EA70` in the garage)
+fits option n. A core's option slots limit the total slot cost, and the game
+refuses to start a match with an illegal AC (both players are checked).
+
+| Bit | Option | Effect (game's text) | Slots | Where it acts |
+| --- | --- | --- | --- | --- |
+| 0 | SP-MAW Radar option | Adds missile indicator to radar | 1 | flag copied to the compiled AC |
+| 1 | SP-JAM Missile jammer | Missile lock-on interference | 3 | flag copied |
+| 2 | SP-M/AUTO Auto launcher | Automatic missile launcher | 1 | weapon records |
+| 3 | SP-ABS Balancer | Decreases impact shock | 1 | stability (+36) |
+| 4 | SP-SAP Absorber | Decreases cannon recoil | 1 | weapon records |
+| 5 | SP-CND-K Charge expander | Increases energy output | 4 | flag copied; applied in battle |
+| 6 | SP-AXL FCS accelerator | Accelerates lock-on time | 2 | compile |
+| 7 | SP-S/SCR Shell screen | Decreases projectile damage | 2 | shell defense |
+| 8 | SP-E/SCR Energy screen | Decreases energy damage | 1 | energy defense |
+| 9 | SP-EH Rapid charge | Increases energy weapon recharge | 1 | weapon records |
+| 10 | SP-E+ Energy amplifier | Increases energy weapon power | 1 | weapon records |
+| 11 | SP-DEtq Energy reduce | Decreases energy used | 5 | weapon records |
+| 12 | SP-ABS_Re Balancer (not sold) | Decreases impact shock | 2 | stability (+36) |
+
+Effects that are only flags (radar, jammer, charge expander) do not change
+the AC's listed stats; the battle engine applies them during a fight.
 
 Note: the AC happened to rise exactly 2,050 units in the rise test, the same
 as +28 (blade power); that was a coincidence, not the rise height.
@@ -110,8 +147,8 @@ as +28 (blade power); that was a coincidence, not the rise height.
 
 - The remaining compiled fields (walk speed, boost speed, rise speed, gravity),
   then confirm each formula with a second, very different AC.
-- Turn speed rises with weight in the formula above; check with a heavy build
-  whether the engine uses it as a speed or as a limit.
+- Confirm turn speed is +10/+11 and how the battle engine uses +6..+14.
+- Option effects inside the battle engine (charge expander, energy reduce).
 - Air boost (X with a direction while airborne), backward and sideways boost,
   landing, and energy running out.
 - Heat, weapons and lock-on.

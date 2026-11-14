@@ -4,6 +4,7 @@
  *   <out>/disc/<path>.raw2352        files with XA (Form 2) sectors, kept whole
  *   <out>/unpacked/<path without .T>/NNN.bin   one file per archive entry
  *   <out>/unpacked/<path without .T>/archive.toml  the entry table
+ *   <out>/parts/<category>/...toml   every part's stats (acr_parts_moa.c)
  *
  * A MoA .T archive starts with a u16 entry count followed by count + 1 u16
  * sector offsets (relative to the archive start); entry i covers sectors
@@ -20,6 +21,7 @@ typedef struct acr_import_stats {
     uint32_t archives;         /* .T archives unpacked */
     uint32_t archive_entries;  /* entries written from them */
     uint32_t archives_skipped; /* .T files whose table did not check out */
+    uint32_t parts;            /* part files written to <out>/parts */
 } acr_import_stats;
 
 int acr_import_disc(const char *disc_path, const char *out_dir, acr_import_stats *stats,

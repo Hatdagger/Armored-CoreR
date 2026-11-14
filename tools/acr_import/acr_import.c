@@ -1,5 +1,6 @@
 #include "acr_import.h"
 #include "acr_disc.h"
+#include "acr_parts_moa.h"
 
 #include <ctype.h>
 #include <errno.h>
@@ -164,5 +165,15 @@ int acr_import_disc(const char *disc_path, const char *out_dir, acr_import_stats
     const int ok = acr_iso_walk(&disc, visit, &c);
     if (!ok && err && !err[0]) set_err(err, err_size, "the disc's file system could not be read", NULL);
     acr_disc_close(&disc);
-    return ok;
+    if (!ok) return 0;
+    /* Master of Arena: export the part tables when the menu module is there. */
+    char menu[ACR_PATH_MAX], parts_dir[ACR_PATH_MAX];
+    snprintf(menu, sizeof menu, "%s/unpacked/GG/COM/FDAT/206.bin", out_dir);
+    FILE *probe = fopen(menu, "rb");
+    if (probe) {
+        fclose(probe);
+        snprintf(parts_dir, sizeof parts_dir, "%s/parts", out_dir);
+        if (!acr_export_moa_parts(menu, parts_dir, &stats->parts, err, err_size)) return 0;
+    }
+    return 1;
 }

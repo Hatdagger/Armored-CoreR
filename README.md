@@ -25,6 +25,8 @@ Phase 1, matching the feel. Nothing is playable yet.
 | Disc importer (`acr-import`) for Master of Arena | works on a real disc |
 | Window and input shell (SDL3) | first version |
 | Gen 1 timing: 22.0 logic steps a second, measured from MoA | done |
+| Part stats exported as readable files (187 parts incl. optional parts) | done |
+| Gen 1 compile (parts -> AC stats), first formulas, checked against the game | in progress |
 | Gameplay | not started |
 
 ## Building
@@ -44,8 +46,10 @@ the core, tools and tests, add `-DACR_BUILD_GAME=OFF`.
 build/acr-import "Armored Core - Master of Arena (USA) (Disc 1).cue" Data/moa
 ```
 
-This copies every file off the disc into `Data/moa/disc/` and unpacks the
-game's `.T` archives into folders of numbered entries.
+This copies every file off the disc into `Data/moa/disc/`, unpacks the
+game's `.T` archives into folders of numbered entries, and writes every part
+(including optional parts) as a readable file in `Data/moa/parts/`, sorted by
+type: `legs/humanoid`, `back/missile`, `option` and so on.
 
 ## More
 

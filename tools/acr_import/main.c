@@ -17,6 +17,8 @@ int main(int argc, char **argv) {
            (unsigned)(stats.files + stats.raw_files), (unsigned)stats.raw_files);
     printf("Unpacked %u archives into %u entries.\n",
            (unsigned)stats.archives, (unsigned)stats.archive_entries);
+    if (stats.parts)
+        printf("Wrote %u parts as readable files in %s/parts.\n", (unsigned)stats.parts, argv[2]);
     if (stats.archives_skipped)
         printf("Left %u .T files as they are: their tables did not check out.\n",
                (unsigned)stats.archives_skipped);
