@@ -96,6 +96,44 @@ example "your opponent is on 0.6, you are on 0.7"). Only when everything
 matches does the host send the random seed and the battle start. A replay
 header carries the same fields, so a replay is checked the same way.
 
+## Players and joining
+
+- The simulation has **player slots** (up to 4), never a fixed "player 1 and
+  player 2". Early versions may only use two; nothing in the core assumes it.
+  (Master of Arena hard-wires two AC slots, which is what blocked 3-4 unit
+  battles in the recomp.)
+- **Joining mid-battle or mid-mission:** the host picks a future tick, sends a
+  snapshot of the whole simulation state for that tick, and the new player's
+  inputs count from that tick on. The connection handshake runs first, as for
+  any connection.
+- Snapshots are **self-contained** (IDs, no memory pointers), so the same
+  snapshot serves rollback, joining, desync dumps and replay seeking.
+- **Missions are written for "the players"**, not "the player": spawn points,
+  objectives and scripted events take any number of player ACs. Original
+  single-player missions get extra spawn points and co-op rules as data.
+
+## Engine rules
+
+Cheap to follow from the start, expensive to retrofit:
+
+1. **IDs, not pointers,** in the simulation state (AC 3, bullet 120).
+2. **Fixed iteration order** everywhere in the simulation: no loops over hash
+   maps or anything whose order can differ between machines.
+3. **Gameplay content is data with stable IDs:** parts, stages, missions and AI
+   profiles live in versioned tables, not code. Their hash feeds the
+   connection handshake.
+4. **Saves and settings carry a version** and an upgrade step from older
+   formats, so a new build never breaks an old save.
+5. **All on-screen text comes from tables** (translations, controller-specific
+   button prompts).
+6. **The UI is resolution- and aspect-independent:** 4:3 for the Xbox, 16:9 and
+   16:10 for PCs and handhelds.
+7. **Debug view and desync dump:** the simulation state can be inspected live,
+   and when checksums disagree both machines write their state at that tick so
+   the two can be compared.
+8. **Per-type budgets** (ACs, bullets, effects) inside the memory pools, so a
+   large co-op battle degrades gracefully on Xbox-sized hardware.
+
 ## Legal
 
 - No copyrighted data ships. The importer reads the player's own discs.
