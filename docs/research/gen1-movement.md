@@ -65,29 +65,53 @@ A full 28,000 bar is about 64 steps (3 seconds) of continuous rise.
 
 X alone rises; X with a direction boosts along the ground.
 
-## The compiled AC holds these numbers
+## The compiled AC: formulas from the game's own code
 
-When a match starts, the game compiles the AC's parts into a 324-byte stat
-block at player block +592 (compile routine `0x8007E730` in the menu module,
-FDAT 206). The battle engine reads movement values from it. On the default AC:
+When a match starts, the menu module's compile routine (`0x800A7BB4`, FDAT 206;
+called from VS START at `0x800B3058`) turns the AC's parts into a 324-byte stat
+block at player block +592. The battle engine reads movement values from it.
+Found by tracing writes to the block in the recomp, then reading the routine.
 
-| Compiled field (u16) | Value | Matches |
+**Part tables** (menu module, loaded at `0x80050DD8`): head `0x800CE690` (60
+bytes per part), core `0x800CEAC8` (56), legs `0x800CED30` (72), arms
+`0x800CF870` (52), hand weapon `0x800CFD50` (44), back weapon `0x800D01C8`
+(52), blade `0x800D0DF8` (52), booster `0x800D0F30` (48), FCS `0x800D11D0`
+(96), generator `0x800D17D0` (48). Record: name (18 bytes), then 16-bit stats;
++0x28 weight, +0x2A energy drain (legs: drain while moving; generator: output),
++0x2C AP / booster rise power / generator capacity, +0x2E booster drain /
+generator red zone, +0x32 legs: carry limit, +0x34 legs: drain standing,
++0x40 legs: turning.
+
+**Garage parts** (`0x80036FB0`, 12 bytes): core, booster, head, arms, blade,
+hand weapon, back L, back R, generator, FCS, (unused), legs. Default AC:
+XCA-00, B-P320, HD-GRY-NX, AN-201, LS-2001, WG-RF35, WM-S40/1, RXA-01WE,
+GPS-VVA, COMDEX-C7, LN-1001-PX-0.
+
+| Compiled field | Formula | Default AC |
 | --- | --- | --- |
-| +18 | 28,000 | full energy |
-| +20 | 436 | energy per step while rising (ground boost costs half) |
-| +22 | 210 | energy refill per step |
-| +26 | 127 | energy refill while still coasting |
-| +28 | 2,050 | rise height (the AC climbed exactly 2,050 units) |
-| +36 | 38 | top turning speed |
+| +18 energy capacity | generator +0x2C | 28,000 |
+| +20 rise drain per step | booster +0x2E / 10 (no booster: legs +0x44 / 10) | 436 |
+| +22 refill standing | (generator output - standing drain) x 64 / 1000, limited to 1-384 | 210 |
+| +24 red zone | generator +0x2E | 7,800 |
+| +26 refill moving | (generator output - moving drain) x 64 / 1000, limited to 1-192 | 127 |
+| +28 blade power | blade +0x2C | 2,050 |
+| +36 turn | (legs turning x 4096 / 1018) x (carried weight x 256 / 1000 / 512) / 16384, limited to 32-255 | 38 |
 
-Parts sit at compiled +0x29 (12 bytes). Part tables (name, price, weight,
-drain, AP, defence, booster power, generator output) are in the menu module
-too. Next: decode the compile routine so every stat comes from a formula over
-part stats, for any build.
+Standing drain = head + arms + core + FCS drains + legs standing drain (2,706);
+moving drain uses the legs' moving drain instead (4,009). Carried weight = all
+parts except the generator, capped at legs weight + legs carry limit (5,496).
+Integer division throughout (the game uses multiply-by-reciprocal tricks that
+round down). Every value above was checked against the live compiled block.
+
+Note: the AC happened to rise exactly 2,050 units in the rise test, the same
+as +28 (blade power); that was a coincidence, not the rise height.
 
 ## Still to measure
 
-- How each figure depends on parts: legs (weight, type), boosters, generator.
+- The remaining compiled fields (walk speed, boost speed, rise speed, gravity),
+  then confirm each formula with a second, very different AC.
+- Turn speed rises with weight in the formula above; check with a heavy build
+  whether the engine uses it as a speed or as a limit.
 - Air boost (X with a direction while airborne), backward and sideways boost,
   landing, and energy running out.
 - Heat, weapons and lock-on.
