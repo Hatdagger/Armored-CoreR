@@ -32,8 +32,13 @@ weapons, damage, two-player test build (see `docs/research/`).
    loads for an AC and how it draws them; decode mesh, texture and skeleton
    formats. The animation records already read for root motion also hold
    joint rotations.
-2. **Model import and display**: OBJ/PNG/rig export per part; the engine
-   puts parts on the skeleton for a build and plays the real animations.
+2. **Model import and display** (first version done): OBJ/PNG/rig export
+   per part; the engine (`src/model/`) reads the export, puts the build's
+   parts on its animation set's skeleton, plays the joint animations with
+   their hold times and builds the patterned textures from the player's
+   colours. The test build draws both ACs this way. Still to come: the
+   effects texture ("fx" faces), per-texel semi-transparency, aiming joints
+   (tables a/b), kneel/landing poses and colour patterns 1-15.
 3. **Garage, shop, test mode**: built on the stand-in AC while 1-2 go on,
    then switched to real models. Fitting rules live, credits, buy/sell,
    readable save files; test mode is the current test arena.

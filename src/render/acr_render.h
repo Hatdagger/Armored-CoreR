@@ -38,6 +38,13 @@ void acr_render_view3d(int x, int y, int w, int h, const float proj[16], const f
 void acr_render_tris(const acr_vtx *v, int count, uint32_t texture);
 void acr_render_lines(const acr_vtx *v, int count);
 
+/* Model triangles the PS1 way: with ACR_MESH_PS1_TEXEL a vertex colour of
+ * 128 shows the texel as it is (texel x colour / 128, up to twice as
+ * bright); see-through texels (alpha 0) are skipped. ACR_MESH_SEMI blends
+ * without writing depth (draw these after the solid ones). */
+enum { ACR_MESH_PS1_TEXEL = 1, ACR_MESH_SEMI = 2 };
+void acr_render_mesh(const acr_vtx *v, int count, uint32_t texture, int flags);
+
 /* HUD over a pixel rectangle; returns the HUD grid width for that rectangle
  * (the height is always 480). */
 float acr_render_hud(int x, int y, int w, int h);

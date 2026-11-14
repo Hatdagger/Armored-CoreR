@@ -34,6 +34,13 @@ target_link_libraries(acr_gen1 PUBLIC acr_core)
 add_library(acr_light STATIC src/render/acr_light.c)
 target_include_directories(acr_light PUBLIC src/render)
 
+# Models: PNG reader, skeletons, joint animations, OBJ/MTL (no OS calls).
+add_library(acr_model STATIC src/model/acr_png.c src/model/acr_model.c)
+target_include_directories(acr_model PUBLIC src/model)
+if(NOT MSVC)
+    target_link_libraries(acr_model PUBLIC m)
+endif()
+
 # Disc importer.
 add_library(acr_import_lib STATIC
     tools/acr_import/acr_disc.c
@@ -71,6 +78,9 @@ add_test(NAME light COMMAND test_light)
 add_executable(test_models tests/test_models.c)
 target_link_libraries(test_models PRIVATE acr_import_lib)
 add_test(NAME models COMMAND test_models ${CMAKE_CURRENT_BINARY_DIR}/test_models.png)
+add_executable(test_model tests/test_model.c)
+target_link_libraries(test_model PRIVATE acr_model acr_import_lib)
+add_test(NAME model COMMAND test_model ${CMAKE_CURRENT_BINARY_DIR}/test_model.png)
 add_executable(test_import tests/test_import.c)
 target_link_libraries(test_import PRIVATE acr_import_lib)
 add_test(NAME import COMMAND test_import ${CMAKE_CURRENT_BINARY_DIR}/test_import_work)
@@ -85,10 +95,10 @@ if(ACR_BUILD_GAME)
         GIT_TAG release-3.2.10
         GIT_SHALLOW TRUE)
     FetchContent_MakeAvailable(SDL3)
-    add_executable(armored-corer WIN32 src/platform/sdl3/main.c src/platform/sdl3/demo_data.c)
+    add_executable(armored-corer WIN32 src/platform/sdl3/main.c src/platform/sdl3/demo_data.c src/platform/sdl3/demo_model.c)
     add_library(acr_render_gl STATIC src/render/acr_render_gl.c)
     target_include_directories(acr_render_gl PUBLIC src/render)
-    target_link_libraries(armored-corer PRIVATE acr_core acr_gen1 acr_import_lib acr_light acr_render_gl SDL3::SDL3-static)
+    target_link_libraries(armored-corer PRIVATE acr_core acr_gen1 acr_import_lib acr_model acr_light acr_render_gl SDL3::SDL3-static)
     if(NOT MSVC)
         target_link_libraries(armored-corer PRIVATE m)
     endif()

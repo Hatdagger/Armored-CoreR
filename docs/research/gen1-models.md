@@ -194,9 +194,29 @@ found on the disc yet).
 
 `tools/research/moa_export_view.py` rebuilds an AC from these files only.
 
+## In the engine (2026-11-14)
+
+`src/model/acr_model.c` (skeleton, animations, OBJ/MTL, pose matrices,
+colour ramp) and `acr_png.c` (PNG reader with a full inflate, so edited
+textures load); `src/platform/sdl3/demo_model.c` loads a build and draws it.
+
+- Model space (OBJ) has the AC facing +z with its right hand at -x; the
+  test build's world is mirrored on screen (right = +x), so x is negated
+  when an AC is placed.
+- Pose at a tick: bind pose, then frames 0..k of the animation; frame i
+  stays for its hold ticks, the last one for good. Frame ticks are movement
+  steps, the same count the root motion uses (`anim_frame`).
+- Textured faces marked semi-transparent are drawn solid: on the PS1 only
+  texels with the STP bit blend, and neither the export nor the colour ramp
+  keeps that bit. Untextured semi faces blend 50/50.
+- Hand weapons and some back units use another part's texture (material
+  named after it): the engine uses the fitted part of that kind, as the
+  game does through VRAM.
+- Lighting: vertex colour 128 = the texel as it is (texel x colour / 128),
+  like the PS1, with the default lights until stage lights are read.
+
 ## Next
 
-1. Engine: load a build's pieces from the export, play the animations
-   (hold times in ticks), palette from the player's colours.
+1. Garage/shop on the real models; open items above and below.
 2. Find the effects texture (page 512,256, palette row 510) and the
    exact palette ramp routine.

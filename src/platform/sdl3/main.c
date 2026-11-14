@@ -3,8 +3,9 @@
  * The AC's stats and walking animation come from the player's own
  * acr-import output (folder given on the command line, or "import" next to
  * the program). Movement runs at Gen 1's 22 steps a second; drawing is
- * smoothed between steps at the screen's own rate. The AC is a stand-in
- * made of boxes until the real models are imported.
+ * smoothed between steps at the screen's own rate. ACs are drawn from the
+ * import's models (pieces, skeleton, joint animations); an import without
+ * models gets a stand-in made of boxes.
  *
  *   armored-corer [import folder | disc.cue] [--legs N] [--booster N]
  *                 [--core N] [--arms N] [--gen N] (Master of Arena indices)
@@ -23,6 +24,7 @@
 #include "../../core/acr_gen1.h"
 #include "../../core/acr_pools.h"
 #include "demo_data.h"
+#include "demo_model.h"
 #include "acr_import.h"
 #include "../../render/acr_render.h"
 #include "../../render/acr_light.h"
@@ -150,6 +152,40 @@ static void add_ac(vec3 p, float yaw, float crouch, int enemy) {
     #undef BODY
     #undef TRIM
     #undef DARK
+}
+
+/* Each player's model, reloaded when their build changes. Player 2 gets
+ * its own colours (made-up numbers, 0..63 per channel) so the two differ. */
+static demo_model g_model[2];
+static int g_model_parts[2][SLOT_COUNT], g_model_set[2] = { -1, -1 };
+static const uint8_t k_colours_p2[4][3] = { { 46, 12, 10 }, { 18, 18, 20 }, { 52, 44, 16 }, { 10, 10, 12 } };
+
+static void refresh_model(int who, const char *dir, const int parts[SLOT_COUNT], int set) {
+    if (g_model_set[who] == set && !memcmp(g_model_parts[who], parts, sizeof g_model_parts[who])) return;
+    demo_model_free(&g_model[who]);
+    demo_model_load(dir, set, parts, who ? k_colours_p2 : NULL, &g_model[who]);
+    memcpy(g_model_parts[who], parts, sizeof g_model_parts[who]);
+    g_model_set[who] = set;
+}
+
+/* Which animation to show and how far into it: the movement's own one on
+ * the ground, the jump then the air pose off it. */
+static int shown_anim(const acr_gen1_ac *ac, const demo_model *m, unsigned *tick) {
+    *tick = ac->anim_frame;
+    if (ac->state == ACR_GEN1_AIR) {
+        const acr_anim *jump = &m->anims.anim[ACR_GEN1_ANIM_JUMP];
+        if (ac->anim == ACR_GEN1_ANIM_JUMP && jump->frames && ac->anim_frame <= jump->ticks) return ACR_GEN1_ANIM_JUMP;
+        *tick = 0;
+        return m->anims.anim[24].frames ? 24 : ACR_GEN1_ANIM_IDLE;   /* 24: in the air */
+    }
+    return ac->anim;
+}
+
+static void draw_ac(int who, const acr_gen1_ac *ac, float x, float y, float z, float yaw, float crouch) {
+    unsigned tick;
+    if (!g_model[who].ok) { add_ac(v3(x, y, z), yaw, crouch, who); return; }
+    const int anim = shown_anim(ac, &g_model[who], &tick);
+    demo_model_draw(&g_model[who], anim, tick, x, y, z, yaw, &g_light);
 }
 
 /* World point -> HUD grid (hud_w x 480) through proj*view; 0 if behind. */
@@ -577,6 +613,8 @@ int main(int argc, char **argv) {
         SDL_GetWindowSizeInPixels(window, &pw, &ph);
         if (pw < 1 || ph < 1) { SDL_Delay(10); continue; }
         acr_render_begin(pw, ph, 18, 22, 28);
+        refresh_model(0, dir, parts, ac_data[0].model);
+        refresh_model(1, dir, parts2, ac_data[1].model);
         const int views = two_players ? 2 : 1;
         for (int view = 0; view < views; ++view) {
         const int vx = view * pw / views, vpw = (view + 1) * pw / views - vx;
@@ -630,10 +668,11 @@ int main(int argc, char **argv) {
         if (ac.state == ACR_GEN1_CROUCH) crouch = 90;
         if (ac.state == ACR_GEN1_LANDING) crouch = 70;
         if (battle.f[view].kneeling) crouch = 150;
-        add_ac(v3(px, py, pz), yaw, crouch, 0);
+        flush_scene();
+        draw_ac(view, &ac, px, py, pz, yaw, crouch);
         const float tx = (tprev.x + (T->x - tprev.x) * a) / 64.0f, ty = -(tprev.y + (T->y - tprev.y) * a) / 64.0f,
                     tz = (tprev.z + (T->z - tprev.z) * a) / 64.0f;
-        if (battle.f[1 - view].ap > 0) add_ac(v3(tx, ty, tz), T->yaw * (6.2831853f / 4096.0f), 0, 1);
+        if (battle.f[1 - view].ap > 0) draw_ac(1 - view, T, tx, ty, tz, T->yaw * (6.2831853f / 4096.0f), 0);
         for (int k = 0; k < ACR_GEN1_MAX_SHOTS; ++k) {
             const acr_gen1_shot *sh = &battle.shot[k];
             if (!sh->active) continue;

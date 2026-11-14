@@ -30,7 +30,7 @@ empty arena with Gen 1 movement.
 | Gen 1 compile (parts -> AC stats), checked against the game | done |
 | Gen 1 fitting rules (what makes an AC legal) | done |
 | Gen 1 movement: walk, strafe, turn, boost, rise, landing, energy | first version |
-| AC graphics | stand-in boxes; real models not imported yet |
+| AC graphics | real models from your disc: parts on the skeleton, joint animations, your colours (PS1-style lighting) |
 | Lock-on, rifle / missile / blade, damage (first version, target dummy) | in progress |
 | Two players on one machine (split screen) | first version |
 | Renderer: OpenGL 2.1, PS1-style lighting and fog, native resolution | first version |

@@ -51,6 +51,14 @@ typedef unsigned int GLbitfield;
 #define GL_FOG_END 0x0B64
 #define GL_FOG_COLOR 0x0B66
 #define GL_SMOOTH 0x1D01
+#define GL_TEXTURE_ENV 0x2300
+#define GL_TEXTURE_ENV_MODE 0x2200
+#define GL_MODULATE 0x2100
+#define GL_COMBINE 0x8570
+#define GL_COMBINE_RGB 0x8571
+#define GL_RGB_SCALE 0x8573
+#define GL_ALPHA_TEST 0x0BC0
+#define GL_GREATER 0x0204
 
 #define GLAPI_ENTRY
 #if defined(_WIN32)
@@ -86,7 +94,10 @@ typedef unsigned int GLbitfield;
     X(void, TexImage2D, (GLenum, GLint, GLint, GLsizei, GLsizei, GLint, GLenum, GLenum, const void *)) \
     X(void, TexParameteri, (GLenum, GLenum, GLint)) \
     X(void, ReadPixels, (GLint, GLint, GLsizei, GLsizei, GLenum, GLenum, void *)) \
-    X(void, ShadeModel, (GLenum))
+    X(void, ShadeModel, (GLenum)) \
+    X(void, TexEnvi, (GLenum, GLenum, GLint)) \
+    X(void, TexEnvf, (GLenum, GLenum, GLfloat)) \
+    X(void, AlphaFunc, (GLenum, GLfloat))
 
 #define DECLARE(ret, name, args) typedef ret (GLAPI_ENTRY *pfn_##name) args; static pfn_##name gl##name;
 GL_FUNCS(DECLARE)
@@ -182,6 +193,27 @@ static void draw(GLenum mode, const acr_vtx *v, int count, uint32_t texture) {
 
 void acr_render_tris(const acr_vtx *v, int count, uint32_t texture) { draw(GL_TRIANGLES, v, count, texture); }
 void acr_render_lines(const acr_vtx *v, int count) { draw(GL_LINES, v, count, 0); }
+
+void acr_render_mesh(const acr_vtx *v, int count, uint32_t texture, int flags) {
+    if (count <= 0) return;
+    if (texture && (flags & ACR_MESH_PS1_TEXEL)) {
+        glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_COMBINE);
+        glTexEnvi(GL_TEXTURE_ENV, GL_COMBINE_RGB, GL_MODULATE);
+        glTexEnvf(GL_TEXTURE_ENV, GL_RGB_SCALE, 2.0f);
+    }
+    if (texture) {
+        glEnable(GL_ALPHA_TEST);
+        glAlphaFunc(GL_GREATER, 0.5f / 255.0f);
+    }
+    if (flags & ACR_MESH_SEMI) glDepthMask(0);
+    draw(GL_TRIANGLES, v, count, texture);
+    if (flags & ACR_MESH_SEMI) glDepthMask(1);
+    if (texture) glDisable(GL_ALPHA_TEST);
+    if (texture && (flags & ACR_MESH_PS1_TEXEL)) {
+        glTexEnvf(GL_TEXTURE_ENV, GL_RGB_SCALE, 1.0f);
+        glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
+    }
+}
 
 float acr_render_hud(int x, int y, int w, int h) {
     set_rect(x, y, w, h);
