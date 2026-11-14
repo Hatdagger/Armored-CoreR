@@ -32,7 +32,7 @@ checks. Not modelled yet, by design; it comes later.
 | --- | --- | --- |
 | No hand weapon or blade without arms | "Can't equip without an ARM part." | |
 | Weapon arms (index 12+) empty the hands | "Can't equip with ARM type weapon." / "Unequipped the ARM weapon." | |
-| Caterpillars (legs 27+) can't carry a booster | "Can't equip with a caterpillar." / "Unequipped the booster." | yes |
+| Caterpillars (legs 27+) can't carry a booster | "Can't equip with a caterpillar." / "Unequipped the booster." | not tested (the test card writer already drops it) |
 | Caterpillars can't carry radars 40, 41, 42, 44, 46 (radars 43, 45, 47 are allowed) | "Can't equip with a caterpillar." / "Unequipped the radar." | yes |
 | WG-1-KARASAWA (hand 15) can't go on legs 5 (LN-SSVR), 21-24 and 26 (four legs) or 27, 28, 30-32 (caterpillars) | "Can't equip with current legs." / "Unequipped the right ARM weapon." | yes |
 | ANKS-1A46J (arms 5) can't carry back weapons 0-39 or 53 (radars and other two-slot units are fine) | "Unable to equip" / "Unequipped the (left/right) BACK weapon(s)." | yes |
@@ -64,7 +64,7 @@ Test ACs written to a memory card, loaded with DATA LOAD, then VS START
 | --- | --- |
 | Legs 6 (humanoid) + Karasawa | kept |
 | Legs 5 (LN-SSVR) + Karasawa | Karasawa removed |
-| Legs 27 (caterpillar) + Karasawa + booster + radar 40 | all three removed |
+| Legs 27 (caterpillar) + Karasawa + radar 40 | both removed |
 | Back L 52 (two-slot) + back R 0 | both kept, match starts |
 | Legs 27 (caterpillar) + radar 43 | kept |
 | Arms 5 (ANKS-1A46J) + back L 0 | back L removed |

@@ -177,6 +177,10 @@ static int write_part(const char *dir, const table *t, uint32_t index, const uin
         field(f, "drain_standing", u16(rec + 0x34), NULL);
         field(f, "stability", u16(rec + 0x40), "resistance to impact shock");
         field(f, "boost_drain", u16(rec + 0x44), "used when no booster is fitted");
+        field(f, "turn_accel", u16(rec + 0x38), "turn acceleration, divided by carried weight");
+        field(f, "turn_speed", rec[0x3A], "top turn speed, divided by carried weight");
+        if (acr_gen1_fixed_boost_moa(index))
+            field(f, "fixed_boost", acr_gen1_fixed_boost_moa(index), "ground boost set by the game for these legs");
     }
     if (!strcmp(c, "blade")) field(f, "attack", u16(rec + 0x2C), NULL);
     write_fit(f, c, index);

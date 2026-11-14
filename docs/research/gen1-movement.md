@@ -143,13 +143,86 @@ the AC's listed stats; the battle engine applies them during a fight.
 Note: the AC happened to rise exactly 2,050 units in the rise test, the same
 as +28 (blade power); that was a coincidence, not the rise height.
 
+## Movement stats: compile bytes +6..+14
+
+Also from the compile routine (`0x800A8038-0x800A8238`), and checked
+against the live compiled block of 8 builds (all match, including a
+caterpillar, reverse-joint legs, a heavy booster and a stripped-down AC).
+`W` is the carried weight above. Booster power is booster `+0x2C`; the game
+uses a flat 9,800 for caterpillar legs (they carry no booster).
+
+| Byte | Formula | Default AC |
+| --- | --- | --- |
+| +6, +8 thrust | power x 4096 / W, then x 74898 >> 24 (about / 224); 1-64 | 32 |
+| +7, +9 | thrust x 8 / 10; 1-50 | 25 |
+| +10, +11 | thrust x 12 / 10; 1-64. Fixed instead for legs 21 (26), 22 (23), 23 (19), 24 (26), 26 (24), 27 (6), 28 (7), 30 (13), 31 (11), 32 (13) (`0x800AA96C`) | 38 |
+| +12 turn acceleration | legs `+0x38` x 3 x 65536 / 160 x 3573 / W >> 12; 1-64 | 22 |
+| +13 turn speed | legs `+0x3A` (byte) x 14635008 / W >> 12; 0-64 | 41 |
+| +14 friction | W x 8 / 1000; 32-96 | 43 |
+
+"Thrust" uses the unclamped value for +7 and +10, so a strong booster on a
+light AC caps +6 at 64 and +7 at 50 independently.
+
+## How the battle engine uses them
+
+At match start the VS engine (`0x8008342C`, FDAT 209) scales them into the
+player block (+0x200 on). Speeds are in 1/64 world units per step; position
+moves by speed / 64 each step.
+
+| Value | From | Default AC | Use |
+| --- | --- | --- | --- |
+| Rise acceleration | +6 x 2 | 64 | added to upward speed per step while rising |
+| Rise top speed | +7 x 200 | 5,000 | upward speed limit |
+| Air boost acceleration | +8 x 14 | 448 | horizontal, boosting in the air |
+| Air boost top speed | +9 x 140 | 3,500 | |
+| Ground boost acceleration | +10 x 14 | 532 | horizontal, along the stick direction |
+| Ground boost top speed | +11 x 140 | 5,320 | limit on the length of the speed vector |
+| Turn acceleration | +12 x 5 / 16 | 6 | facing units per step, per step |
+| Top turn speed | +13 x 15 / 16 | 38 | facing units per step |
+| Ground friction | +14 | 43 | taken off each horizontal axis per step |
+| Gravity | fixed | 256 | added to downward speed per step |
+| Fall limit | fixed | 9,600 | |
+
+Measured in the game (VS Mode, parts set before VS START):
+
+| AC | Turn (accel / top) | Ground boost (accel / top) | Rise accel |
+| --- | --- | --- | --- |
+| Default | 6 / 38 | 531 / 5,340 | 64 |
+| Light (no weapons) | 8 / 46 | 644 / 6,451 | 78 |
+| LB-4400 + B-PT000 | 6 / 33 | 897 / 9,000 | 128 |
+
+All as predicted (boost overshoots its limit slightly for one step before
+the limit is applied).
+
+**Ground speed limit per axis.** Position never moves more than 75 units
+per step along x or along z, whatever the speed: the LB-4400 build reached
+speed 9,000 (140 a step) but moved 75 on each axis; the light AC moved
+(32, 75). Diagonal boosting is faster than straight boosting. Where the
+limit is applied is not found yet (not a literal in the VS engine or the
+EXE); it holds in every measurement.
+
+**Walking is animation-driven.** Walking speed follows the legs' gait
+animation: humanoid LN-1001-PX-0 repeats 31/37 units per step, reverse
+joint LB-4400 repeats 32/48/32. Weight barely changes it (the stripped-down
+AC walked 32/38 on the same legs). The engine needs each legs model's
+animation root motion, which the importer can read from the disc.
+
+**Rise take-off is animation-driven too.** After about 7 steps of crouch,
+the AC leaves the ground with an upward speed taken from the jump
+animation's motion (`0x8007B200`: displacement x 64 / frames): 3,200
+(50 a step) on humanoid legs whatever the weight, 6,016 (94 a step) on
+LB-4400. Rise acceleration then applies while the button is held, and
+gravity after release.
+
+The engine port is in `src/gen1/acr_gen1_compile.c`
+(`acr_gen1_compile` and `acr_gen1_motion_from_stats`), tested against an
+instruction-level transcription on 600 random builds.
+
 ## Still to measure
 
-- The remaining compiled fields (walk speed, boost speed, rise speed, gravity),
-  then confirm each formula with a second, very different AC.
-- Confirm turn speed is +10/+11 and how the battle engine uses +6..+14.
-- Option effects inside the battle engine (charge expander, energy reduce).
-- Air boost (X with a direction while airborne), backward and sideways boost,
-  landing, and energy running out.
-- Heat, weapons and lock-on.
-- The arena engine (FDAT 210) alongside the VS engine, to confirm they match.
+- Air boosting (+8/+9) and the rise top speed, which these runs did not
+  reach; both are clear from the code.
+- Boost and landing friction after release (`0x80014790` takes the
+  acceleration / 4 as deceleration).
+- Where the 75-per-axis limit is applied.
+- Walking and jump animation root motion per legs model.

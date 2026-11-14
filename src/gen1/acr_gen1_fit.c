@@ -34,6 +34,16 @@ uint16_t acr_gen1_fit_flags_moa(acr_gen1_slot slot, unsigned index) {
     return f;
 }
 
+/* Ground boost bytes the game sets outright for these legs (compile routine,
+ * 0x800AA96C), in place of the value worked out from thrust. */
+uint8_t acr_gen1_fixed_boost_moa(unsigned legs_index) {
+    switch (legs_index) {
+    case 21: return 26; case 22: return 23; case 23: return 19; case 24: return 26;
+    case 26: return 24; case 27: return 6;  case 28: return 7;  case 30: return 13;
+    case 31: return 11; case 32: return 13; default: return 0;
+    }
+}
+
 static acr_gen1_part *slot_part(acr_gen1_build *b, acr_gen1_slot s) {
     switch (s) {
     case ACR_GEN1_SLOT_CORE: return &b->core;

@@ -49,6 +49,9 @@ typedef struct acr_gen1_fit_build {
  * (ACR_GEN1_SLOT_BACK_R uses the back table too). */
 uint16_t acr_gen1_fit_flags_moa(acr_gen1_slot slot, unsigned index);
 
+/* Master of Arena legs whose ground boost the game fixes (see acr_gen1_part.fixed_boost); 0 = none. */
+uint8_t acr_gen1_fixed_boost_moa(unsigned legs_index);
+
 /* Removes parts that cannot stay, like the game. `fitted_to` is the slot that
  * was just changed (it wins a conflict), or ACR_GEN1_SLOT_COUNT for a loaded
  * build. Returns a mask of removed slots (bit = acr_gen1_slot). */
