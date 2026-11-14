@@ -53,9 +53,9 @@ typedef struct acr_gen1_stats {
 typedef struct acr_gen1_motion {
     uint16_t rise_accel;       /* +6 x 2, per step while rising */
     uint16_t rise_max;         /* +7 x 200 */
-    uint16_t air_accel;        /* +8 x 14, boosting in the air */
+    uint16_t air_accel;        /* +8 x 14, boosting in the air; / 4 slowing down after */
     uint16_t air_max;          /* +9 x 140 */
-    uint16_t boost_accel;      /* +10 x 14, boosting on the ground */
+    uint16_t boost_accel;      /* +10 x 14, boosting on the ground; also the slowdown after */
     uint16_t boost_max;        /* +11 x 140 */
     uint16_t turn_accel;       /* +12 x 5 / 16 */
     uint16_t turn_max;         /* +13 x 15 / 16 */

@@ -232,11 +232,34 @@ The engine port is in `src/gen1/acr_gen1_compile.c`
 (`acr_gen1_compile` and `acr_gen1_motion_from_stats`), tested against an
 instruction-level transcription on 600 random builds.
 
+## Air boost, rise limit and slowing down (measured)
+
+Same method, default AC and LB-4400 + B-PT000:
+
+| What | Default AC | LB-4400 + B-PT000 | Formula |
+| --- | --- | --- | --- |
+| Rise top speed | 5,000 (78-79 a step) | 10,000 (156-157 a step) | +7 x 200; no per-axis limit going up |
+| Air boost acceleration | 448 | - | +8 x 14 |
+| Air boost top speed | 3,500 (54 a step) | - | +9 x 140 |
+| Air boost release | -112 to -113 a step | - | +8 x 14 / 4 |
+| Ground boost release | -532 a step | -896 to -900 a step | the ground boost acceleration, +10 x 14 |
+| Gravity | 256 a step | 256 a step | fixed |
+
+- Holding X with a direction in the air keeps rising (rise acceleration
+  still applies) while the air boost pushes sideways.
+- Rising stopped on its own after a few seconds of holding X in both runs,
+  when the energy ran out.
+- After letting go of a ground boost the AC kept full speed for 2-3 steps,
+  then slowed by its boost acceleration each step to a stop (about 10 steps
+  for the default AC). The earlier note "coasts at 75 for about 10 steps"
+  was the 75-per-axis limit hiding the first part of the slowdown. Part of
+  the 2-3 steps may be input delay in the test driver.
+- The ground friction byte (+14) did not show in these runs; it applies
+  elsewhere (walking or landing), still to place.
+
 ## Still to measure
 
-- Air boosting (+8/+9) and the rise top speed, which these runs did not
-  reach; both are clear from the code.
-- Boost and landing friction after release (`0x80014790` takes the
-  acceleration / 4 as deceleration).
+- Where ground friction (+14) applies.
+- Landing: speed and recovery when an airborne AC touches down.
 - The exact rounding from track units (1/4) to world units when the AC
   faces an angle (the track is rotated by the facing before stepping).
