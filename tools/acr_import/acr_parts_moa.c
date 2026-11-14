@@ -140,6 +140,24 @@ static void write_fit(FILE *f, const char *c, uint32_t index) {
 #define BACK_DETAIL 0x813FCu   /* 0x800D21D4 */
 static const uint8_t *g_menu;
 static size_t g_menu_size;
+static uint8_t *g_vs;          /* VS engine (FDAT 209): shot speeds */
+static size_t g_vs_size;
+
+/* Shot speed (world units per Gen 1 step) for a gun's model id (detail
+ * byte +1): VS engine 0x80080E38 picks one of five tables by id range. */
+static int vs_u16(uint32_t addr, uint16_t *out) {
+    const uint32_t off = addr - 0x80050DD8u;
+    if (!g_vs || off + 2 > g_vs_size) return 0;
+    *out = (uint16_t)(g_vs[off] | g_vs[off + 1] << 8);
+    return 1;
+}
+static int gun_speed(unsigned id, uint16_t *out) {
+    if (id < 0x14) return vs_u16(0x80091198u + 28 * id + 8, out);
+    if (id < 0x28) return vs_u16(0x80092980u + 40 * (id - 0x14), out);
+    if (id < 0x3C) return vs_u16(0x80092C20u + 36 * (id - 0x28), out);
+    if (id < 0x5A) return vs_u16(0x80092824u + 24 * (id - 0x3C), out);
+    return vs_u16(0x800928E4u + 22 * (id - 0x5A), out);
+}
 
 static void write_weapon(FILE *f, const char *c, uint32_t index) {
     const uint32_t base = !strcmp(c, "hand") ? HAND_DETAIL : !strcmp(c, "back") ? BACK_DETAIL : 0;
@@ -157,6 +175,15 @@ static void write_weapon(FILE *f, const char *c, uint32_t index) {
     field(f, "fire_interval", w[0x11], "meaning not decoded yet");
     field(f, "impact", w[0x16], NULL);
     field(f, "type_id", w[7], NULL);
+    uint16_t v, a;
+    if (w[0] == 0 && gun_speed(w[1], &v))
+        field(f, "shot_speed", v, "world units per Gen 1 step");
+    /* Missiles: VS engine table 0x80093114 (40 bytes per missile model):
+     * steering push per step (+0xC) and top speed (+0xE). */
+    if (w[0] == 1 && vs_u16(0x80093114u + 40 * w[1] + 0xE, &v) && vs_u16(0x80093114u + 40 * w[1] + 0xC, &a)) {
+        field(f, "shot_speed", v, "top speed, world units per Gen 1 step");
+        field(f, "homing", a, "pushed toward the target this much each step");
+    }
 }
 
 static void write_fcs(FILE *f, const uint8_t *rec) {
@@ -288,6 +315,20 @@ int acr_export_moa_parts(const char *menu_module, const char *out_dir, uint32_t 
     fclose(f);
     g_menu = data;
     g_menu_size = size;
+    {   /* the VS engine sits next to the menu module: .../FDAT/209.bin */
+        char vs_path[1200];
+        snprintf(vs_path, sizeof vs_path, "%s", menu_module);
+        char *slash = strrchr(vs_path, '/');
+        if (slash && (size_t)(slash - vs_path) + 9 < sizeof vs_path) {
+            strcpy(slash + 1, "209.bin");
+            FILE *vf = fopen(vs_path, "rb");
+            if (vf) {
+                g_vs = malloc(1u << 20);
+                if (g_vs) g_vs_size = fread(g_vs, 1, 1u << 20, vf);
+                fclose(vf);
+            }
+        }
+    }
     int ok = 1;
     for (size_t t = 0; ok && t < sizeof k_tables / sizeof k_tables[0]; ++t) {
         const table *tb = &k_tables[t];
@@ -324,6 +365,9 @@ int acr_export_moa_parts(const char *menu_module, const char *out_dir, uint32_t 
         ok = 0;
     }
     g_menu = NULL;
+    free(g_vs);
+    g_vs = NULL;
+    g_vs_size = 0;
     free(data);
     return ok;
 }

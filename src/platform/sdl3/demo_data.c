@@ -274,8 +274,8 @@ int demo_load(const char *import_dir, const int parts[SLOT_COUNT], demo_ac *out,
                 w->box_w = (uint16_t)(cls < 4 ? cls + 1 : 0);
                 /* Measured: rifle (interval byte 5) fires every ~590 ms. */
                 w->interval_ms = (uint16_t)(get_int(t, e, "fire_interval", 5) * 118);
-                w->speed = w->kind == ACR_GEN1_MISSILE ? 290 : 650;     /* measured rifle; missile estimated */
-                w->homing = w->kind == ACR_GEN1_MISSILE ? 700 : 0;      /* stand-in */
+                w->speed = (int32_t)get_int(t, e, "shot_speed", w->kind == ACR_GEN1_MISSILE ? 350 : 700);
+                w->homing = (uint16_t)get_int(t, e, "homing", 0);
             }
             ++out->weapons;
         }

@@ -20,8 +20,8 @@ typedef struct acr_gen1_weapon {
     uint16_t lock_ms;       /* FCS lock time for this weapon's class; 0 = no lock */
     uint16_t box_w, box_h;  /* FCS lock box, in the original's screen units */
     uint16_t interval_ms;   /* time between shots */
-    int32_t  speed;         /* shot speed, world units per step */
-    uint16_t homing;        /* missiles: most they can turn a step, 1/4096 turns */
+    int32_t  speed;         /* shot speed (missiles: top speed), world units per Gen 1 step */
+    uint16_t homing;        /* missiles: push toward the target each Gen 1 step (VS engine 0x80088BF8) */
 } acr_gen1_weapon;
 
 #define ACR_GEN1_MAX_WEAPONS 3
@@ -52,6 +52,9 @@ typedef struct acr_gen1_battle {
     acr_gen1_fighter f[2];
     acr_gen1_shot shot[ACR_GEN1_MAX_SHOTS];
     uint16_t step_ms;                          /* length of a step, for times in ms */
+    /* Shots fly at the original's speed per second whatever the step rate:
+     * per step they move speed x gen1_rate / step_rate (0 / 0 = Gen 1). */
+    uint16_t step_rate, gen1_rate;
 } acr_gen1_battle;
 
 typedef struct acr_gen1_actions {

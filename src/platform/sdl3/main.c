@@ -424,6 +424,8 @@ int main(int argc, char **argv) {
         const uint32_t ticks = acr_clock_advance(&clock, now - last);
         last = now;
         battle.step_ms = (uint16_t)(1000 / (g_tick_rate > 0 ? g_tick_rate : 22));
+        battle.step_rate = def->step_rate;
+        battle.gen1_rate = def->gen1_rate;
         for (uint32_t i = 0; i < ticks; ++i) {
             prev = *P;
             tprev = *T;

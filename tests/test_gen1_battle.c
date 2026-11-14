@@ -34,7 +34,7 @@ int main(void) {
         fi->ap = fi->ap_max = 8384;
         fi->shell_factor = fi->energy_factor = 27;
         fi->weapons = 1;
-        fi->weapon[0] = (acr_gen1_weapon){ ACR_GEN1_GUN, "RIFLE", 218, 200, 6100, 0, 1000, 240, 240, 600, 650, 0 };
+        fi->weapon[0] = (acr_gen1_weapon){ ACR_GEN1_GUN, "RIFLE", 218, 200, 6100, 0, 1000, 240, 240, 600, 700, 0 };
         fi->ammo[0] = 200;
     }
     const acr_gen1_input none[2] = { { 0, 0, 0, 0, 0 }, { 0, 0, 0, 0, 0 } };
@@ -44,6 +44,18 @@ int main(void) {
     while (b.f[1].ap == 8384 && steps < 200) { acr_gen1_battle_step(&b, none, fire); ++steps; }
     EXPECT(b.f[1].ap == 8384 - 60);
     EXPECT(b.f[0].locked == 0 || b.f[0].lock_ms >= 1000);
+
+    /* At 60 steps a second a rifle shot moves 700 x 22 / 60 = 256 units a
+     * step: the same speed per second as the original. */
+    memset(b.shot, 0, sizeof b.shot);
+    b.step_rate = 60; b.gen1_rate = 22;
+    b.f[0].cooldown_ms = 0;
+    b.f[1].ac.x = 50000 * 64;                         /* out of the way */
+    acr_gen1_battle_step(&b, none, fire);
+    int found = 0;
+    for (int k = 0; k < ACR_GEN1_MAX_SHOTS; ++k)
+        if (b.shot[k].active) { found = 1; EXPECT(b.shot[k].vz / 64 == 256); }
+    EXPECT(found);
 
     if (failures) { printf("%d failure(s)\n", failures); return 1; }
     printf("gen1 battle: all passed (first hit after %d steps)\n", steps);

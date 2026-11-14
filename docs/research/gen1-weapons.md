@@ -58,11 +58,44 @@ factor 27, so the rifle does 60 and the missile 233, both as measured.
 Setting the factor by hand gave 2, 22, 45, 58, 60, 63, 68, 102, 145 and
 218 AP for factors 1 to 96, all matching. No distance fall-off.
 
+## Shot speeds (VS engine, checked in game)
+
+Guns and missiles do not all fly at the same speed. Speeds are world units
+per Gen 1 step (22 a second).
+
+- **Guns** (detail kind 0): the speed comes from the weapon's model id
+  (detail byte +1). The VS engine (`0x80080E38`) picks one of five tables
+  by id range: below 0x14 `0x80091198` (28 bytes each, speed at +8),
+  0x14-0x27 `0x80092980` (40), 0x28-0x3B `0x80092C20` (36), 0x3C-0x59
+  `0x80092824` (24), 0x5A on `0x800928E4` (22); speed at +0 in the last
+  four. Shot objects are created by `0x8008AC30` and move in a straight line
+  (with a small random spread).
+- **Missiles** (kind 1): table `0x80093114`, 40 bytes per missile model
+  (detail byte +1). Each step the missile's velocity is pushed toward the
+  target by +0xC and then held to the top speed +0xE (`0x80088BF8`).
+
+| Weapon | Speed | Note |
+| --- | --- | --- |
+| WG-RF35 rifle, machine guns | 700 | traced in game: exactly +700 a step |
+| WG-HG235 handgun | 720 | |
+| WG-AR1000, WG-HG512, WG-XP1000 | 800 | |
+| WG-RF/P | 840 | |
+| WG-1-KARASAWA, WG-XC4 | 900 | |
+| WA-Finger | 1,000 | |
+| WG-RF/E | 2,700 | |
+| WG-B2120 / WG-B2180 bazookas | 512 / 576 | |
+| WM-S40/1 small missile | 350 top, 80 push | traced in game: 350 a step |
+| WM-L201 | 300 top, 60 push | |
+
+Cannons (kind 2) use another table, not read yet. `acr-import` writes
+`shot_speed` (and `homing` for missiles) into each weapon's part file.
+
+The earlier estimate of 650 for the rifle was off because polling the
+target's AP from the debugger is slow; the write trace gives 700.
+
 ## Measured, not yet read from code
 
 - Rifle shots held down: one every 35-36 screen refreshes (about 13 steps).
-- Rifle bullet: about 650 units a step (hit 23 refreshes later at 6,000
-  than at 700).
 - Missile: switched to with Triangle; first hit 157 refreshes after holding
   fire at 3,000 (lock time plus flight).
 - Fire is Square.
@@ -82,8 +115,9 @@ are the game's; these are stand-ins until decoded or measured:
 - Lock time read as 1/60 s (rifle 1 s, missile 2.1 s); lock box angle
   taken as box width over a 512-wide screen.
 - Fire interval: byte x 118 ms (rifle 590 ms, as measured).
-- Rifle shot 650 units a step (measured); missile 290 a step with simple
-  homing (estimated); shots hit within 260 units of an AC's middle.
+- Shot speeds and missile homing are the game's (above), kept per second at
+  any step rate, so at 60 steps a second a rifle shot moves 256 a step.
+  Missiles start at their top speed; shots hit within 260 units of an AC's
+  middle (stand-in).
 - Blade: reach 740, one swing a second, energy damage.
-- Shot speeds are per step, like movement, so they are faster at 60 steps
-  a second; lock time and fire interval are kept per second.
+- Lock time and fire interval are kept per second too.

@@ -58,12 +58,18 @@ int acr_gen1_in_lock_box(const acr_gen1_battle *b, int i, const acr_gen1_weapon 
     return s * 256 <= ahead * (w->box_w / 2) && h * 256 <= ahead * (w->box_h / 2);
 }
 
+/* A Gen 1 per-step speed at this battle's step rate, in 1/64 units. */
+static int32_t per_step(const acr_gen1_battle *b, int32_t gen1_value) {
+    if (b->step_rate && b->gen1_rate) return (int32_t)((int64_t)gen1_value * 64 * b->gen1_rate / b->step_rate);
+    return gen1_value * 64;
+}
+
 static void spawn_shot(acr_gen1_battle *b, int i, int wi, int32_t dirx, int32_t diry, int32_t dirz) {
     for (int k = 0; k < ACR_GEN1_MAX_SHOTS; ++k) {
         acr_gen1_shot *s = &b->shot[k];
         if (s->active) continue;
         const acr_gen1_ac *me = &b->f[i].ac;
-        const int32_t sp = b->f[i].weapon[wi].speed * 64;
+        const int32_t sp = per_step(b, b->f[i].weapon[wi].speed);
         s->active = 1;
         s->owner = (uint8_t)i;
         s->weapon = (uint8_t)wi;
@@ -168,29 +174,33 @@ static void shots_step(acr_gen1_battle *b) {
         const acr_gen1_weapon *w = &owner->weapon[s->weapon];
         const int target = 1 - s->owner;
         if (w->kind == ACR_GEN1_MISSILE && w->homing && b->f[target].ap > 0) {
-            /* Turn toward the target by up to `homing` of the way each step. */
+            /* As the game does: push the velocity toward the target by
+             * `homing`, then hold it to the top speed. Acceleration scales
+             * with the square of the step-rate ratio so turns stay the same
+             * per second. */
             int32_t ax, ay, az;
             aim_at(b, target, s->x, s->y, s->z, &ax, &ay, &az);
-            const int32_t sp = w->speed * 64;
-            int64_t vx = s->vx + (int64_t)ax * sp / 4096 * w->homing / 4096;
-            int64_t vy = s->vy + (int64_t)ay * sp / 4096 * w->homing / 4096;
-            int64_t vz = s->vz + (int64_t)az * sp / 4096 * w->homing / 4096;
+            int64_t push = (int64_t)w->homing * 64;
+            if (b->step_rate && b->gen1_rate)
+                push = push * b->gen1_rate * b->gen1_rate / ((int64_t)b->step_rate * b->step_rate);
+            int64_t vx = s->vx + ax * push / 4096, vy = s->vy + ay * push / 4096, vz = s->vz + az * push / 4096;
+            const int64_t top = per_step(b, w->speed);
             const uint32_t len = isqrt64((uint64_t)(vx * vx + vy * vy + vz * vz));
-            if (len) { vx = vx * sp / len; vy = vy * sp / len; vz = vz * sp / len; }
+            if (len > top) { vx = vx * top / len; vy = vy * top / len; vz = vz * top / len; }
             s->vx = (int32_t)vx; s->vy = (int32_t)vy; s->vz = (int32_t)vz;
         }
         const int32_t x0 = s->x, y0 = s->y, z0 = s->z;
         s->x += s->vx;
         s->y += s->vy;
         s->z += s->vz;
-        s->travelled += w->speed;
+        s->travelled += per_step(b, w->speed) / 64;
         const acr_gen1_ac *t = &b->f[target].ac;
         if (b->f[target].ap > 0 &&
             segment_hits(x0 / 64, y0 / 64, z0 / 64, s->x / 64, s->y / 64, s->z / 64,
                          t->x / 64, (t->y - CENTRE_UP) / 64, t->z / 64, HIT_RADIUS)) {
             damage(b, target, w);
             s->active = 0;
-        } else if (s->travelled > w->range || s->y > 0) {
+        } else if (s->travelled > (w->kind == ACR_GEN1_MISSILE ? w->range * 3 / 2 : w->range) || s->y > 0) {
             s->active = 0;                              /* out of range or into the floor */
         }
     }
