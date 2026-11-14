@@ -1,0 +1,51 @@
+/* Gen 1 damage (checked against the game) and the fight stepping. */
+#include <stdio.h>
+#include <string.h>
+
+#include "acr_gen1_battle.h"
+
+static int failures;
+#define EXPECT(c) do { if (!(c)) { printf("FAIL %s:%d %s\n", __FILE__, __LINE__, #c); ++failures; } } while (0)
+
+int main(void) {
+    /* Factor from defense: the default AC's shell defense 1,604 -> 27. */
+    EXPECT(acr_gen1_damage_factor(1604, 0, 0) == 27);
+    EXPECT(acr_gen1_damage_factor(100000, 0, 0) >= 1);
+    /* Measured in the game: rifle (attack 218) against factors 1..96. */
+    static const int f[] = { 1, 10, 20, 26, 27, 28, 30, 45, 64, 96 };
+    static const int ap[] = { 2, 22, 45, 58, 60, 63, 68, 102, 145, 218 };
+    for (int i = 0; i < 10; ++i) EXPECT(acr_gen1_hit_ap(218, (uint8_t)f[i]) == ap[i]);
+    EXPECT(acr_gen1_hit_ap(830, 27) == 233);        /* missile, measured */
+
+    /* Two ACs 3,000 apart, facing each other: the rifle locks, then hits. */
+    static acr_gen1_ac_def def;
+    memset(&def, 0, sizeof def);
+    def.stats.energy_capacity = 28000;
+    def.stats.thrust = 32; def.stats.thrust_80 = 25; def.stats.thrust_120 = 38;
+    def.stats.turn_accel = 22; def.stats.turn_speed = 41;
+    acr_gen1_motion_from_stats(&def.stats, &def.motion);
+    static acr_gen1_battle b;
+    memset(&b, 0, sizeof b);
+    b.step_ms = 45;
+    for (int i = 0; i < 2; ++i) {
+        acr_gen1_fighter *fi = &b.f[i];
+        fi->def = &def;
+        acr_gen1_ac_spawn(&fi->ac, &def, 0, i ? 3000 * 64 : 0, i ? 2048 : 0);
+        fi->ap = fi->ap_max = 8384;
+        fi->shell_factor = fi->energy_factor = 27;
+        fi->weapons = 1;
+        fi->weapon[0] = (acr_gen1_weapon){ ACR_GEN1_GUN, "RIFLE", 218, 200, 6100, 0, 1000, 240, 240, 600, 650, 0 };
+        fi->ammo[0] = 200;
+    }
+    const acr_gen1_input none[2] = { { 0, 0, 0, 0, 0 }, { 0, 0, 0, 0, 0 } };
+    const acr_gen1_actions fire[2] = { { 1, 0 }, { 0, 0 } };
+    EXPECT(acr_gen1_in_lock_box(&b, 0, &b.f[0].weapon[0]));
+    int steps = 0;
+    while (b.f[1].ap == 8384 && steps < 200) { acr_gen1_battle_step(&b, none, fire); ++steps; }
+    EXPECT(b.f[1].ap == 8384 - 60);
+    EXPECT(b.f[0].locked == 0 || b.f[0].lock_ms >= 1000);
+
+    if (failures) { printf("%d failure(s)\n", failures); return 1; }
+    printf("gen1 battle: all passed (first hit after %d steps)\n", steps);
+    return 0;
+}

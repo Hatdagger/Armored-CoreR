@@ -3,7 +3,7 @@
 #ifndef DEMO_DATA_H
 #define DEMO_DATA_H
 
-#include "../../gen1/acr_gen1_sim.h"
+#include "../../gen1/acr_gen1_battle.h"
 
 #define DEMO_MAX_KEYS 4096
 
@@ -17,6 +17,11 @@ typedef struct demo_ac {
     int model;
     acr_gen1_root_track tracks[ACR_GEN1_ANIM_COUNT];
     acr_gen1_root_key keys[DEMO_MAX_KEYS];
+    /* Fighting: AP, damage factors and the weapons (hand, back left, blade). */
+    int32_t ap;
+    uint8_t shell_factor, energy_factor;
+    acr_gen1_weapon weapon[ACR_GEN1_MAX_WEAPONS];
+    int weapons;
 } demo_ac;
 
 /* 1 on success; otherwise 0 and a message for the player in `err`. */

@@ -24,7 +24,8 @@ add_library(acr_gen1 STATIC
     src/gen1/acr_gen1_compile.c
     src/gen1/acr_gen1_fit.c
     src/gen1/acr_gen1_anim.c
-    src/gen1/acr_gen1_sim.c)
+    src/gen1/acr_gen1_sim.c
+    src/gen1/acr_gen1_battle.c)
 target_include_directories(acr_gen1 PUBLIC src/gen1)
 target_link_libraries(acr_gen1 PUBLIC acr_core)
 
@@ -55,6 +56,9 @@ add_test(NAME gen1_anim COMMAND test_gen1_anim)
 add_executable(test_gen1_sim tests/test_gen1_sim.c)
 target_link_libraries(test_gen1_sim PRIVATE acr_gen1)
 add_test(NAME gen1_sim COMMAND test_gen1_sim)
+add_executable(test_gen1_battle tests/test_gen1_battle.c)
+target_link_libraries(test_gen1_battle PRIVATE acr_gen1)
+add_test(NAME gen1_battle COMMAND test_gen1_battle)
 add_executable(test_import tests/test_import.c)
 target_link_libraries(test_import PRIVATE acr_import_lib)
 add_test(NAME import COMMAND test_import ${CMAKE_CURRENT_BINARY_DIR}/test_import_work)

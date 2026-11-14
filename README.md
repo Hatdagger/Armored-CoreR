@@ -31,7 +31,8 @@ empty arena with Gen 1 movement.
 | Gen 1 fitting rules (what makes an AC legal) | done |
 | Gen 1 movement: walk, strafe, turn, boost, rise, landing, energy | first version |
 | AC graphics | stand-in boxes; real models not imported yet |
-| Weapons, damage, opponents, online | not started |
+| Lock-on, rifle / missile / blade, damage (first version, target dummy) | in progress |
+| Opponents, online | not started |
 
 ## Building
 
@@ -78,8 +79,12 @@ type: `legs/humanoid`, `back/missile`, `option` and so on.
 | Turn | left stick or d-pad left / right | A / D |
 | Strafe | LB / RB (or right stick) | Q / E |
 | Boost (with a direction) / rise (alone) | A or RT | Space |
+| Fire | X | F |
+| Switch weapon (rifle, missile, blade) | Y | Tab |
+| Next booster / generator | Back + X / Back + Y | B / G |
+| Change speed (22, 30, 45, 60 steps a second) | Back | T |
 | Reset | Start | R |
-| Hide help | Back | F1 |
+| Hide help | | F1 |
 
 ## More
 

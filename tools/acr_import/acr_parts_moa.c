@@ -135,6 +135,40 @@ static void write_fit(FILE *f, const char *c, uint32_t index) {
     fprintf(f, "]   # fitting rules, see docs/research/gen1-fitting-rules.md\n");
 }
 
+/* Weapon details live in separate 24-byte tables (docs/research/gen1-weapons.md). */
+#define HAND_DETAIL 0x8118Cu   /* 0x800D1F64 in the menu module */
+#define BACK_DETAIL 0x813FCu   /* 0x800D21D4 */
+static const uint8_t *g_menu;
+static size_t g_menu_size;
+
+static void write_weapon(FILE *f, const char *c, uint32_t index) {
+    const uint32_t base = !strcmp(c, "hand") ? HAND_DETAIL : !strcmp(c, "back") ? BACK_DETAIL : 0;
+    if (!base || !g_menu || base + 24 * (index + 1) > g_menu_size) return;
+    const uint8_t *w = g_menu + base + 24 * index;
+    if (w[6] == 0 && u16(w + 0x14) == 0 && u16(w + 8) == 0) return;   /* radars and the like */
+    field(f, "attack", u16(w + 0x14), NULL);
+    field(f, "ammo", u16(w + 8), NULL);
+    field(f, "range", u16(w + 0xE), "the FCS may cap it");
+    field(f, "lock_class", w[6], "picks the FCS's range, lock box and lock time; 4 = none");
+    field(f, "energy_damage", (w[0x12] & 0x20) ? 1 : 0, "0 = shell damage");
+    field(f, "energy_per_shot", u16(w + 0xA), NULL);
+    field(f, "ammo_price", u16(w + 0xC), NULL);
+    field(f, "salvo", w[0x10], "missiles locked at once");
+    field(f, "fire_interval", w[0x11], "meaning not decoded yet");
+    field(f, "impact", w[0x16], NULL);
+    field(f, "type_id", w[7], NULL);
+}
+
+static void write_fcs(FILE *f, const uint8_t *rec) {
+    field(f, "max_locks", rec[0x2C], NULL);
+    for (int k = 0; k < 4; ++k) {
+        const uint8_t *g = rec + 0x2E + 12 * k;
+        fprintf(f, "lock_class_%d   = [%u, %u, %u, %u, %u, %u]   # range, box w, h, inner w, h, lock time\n", k,
+                (unsigned)u16(g), (unsigned)u16(g + 2), (unsigned)u16(g + 4), (unsigned)u16(g + 6),
+                (unsigned)u16(g + 8), (unsigned)u16(g + 10));
+    }
+}
+
 static int write_part(const char *dir, const table *t, uint32_t index, const uint8_t *rec,
                       const char *name, const char *type) {
     char file_name[64], path[1200];
@@ -183,6 +217,8 @@ static int write_part(const char *dir, const table *t, uint32_t index, const uin
             field(f, "fixed_boost", acr_gen1_fixed_boost_moa(index), "ground boost set by the game for these legs");
     }
     if (!strcmp(c, "blade")) field(f, "attack", u16(rec + 0x2C), NULL);
+    if (!strcmp(c, "hand") || !strcmp(c, "back")) write_weapon(f, c, index);
+    if (!strcmp(c, "fcs")) write_fcs(f, rec);
     write_fit(f, c, index);
     /* Everything after the type text as 16-bit words, so fields not yet
      * named stay available. */
@@ -250,6 +286,8 @@ int acr_export_moa_parts(const char *menu_module, const char *out_dir, uint32_t 
     if (!data) { fclose(f); snprintf(err, err_size, "out of memory"); return 0; }
     const size_t size = fread(data, 1, 1u << 20, f);
     fclose(f);
+    g_menu = data;
+    g_menu_size = size;
     int ok = 1;
     for (size_t t = 0; ok && t < sizeof k_tables / sizeof k_tables[0]; ++t) {
         const table *tb = &k_tables[t];
@@ -285,6 +323,7 @@ int acr_export_moa_parts(const char *menu_module, const char *out_dir, uint32_t 
         snprintf(err, err_size, "the optional parts table is not where Master of Arena (USA) keeps it");
         ok = 0;
     }
+    g_menu = NULL;
     free(data);
     return ok;
 }

@@ -72,3 +72,18 @@ Setting the factor by hand gave 2, 22, 45, 58, 60, 63, 68, 102, 145 and
 Projectile speeds and missile homing from the code; the fire interval byte;
 lock-on rules (box, time) in the VS engine; the blade (attack 2,050; its
 other bytes 39, 738, 11 are likely reach and timing).
+
+## In the test build
+
+`src/gen1/acr_gen1_battle.{h,c}`: lock-on, shots, missiles, blade and
+damage, with a target AC standing ahead. The damage formula and factors
+are the game's; these are stand-ins until decoded or measured:
+
+- Lock time read as 1/60 s (rifle 1 s, missile 2.1 s); lock box angle
+  taken as box width over a 512-wide screen.
+- Fire interval: byte x 118 ms (rifle 590 ms, as measured).
+- Rifle shot 650 units a step (measured); missile 290 a step with simple
+  homing (estimated); shots hit within 260 units of an AC's middle.
+- Blade: reach 740, one swing a second, energy damage.
+- Shot speeds are per step, like movement, so they are faster at 60 steps
+  a second; lock time and fire interval are kept per second.

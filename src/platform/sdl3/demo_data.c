@@ -39,6 +39,21 @@ static void get_string(const char *start, const char *end, const char *key, char
     out[i] = 0;
 }
 
+/* Element k of "[a, b, c]", or fallback. */
+static long list_at(const char *start, const char *end, const char *key, int k, long fallback) {
+    const char *v = find_key(start, end, key);
+    if (!v || *v != '[') return fallback;
+    char *p = (char *)v + 1;
+    for (int i = 0; ; ++i) {
+        char *next;
+        const long x = strtol(p, &next, 10);
+        if (next == p) return fallback;
+        if (i == k) return x;
+        p = next;
+        while (*p == ',' || *p == ' ') ++p;
+    }
+}
+
 /* "[a, b, c]" -> 1 if `value` is in it. */
 static int list_has(const char *start, const char *end, const char *key, long value) {
     const char *v = find_key(start, end, key);
@@ -208,6 +223,10 @@ int demo_load(const char *import_dir, const int parts[SLOT_COUNT], demo_ac *out,
     memset(out, 0, sizeof *out);
     acr_gen1_build b;
     memset(&b, 0, sizeof b);
+    int32_t ap = 0;
+    uint32_t shell = 0, energy = 0;
+    long fcs[4][6];
+    memset(fcs, 0, sizeof fcs);
     acr_gen1_part *by_slot[SLOT_COUNT] = { &b.core, &b.booster, &b.head, &b.arms, &b.blade, &b.hand,
                                            &b.back_l, &b.back_r, &b.generator, &b.fcs, &b.legs };
     for (int s = 0; s < SLOT_COUNT; ++s) {
@@ -222,8 +241,67 @@ int demo_load(const char *import_dir, const int parts[SLOT_COUNT], demo_ac *out,
             return 0;
         }
         read_part(s, t, by_slot[s], out->names[s], sizeof out->names[s]);
+        const char *e = t + strlen(t);
+        if (s == SLOT_HEAD || s == SLOT_CORE || s == SLOT_ARMS || s == SLOT_LEGS) {
+            ap += get_int(t, e, "ap", 0);
+            shell += (uint32_t)get_int(t, e, "defense_shell", 0);
+            energy += (uint32_t)get_int(t, e, "defense_energy", 0);
+        }
+        if (s == SLOT_FCS) {
+            for (int k = 0; k < 4; ++k) {
+                char key[16];
+                SDL_snprintf(key, sizeof key, "lock_class_%d", k);
+                for (int j = 0; j < 6; ++j) fcs[k][j] = list_at(t, e, key, j, 0);
+            }
+        }
+        if ((s == SLOT_HAND || s == SLOT_BACK_L || s == SLOT_BLADE) && get_int(t, e, "attack", 0) > 0) {
+            acr_gen1_weapon *w = &out->weapon[out->weapons];
+            memset(w, 0, sizeof *w);
+            SDL_strlcpy(w->name, out->names[s], sizeof w->name);
+            w->attack = (uint16_t)get_int(t, e, "attack", 0);
+            if (s == SLOT_BLADE) {
+                w->kind = ACR_GEN1_BLADE;
+                w->energy = 1;
+                w->range = 740;          /* stand-in: the blade's reach is not decoded yet */
+                w->interval_ms = 1000;
+            } else {
+                const long cls = get_int(t, e, "lock_class", 4);
+                w->kind = s == SLOT_BACK_L ? ACR_GEN1_MISSILE : ACR_GEN1_GUN;
+                w->ammo = (uint16_t)get_int(t, e, "ammo", 0);
+                w->range = (int32_t)get_int(t, e, "range", 6000);
+                w->energy = (uint8_t)get_int(t, e, "energy_damage", 0);
+                w->lock_ms = (uint16_t)(cls < 4 ? cls : 0);   /* class for now; FCS applied below */
+                w->box_w = (uint16_t)(cls < 4 ? cls + 1 : 0);
+                /* Measured: rifle (interval byte 5) fires every ~590 ms. */
+                w->interval_ms = (uint16_t)(get_int(t, e, "fire_interval", 5) * 118);
+                w->speed = w->kind == ACR_GEN1_MISSILE ? 290 : 650;     /* measured rifle; missile estimated */
+                w->homing = w->kind == ACR_GEN1_MISSILE ? 700 : 0;      /* stand-in */
+            }
+            ++out->weapons;
+        }
         SDL_free(t);
     }
+    /* Order as the AC carries them: hand weapon, back weapon, blade. */
+    for (int i = 0; i < out->weapons; ++i)
+        for (int j = i + 1; j < out->weapons; ++j)
+            if (out->weapon[j].kind < out->weapon[i].kind) {
+                const acr_gen1_weapon tmp = out->weapon[i];
+                out->weapon[i] = out->weapon[j];
+                out->weapon[j] = tmp;
+            }
+    /* Apply the FCS: each weapon's lock class sets its range cap, box and lock time. */
+    for (int i = 0; i < out->weapons; ++i) {
+        acr_gen1_weapon *w = &out->weapon[i];
+        if (w->kind == ACR_GEN1_BLADE || !w->box_w) { w->box_w = 0; w->lock_ms = 0; continue; }
+        const int cls = w->box_w - 1;
+        if (fcs[cls][0] && w->range > fcs[cls][0]) w->range = (int32_t)fcs[cls][0];
+        w->box_w = (uint16_t)fcs[cls][1];
+        w->box_h = (uint16_t)fcs[cls][2];
+        w->lock_ms = (uint16_t)(fcs[cls][5] * 1000 / 60);   /* lock time read as 1/60 s */
+    }
+    out->ap = ap;
+    out->shell_factor = acr_gen1_damage_factor(shell, 0, 0);
+    out->energy_factor = acr_gen1_damage_factor(energy, 1, 0);
     acr_gen1_compile(&b, &out->def.stats);
     acr_gen1_motion_from_stats(&out->def.stats, &out->def.motion);
     out->def.landing_steps = 20;
