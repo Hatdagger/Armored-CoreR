@@ -79,7 +79,8 @@ battle exactly. Online play sends the same inputs, so replays come with it.
 
 ## Connecting players
 
-No servers for now; any server feature is optional and comes later.
+There are no official servers. Everything works without a server; private
+servers run by players are optional extras.
 
 - **System Link (LAN) is the main multiplayer path on the Xbox.** Games find
   each other by broadcasting on the local network, so there are no codes to
