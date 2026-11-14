@@ -57,9 +57,13 @@ type: `legs/humanoid`, `back/missile`, `option` and so on.
 
 ## Test build
 
-1. Import your disc into a folder called `import` next to the program:
-   `acr-import "your disc.cue" import`
-   (or pass the folder: `armored-corer path/to/folder`).
+1. Import your disc, any of these ways (it goes into a folder called
+   `import` next to the program, once):
+   - start `armored-corer` and drag your disc's `.cue` or `.bin` onto its
+     window;
+   - drop the `.cue` or `.bin` onto `armored-corer` or `acr-import` in your
+     file manager (Windows Explorer, or Dolphin on the Steam Deck);
+   - from a terminal: `acr-import "your disc.cue"`.
 2. Run `armored-corer`. You fly Master of Arena's starting AC. Try other
    parts with `--legs N`, `--booster N`, `--core N`, `--arms N`, `--gen N`
    (Master of Arena part numbers, as in the part file names).

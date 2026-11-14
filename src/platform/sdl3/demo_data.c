@@ -201,10 +201,8 @@ int demo_load(const char *import_dir, const int parts[SLOT_COUNT], demo_ac *out,
         if (parts[s] == 255) { SDL_strlcpy(out->names[s], "-", sizeof out->names[s]); continue; }
         char *t = load_part(import_dir, s, parts[s]);
         if (!t) {
-            SDL_snprintf(err, err_size,
-                         "Could not find %s part %d in\n%s/parts\n\nRun acr-import on your Master of Arena "
-                         "disc first and pass its output folder, for example:\n"
-                         "  armored-corer my-import", k_category[s], parts[s], import_dir);
+            SDL_snprintf(err, err_size, "(No %s part %d in %s/parts.)", k_category[s], parts[s],
+                         import_dir);
             return 0;
         }
         read_part(s, t, by_slot[s], out->names[s], sizeof out->names[s]);
@@ -216,9 +214,7 @@ int demo_load(const char *import_dir, const int parts[SLOT_COUNT], demo_ac *out,
 
     out->model = pick_model(import_dir, parts);
     if (out->model < 0 || !load_tracks(import_dir, out->model, out)) {
-        SDL_snprintf(err, err_size,
-                     "No walking animation for this core/arms/legs in\n%s/motion\n\n"
-                     "Re-run the newest acr-import on your disc (it now writes the motion folder).",
+        SDL_snprintf(err, err_size, "(No walking animation in %s/motion: import the disc again.)",
                      import_dir);
         return 0;
     }

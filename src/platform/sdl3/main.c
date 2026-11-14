@@ -6,9 +6,11 @@
  * smoothed between steps at the screen's own rate. The AC is a stand-in
  * made of boxes until the real models are imported.
  *
- *   armored-corer [import folder] [--legs N] [--booster N] [--core N]
- *                 [--arms N] [--gen N]           (Master of Arena indices)
- */
+ *   armored-corer [import folder | disc.cue] [--legs N] [--booster N]
+ *                 [--core N] [--arms N] [--gen N] (Master of Arena indices)
+ *
+ * With no import yet it asks for the disc: drop the .cue or .bin on the
+ * window (or on the program) and it imports it next to the program. */
 #include <SDL3/SDL.h>
 #include <SDL3/SDL_main.h>
 
@@ -20,6 +22,7 @@
 #include "../../core/acr_gen1.h"
 #include "../../core/acr_pools.h"
 #include "demo_data.h"
+#include "acr_import.h"
 
 #define VIEW_W 640
 #define VIEW_H 480
@@ -186,6 +189,42 @@ static int parse_args(int argc, char **argv, const char **dir, int parts[SLOT_CO
     return 1;
 }
 
+static int is_disc(const char *path) {
+    const char *dot = strrchr(path, '.');
+    return dot && (!SDL_strcasecmp(dot, ".cue") || !SDL_strcasecmp(dot, ".bin") || !SDL_strcasecmp(dot, ".iso"));
+}
+
+/* Shows a message (several lines) centred, then presents. */
+static void show_message(SDL_Renderer *r, const char *text) {
+    SDL_SetRenderDrawColor(r, 18, 22, 28, 255);
+    SDL_RenderClear(r);
+    SDL_SetRenderDrawColor(r, 220, 230, 235, 255);
+    float y = 60;
+    for (const char *p = text; *p; ) {
+        const char *nl = strchr(p, '\n');
+        const size_t n = nl ? (size_t)(nl - p) : strlen(p);
+        char line[96];
+        SDL_snprintf(line, sizeof line, "%.*s", (int)(n < 95 ? n : 95), p);
+        SDL_RenderDebugText(r, 24, y, line);
+        y += 14;
+        p += n;
+        if (*p) ++p;
+    }
+    SDL_RenderPresent(r);
+}
+
+/* Imports a disc into dir, showing progress text. */
+static int import_disc(SDL_Renderer *r, const char *disc, const char *dir, char *err, int err_size) {
+    show_message(r, "IMPORTING YOUR DISC...\n\nTHIS TAKES A MOMENT.");
+    acr_import_stats stats;
+    char why[512] = "";
+    if (!acr_import_disc(disc, dir, &stats, why, sizeof why)) {
+        SDL_snprintf(err, err_size, "Could not import that disc:\n%s", why);
+        return 0;
+    }
+    return 1;
+}
+
 int main(int argc, char **argv) {
     void *block = malloc(ACR_POOLS_TOTAL_BYTES);
     acr_pools pools;
@@ -198,15 +237,6 @@ int main(int argc, char **argv) {
     int parts[SLOT_COUNT];
     parse_args(argc, argv, &dir, parts);
 
-    static demo_ac ac_data;      /* large: keep it off the stack */
-    char err[1024];
-    if (!demo_load(dir, parts, &ac_data, err, sizeof err)) {
-        SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Armored-CoreR", err, NULL);
-        SDL_Quit();
-        return 1;
-    }
-    const acr_gen1_ac_def *def = &ac_data.def;
-
     SDL_Window *window = NULL;
     SDL_Renderer *renderer = NULL;
     if (!SDL_CreateWindowAndRenderer("Armored-CoreR test build", 1280, 960, SDL_WINDOW_RESIZABLE,
@@ -217,6 +247,46 @@ int main(int argc, char **argv) {
     SDL_SetRenderVSync(renderer, 1);
     SDL_SetRenderLogicalPresentation(renderer, VIEW_W, VIEW_H, SDL_LOGICAL_PRESENTATION_LETTERBOX);
     SDL_Gamepad *pad = open_first_gamepad();
+
+    /* A disc given on the command line (or dropped on the program) is
+     * imported next to the program first. */
+    static demo_ac ac_data;      /* large: keep it off the stack */
+    char err[1024] = "";
+    if (is_disc(dir)) {
+        const char *disc = dir;
+        dir = default_dir;
+        import_disc(renderer, disc, dir, err, sizeof err);
+    }
+    /* No usable import yet: ask for the disc, which can be dropped on the window. */
+    int loaded = err[0] ? 0 : demo_load(dir, parts, &ac_data, err, sizeof err);
+    while (!loaded) {
+        char text[1600];
+        SDL_snprintf(text, sizeof text,
+                     "ARMORED-CORER TEST BUILD\n\n"
+                     "DROP YOUR MASTER OF ARENA DISC (.CUE OR .BIN)\n"
+                     "ON THIS WINDOW TO IMPORT IT.\n\n"
+                     "ESC / BACK: QUIT\n\n%s", err);
+        show_message(renderer, text);
+        SDL_Event e;
+        if (!SDL_WaitEvent(&e)) continue;
+        if (e.type == SDL_EVENT_QUIT ||
+            (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_ESCAPE) ||
+            (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && e.gbutton.button == SDL_GAMEPAD_BUTTON_BACK)) {
+            SDL_Quit();
+            return 0;
+        }
+        if (e.type == SDL_EVENT_DROP_FILE && e.drop.data) {
+            if (!is_disc(e.drop.data)) {
+                SDL_snprintf(err, sizeof err, "That is not a .cue, .bin or .iso file.");
+                continue;
+            }
+            dir = default_dir;
+            err[0] = 0;
+            if (import_disc(renderer, e.drop.data, dir, err, sizeof err))
+                loaded = demo_load(dir, parts, &ac_data, err, sizeof err);
+        }
+    }
+    const acr_gen1_ac_def *def = &ac_data.def;
 
     acr_clock clock;
     acr_clock_init_ns(&clock, ACR_GEN1_TICK_NS, 8);   /* Gen 1: 22 steps a second */
