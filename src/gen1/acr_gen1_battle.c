@@ -126,6 +126,7 @@ static void fighter_step(acr_gen1_battle *b, int i, acr_gen1_actions a) {
 
     if (!a.fire || f->cooldown_ms > 0) return;
     if (w->ammo && !f->ammo[f->current]) return;
+    if (!acr_gen1_stance_ok(f)) return;
     const int target = 1 - i;
     if (w->kind == ACR_GEN1_BLADE) {
         /* Blade: hits if the target is within reach and in front. */
@@ -206,10 +207,45 @@ static void shots_step(acr_gen1_battle *b) {
     }
 }
 
+int acr_gen1_stance_ok(const acr_gen1_fighter *f) {
+    if (!f->weapons) return 1;
+    const acr_gen1_weapon *w = &f->weapon[f->current];
+    if (!w->stance || f->human_plus) return 1;
+    switch (f->legs) {
+    case ACR_GEN1_LEGS_TRACKS: return 1;
+    case ACR_GEN1_LEGS_FOUR: return f->ac.state == ACR_GEN1_GROUND;
+    default: return f->kneeling && f->kneel_ms >= ACR_GEN1_KNEEL_MS;
+    }
+}
+
+/* Two-legged ACs kneel when told to fire a cannon on the ground; while
+ * kneeling they turn but do not move, and stand again on any move. */
+static acr_gen1_input kneel_input(acr_gen1_battle *b, acr_gen1_fighter *f, acr_gen1_input in, acr_gen1_actions a) {
+    const acr_gen1_weapon *w = f->weapons ? &f->weapon[f->current] : NULL;
+    const int wants = w && w->stance && !f->human_plus && f->legs == ACR_GEN1_LEGS_TWO;
+    if (!wants) { f->kneeling = 0; return in; }
+    const int moving = in.move || in.strafe || in.boost;
+    if (!f->kneeling && a.fire && f->ac.state == ACR_GEN1_GROUND) {
+        f->kneeling = 1;
+        f->kneel_ms = 0;
+    } else if (f->kneeling && moving && !a.fire) {
+        f->kneeling = 0;
+    }
+    if (f->kneeling) {
+        f->kneel_ms += b->step_ms;
+        f->ac.vx = f->ac.vz = 0;
+        in.move = in.strafe = 0;
+        in.boost = in.boost_tapped = 0;
+    }
+    return in;
+}
+
 void acr_gen1_battle_step(acr_gen1_battle *b, const acr_gen1_input in[2], const acr_gen1_actions act[2]) {
     for (int i = 0; i < 2; ++i) {
         acr_gen1_fighter *f = &b->f[i];
-        if (f->ap > 0) acr_gen1_ac_step(&f->ac, f->def, in[i]);
+        if (f->ap <= 0) continue;
+        const acr_gen1_input use = kneel_input(b, f, in[i], act[i]);
+        acr_gen1_ac_step(&f->ac, f->def, use);
     }
     for (int i = 0; i < 2; ++i) fighter_step(b, i, act[i]);
     shots_step(b);

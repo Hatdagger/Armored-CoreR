@@ -121,3 +121,17 @@ are the game's; these are stand-ins until decoded or measured:
   middle (stand-in).
 - Blade: reach 740, one swing a second, energy damage.
 - Lock time and fire interval are kept per second too.
+
+## Cannon stance (as described by a player)
+
+Back cannons need a steady stance: two-legged ACs (humanoid, reverse
+joint) kneel before firing, four-legged ACs fire them only on the ground,
+caterpillars fire them freely. Human PLUS lifts the rule. Missiles and
+rockets on the back fire normally.
+
+Which weapons count: `acr-import` marks `stance = 1` on back weapons of
+kind 2 (WC- cannons, chain gun, slug guns, linear gun, grenade launcher)
+and the two-slot energy cannons WX-ED2 and WX-C/4. To confirm from the
+game's code. Cannon shot speeds come from VS engine table `0x80091310`
+(6 bytes per model: 500 for most, 600 grenade launcher, 800 WC-IR24); read
+from code, not traced yet. Time to kneel (400 ms) is a stand-in.

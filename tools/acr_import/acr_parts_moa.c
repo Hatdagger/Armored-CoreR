@@ -175,9 +175,15 @@ static void write_weapon(FILE *f, const char *c, uint32_t index) {
     field(f, "fire_interval", w[0x11], "meaning not decoded yet");
     field(f, "impact", w[0x16], NULL);
     field(f, "type_id", w[7], NULL);
+    /* Back cannons need a steady stance (kneel / on the ground) to fire. */
+    if (!strcmp(c, "back") && (w[0] == 2 || (w[0x12] & 0x20 && w[5] == 3)))
+        field(f, "stance", 1, "cannon: bipeds kneel, four legs on the ground only, caterpillars free");
     uint16_t v, a;
     if (w[0] == 0 && gun_speed(w[1], &v))
         field(f, "shot_speed", v, "world units per Gen 1 step");
+    /* Cannons: VS engine 0x80081B18, table 0x80091310 (6 bytes per model). */
+    if (w[0] == 2 && vs_u16(0x80091310u + 6 * w[1], &v))
+        field(f, "shot_speed", v, "world units per Gen 1 step (read from code, not traced)");
     /* Missiles: VS engine table 0x80093114 (40 bytes per missile model):
      * steering push per step (+0xC) and top speed (+0xE). */
     if (w[0] == 1 && vs_u16(0x80093114u + 40 * w[1] + 0xE, &v) && vs_u16(0x80093114u + 40 * w[1] + 0xC, &a)) {

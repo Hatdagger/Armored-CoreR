@@ -276,6 +276,7 @@ int demo_load(const char *import_dir, const int parts[SLOT_COUNT], demo_ac *out,
                 w->interval_ms = (uint16_t)(get_int(t, e, "fire_interval", 5) * 118);
                 w->speed = (int32_t)get_int(t, e, "shot_speed", w->kind == ACR_GEN1_MISSILE ? 350 : 700);
                 w->homing = (uint16_t)get_int(t, e, "homing", 0);
+                w->stance = (uint8_t)get_int(t, e, "stance", 0);
             }
             ++out->weapons;
         }

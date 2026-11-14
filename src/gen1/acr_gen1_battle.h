@@ -22,7 +22,14 @@ typedef struct acr_gen1_weapon {
     uint16_t interval_ms;   /* time between shots */
     int32_t  speed;         /* shot speed (missiles: top speed), world units per Gen 1 step */
     uint16_t homing;        /* missiles: push toward the target each Gen 1 step (VS engine 0x80088BF8) */
+    uint8_t  stance;        /* back cannons: needs a steady stance to fire (see below) */
 } acr_gen1_weapon;
+
+/* Legs, for the cannon stance rule: two legs (humanoid, reverse joint) must
+ * kneel to fire a cannon, four legs only fire them on the ground,
+ * caterpillars fire them freely. Human PLUS lifts the rule. */
+enum { ACR_GEN1_LEGS_TWO, ACR_GEN1_LEGS_FOUR, ACR_GEN1_LEGS_TRACKS };
+#define ACR_GEN1_KNEEL_MS 400   /* time to kneel before a cannon fires (stand-in) */
 
 #define ACR_GEN1_MAX_WEAPONS 3
 #define ACR_GEN1_MAX_SHOTS   64
@@ -39,6 +46,10 @@ typedef struct acr_gen1_fighter {
     int32_t  lock_ms;                          /* time the target has been in the box */
     uint8_t  locked;
     uint16_t swing;                            /* blade swing steps left, for drawing */
+    uint8_t  legs;                             /* ACR_GEN1_LEGS_* */
+    uint8_t  human_plus;
+    uint8_t  kneeling;
+    int32_t  kneel_ms;
 } acr_gen1_fighter;
 
 typedef struct acr_gen1_shot {
@@ -69,6 +80,9 @@ uint8_t acr_gen1_damage_factor(uint32_t defense, int energy, int screen);
 int32_t acr_gen1_hit_ap(uint16_t attack, uint8_t factor);
 
 void acr_gen1_battle_step(acr_gen1_battle *b, const acr_gen1_input in[2], const acr_gen1_actions act[2]);
+
+/* Can the fighter fire its current weapon in its present stance? */
+int acr_gen1_stance_ok(const acr_gen1_fighter *f);
 
 /* Is the other AC inside fighter i's lock box for weapon w (and in range)? */
 int acr_gen1_in_lock_box(const acr_gen1_battle *b, int i, const acr_gen1_weapon *w);

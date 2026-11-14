@@ -214,6 +214,7 @@ static int parse_args(int argc, char **argv, const char **dir, int parts[SLOT_CO
         else if (!strcmp(argv[i], "--core")) slot = SLOT_CORE;
         else if (!strcmp(argv[i], "--arms")) slot = SLOT_ARMS;
         else if (!strcmp(argv[i], "--gen")) slot = SLOT_GEN;
+        else if (!strcmp(argv[i], "--back")) slot = SLOT_BACK_L;
         if (!strcmp(argv[i], "--tick") && i + 1 < argc) { g_tick_rate = atoi(argv[++i]); continue; }
         if (slot >= 0 && i + 1 < argc) parts[slot] = atoi(argv[++i]);
         else if (argv[i][0] != '-') *dir = argv[i];
@@ -341,13 +342,26 @@ int main(int argc, char **argv) {
                 f_->ammo[w_] = ac_data.weapon[w_].ammo;                                   \
             }                                                                             \
             f_->current = 0; f_->cooldown_ms = 0; f_->lock_ms = 0; f_->locked = 0;        \
+            f_->legs = (uint8_t)(parts[SLOT_LEGS] >= 27 ? ACR_GEN1_LEGS_TRACKS             \
+                       : parts[SLOT_LEGS] >= 21 ? ACR_GEN1_LEGS_FOUR : ACR_GEN1_LEGS_TWO);  \
+            f_->human_plus = (uint8_t)(i_ == 0 && human_plus); f_->kneeling = 0;          \
         }                                                                                 \
         acr_gen1_ac_spawn(P, def, 0, 0, 0);                                               \
         acr_gen1_ac_spawn(T, def, 0, 5000 * 64, 2048);                                    \
         memset(battle.shot, 0, sizeof battle.shot);                                       \
     } while (0)
+    int human_plus = 0;
     SETUP_FIGHTERS();
     acr_gen1_ac prev = *P, tprev = *T;
+    /* After a part change: new stats and weapons, same place in the arena. */
+    #define REFRESH_FIGHTERS() do {                                                      \
+        const acr_gen1_ac keep_p_ = *P, keep_t_ = *T;                                     \
+        const int32_t ap_t_ = battle.f[1].ap;                                             \
+        SETUP_FIGHTERS();                                                                 \
+        *P = keep_p_; *T = keep_t_;                                                       \
+        if (ap_t_ < battle.f[1].ap) battle.f[1].ap = ap_t_;                               \
+        if (P->energy > def->stats.energy_capacity) P->energy = def->stats.energy_capacity; \
+    } while (0)
     int respawn_ms = 0;
 
     Uint64 last = SDL_GetTicksNS();
@@ -368,12 +382,15 @@ int main(int argc, char **argv) {
                 SETUP_FIGHTERS(); prev = *P; tprev = *T;
             }
             if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_TAB) switch_pressed = 1;
-            int cycle_rate = 0, cycle_slot = -1;
+            int cycle_rate = 0, cycle_slot = -1, toggle_plus = 0;
             if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) {
                 const int btn = e.gbutton.button;
                 if (btn == SDL_GAMEPAD_BUTTON_BACK) { back_held = 1; back_combo = 0; }
                 if (btn == SDL_GAMEPAD_BUTTON_WEST && back_held) { cycle_slot = SLOT_BOOSTER; back_combo = 1; }
                 if (btn == SDL_GAMEPAD_BUTTON_NORTH && back_held) { cycle_slot = SLOT_GEN; back_combo = 1; }
+                if (btn == SDL_GAMEPAD_BUTTON_EAST && back_held) { cycle_slot = SLOT_BACK_L; back_combo = 1; }
+                if (btn == SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER && back_held) { cycle_slot = SLOT_LEGS; back_combo = 1; }
+                if (btn == SDL_GAMEPAD_BUTTON_SOUTH && back_held) { toggle_plus = 1; back_combo = 1; }
                 if (btn == SDL_GAMEPAD_BUTTON_NORTH && !back_held) switch_pressed = 1;
                 if (btn == SDL_GAMEPAD_BUTTON_START) { SETUP_FIGHTERS(); prev = *P; tprev = *T; }
             }
@@ -384,6 +401,10 @@ int main(int argc, char **argv) {
             if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_T) cycle_rate = 1;
             if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_B) cycle_slot = SLOT_BOOSTER;
             if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_G) cycle_slot = SLOT_GEN;
+            if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_C) cycle_slot = SLOT_BACK_L;
+            if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_L) cycle_slot = SLOT_LEGS;
+            if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_H) toggle_plus = 1;
+            if (toggle_plus) { human_plus = !human_plus; battle.f[0].human_plus = (uint8_t)human_plus; }
             if (cycle_rate) {
                 int idx = 0;
                 const int n = (int)(sizeof k_tick_rates / sizeof k_tick_rates[0]);
@@ -396,7 +417,9 @@ int main(int argc, char **argv) {
                 next_part(dir, parts, cycle_slot, &ac_data);
                 set_rate(&clock, def, g_tick_rate);
                 last = SDL_GetTicksNS();
-                if (P->energy > def->stats.energy_capacity) P->energy = def->stats.energy_capacity;
+                REFRESH_FIGHTERS();
+                prev = *P;
+                tprev = *T;
             }
         }
         acr_gen1_input in = read_input(pad);
@@ -500,6 +523,7 @@ int main(int argc, char **argv) {
         float crouch = 0;
         if (ac.state == ACR_GEN1_CROUCH) crouch = 90;
         if (ac.state == ACR_GEN1_LANDING) crouch = 70;
+        if (battle.f[0].kneeling) crouch = 150;
         add_ac(&cam, v3(px, py, pz), yaw, crouch, 0);
         const float tx = (tprev.x + (T->x - tprev.x) * a) / 64.0f, ty = -(tprev.y + (T->y - tprev.y) * a) / 64.0f,
                     tz = (tprev.z + (T->z - tprev.z) * a) / 64.0f;
@@ -561,6 +585,12 @@ int main(int argc, char **argv) {
                 if (w->ammo) SDL_snprintf(line, sizeof line, "%-12s %4d", w->name, me->ammo[me->current]);
                 else SDL_snprintf(line, sizeof line, "%-12s", w->name);
                 SDL_RenderDebugText(renderer, VIEW_W - 150, VIEW_H - 64, line);
+                if (w->stance && !me->human_plus) {
+                    const char *hint = me->legs == ACR_GEN1_LEGS_TRACKS ? NULL
+                                     : me->legs == ACR_GEN1_LEGS_FOUR ? (acr_gen1_stance_ok(me) ? NULL : "LAND TO FIRE")
+                                     : !me->kneeling ? "FIRE TO KNEEL" : acr_gen1_stance_ok(me) ? "KNEELING" : "KNEELING...";
+                    if (hint) SDL_RenderDebugText(renderer, VIEW_W - 150, VIEW_H - 80, hint);
+                }
                 if (w->box_w) {
                     /* the box as the original sizes it (its screen is about 512 wide) */
                     const float bw = w->box_w * (VIEW_W / 512.0f), bh = w->box_h * (VIEW_W / 512.0f);
@@ -581,6 +611,7 @@ int main(int argc, char **argv) {
                 }
             }
             SDL_SetRenderDrawColor(renderer, 220, 230, 235, 255);
+            if (me->human_plus) SDL_RenderDebugText(renderer, 20, VIEW_H - 64, "HUMAN PLUS");
             SDL_snprintf(line, sizeof line, "AP %5d", (int)me->ap);
             SDL_RenderDebugText(renderer, VIEW_W - 150, VIEW_H - 32, line);
             SDL_FRect tb = { VIEW_W - 220, 96, 200, 8 };
@@ -597,7 +628,8 @@ int main(int argc, char **argv) {
             SDL_RenderDebugText(renderer, 20, 28, "MOVE: STICK/DPAD UP-DOWN  TURN: LEFT-RIGHT");
             SDL_RenderDebugText(renderer, 20, 40, "STRAFE: LB/RB  BOOST: A OR RT (NO DIRECTION = RISE)");
             SDL_RenderDebugText(renderer, 20, 52, "FIRE: X (F)  SWITCH WEAPON: Y (TAB)");
-            SDL_RenderDebugText(renderer, 20, 64, "BACK+X/BACK+Y (B/G): BOOSTER/GENERATOR  BACK (T): SPEED");
+            SDL_RenderDebugText(renderer, 20, 64, "BACK+X/Y/B/RB (B/G/C/L): BOOSTER/GENERATOR/BACK WEAPON/LEGS");
+            SDL_RenderDebugText(renderer, 20, 88, "BACK+A (H): HUMAN PLUS  BACK (T): SPEED");
             SDL_RenderDebugText(renderer, 20, 76, "START/R: RESET  F1: HIDE HELP  ESC: QUIT");
         }
         const char *shot = SDL_getenv("ACR_SHOT");

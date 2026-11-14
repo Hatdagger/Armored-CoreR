@@ -34,7 +34,7 @@ int main(void) {
         fi->ap = fi->ap_max = 8384;
         fi->shell_factor = fi->energy_factor = 27;
         fi->weapons = 1;
-        fi->weapon[0] = (acr_gen1_weapon){ ACR_GEN1_GUN, "RIFLE", 218, 200, 6100, 0, 1000, 240, 240, 600, 700, 0 };
+        fi->weapon[0] = (acr_gen1_weapon){ ACR_GEN1_GUN, "RIFLE", 218, 200, 6100, 0, 1000, 240, 240, 600, 700, 0, 0 };
         fi->ammo[0] = 200;
     }
     const acr_gen1_input none[2] = { { 0, 0, 0, 0, 0 }, { 0, 0, 0, 0, 0 } };
@@ -56,6 +56,31 @@ int main(void) {
     for (int k = 0; k < ACR_GEN1_MAX_SHOTS; ++k)
         if (b.shot[k].active) { found = 1; EXPECT(b.shot[k].vz / 64 == 256); }
     EXPECT(found);
+
+    /* Cannon stance: a two-legged AC kneels first, four legs need the
+     * ground, caterpillars and Human PLUS fire freely. */
+    memset(b.shot, 0, sizeof b.shot);
+    b.step_rate = b.gen1_rate = 0;
+    b.f[0].weapon[0].stance = 1;
+    b.f[0].legs = ACR_GEN1_LEGS_TWO;
+    b.f[0].cooldown_ms = 0;
+    b.f[0].kneeling = 0;
+    acr_gen1_battle_step(&b, none, fire);
+    int shots = 0;
+    for (int k = 0; k < ACR_GEN1_MAX_SHOTS; ++k) shots += b.shot[k].active;
+    EXPECT(shots == 0 && b.f[0].kneeling);
+    for (int k = 0; k < 12; ++k) acr_gen1_battle_step(&b, none, fire);
+    shots = 0;
+    for (int k = 0; k < ACR_GEN1_MAX_SHOTS; ++k) shots += b.shot[k].active;
+    EXPECT(shots >= 1);
+    b.f[0].legs = ACR_GEN1_LEGS_FOUR;
+    b.f[0].ac.state = ACR_GEN1_AIR;
+    EXPECT(!acr_gen1_stance_ok(&b.f[0]));
+    b.f[0].legs = ACR_GEN1_LEGS_TRACKS;
+    EXPECT(acr_gen1_stance_ok(&b.f[0]));
+    b.f[0].legs = ACR_GEN1_LEGS_FOUR;
+    b.f[0].human_plus = 1;
+    EXPECT(acr_gen1_stance_ok(&b.f[0]));
 
     if (failures) { printf("%d failure(s)\n", failures); return 1; }
     printf("gen1 battle: all passed (first hit after %d steps)\n", steps);
