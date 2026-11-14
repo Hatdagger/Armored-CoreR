@@ -1,0 +1,9 @@
+build/
+build-*/
+Data/
+Discs/
+Memory Card/
+*.bin
+*.cue
+*.iso
+*.chd
