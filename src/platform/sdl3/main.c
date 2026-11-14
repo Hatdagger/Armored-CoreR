@@ -7,8 +7,15 @@
  * import's models (pieces, skeleton, joint animations); an import without
  * models gets a stand-in made of boxes.
  *
+ * It opens in the garage (assembly, parts shop, AC TEST); AC TEST is the
+ * test arena with the garage's build. The garage is saved as a readable
+ * file in the user's data folder (ACR_SAVE=path picks another file).
+ *
  *   armored-corer [import folder | disc.cue] [--legs N] [--booster N]
- *                 [--core N] [--arms N] [--gen N] (Master of Arena indices)
+ *                 [--core N] [--arms N] [--gen N] [--back N] (Master of Arena
+ *                 indices: these skip the garage and go straight to the test)
+ *                 [--test]     straight to the test with the starting AC
+ *                 [--credits N] credits for a new save (default 0, as the game)
  *                 [--tick N]  steps a second (default 60 for now; 22 = Gen 1)
  *
  * With no import yet it asks for the disc: drop the .cue or .bin on the
@@ -25,6 +32,7 @@
 #include "../../core/acr_pools.h"
 #include "demo_data.h"
 #include "demo_model.h"
+#include "garage.h"
 #include "acr_import.h"
 #include "../../render/acr_render.h"
 #include "../../render/acr_light.h"
@@ -217,6 +225,8 @@ static int player_of(SDL_Gamepad *const pads[2], SDL_JoystickID id, int fallback
     return fallback;
 }
 
+static int g_direct_test = 0;   /* part arguments given: no garage */
+static long g_new_credits = 0;
 static int g_tick_rate = 60;   /* test: steps a second; 22 = Gen 1's own pace */
 static const int k_tick_rates[] = { 22, 30, 45, 60 };
 
@@ -259,10 +269,134 @@ static int parse_args(int argc, char **argv, const char **dir, int parts[SLOT_CO
         else if (!strcmp(argv[i], "--gen")) slot = SLOT_GEN;
         else if (!strcmp(argv[i], "--back")) slot = SLOT_BACK_L;
         if (!strcmp(argv[i], "--tick") && i + 1 < argc) { g_tick_rate = atoi(argv[++i]); continue; }
-        if (slot >= 0 && i + 1 < argc) parts[slot] = atoi(argv[++i]);
+        if (!strcmp(argv[i], "--credits") && i + 1 < argc) { g_new_credits = atol(argv[++i]); continue; }
+        if (!strcmp(argv[i], "--test")) { g_direct_test = 1; continue; }
+        if (slot >= 0 && i + 1 < argc) { parts[slot] = atoi(argv[++i]); g_direct_test = 1; }
         else if (argv[i][0] != '-') *dir = argv[i];
     }
     return 1;
+}
+
+/* ---------------- garage ---------------- */
+
+static acr_gen1_hangar g_hangar;
+static const char *g_import_dir = "";
+static acr_gen1_catalog g_catalog;
+static char g_part_names[ACR_GEN1_CAT_COUNT][ACR_GEN1_PART_MAX][24];
+
+static void save_path(char *out, size_t size) {
+    const char *env = SDL_getenv("ACR_SAVE");
+    if (env && env[0]) { SDL_strlcpy(out, env, size); return; }
+    char *pref = SDL_GetPrefPath("Hatdagger", "Armored-CoreR");
+    SDL_snprintf(out, size, "%sgen1-save.toml", pref ? pref : "");
+    SDL_free(pref);
+}
+
+/* Loads the save, or starts a new one from the starting AC. */
+static void hangar_open(const int start[SLOT_COUNT]) {
+    char path[1200];
+    save_path(path, sizeof path);
+    char *text = SDL_LoadFile(path, NULL);
+    const int ok = text && acr_gen1_save_read(&g_hangar, text);
+    SDL_free(text);
+    if (ok) return;
+    uint8_t s[SLOT_COUNT];
+    for (int i = 0; i < SLOT_COUNT; ++i) s[i] = (uint8_t)start[i];
+    acr_gen1_hangar_new(&g_hangar, s, 0, (int32_t)g_new_credits);
+    char cpath[1200];
+    SDL_snprintf(cpath, sizeof cpath, "%s/models/colours.toml", g_import_dir);
+    char *ct = SDL_LoadFile(cpath, NULL);
+    const char *v = ct ? SDL_strstr(ct, "default") : NULL;
+    if (v && (v = SDL_strchr(v, '[')) != NULL)
+        for (int k = 0; k < 12; ++k) {
+            char *end;
+            const long x = SDL_strtol(v + 1, &end, 10);
+            if (end == v + 1 || x < 0 || x > 63) break;
+            g_hangar.colours[k / 3][k % 3] = (uint8_t)x;
+            v = end;
+            while (*v == ' ') ++v;
+            if (*v != ',') break;
+        }
+    SDL_free(ct);
+    SDL_strlcpy(g_hangar.ac_name, "AC", sizeof g_hangar.ac_name);
+    SDL_strlcpy(g_hangar.pilot_name, "RAVEN", sizeof g_hangar.pilot_name);
+}
+
+static int hangar_save(void) {
+    char path[1200], text[4096];
+    save_path(path, sizeof path);
+    const size_t n = acr_gen1_save_write(&g_hangar, text, sizeof text);
+    return n < sizeof text && SDL_SaveFile(path, text, n);
+}
+
+static void hangar_parts(int parts[SLOT_COUNT]) {
+    for (int i = 0; i < SLOT_COUNT; ++i) parts[i] = g_hangar.fitted[i];
+}
+
+/* Menu input from the controller: d-pad or stick, repeating while held. */
+static garage_action pad_direction(SDL_Gamepad *pad, Uint64 now_ms) {
+    static int held = 0;
+    static Uint64 next_ms = 0;
+    int dir = 0;
+    if (pad) {
+        const int ax = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTX), ay = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTY);
+        if (SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_DPAD_UP) || ay < -20000) dir = GA_UP;
+        else if (SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_DPAD_DOWN) || ay > 20000) dir = GA_DOWN;
+        else if (SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_DPAD_LEFT) || ax < -20000) dir = GA_LEFT;
+        else if (SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_DPAD_RIGHT) || ax > 20000) dir = GA_RIGHT;
+    }
+    if (!dir) { held = 0; return GA_NONE; }
+    if (dir != held) { held = dir; next_ms = now_ms + 380; return (garage_action)dir; }
+    if (now_ms >= next_ms) { next_ms = now_ms + 70; return (garage_action)dir; }
+    return GA_NONE;
+}
+
+static garage_action key_action(SDL_Scancode k) {
+    switch (k) {
+    case SDL_SCANCODE_UP: case SDL_SCANCODE_W: return GA_UP;
+    case SDL_SCANCODE_DOWN: case SDL_SCANCODE_S: return GA_DOWN;
+    case SDL_SCANCODE_LEFT: case SDL_SCANCODE_A: return GA_LEFT;
+    case SDL_SCANCODE_RIGHT: case SDL_SCANCODE_D: return GA_RIGHT;
+    case SDL_SCANCODE_RETURN: case SDL_SCANCODE_SPACE: return GA_OK;
+    case SDL_SCANCODE_ESCAPE: case SDL_SCANCODE_BACKSPACE: return GA_CANCEL;
+    case SDL_SCANCODE_Q: return GA_PREV_TAB;
+    case SDL_SCANCODE_E: return GA_NEXT_TAB;
+    default: return GA_NONE;
+    }
+}
+
+static garage_action button_action(int b) {
+    switch (b) {
+    case SDL_GAMEPAD_BUTTON_SOUTH: return GA_OK;
+    case SDL_GAMEPAD_BUTTON_EAST: return GA_CANCEL;
+    case SDL_GAMEPAD_BUTTON_LEFT_SHOULDER: return GA_PREV_TAB;
+    case SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER: return GA_NEXT_TAB;
+    default: return GA_NONE;
+    }
+}
+
+/* The garage's AC: turning slowly, standing, in the middle of the screen. */
+static void draw_garage_ac(int pw, int ph, float hud_w, unsigned tick) {
+    float hx, hy, hw, hh;
+    garage_view_rect(hud_w, &hx, &hy, &hw, &hh);
+    const float s = (float)ph / 480.0f;
+    const int x = (int)(hx * s), y = (int)(hy * s), w = (int)(hw * s), h = (int)(hh * s);
+    if (w < 8 || h < 8) return;
+    (void)pw;
+    float proj[16], viewm[16];
+    acr_mat_perspective(proj, 40.0f * 3.14159265f / 180.0f, (float)w / (float)h, 50.0f, 40000.0f);
+    const float eye[3] = { 0, 1000.0f, -2700.0f }, fwd[3] = { 0, -0.2f, 1 }, up[3] = { 0, 1, 0 };
+    acr_mat_look(viewm, eye, fwd, up);
+    for (int k = 0; k < 4; ++k) viewm[4 * k] = -viewm[4 * k];
+    acr_render_view3d(x, y, w, h, proj, viewm, NULL);
+    for (int g = -2000; g <= 2000; g += 500) {   /* the hangar floor */
+        line3(v3((float)g, 0, -2000), v3((float)g, 0, 2000), 52, 70, 76);
+        line3(v3(-2000, 0, (float)g), v3(2000, 0, (float)g), 52, 70, 76);
+    }
+    flush_scene();
+    const float yaw = 3.14159265f + (float)tick * 0.004f;
+    if (g_model[0].ok) demo_model_draw(&g_model[0], 0, tick, 0, 0, 0, yaw, &g_light);
+    else { add_ac(v3(0, 0, 0), yaw, 0, 0); flush_scene(); }
 }
 
 static int is_disc(const char *path) {
@@ -382,6 +516,21 @@ int main(int argc, char **argv) {
                 loaded = demo_load(dir, parts, &ac_data[0], err, sizeof err);
         }
     }
+    /* The garage: the shop's catalogue from the import, and the save (or a
+     * new game with the starting AC). */
+    g_import_dir = dir;
+    demo_catalog(dir, &g_catalog, g_part_names);
+    hangar_open(parts);
+    int mode = g_direct_test ? 1 : 0;   /* 0 garage, 1 test arena */
+    garage_ui gui;
+    garage_init(&gui);
+    garage_data gdata = { &g_hangar, &g_catalog, g_part_names };
+    if (!g_direct_test) {
+        int fitted[SLOT_COUNT];
+        hangar_parts(fitted);
+        if (demo_load(dir, fitted, &ac_data[0], err, sizeof err)) memcpy(parts, fitted, sizeof fitted);
+        else demo_load(dir, parts, &ac_data[0], err, sizeof err);
+    }
     /* Player 2 starts with the same build; each player can change theirs. */
     memcpy(parts2, parts, sizeof parts2);
     demo_load(dir, parts2, &ac_data[1], err, sizeof err);
@@ -452,6 +601,8 @@ int main(int argc, char **argv) {
     }
     while (running) {
         SDL_Event e;
+        garage_command gcmd = GC_NONE;
+        int to_garage = 0;
         while (SDL_PollEvent(&e)) {
             if (e.type == SDL_EVENT_QUIT) running = 0;
             if (e.type == SDL_EVENT_GAMEPAD_ADDED) {
@@ -463,7 +614,18 @@ int main(int argc, char **argv) {
             if (e.type == SDL_EVENT_GAMEPAD_REMOVED)
                 for (int k = 0; k < 2; ++k)
                     if (pads[k] && SDL_GetGamepadID(pads[k]) == e.gdevice.which) { SDL_CloseGamepad(pads[k]); pads[k] = NULL; }
-            if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_ESCAPE) running = 0;
+            if (mode == 0) {   /* the garage takes all other input */
+                garage_action ga = GA_NONE;
+                if (e.type == SDL_EVENT_KEY_DOWN) ga = key_action(e.key.scancode);
+                if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) ga = button_action(e.gbutton.button);
+                const garage_command c = garage_input(&gui, &gdata, ga);
+                if (c != GC_NONE) gcmd = c;
+                continue;
+            }
+            if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_ESCAPE) {
+                if (g_direct_test) running = 0;
+                else to_garage = 1;
+            }
             if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_F1) show_help = !show_help;
             if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_R) {
                 SETUP_FIGHTERS(); prevs[0] = *P; prevs[1] = *T;
@@ -487,7 +649,8 @@ int main(int argc, char **argv) {
                     const int who = !two_players ? 0 : pads[1] ? (player_of(pads, e.gbutton.which, 0) == 1) : 1;
                     switch_pressed[who] = 1;
                 }
-                if (btn == SDL_GAMEPAD_BUTTON_START) { SETUP_FIGHTERS(); prevs[0] = *P; prevs[1] = *T; }
+                if (btn == SDL_GAMEPAD_BUTTON_START && back_held && !g_direct_test) { to_garage = 1; back_combo = 1; }
+                else if (btn == SDL_GAMEPAD_BUTTON_START) { SETUP_FIGHTERS(); prevs[0] = *P; prevs[1] = *T; }
             }
             if (e.type == SDL_EVENT_GAMEPAD_BUTTON_UP && e.gbutton.button == SDL_GAMEPAD_BUTTON_BACK) {
                 if (!back_combo) cycle_rate = 1;
@@ -514,7 +677,9 @@ int main(int argc, char **argv) {
                 set_rate(&clock, def2, g_tick_rate);
                 last = SDL_GetTicksNS();
             }
-            if (cycle_slot >= 0 && !(cycle_slot == SLOT_BOOSTER && pp[cycle_who][SLOT_LEGS] >= 27)) {
+            /* From the garage, player 1's parts come from the garage only. */
+            if (cycle_slot >= 0 && !(cycle_slot == SLOT_BOOSTER && pp[cycle_who][SLOT_LEGS] >= 27) &&
+                (g_direct_test || cycle_who == 1)) {
                 /* Each player changes their own build; alone, the target copies yours. */
                 next_part(dir, pp[cycle_who], cycle_slot, &ac_data[cycle_who]);
                 if (!two_players) {
@@ -528,6 +693,56 @@ int main(int argc, char **argv) {
                 prevs[0] = *P;
                 prevs[1] = *T;
             }
+        }
+        if (to_garage) { mode = 0; gui.screen = 0; }
+        if (mode == 0) {
+            garage_action dir_action = pad_direction(pads[0], SDL_GetTicks());
+            /* Testing aid: ACR_KEYS="ok,down,ok,..." feeds the garage one action a frame. */
+            static const char *script;
+            static int script_read;
+            if (!script_read) { script = SDL_getenv("ACR_KEYS"); script_read = 1; }
+            if (script && *script && dir_action == GA_NONE) {
+                static const char *const k_names[] = { "", "up", "down", "left", "right", "ok", "back", "lb", "rb" };
+                for (int k = 1; k < 9; ++k)
+                    if (!SDL_strncmp(script, k_names[k], SDL_strlen(k_names[k]))) { dir_action = (garage_action)k; break; }
+                script = SDL_strchr(script, ',');
+                if (script) ++script;
+            }
+            if (dir_action != GA_NONE) {
+                const garage_command c = garage_input(&gui, &gdata, dir_action);
+                if (c != GC_NONE) gcmd = c;
+            }
+            if (gcmd == GC_QUIT) running = 0;
+            if (gcmd == GC_CHANGED || gcmd == GC_TEST) {
+                int fitted[SLOT_COUNT];
+                hangar_parts(fitted);
+                if (demo_load(dir, fitted, &ac_data[0], err, sizeof err)) memcpy(parts, fitted, sizeof fitted);
+                hangar_save();
+            }
+            if (gcmd == GC_TEST) {   /* AC TEST: the test arena, the target built like you */
+                mode = 1;
+                memcpy(parts2, parts, sizeof parts2);
+                demo_load(dir, parts2, &ac_data[1], err, sizeof err);
+                set_rate(&clock, def, g_tick_rate);
+                set_rate(&clock, def2, g_tick_rate);
+                SETUP_FIGHTERS();
+                prevs[0] = *P; prevs[1] = *T;
+                last = SDL_GetTicksNS();
+            }
+        }
+        if (mode == 0) {
+            static Uint64 garage_last_ms;
+            const Uint64 now_ms = SDL_GetTicks();
+            const int elapsed = garage_last_ms ? (int)(now_ms - garage_last_ms) : 0;
+            garage_last_ms = now_ms;
+            int pw = 0, ph = 0;
+            SDL_GetWindowSizeInPixels(window, &pw, &ph);
+            if (pw < 1 || ph < 1) { SDL_Delay(10); continue; }
+            acr_render_begin(pw, ph, 18, 22, 28);
+            refresh_model(0, dir, parts, ac_data[0].model);
+            draw_garage_ac(pw, ph, 480.0f * (float)pw / (float)ph, (unsigned)(now_ms / 16));
+            garage_draw(&gui, &gdata, acr_render_hud(0, 0, pw, ph), elapsed);
+            goto present;
         }
         /* Who uses what: one player gets the keyboard and the first controller;
          * with two players, player 2 takes the second controller (or the only
@@ -761,8 +976,13 @@ int main(int argc, char **argv) {
             TEXT(20, 28, "MOVE: STICK/DPAD UP-DOWN  TURN: LEFT-RIGHT");
             TEXT(20, 40, "STRAFE: LB/RB  BOOST: A OR RT (NO DIRECTION = RISE)");
             TEXT(20, 52, "FIRE: X (F)  SWITCH WEAPON: Y (TAB)");
-            TEXT(20, 64, "BACK+X/Y/B/RB (B/G/C/L): BOOSTER/GENERATOR/BACK WEAPON/LEGS");
-            TEXT(20, 76, "START/R: RESET  F1: HIDE HELP  ESC: QUIT");
+            if (g_direct_test) {
+                TEXT(20, 64, "BACK+X/Y/B/RB (B/G/C/L): BOOSTER/GENERATOR/BACK WEAPON/LEGS");
+                TEXT(20, 76, "START/R: RESET  F1: HIDE HELP  ESC: QUIT");
+            } else {
+                TEXT(20, 64, "BACK+START (ESC): BACK TO THE GARAGE");
+                TEXT(20, 76, "START/R: RESET  F1: HIDE HELP");
+            }
             TEXT(20, 88, "BACK+A (H): HUMAN PLUS  BACK (T): SPEED");
             TEXT(20, 100, "BACK+LB (F2): TWO PLAYERS");
         }
@@ -785,15 +1005,18 @@ int main(int argc, char **argv) {
             if (round_ms <= 0) acr_hud_text(full_w / 2.0f - 40, 254, "TIME UP", 255, 230, 120);
         }
         #undef TEXT
+    present:;
         const char *shot = SDL_getenv("ACR_SHOT");
-        if (shot && (now - start_ns) / 1000000 >= (Uint64)SDL_atoi(SDL_getenv("ACR_SHOT_MS") ? SDL_getenv("ACR_SHOT_MS") : "2000")) {
-            SDL_Surface *img = SDL_CreateSurface(pw, ph, SDL_PIXELFORMAT_RGBA32);
-            uint8_t *buf = img ? malloc((size_t)pw * (size_t)ph * 4) : NULL;
+        int spw = 0, sph = 0;
+        SDL_GetWindowSizeInPixels(window, &spw, &sph);
+        if (shot && (SDL_GetTicksNS() - start_ns) / 1000000 >= (Uint64)SDL_atoi(SDL_getenv("ACR_SHOT_MS") ? SDL_getenv("ACR_SHOT_MS") : "2000")) {
+            SDL_Surface *img = SDL_CreateSurface(spw, sph, SDL_PIXELFORMAT_RGBA32);
+            uint8_t *buf = img ? malloc((size_t)spw * (size_t)sph * 4) : NULL;
             if (buf) {
-                acr_render_read(pw, ph, buf);
-                for (int y = 0; y < ph; ++y)      /* GL rows run bottom up */
+                acr_render_read(spw, sph, buf);
+                for (int y = 0; y < sph; ++y)      /* GL rows run bottom up */
                     memcpy((uint8_t *)img->pixels + (size_t)y * (size_t)img->pitch,
-                           buf + (size_t)(ph - 1 - y) * (size_t)pw * 4, (size_t)pw * 4);
+                           buf + (size_t)(sph - 1 - y) * (size_t)spw * 4, (size_t)spw * 4);
                 SDL_SaveBMP(img, shot);
             }
             free(buf);

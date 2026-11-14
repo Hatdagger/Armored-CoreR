@@ -4,6 +4,7 @@
 #define DEMO_DATA_H
 
 #include "../../gen1/acr_gen1_battle.h"
+#include "../../gen1/acr_gen1_garage.h"
 
 #define DEMO_MAX_KEYS 4096
 
@@ -27,5 +28,11 @@ typedef struct demo_ac {
 /* 1 on success; otherwise 0 and a message for the player in `err`. */
 int demo_load(const char *import_dir, const int parts[SLOT_COUNT], demo_ac *out,
               char *err, int err_size);
+
+/* The shop catalogue from the import's part files: every part's price,
+ * fitting flags and stats, and its name in `names` (may be NULL). 0 when
+ * the import has no parts. */
+int demo_catalog(const char *import_dir, acr_gen1_catalog *cat,
+                 char names[ACR_GEN1_CAT_COUNT][ACR_GEN1_PART_MAX][24]);
 
 #endif

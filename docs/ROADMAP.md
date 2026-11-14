@@ -39,9 +39,21 @@ weapons, damage, two-player test build (see `docs/research/`).
    colours. The test build draws both ACs this way. Still to come: the
    effects texture ("fx" faces), per-texel semi-transparency, aiming joints
    (tables a/b), kneel/landing poses and colour patterns 1-15.
-3. **Garage, shop, test mode**: built on the stand-in AC while 1-2 go on,
-   then switched to real models. Fitting rules live, credits, buy/sell,
-   readable save files; test mode is the current test arena.
+3. **Garage, shop, test mode** (first version done): the game opens in the
+   garage. `src/gen1/acr_gen1_garage.c` (no OS calls) holds what a player
+   owns, credits, buying and selling (full price back; no trading while in
+   debt, as in the PS1 games), fitting under the game's rules (a part the
+   build rules out is refused; parts the new one can't be used with come
+   off) and a readable, versioned save file. The PC build shows MoA's slot
+   order (HEAD ... ARM WEAPON R), the parts you own per slot, the shop by
+   category with buy/sell, the build's totals and the VS START check, with
+   the real AC turning in the middle. AC TEST is the test arena with that
+   build; Esc / Back+Start returns. A new save starts with the starting AC
+   and 0 credits (Project Phantasma's new game; `--credits N` for testing).
+   Still to come: the shop's real stock (hidden and prize parts; everything
+   is for sale for now), part preview while choosing, paint (EDIT COLOR,
+   the 15 patterns), AC/pilot names, player 2's garage, MoA's part
+   parameter pages.
 4. **Arena**: stages from the disc (same mesh decoder), then collision
    (walls, floors, heights), then rankings, opponents and rewards.
 

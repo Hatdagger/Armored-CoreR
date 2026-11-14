@@ -319,3 +319,77 @@ int demo_load(const char *import_dir, const int parts[SLOT_COUNT], demo_ac *out,
     }
     return 1;
 }
+
+/* ---- the shop catalogue ---- */
+
+typedef struct catalog_walk {
+    acr_gen1_catalog *cat;
+    char (*names)[ACR_GEN1_PART_MAX][24];
+    int category, depth;
+} catalog_walk;
+
+static const char *const k_cat_folder[ACR_GEN1_CAT_COUNT] = {
+    "core", "booster", "head", "arms", "blade", "hand", "back", "generator", "fcs", "legs", "option"
+};
+/* The demo slot whose stats a category's files hold (back: either back slot). */
+static const int k_cat_slot[ACR_GEN1_CAT_COUNT] = {
+    SLOT_CORE, SLOT_BOOSTER, SLOT_HEAD, SLOT_ARMS, SLOT_BLADE, SLOT_HAND, SLOT_BACK_L, SLOT_GEN,
+    SLOT_FCS, SLOT_LEGS, -1
+};
+
+static void catalog_file(catalog_walk *w, const char *path) {
+    char *t = load_text(path);
+    if (!t) return;
+    const char *e = t + strlen(t);
+    const int option = w->category == ACR_GEN1_CAT_OPTION;
+    const long index = get_int(t, e, option ? "bit" : "game_index", -1);
+    if (index >= 0 && index < ACR_GEN1_PART_MAX) {
+        acr_gen1_catalog_part *p = &w->cat->part[w->category][index];
+        memset(p, 0, sizeof *p);
+        char name[24];
+        if (option) {
+            get_string(t, e, "name", name, sizeof name);
+            p->slots = (uint8_t)get_int(t, e, "slots", 1);
+        } else {
+            read_part(k_cat_slot[w->category], t, &p->stats, name, sizeof name);
+            p->flags = acr_gen1_fit_flags_moa((acr_gen1_slot)k_cat_slot[w->category], (unsigned)index);
+            if (w->category == ACR_GEN1_CAT_CORE) p->slots = (uint8_t)get_int(t, e, "option_slots", 0);
+        }
+        p->present = 1;
+        p->for_sale = 1;   /* the shop's stock is not decoded yet: everything is for sale */
+        p->price = (uint32_t)get_int(t, e, "price", 0);
+        if (w->names) SDL_strlcpy(w->names[w->category][index], name, sizeof w->names[0][0]);
+    }
+    SDL_free(t);
+}
+
+static SDL_EnumerationResult SDLCALL catalog_cb(void *user, const char *dirname, const char *fname) {
+    catalog_walk *w = user;
+    char path[1400];
+    const size_t n = strlen(dirname);
+    const int has_sep = n && (dirname[n - 1] == '/' || dirname[n - 1] == '\\');
+    SDL_snprintf(path, sizeof path, "%s%s%s", dirname, has_sep ? "" : "/", fname);
+    SDL_PathInfo info;
+    if (!SDL_GetPathInfo(path, &info)) return SDL_ENUM_CONTINUE;
+    if (info.type == SDL_PATHTYPE_DIRECTORY) {
+        if (w->depth < 3) { ++w->depth; SDL_EnumerateDirectory(path, catalog_cb, w); --w->depth; }
+    } else if (SDL_strstr(fname, ".toml")) {
+        catalog_file(w, path);
+    }
+    return SDL_ENUM_CONTINUE;
+}
+
+int demo_catalog(const char *import_dir, acr_gen1_catalog *cat, char names[ACR_GEN1_CAT_COUNT][ACR_GEN1_PART_MAX][24]) {
+    memset(cat, 0, sizeof *cat);
+    if (names) memset(names, 0, sizeof(char) * ACR_GEN1_CAT_COUNT * ACR_GEN1_PART_MAX * 24);
+    cat->sell_percent = 100;   /* parts sell back for what they cost */
+    int found = 0;
+    for (int c = 0; c < ACR_GEN1_CAT_COUNT; ++c) {
+        char dir[1024];
+        SDL_snprintf(dir, sizeof dir, "%s/parts/%s", import_dir, k_cat_folder[c]);
+        catalog_walk w = { cat, names, c, 0 };
+        SDL_EnumerateDirectory(dir, catalog_cb, &w);
+    }
+    for (int i = 0; i < ACR_GEN1_PART_MAX; ++i) found += cat->part[ACR_GEN1_CAT_CORE][i].present;
+    return found > 0;
+}

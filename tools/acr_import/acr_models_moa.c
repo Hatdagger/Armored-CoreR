@@ -813,6 +813,19 @@ int acr_export_moa_models(const char *menu_module, const char *unpacked_dir, con
         /* Not fatal: grey ramps keep the shading readable. */
         for (int s = 0; s < 4; ++s) c.colours[s][0] = c.colours[s][1] = c.colours[s][2] = (uint8_t)(32 - 6 * s);
     }
+    {   /* the starting colour scheme, for new saves */
+        char cpath[1200];
+        snprintf(cpath, sizeof cpath, "%s/colours.toml", out_dir);
+        FILE *f = fopen(cpath, "w");
+        if (f) {
+            fprintf(f, "# Master of Arena colour scheme, imported from your disc by acr-import.\n"
+                       "# 4 colour slots as red, green, blue 0..63.\n"
+                       "default = [");
+            for (int k = 0; k < 12; ++k) fprintf(f, k ? ", %u" : "%u", c.colours[k / 3][k % 3]);
+            fprintf(f, "]\n");
+            fclose(f);
+        }
+    }
     set_info *sets = calloc(SET_COUNT, sizeof *sets);
     if (!sets) { free(menu); snprintf(err, err_size, "out of memory"); return 0; }
     char path[1200];
