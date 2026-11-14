@@ -32,7 +32,8 @@ empty arena with Gen 1 movement.
 | Gen 1 movement: walk, strafe, turn, boost, rise, landing, energy | first version |
 | AC graphics | stand-in boxes; real models not imported yet |
 | Lock-on, rifle / missile / blade, damage (first version, target dummy) | in progress |
-| Opponents, online | not started |
+| Two players on one machine (split screen) | first version |
+| Computer opponent, online | not started |
 
 ## Building
 
@@ -84,9 +85,14 @@ type: `legs/humanoid`, `back/missile`, `option` and so on.
 | Switch weapon (rifle, missile, blade) | Y | Tab |
 | Next booster / generator / back weapon / legs | Back + X / Y / B / RB | B / G / C / L |
 | Human PLUS on/off | Back + A | H |
+| Two players, split screen | Back + LB | F2 |
 | Change speed (22, 30, 45, 60 steps a second) | Back | T |
 | Reset | Start | R |
 | Hide help | | F1 |
+
+Two players: player 2 uses the second controller (or the only one, leaving
+player 1 the keyboard). Both fly the same build; the match ends when one
+AC's AP reaches 0, and Start starts the next.
 
 ## More
 

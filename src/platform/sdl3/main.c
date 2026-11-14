@@ -27,6 +27,7 @@
 
 #define VIEW_W 640
 #define VIEW_H 480
+static float g_vw = VIEW_W, g_vh = VIEW_H;   /* the view being drawn (split screen halves) */
 #define ARENA  20000          /* half width, world units */
 
 /* ---------------- input ---------------- */
@@ -39,13 +40,15 @@ static SDL_Gamepad *open_first_gamepad(void) {
     return pad;
 }
 
-static acr_gen1_input read_input(SDL_Gamepad *pad) {
+static acr_gen1_input read_input(SDL_Gamepad *pad, int keyboard) {
     const bool *k = SDL_GetKeyboardState(NULL);
     acr_gen1_input in = { 0, 0, 0, 0, 0 };
+    if (keyboard) {
     in.move = (int8_t)((k[SDL_SCANCODE_W] || k[SDL_SCANCODE_UP]) - (k[SDL_SCANCODE_S] || k[SDL_SCANCODE_DOWN]));
     in.turn = (int8_t)((k[SDL_SCANCODE_D] || k[SDL_SCANCODE_RIGHT]) - (k[SDL_SCANCODE_A] || k[SDL_SCANCODE_LEFT]));
     in.strafe = (int8_t)(k[SDL_SCANCODE_E] - k[SDL_SCANCODE_Q]);
     in.boost = (uint8_t)(k[SDL_SCANCODE_SPACE] || k[SDL_SCANCODE_J]);
+    }
     if (pad) {
         const int lx = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTX);
         const int ly = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTY);
@@ -79,7 +82,7 @@ static vec3 to_cam(const camera *c, vec3 p) {
     return v3(vdot(d, c->right), vdot(d, c->up), vdot(d, c->fwd));
 }
 static SDL_FPoint project(const camera *c, vec3 q) {
-    SDL_FPoint s = { VIEW_W * 0.5f + q.x * c->focal / q.z, VIEW_H * 0.55f - q.y * c->focal / q.z };
+    SDL_FPoint s = { g_vw * 0.5f + q.x * c->focal / q.z, g_vh * 0.55f - q.y * c->focal / q.z };
     return s;
 }
 
@@ -173,6 +176,13 @@ static void add_ac(const camera *c, vec3 p, float yaw, float crouch, int enemy) 
 }
 
 /* ---------------- main ---------------- */
+
+/* Index of the controller with this id in pads[], or `fallback`. */
+static int player_of(SDL_Gamepad *const pads[2], SDL_JoystickID id, int fallback) {
+    for (int k = 0; k < 2; ++k)
+        if (pads[k] && SDL_GetGamepadID(pads[k]) == id) return k;
+    return fallback;
+}
 
 static int g_tick_rate = 60;   /* test: steps a second; 22 = Gen 1's own pace */
 static const int k_tick_rates[] = { 22, 30, 45, 60 };
@@ -336,7 +346,7 @@ int main(int argc, char **argv) {
             f_->ap = f_->ap_max = ac_data.ap;                                             \
             f_->shell_factor = ac_data.shell_factor;                                      \
             f_->energy_factor = ac_data.energy_factor;                                    \
-            f_->weapons = (uint8_t)(i_ == 0 ? ac_data.weapons : 0);                       \
+            f_->weapons = (uint8_t)(i_ == 0 || two_players ? ac_data.weapons : 0);        \
             for (int w_ = 0; w_ < ac_data.weapons; ++w_) {                                \
                 f_->weapon[w_] = ac_data.weapon[w_];                                      \
                 f_->ammo[w_] = ac_data.weapon[w_].ammo;                                   \
@@ -346,13 +356,13 @@ int main(int argc, char **argv) {
                        : parts[SLOT_LEGS] >= 21 ? ACR_GEN1_LEGS_FOUR : ACR_GEN1_LEGS_TWO);  \
             f_->human_plus = (uint8_t)(i_ == 0 && human_plus); f_->kneeling = 0;          \
         }                                                                                 \
-        acr_gen1_ac_spawn(P, def, 0, 0, 0);                                               \
-        acr_gen1_ac_spawn(T, def, 0, 5000 * 64, 2048);                                    \
+        acr_gen1_ac_spawn(P, def, 0, -2500 * 64, 0);                                      \
+        acr_gen1_ac_spawn(T, def, 0, 2500 * 64, 2048);                                    \
         memset(battle.shot, 0, sizeof battle.shot);                                       \
     } while (0)
-    int human_plus = 0;
+    int human_plus = 0, two_players = SDL_getenv("ACR_TWO") != NULL;
     SETUP_FIGHTERS();
-    acr_gen1_ac prev = *P, tprev = *T;
+    acr_gen1_ac prevs[2] = { *P, *T };
     /* After a part change: new stats and weapons, same place in the arena. */
     #define REFRESH_FIGHTERS() do {                                                      \
         const acr_gen1_ac keep_p_ = *P, keep_t_ = *T;                                     \
@@ -366,22 +376,36 @@ int main(int argc, char **argv) {
 
     Uint64 last = SDL_GetTicksNS();
     const Uint64 start_ns = last;
-    int running = 1, show_help = 1, back_held = 0, back_combo = 0, switch_pressed = 0;
+    int running = 1, show_help = 1, back_held = 0, back_combo = 0, switch_pressed[2] = { 0, 0 };
+    SDL_Gamepad *pads[2] = { pad, NULL };
+    {   /* a second controller, if there is one */
+        int count = 0;
+        SDL_JoystickID *ids = SDL_GetGamepads(&count);
+        for (int i = 0; ids && i < count && !pads[1]; ++i)
+            if (!pads[0] || SDL_GetGamepadID(pads[0]) != ids[i]) pads[1] = SDL_OpenGamepad(ids[i]);
+        SDL_free(ids);
+    }
     while (running) {
         SDL_Event e;
         while (SDL_PollEvent(&e)) {
             if (e.type == SDL_EVENT_QUIT) running = 0;
-            if (e.type == SDL_EVENT_GAMEPAD_ADDED && !pad) pad = SDL_OpenGamepad(e.gdevice.which);
-            if (e.type == SDL_EVENT_GAMEPAD_REMOVED && pad && SDL_GetGamepadID(pad) == e.gdevice.which) {
-                SDL_CloseGamepad(pad);
-                pad = NULL;
+            if (e.type == SDL_EVENT_GAMEPAD_ADDED) {
+                const int taken = (pads[0] && SDL_GetGamepadID(pads[0]) == e.gdevice.which) ||
+                                  (pads[1] && SDL_GetGamepadID(pads[1]) == e.gdevice.which);
+                if (!taken && !pads[0]) pads[0] = SDL_OpenGamepad(e.gdevice.which);
+                else if (!taken && !pads[1]) pads[1] = SDL_OpenGamepad(e.gdevice.which);
             }
+            if (e.type == SDL_EVENT_GAMEPAD_REMOVED)
+                for (int k = 0; k < 2; ++k)
+                    if (pads[k] && SDL_GetGamepadID(pads[k]) == e.gdevice.which) { SDL_CloseGamepad(pads[k]); pads[k] = NULL; }
             if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_ESCAPE) running = 0;
             if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_F1) show_help = !show_help;
             if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_R) {
-                SETUP_FIGHTERS(); prev = *P; tprev = *T;
+                SETUP_FIGHTERS(); prevs[0] = *P; prevs[1] = *T;
             }
-            if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_TAB) switch_pressed = 1;
+            if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_TAB) switch_pressed[0] = 1;
+            int toggle_two = 0;
+            if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_F2) toggle_two = 1;
             int cycle_rate = 0, cycle_slot = -1, toggle_plus = 0;
             if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) {
                 const int btn = e.gbutton.button;
@@ -391,8 +415,13 @@ int main(int argc, char **argv) {
                 if (btn == SDL_GAMEPAD_BUTTON_EAST && back_held) { cycle_slot = SLOT_BACK_L; back_combo = 1; }
                 if (btn == SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER && back_held) { cycle_slot = SLOT_LEGS; back_combo = 1; }
                 if (btn == SDL_GAMEPAD_BUTTON_SOUTH && back_held) { toggle_plus = 1; back_combo = 1; }
-                if (btn == SDL_GAMEPAD_BUTTON_NORTH && !back_held) switch_pressed = 1;
-                if (btn == SDL_GAMEPAD_BUTTON_START) { SETUP_FIGHTERS(); prev = *P; tprev = *T; }
+                if (btn == SDL_GAMEPAD_BUTTON_LEFT_SHOULDER && back_held) { toggle_two = 1; back_combo = 1; }
+                if (btn == SDL_GAMEPAD_BUTTON_NORTH && !back_held) {
+                    /* which player's controller? */
+                    const int who = !two_players ? 0 : pads[1] ? (player_of(pads, e.gbutton.which, 0) == 1) : 1;
+                    switch_pressed[who] = 1;
+                }
+                if (btn == SDL_GAMEPAD_BUTTON_START) { SETUP_FIGHTERS(); prevs[0] = *P; prevs[1] = *T; }
             }
             if (e.type == SDL_EVENT_GAMEPAD_BUTTON_UP && e.gbutton.button == SDL_GAMEPAD_BUTTON_BACK) {
                 if (!back_combo) cycle_rate = 1;
@@ -405,6 +434,10 @@ int main(int argc, char **argv) {
             if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_L) cycle_slot = SLOT_LEGS;
             if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_H) toggle_plus = 1;
             if (toggle_plus) { human_plus = !human_plus; battle.f[0].human_plus = (uint8_t)human_plus; }
+            if (toggle_two) {
+                two_players = !two_players;
+                SETUP_FIGHTERS(); prevs[0] = *P; prevs[1] = *T;
+            }
             if (cycle_rate) {
                 int idx = 0;
                 const int n = (int)(sizeof k_tick_rates / sizeof k_tick_rates[0]);
@@ -418,11 +451,21 @@ int main(int argc, char **argv) {
                 set_rate(&clock, def, g_tick_rate);
                 last = SDL_GetTicksNS();
                 REFRESH_FIGHTERS();
-                prev = *P;
-                tprev = *T;
+                prevs[0] = *P;
+                prevs[1] = *T;
             }
         }
-        acr_gen1_input in = read_input(pad);
+        /* Who uses what: one player gets the keyboard and the first controller;
+         * with two players, player 2 takes the second controller (or the only
+         * one, leaving player 1 the keyboard). */
+        SDL_Gamepad *ctl[2] = { pads[0], NULL };
+        if (two_players) {
+            if (pads[1]) ctl[1] = pads[1];
+            else { ctl[1] = pads[0]; ctl[0] = NULL; }
+        }
+        acr_gen1_input in2[2];
+        in2[0] = read_input(ctl[0], 1);
+        in2[1] = two_players ? read_input(ctl[1], 0) : (acr_gen1_input){ 0, 0, 0, 0, 0 };
         /* Testing aid: ACR_HOLD="move,turn,strafe,boost[,fire]" holds those inputs;
          * ACR_SHOT=file.bmp ACR_SHOT_MS=2000 saves a picture and quits. */
         const char *hold = SDL_getenv("ACR_HOLD");
@@ -430,18 +473,23 @@ int main(int argc, char **argv) {
         if (hold) {
             int v[5] = { 0, 0, 0, 0, 0 };
             SDL_sscanf(hold, "%d,%d,%d,%d,%d", &v[0], &v[1], &v[2], &v[3], &v[4]);
-            in.move = (int8_t)v[0]; in.turn = (int8_t)v[1]; in.strafe = (int8_t)v[2]; in.boost = (uint8_t)v[3];
+            in2[0].move = (int8_t)v[0]; in2[0].turn = (int8_t)v[1]; in2[0].strafe = (int8_t)v[2];
+            in2[0].boost = (uint8_t)v[3];
             hold_fire = v[4];
         }
         const bool *keys = SDL_GetKeyboardState(NULL);
         acr_gen1_actions act[2] = { { 0, 0 }, { 0, 0 } };
         act[0].fire = (uint8_t)(hold_fire || keys[SDL_SCANCODE_F] || keys[SDL_SCANCODE_LCTRL] ||
-                                (pad && !back_held && SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_WEST)));
+                                (ctl[0] && !back_held && SDL_GetGamepadButton(ctl[0], SDL_GAMEPAD_BUTTON_WEST)));
+        if (two_players)
+            act[1].fire = (uint8_t)(ctl[1] && !back_held && SDL_GetGamepadButton(ctl[1], SDL_GAMEPAD_BUTTON_WEST));
 
         /* A quick release of the booster between two steps still counts. */
-        static int boost_released;
-        if (!in.boost) boost_released = 1;
-        in.boost_tapped = (uint8_t)(in.boost && boost_released);
+        static int boost_released[2];
+        for (int k = 0; k < 2; ++k) {
+            if (!in2[k].boost) boost_released[k] = 1;
+            in2[k].boost_tapped = (uint8_t)(in2[k].boost && boost_released[k]);
+        }
 
         const Uint64 now = SDL_GetTicksNS();
         const uint32_t ticks = acr_clock_advance(&clock, now - last);
@@ -450,33 +498,48 @@ int main(int argc, char **argv) {
         battle.step_rate = def->step_rate;
         battle.gen1_rate = def->gen1_rate;
         for (uint32_t i = 0; i < ticks; ++i) {
-            prev = *P;
-            tprev = *T;
-            act[0].next_weapon = (uint8_t)switch_pressed;
-            switch_pressed = 0;
-            const acr_gen1_input both[2] = { in, { 0, 0, 0, 0, 0 } };
-            acr_gen1_battle_step(&battle, both, act);
-            in.boost_tapped = 0;
-            boost_released = !in.boost;
+            prevs[0] = *P;
+            prevs[1] = *T;
+            for (int k = 0; k < 2; ++k) { act[k].next_weapon = (uint8_t)switch_pressed[k]; switch_pressed[k] = 0; }
+            acr_gen1_battle_step(&battle, in2, act);
+            for (int k = 0; k < 2; ++k) { in2[k].boost_tapped = 0; boost_released[k] = !in2[k].boost; }
             /* arena walls */
             const int32_t lim = ARENA * 64;
-            if (P->x > lim) { P->x = lim; P->vx = 0; }
-            if (P->x < -lim) { P->x = -lim; P->vx = 0; }
-            if (P->z > lim) { P->z = lim; P->vz = 0; }
-            if (P->z < -lim) { P->z = -lim; P->vz = 0; }
+            for (int k = 0; k < 2; ++k) {
+                acr_gen1_ac *q = &battle.f[k].ac;
+                if (q->x > lim) { q->x = lim; q->vx = 0; }
+                if (q->x < -lim) { q->x = -lim; q->vx = 0; }
+                if (q->z > lim) { q->z = lim; q->vz = 0; }
+                if (q->z < -lim) { q->z = -lim; q->vz = 0; }
+            }
             /* The target comes back 3 seconds after it is destroyed. */
-            if (battle.f[1].ap <= 0) {
+            if (!two_players && battle.f[1].ap <= 0) {
                 respawn_ms += battle.step_ms;
                 if (respawn_ms >= 3000) {
                     respawn_ms = 0;
                     battle.f[1].ap = battle.f[1].ap_max;
-                    acr_gen1_ac_spawn(T, def, 0, 5000 * 64, 2048);
-                    tprev = *T;
+                    acr_gen1_ac_spawn(T, def, 0, 2500 * 64, 2048);
+                    prevs[1] = *T;
                 }
             }
         }
-        acr_gen1_ac ac = *P;
 
+        SDL_SetRenderViewport(renderer, NULL);
+        SDL_SetRenderDrawColor(renderer, 18, 22, 28, 255);
+        SDL_RenderClear(renderer);
+        const int views = two_players ? 2 : 1;
+        for (int view = 0; view < views; ++view) {
+        g_vw = (float)VIEW_W / views;
+        g_vh = VIEW_H;
+        const SDL_Rect vp = { (int)(view * g_vw), 0, (int)g_vw, VIEW_H };
+        SDL_SetRenderViewport(renderer, &vp);
+        const SDL_Rect clip = { 0, 0, (int)g_vw, VIEW_H };
+        SDL_SetRenderClipRect(renderer, &clip);
+        const acr_gen1_ac ac = battle.f[view].ac;
+        const float rc_y = two_players ? 130.0f : g_vh - 80.0f;   /* right-hand HUD column */
+        const acr_gen1_ac prev = prevs[view];
+        const acr_gen1_ac *const T = &battle.f[1 - view].ac;
+        const acr_gen1_ac tprev = prevs[1 - view];
         /* Interpolate between the last two steps. */
         const float a = (float)acr_clock_alpha(&clock) / (float)ACR_FX_ONE;
         const float px = (prev.x + (ac.x - prev.x) * a) / 64.0f;
@@ -497,10 +560,8 @@ int main(int argc, char **argv) {
                     cam.fwd.x * cam.right.y - cam.fwd.y * cam.right.x);
         if (cam.up.y < 0) cam.up = v3(-cam.up.x, -cam.up.y, -cam.up.z);
         cam.pos = v3(px - sinf(yaw) * 2200.0f, py + 1200.0f, pz - cosf(yaw) * 2200.0f);
-        cam.focal = VIEW_H * 0.9f;
+        cam.focal = g_vh * 0.9f;
 
-        SDL_SetRenderDrawColor(renderer, 18, 22, 28, 255);
-        SDL_RenderClear(renderer);
         /* floor grid and walls */
         SDL_SetRenderDrawColor(renderer, 52, 70, 76, 255);
         for (int g = -ARENA; g <= ARENA; g += 2000) {
@@ -523,11 +584,11 @@ int main(int argc, char **argv) {
         float crouch = 0;
         if (ac.state == ACR_GEN1_CROUCH) crouch = 90;
         if (ac.state == ACR_GEN1_LANDING) crouch = 70;
-        if (battle.f[0].kneeling) crouch = 150;
+        if (battle.f[view].kneeling) crouch = 150;
         add_ac(&cam, v3(px, py, pz), yaw, crouch, 0);
         const float tx = (tprev.x + (T->x - tprev.x) * a) / 64.0f, ty = -(tprev.y + (T->y - tprev.y) * a) / 64.0f,
                     tz = (tprev.z + (T->z - tprev.z) * a) / 64.0f;
-        if (battle.f[1].ap > 0) add_ac(&cam, v3(tx, ty, tz), T->yaw * (6.2831853f / 4096.0f), 0, 1);
+        if (battle.f[1 - view].ap > 0) add_ac(&cam, v3(tx, ty, tz), T->yaw * (6.2831853f / 4096.0f), 0, 1);
         for (int k = 0; k < ACR_GEN1_MAX_SHOTS; ++k) {
             const acr_gen1_shot *sh = &battle.shot[k];
             if (!sh->active) continue;
@@ -537,7 +598,7 @@ int main(int argc, char **argv) {
                     missile ? (SDL_FColor){ 1.0f, 0.55f, 0.15f, 1 } : (SDL_FColor){ 1.0f, 0.95f, 0.5f, 1 });
         }
         flush_faces(renderer);
-        if (battle.f[0].swing) {                       /* blade arc */
+        if (battle.f[view].swing) {                       /* blade arc */
             SDL_SetRenderDrawColor(renderer, 120, 200, 255, 255);
             const float r = 700.0f;
             for (int k = -3; k < 3; ++k) {
@@ -555,7 +616,7 @@ int main(int argc, char **argv) {
         const acr_gen1_stats *st = &def->stats;
         const float e_frac = (float)ac.energy / (float)(st->energy_capacity ? st->energy_capacity : 1);
         const float red = (float)st->red_zone / (float)(st->energy_capacity ? st->energy_capacity : 1);
-        SDL_FRect bar = { 20, VIEW_H - 30, 300, 10 };
+        SDL_FRect bar = { 20, g_vh - 30, 300, 10 };
         SDL_SetRenderDrawColor(renderer, 40, 40, 40, 255);
         SDL_RenderFillRect(renderer, &bar);
         bar.w = 300 * e_frac;
@@ -563,7 +624,7 @@ int main(int argc, char **argv) {
         else SDL_SetRenderDrawColor(renderer, 90, 220, 140, 255);
         SDL_RenderFillRect(renderer, &bar);
         SDL_SetRenderDrawColor(renderer, 230, 60, 50, 255);
-        SDL_RenderLine(renderer, 20 + 300 * red, VIEW_H - 33, 20 + 300 * red, VIEW_H - 17);
+        SDL_RenderLine(renderer, 20 + 300 * red, g_vh - 33, 20 + 300 * red, g_vh - 17);
 
         static const char *const k_state[] = { "GROUND", "CROUCH", "AIR", "LANDING" };
         const int dx = (ac.x - prev.x) / 64, dz = (ac.z - prev.z) / 64, dy = (ac.y - prev.y) / 64;
@@ -571,34 +632,34 @@ int main(int argc, char **argv) {
         SDL_SetRenderDrawColor(renderer, 220, 230, 235, 255);
         SDL_snprintf(line, sizeof line, "ENERGY %5d  %-7s  SPEED %3d  RISE %4d", (int)ac.energy,
                      k_state[ac.state], (int)sqrtf((float)(dx * dx + dz * dz)), -dy);
-        SDL_RenderDebugText(renderer, 20, VIEW_H - 48, line);
+        SDL_RenderDebugText(renderer, 20, g_vh - 48, line);
         SDL_snprintf(line, sizeof line, "LEGS %s  BOOSTER %s  GENERATOR %s", ac_data.names[SLOT_LEGS],
                      ac_data.names[SLOT_BOOSTER], ac_data.names[SLOT_GEN]);
         SDL_RenderDebugText(renderer, 20, 12, line);
         SDL_snprintf(line, sizeof line, "%d STEPS/S%s", g_tick_rate, g_tick_rate == 22 ? " (GEN 1)" : "");
-        SDL_RenderDebugText(renderer, VIEW_W - 150, VIEW_H - 48, line);
+        SDL_RenderDebugText(renderer, g_vw - 150, rc_y + 32, line);
         /* Weapon, ammo, AP, lock box and the target's marker. */
         {
-            const acr_gen1_fighter *me = &battle.f[0], *tg = &battle.f[1];
+            const acr_gen1_fighter *me = &battle.f[view], *tg = &battle.f[1 - view];
             if (me->weapons) {
                 const acr_gen1_weapon *w = &me->weapon[me->current];
                 if (w->ammo) SDL_snprintf(line, sizeof line, "%-12s %4d", w->name, me->ammo[me->current]);
                 else SDL_snprintf(line, sizeof line, "%-12s", w->name);
-                SDL_RenderDebugText(renderer, VIEW_W - 150, VIEW_H - 64, line);
+                SDL_RenderDebugText(renderer, g_vw - 150, rc_y + 16, line);
                 if (w->stance && !me->human_plus) {
                     const char *hint = me->legs == ACR_GEN1_LEGS_TRACKS ? NULL
                                      : me->legs == ACR_GEN1_LEGS_FOUR ? (acr_gen1_stance_ok(me) ? NULL : "LAND TO FIRE")
                                      : !me->kneeling ? "FIRE TO KNEEL" : acr_gen1_stance_ok(me) ? "KNEELING" : "KNEELING...";
-                    if (hint) SDL_RenderDebugText(renderer, VIEW_W - 150, VIEW_H - 80, hint);
+                    if (hint) SDL_RenderDebugText(renderer, g_vw - 150, rc_y, hint);
                 }
                 if (w->box_w) {
                     /* the box as the original sizes it (its screen is about 512 wide) */
-                    const float bw = w->box_w * (VIEW_W / 512.0f), bh = w->box_h * (VIEW_W / 512.0f);
-                    const SDL_FRect box = { VIEW_W * 0.5f - bw * 0.5f, VIEW_H * 0.45f - bh * 0.5f, bw, bh };
+                    const float bw = w->box_w * (g_vw / 512.0f), bh = w->box_h * (g_vw / 512.0f);
+                    const SDL_FRect box = { g_vw * 0.5f - bw * 0.5f, g_vh * 0.45f - bh * 0.5f, bw, bh };
                     SDL_SetRenderDrawColor(renderer, 90, 200, 120, 255);
                     SDL_RenderRect(renderer, &box);
                 }
-                if (tg->ap > 0 && acr_gen1_in_lock_box(&battle, 0, w)) {
+                if (tg->ap > 0 && acr_gen1_in_lock_box(&battle, view, w)) {
                     const vec3 q = to_cam(&cam, v3(tx, ty + 400, tz));
                     if (q.z > 50) {
                         const SDL_FPoint sp = project(&cam, q);
@@ -611,10 +672,10 @@ int main(int argc, char **argv) {
                 }
             }
             SDL_SetRenderDrawColor(renderer, 220, 230, 235, 255);
-            if (me->human_plus) SDL_RenderDebugText(renderer, 20, VIEW_H - 64, "HUMAN PLUS");
+            if (me->human_plus) SDL_RenderDebugText(renderer, 20, g_vh - 64, "HUMAN PLUS");
             SDL_snprintf(line, sizeof line, "AP %5d", (int)me->ap);
-            SDL_RenderDebugText(renderer, VIEW_W - 150, VIEW_H - 32, line);
-            SDL_FRect tb = { VIEW_W - 220, 96, 200, 8 };
+            SDL_RenderDebugText(renderer, g_vw - 150, rc_y + 48, line);
+            SDL_FRect tb = { g_vw - 220, 96, 200, 8 };
             SDL_SetRenderDrawColor(renderer, 40, 40, 40, 255);
             SDL_RenderFillRect(renderer, &tb);
             tb.w = 200.0f * (float)tg->ap / (float)(tg->ap_max ? tg->ap_max : 1);
@@ -622,15 +683,33 @@ int main(int argc, char **argv) {
             SDL_RenderFillRect(renderer, &tb);
             SDL_SetRenderDrawColor(renderer, 220, 230, 235, 255);
             SDL_snprintf(line, sizeof line, tg->ap > 0 ? "TARGET AP %5d" : "TARGET DESTROYED", (int)tg->ap);
-            SDL_RenderDebugText(renderer, VIEW_W - 220, 108, line);
+            SDL_RenderDebugText(renderer, g_vw - 220, 108, line);
         }
-        if (show_help) {
+        if (show_help && !two_players) {
             SDL_RenderDebugText(renderer, 20, 28, "MOVE: STICK/DPAD UP-DOWN  TURN: LEFT-RIGHT");
             SDL_RenderDebugText(renderer, 20, 40, "STRAFE: LB/RB  BOOST: A OR RT (NO DIRECTION = RISE)");
             SDL_RenderDebugText(renderer, 20, 52, "FIRE: X (F)  SWITCH WEAPON: Y (TAB)");
             SDL_RenderDebugText(renderer, 20, 64, "BACK+X/Y/B/RB (B/G/C/L): BOOSTER/GENERATOR/BACK WEAPON/LEGS");
             SDL_RenderDebugText(renderer, 20, 88, "BACK+A (H): HUMAN PLUS  BACK (T): SPEED");
+            SDL_RenderDebugText(renderer, 20, 100, "BACK+LB (F2): TWO PLAYERS");
             SDL_RenderDebugText(renderer, 20, 76, "START/R: RESET  F1: HIDE HELP  ESC: QUIT");
+        }
+        if (two_players && view == 1) {
+            SDL_SetRenderClipRect(renderer, NULL);
+            SDL_SetRenderViewport(renderer, NULL);
+            SDL_SetRenderDrawColor(renderer, 0, 0, 0, 255);
+            SDL_RenderLine(renderer, VIEW_W / 2.0f, 0, VIEW_W / 2.0f, VIEW_H);
+        }
+        }
+        SDL_SetRenderViewport(renderer, NULL);
+        SDL_SetRenderClipRect(renderer, NULL);
+        g_vw = VIEW_W;
+        g_vh = VIEW_H;
+        if (two_players && (battle.f[0].ap <= 0 || battle.f[1].ap <= 0)) {
+            SDL_SetRenderDrawColor(renderer, 255, 230, 120, 255);
+            SDL_RenderDebugText(renderer, VIEW_W / 2.0f - 120, VIEW_H / 2.0f,
+                                battle.f[0].ap > 0 ? "PLAYER 1 WINS - START TO RESET" :
+                                battle.f[1].ap > 0 ? "PLAYER 2 WINS - START TO RESET" : "DRAW - START TO RESET");
         }
         const char *shot = SDL_getenv("ACR_SHOT");
         if (shot && (now - start_ns) / 1000000 >= (Uint64)SDL_atoi(SDL_getenv("ACR_SHOT_MS") ? SDL_getenv("ACR_SHOT_MS") : "2000")) {
@@ -641,7 +720,7 @@ int main(int argc, char **argv) {
         SDL_RenderPresent(renderer);
     }
 
-    if (pad) SDL_CloseGamepad(pad);
+    for (int k = 0; k < 2; ++k) if (pads[k]) SDL_CloseGamepad(pads[k]);
     SDL_DestroyRenderer(renderer);
     SDL_DestroyWindow(window);
     SDL_Quit();
