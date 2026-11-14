@@ -96,6 +96,7 @@ AC's AP reaches 0, and Start starts the next.
 
 ## More
 
+- [Roadmap](docs/ROADMAP.md)
 - [Design notes](docs/DESIGN.md)
 - [Full design plan](https://claude.ai/artifact/PAAEo6cvjUi7qxFQqSGPrf)
 - [AC1Recomp fork](https://github.com/Hatdagger/AC1Recomp), used as the
