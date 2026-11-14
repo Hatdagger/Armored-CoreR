@@ -48,6 +48,35 @@ layers so later generations and modes can add their own. See [AI.md](AI.md).
   measured from Master of Arena: [research/gen1-timing.md](research/gen1-timing.md).
   The engine draws as fast as the screen allows and interpolates between steps.
 
+## Replays
+
+A replay is the battle's **inputs**, not a recording of what happened. Because
+the simulation is deterministic, playing the inputs back through it rebuilds the
+battle exactly. Online play sends the same inputs, so replays come with it.
+
+- **What a replay holds:**
+  - a header: engine and ruleset versions, stage, the battle's random seed;
+  - each AC's full build (parts, colours, Human PLUS, generation), and its AI
+    profile if a computer flies it;
+  - one command word per AC per tick: the same commands a controller or the AI
+    gives (see Enemy AI), run-length encoded because commands change rarely.
+- **Size:** at 22 ticks a second and a 16-bit command per AC, a raw minute is
+  about 5 KB for two ACs and far less after run-length encoding, so replays
+  stay tiny even inside the Xbox budget.
+- **Nothing outside the simulation goes in.** The camera, HUD and sound are
+  rebuilt during playback, so a replay can be watched from any camera (the
+  spectator and replay cameras are the same code).
+- **The random seed lives in the simulation state.** Gameplay never asks the
+  platform for random numbers, or playback would diverge.
+- **Checksums:** every few seconds the replay stores a checksum of the
+  simulation state. Playback compares them, so a mismatch names the tick where
+  two runs diverged. The same check catches online desyncs.
+- **Version locked:** a replay plays only on the engine and ruleset versions in
+  its header. Anything else is refused with a clear message rather than
+  replaying wrongly.
+- **Tests:** recorded replays with their expected checksums go in `tests/`, so
+  any change that alters gameplay shows up as a failing replay.
+
 ## Legal
 
 - No copyrighted data ships. The importer reads the player's own discs.
