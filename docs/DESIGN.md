@@ -77,6 +77,25 @@ battle exactly. Online play sends the same inputs, so replays come with it.
 - **Tests:** recorded replays with their expected checksums go in `tests/`, so
   any change that alters gameplay shows up as a failing replay.
 
+## Connection handshake
+
+Online, each machine runs the battle itself from the shared inputs, so both must
+run exactly the same simulation. Before a battle the games compare:
+
+- the **simulation version**: a hash of the gameplay code, not just a build
+  number;
+- each generation's **ruleset version**;
+- a **hash of the imported part data**, since each player imports from their
+  own discs;
+- the **match rules** from the lobby (stage, time limit, Human PLUS, overweight,
+  banned parts, best of N);
+- each player's **AC build**, validated against those rules on both machines.
+
+Any mismatch ends the connection with a message that says what differs (for
+example "your opponent is on 0.6, you are on 0.7"). Only when everything
+matches does the host send the random seed and the battle start. A replay
+header carries the same fields, so a replay is checked the same way.
+
 ## Legal
 
 - No copyrighted data ships. The importer reads the player's own discs.
