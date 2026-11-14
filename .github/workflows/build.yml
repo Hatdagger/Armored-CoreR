@@ -69,7 +69,10 @@ jobs:
         run: git clone --depth 1 --recurse-submodules --shallow-submodules https://github.com/XboxDev/nxdk.git "$HOME/nxdk"
 
       - name: Build
-        run: make -C src/platform/xbox NXDK_DIR="$HOME/nxdk" -j"$(nproc)"
+        run: |
+          export NXDK_DIR="$HOME/nxdk"
+          export PATH="$NXDK_DIR/bin:$PATH"
+          make -C src/platform/xbox NXDK_DIR="$NXDK_DIR" -j"$(nproc)"
 
       - uses: actions/upload-artifact@v4
         with:
