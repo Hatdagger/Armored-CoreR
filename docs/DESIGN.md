@@ -112,6 +112,46 @@ header carries the same fields, so a replay is checked the same way.
   objectives and scripted events take any number of player ACs. Original
   single-player missions get extra spawn points and co-op rules as data.
 
+## Invasions
+
+A player attacking a base can be invaded: another player gets an
+**URGENT MISSION** alert and arrives mid-mission to defend it. Technically
+this is a mid-mission join (above); the rest is game design and discovery.
+
+- **Factions:** every AC, MT and turret belongs to a side, and AI targets by
+  side. The defender joins the base's side, so the base's units treat them as
+  an ally and the attacker as the enemy. Friendly fire is a mission rule.
+- **Invadable missions are marked in mission data**, with:
+  - arrival points for the defender (map edges, a drop point, a hangar) and a
+    short arrival sequence;
+  - defender objectives (destroy the invader, protect targets, hold until a
+    timer) and how they change the attacker's result;
+  - an **invasion window**: after the mission starts, before a point of no
+    return such as the boss fight or the last objective.
+- **The alert hides the sync:** the defender's urgent briefing takes a few
+  seconds, long enough to run the handshake and transfer the snapshot, so the
+  arrival feels instant.
+- **Consent and fairness:** "allow invasions in my missions" and "accept
+  defence alerts" settings, and alerts can be declined. The handshake checks
+  the defender's build against the mission's rules. Rewards for both sides,
+  and what each gets when the other leaves, are mission data.
+- **Leaving and results:** if the defender leaves, the mission carries on as
+  normal. If the host (the attacker, who owns the mission) leaves, it ends for
+  both. Each player's result goes into their own save, from the same final
+  state.
+- **Cost:** an invaded mission re-simulates two players plus every AI unit
+  during rollback. It must fit the per-type budgets (engine rule 8); a
+  slightly higher input delay in invasions is acceptable to cut re-simulation.
+- **Discovery without a server:** someone has to know which missions are open
+  to invasion right now. Options, in order of effort:
+  1. **LAN:** the attacker's game broadcasts "mission X in progress,
+     invadable"; other games on the network show the alert.
+  2. **Friends:** games that have connected before remember each other and can
+     show "your friend's mission is open", joined with a fresh code.
+  3. **Optional invasion board:** a tiny free serverless room-code service
+     listing open missions and their codes. The only way to get random
+     internet invasions; can be left out.
+
 ## Engine rules
 
 Cheap to follow from the start, expensive to retrofit:
@@ -133,6 +173,9 @@ Cheap to follow from the start, expensive to retrofit:
    the two can be compared.
 8. **Per-type budgets** (ACs, bullets, effects) inside the memory pools, so a
    large co-op battle degrades gracefully on Xbox-sized hardware.
+9. **Factions:** every unit has a side and AI targets by side, never by
+   "attack the player". This is what makes co-op, versus and invasions work
+   with the same AI.
 
 ## Legal
 
