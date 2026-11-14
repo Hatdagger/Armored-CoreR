@@ -293,7 +293,8 @@ int main(int argc, char **argv) {
 
     /* A disc given on the command line (or dropped on the program) is
      * imported next to the program first. */
-    static demo_ac ac_data;      /* large: keep it off the stack */
+    static demo_ac ac_data[2];   /* each player's build; large, so off the stack */
+    int parts2[SLOT_COUNT];
     char err[1024] = "";
     if (is_disc(dir)) {
         const char *disc = dir;
@@ -301,7 +302,7 @@ int main(int argc, char **argv) {
         import_disc(renderer, disc, dir, err, sizeof err);
     }
     /* No usable import yet: ask for the disc, which can be dropped on the window. */
-    int loaded = err[0] ? 0 : demo_load(dir, parts, &ac_data, err, sizeof err);
+    int loaded = err[0] ? 0 : demo_load(dir, parts, &ac_data[0], err, sizeof err);
     while (!loaded) {
         char text[1600];
         SDL_snprintf(text, sizeof text,
@@ -326,13 +327,19 @@ int main(int argc, char **argv) {
             dir = default_dir;
             err[0] = 0;
             if (import_disc(renderer, e.drop.data, dir, err, sizeof err))
-                loaded = demo_load(dir, parts, &ac_data, err, sizeof err);
+                loaded = demo_load(dir, parts, &ac_data[0], err, sizeof err);
         }
     }
-    acr_gen1_ac_def *def = &ac_data.def;
+    /* Player 2 starts with the same build; each player can change theirs. */
+    memcpy(parts2, parts, sizeof parts2);
+    demo_load(dir, parts2, &ac_data[1], err, sizeof err);
+    int *const pp[2] = { parts, parts2 };
+    acr_gen1_ac_def *def = &ac_data[0].def;
+    acr_gen1_ac_def *def2 = &ac_data[1].def;
 
     acr_clock clock;
     set_rate(&clock, def, g_tick_rate);
+    set_rate(&clock, def2, g_tick_rate);
     /* The fight: you (0) and a target AC (1) built the same way, standing
      * ahead and facing you. It does not move or shoot yet. */
     static acr_gen1_battle battle;
@@ -342,25 +349,30 @@ int main(int argc, char **argv) {
     #define SETUP_FIGHTERS() do {                                                         \
         for (int i_ = 0; i_ < 2; ++i_) {                                                  \
             acr_gen1_fighter *f_ = &battle.f[i_];                                         \
-            f_->def = def;                                                                \
-            f_->ap = f_->ap_max = ac_data.ap;                                             \
-            f_->shell_factor = ac_data.shell_factor;                                      \
-            f_->energy_factor = ac_data.energy_factor;                                    \
-            f_->weapons = (uint8_t)(i_ == 0 || two_players ? ac_data.weapons : 0);        \
-            for (int w_ = 0; w_ < ac_data.weapons; ++w_) {                                \
-                f_->weapon[w_] = ac_data.weapon[w_];                                      \
-                f_->ammo[w_] = ac_data.weapon[w_].ammo;                                   \
+            demo_ac *d_ = &ac_data[i_];                                                   \
+            f_->def = &d_->def;                                                           \
+            f_->ap = f_->ap_max = d_->ap;                                                 \
+            f_->shell_factor = d_->shell_factor;                                          \
+            f_->energy_factor = d_->energy_factor;                                        \
+            f_->weapons = (uint8_t)(i_ == 0 || two_players ? d_->weapons : 0);             \
+            for (int w_ = 0; w_ < d_->weapons; ++w_) {                                    \
+                f_->weapon[w_] = d_->weapon[w_];                                          \
+                f_->ammo[w_] = d_->weapon[w_].ammo;                                       \
             }                                                                             \
             f_->current = 0; f_->cooldown_ms = 0; f_->lock_ms = 0; f_->locked = 0;        \
-            f_->legs = (uint8_t)(parts[SLOT_LEGS] >= 27 ? ACR_GEN1_LEGS_TRACKS             \
-                       : parts[SLOT_LEGS] >= 21 ? ACR_GEN1_LEGS_FOUR : ACR_GEN1_LEGS_TWO);  \
+            f_->legs = (uint8_t)(pp[i_][SLOT_LEGS] >= 27 ? ACR_GEN1_LEGS_TRACKS            \
+                       : pp[i_][SLOT_LEGS] >= 21 ? ACR_GEN1_LEGS_FOUR : ACR_GEN1_LEGS_TWO); \
             f_->human_plus = (uint8_t)(i_ == 0 && human_plus); f_->kneeling = 0;          \
         }                                                                                 \
         acr_gen1_ac_spawn(P, def, 0, -2500 * 64, 0);                                      \
-        acr_gen1_ac_spawn(T, def, 0, 2500 * 64, 2048);                                    \
+        acr_gen1_ac_spawn(T, def2, 0, 2500 * 64, 2048);                                   \
         memset(battle.shot, 0, sizeof battle.shot);                                       \
+        round_ms = ROUND_MS; round_over = 0;                                              \
     } while (0)
     int human_plus = 0, two_players = SDL_getenv("ACR_TWO") != NULL;
+    #define ROUND_MS 120000   /* two minutes, like Master of Arena's VS mode */
+    int32_t round_ms = ROUND_MS;
+    int round_over = 0;
     SETUP_FIGHTERS();
     acr_gen1_ac prevs[2] = { *P, *T };
     /* After a part change: new stats and weapons, same place in the arena. */
@@ -371,6 +383,7 @@ int main(int argc, char **argv) {
         *P = keep_p_; *T = keep_t_;                                                       \
         if (ap_t_ < battle.f[1].ap) battle.f[1].ap = ap_t_;                               \
         if (P->energy > def->stats.energy_capacity) P->energy = def->stats.energy_capacity; \
+        if (T->energy > def2->stats.energy_capacity) T->energy = def2->stats.energy_capacity; \
     } while (0)
     int respawn_ms = 0;
 
@@ -406,9 +419,10 @@ int main(int argc, char **argv) {
             if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_TAB) switch_pressed[0] = 1;
             int toggle_two = 0;
             if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_F2) toggle_two = 1;
-            int cycle_rate = 0, cycle_slot = -1, toggle_plus = 0;
+            int cycle_rate = 0, cycle_slot = -1, toggle_plus = 0, cycle_who = 0;
             if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) {
                 const int btn = e.gbutton.button;
+                cycle_who = !two_players ? 0 : pads[1] ? (player_of(pads, e.gbutton.which, 0) == 1) : 1;
                 if (btn == SDL_GAMEPAD_BUTTON_BACK) { back_held = 1; back_combo = 0; }
                 if (btn == SDL_GAMEPAD_BUTTON_WEST && back_held) { cycle_slot = SLOT_BOOSTER; back_combo = 1; }
                 if (btn == SDL_GAMEPAD_BUTTON_NORTH && back_held) { cycle_slot = SLOT_GEN; back_combo = 1; }
@@ -438,17 +452,25 @@ int main(int argc, char **argv) {
                 two_players = !two_players;
                 SETUP_FIGHTERS(); prevs[0] = *P; prevs[1] = *T;
             }
+            if (e.type == SDL_EVENT_KEY_DOWN) cycle_who = 0;      /* the keyboard is player 1 */
             if (cycle_rate) {
                 int idx = 0;
                 const int n = (int)(sizeof k_tick_rates / sizeof k_tick_rates[0]);
                 for (int i = 0; i < n; ++i) if (k_tick_rates[i] == g_tick_rate) idx = i;
                 g_tick_rate = k_tick_rates[(idx + 1) % n];
                 set_rate(&clock, def, g_tick_rate);
+                set_rate(&clock, def2, g_tick_rate);
                 last = SDL_GetTicksNS();
             }
-            if (cycle_slot >= 0 && !(cycle_slot == SLOT_BOOSTER && parts[SLOT_LEGS] >= 27)) {
-                next_part(dir, parts, cycle_slot, &ac_data);
+            if (cycle_slot >= 0 && !(cycle_slot == SLOT_BOOSTER && pp[cycle_who][SLOT_LEGS] >= 27)) {
+                /* Each player changes their own build; alone, the target copies yours. */
+                next_part(dir, pp[cycle_who], cycle_slot, &ac_data[cycle_who]);
+                if (!two_players) {
+                    memcpy(parts2, parts, sizeof parts2);
+                    demo_load(dir, parts2, &ac_data[1], err, sizeof err);
+                }
                 set_rate(&clock, def, g_tick_rate);
+                set_rate(&clock, def2, g_tick_rate);
                 last = SDL_GetTicksNS();
                 REFRESH_FIGHTERS();
                 prevs[0] = *P;
@@ -497,9 +519,20 @@ int main(int argc, char **argv) {
         battle.step_ms = (uint16_t)(1000 / (g_tick_rate > 0 ? g_tick_rate : 22));
         battle.step_rate = def->step_rate;
         battle.gen1_rate = def->gen1_rate;
-        for (uint32_t i = 0; i < ticks; ++i) {
+        for (uint32_t i = 0; i < ticks && !round_over; ++i) {
             prevs[0] = *P;
             prevs[1] = *T;
+            /* Two players: a two-minute round; it ends when an AC is
+             * destroyed or time runs out (then the larger share of AP left
+             * wins). */
+            if (two_players) {
+                round_ms -= battle.step_ms;
+                if (round_ms <= 0 || battle.f[0].ap <= 0 || battle.f[1].ap <= 0) {
+                    if (round_ms < 0) round_ms = 0;
+                    round_over = 1;
+                    break;
+                }
+            }
             for (int k = 0; k < 2; ++k) { act[k].next_weapon = (uint8_t)switch_pressed[k]; switch_pressed[k] = 0; }
             acr_gen1_battle_step(&battle, in2, act);
             for (int k = 0; k < 2; ++k) { in2[k].boost_tapped = 0; boost_released[k] = !in2[k].boost; }
@@ -518,7 +551,7 @@ int main(int argc, char **argv) {
                 if (respawn_ms >= 3000) {
                     respawn_ms = 0;
                     battle.f[1].ap = battle.f[1].ap_max;
-                    acr_gen1_ac_spawn(T, def, 0, 2500 * 64, 2048);
+                    acr_gen1_ac_spawn(T, def2, 0, 2500 * 64, 2048);
                     prevs[1] = *T;
                 }
             }
@@ -613,7 +646,7 @@ int main(int argc, char **argv) {
         }
 
         /* HUD */
-        const acr_gen1_stats *st = &def->stats;
+        const acr_gen1_stats *st = &ac_data[view].def.stats;
         const float e_frac = (float)ac.energy / (float)(st->energy_capacity ? st->energy_capacity : 1);
         const float red = (float)st->red_zone / (float)(st->energy_capacity ? st->energy_capacity : 1);
         SDL_FRect bar = { 20, g_vh - 30, 300, 10 };
@@ -633,8 +666,8 @@ int main(int argc, char **argv) {
         SDL_snprintf(line, sizeof line, "ENERGY %5d  %-7s  SPEED %3d  RISE %4d", (int)ac.energy,
                      k_state[ac.state], (int)sqrtf((float)(dx * dx + dz * dz)), -dy);
         SDL_RenderDebugText(renderer, 20, g_vh - 48, line);
-        SDL_snprintf(line, sizeof line, "LEGS %s  BOOSTER %s  GENERATOR %s", ac_data.names[SLOT_LEGS],
-                     ac_data.names[SLOT_BOOSTER], ac_data.names[SLOT_GEN]);
+        SDL_snprintf(line, sizeof line, "LEGS %s  BOOSTER %s  GENERATOR %s", ac_data[view].names[SLOT_LEGS],
+                     ac_data[view].names[SLOT_BOOSTER], ac_data[view].names[SLOT_GEN]);
         SDL_RenderDebugText(renderer, 20, 12, line);
         SDL_snprintf(line, sizeof line, "%d STEPS/S%s", g_tick_rate, g_tick_rate == 22 ? " (GEN 1)" : "");
         SDL_RenderDebugText(renderer, g_vw - 150, rc_y + 32, line);
@@ -707,11 +740,21 @@ int main(int argc, char **argv) {
         SDL_SetRenderClipRect(renderer, NULL);
         g_vw = VIEW_W;
         g_vh = VIEW_H;
-        if (two_players && (battle.f[0].ap <= 0 || battle.f[1].ap <= 0)) {
+        if (two_players) {
+            char clock_text[16];
+            SDL_snprintf(clock_text, sizeof clock_text, "%d:%02d", (int)(round_ms / 60000), (int)(round_ms / 1000 % 60));
+            SDL_SetRenderDrawColor(renderer, 240, 240, 240, 255);
+            SDL_RenderDebugText(renderer, VIEW_W / 2.0f - 16, 4, clock_text);
+        }
+        if (two_players && round_over) {
+            /* Winner: the AC still standing, or on time the larger share of AP. */
+            const int64_t s0 = (int64_t)battle.f[0].ap * (battle.f[1].ap_max ? battle.f[1].ap_max : 1);
+            const int64_t s1 = (int64_t)battle.f[1].ap * (battle.f[0].ap_max ? battle.f[0].ap_max : 1);
             SDL_SetRenderDrawColor(renderer, 255, 230, 120, 255);
             SDL_RenderDebugText(renderer, VIEW_W / 2.0f - 120, VIEW_H / 2.0f,
-                                battle.f[0].ap > 0 ? "PLAYER 1 WINS - START TO RESET" :
-                                battle.f[1].ap > 0 ? "PLAYER 2 WINS - START TO RESET" : "DRAW - START TO RESET");
+                                s0 > s1 ? "PLAYER 1 WINS - START TO RESET" :
+                                s1 > s0 ? "PLAYER 2 WINS - START TO RESET" : "DRAW - START TO RESET");
+            if (round_ms <= 0) SDL_RenderDebugText(renderer, VIEW_W / 2.0f - 40, VIEW_H / 2.0f + 14, "TIME UP");
         }
         const char *shot = SDL_getenv("ACR_SHOT");
         if (shot && (now - start_ns) / 1000000 >= (Uint64)SDL_atoi(SDL_getenv("ACR_SHOT_MS") ? SDL_getenv("ACR_SHOT_MS") : "2000")) {
