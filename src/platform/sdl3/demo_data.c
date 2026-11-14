@@ -63,26 +63,39 @@ static const char *const k_category[SLOT_COUNT] = {
     "core", "booster", "head", "arms", "blade", "hand", "back", "back", "generator", "fcs", "legs"
 };
 
-/* Finds parts/<category>/.../NNN-*.toml for a game index. */
+/* Finds parts/<category>/.../NNN-*.toml for a game index, looking into
+ * sub-folders (arms/regular, legs/humanoid...) itself so it works the same
+ * on every system. */
+typedef struct part_search { char prefix[8]; char found[1400]; int depth; } part_search;
+
+static SDL_EnumerationResult SDLCALL search_cb(void *user, const char *dirname, const char *fname) {
+    part_search *ps = user;
+    char path[1400];
+    const size_t n = strlen(dirname);
+    const int has_sep = n && (dirname[n - 1] == '/' || dirname[n - 1] == '\\');
+    SDL_snprintf(path, sizeof path, "%s%s%s", dirname, has_sep ? "" : "/", fname);
+    SDL_PathInfo info;
+    if (!SDL_GetPathInfo(path, &info)) return SDL_ENUM_CONTINUE;
+    if (info.type == SDL_PATHTYPE_DIRECTORY) {
+        if (ps->depth < 3) {
+            ++ps->depth;
+            SDL_EnumerateDirectory(path, search_cb, ps);
+            --ps->depth;
+        }
+    } else if (strncmp(fname, ps->prefix, 4) == 0 && SDL_strstr(fname, ".toml")) {
+        SDL_strlcpy(ps->found, path, sizeof ps->found);
+    }
+    return ps->found[0] ? SDL_ENUM_SUCCESS : SDL_ENUM_CONTINUE;
+}
+
 static char *load_part(const char *import_dir, int slot, int index) {
     char dir[1024];
     SDL_snprintf(dir, sizeof dir, "%s/parts/%s", import_dir, k_category[slot]);
-    int count = 0;
-    char **files = SDL_GlobDirectory(dir, NULL, 0, &count);
-    char *text = NULL;
-    for (int i = 0; files && i < count && !text; ++i) {
-        const char *base = strrchr(files[i], '/');
-        base = base ? base + 1 : files[i];
-        char prefix[8];
-        SDL_snprintf(prefix, sizeof prefix, "%03d-", index);
-        if (strncmp(base, prefix, 4) == 0 && SDL_strstr(base, ".toml")) {
-            char path[1400];
-            SDL_snprintf(path, sizeof path, "%s/%s", dir, files[i]);
-            text = load_text(path);
-        }
-    }
-    SDL_free(files);
-    return text;
+    part_search ps;
+    memset(&ps, 0, sizeof ps);
+    SDL_snprintf(ps.prefix, sizeof ps.prefix, "%03d-", index);
+    SDL_EnumerateDirectory(dir, search_cb, &ps);
+    return ps.found[0] ? load_text(ps.found) : NULL;
 }
 
 static void read_part(int slot, const char *t, acr_gen1_part *p, char *name, size_t name_size) {
