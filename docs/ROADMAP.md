@@ -48,10 +48,14 @@ weapons, damage, two-player test build (see `docs/research/`).
    order (HEAD ... ARM WEAPON R), the parts you own per slot, the shop by
    category with buy/sell, the build's totals and the VS START check, with
    the real AC turning in the middle. AC TEST is the test arena with that
-   build; Esc / Back+Start returns. A new save starts with the starting AC
-   and 0 credits (Project Phantasma's new game; `--credits N` for testing).
-   Still to come: the shop's real stock (hidden and prize parts; everything
-   is for sale for now), part preview while choosing, paint (EDIT COLOR,
+   build; Esc / Back+Start returns. **Test builds** (`k_test_kit` in the PC
+   main): a new save owns one of every part and the shop starts empty; parts
+   sold to it stay in its stock and can be bought back, so any part can be
+   tried while the game's feel is restored. A release turns this off: the
+   starting AC, the shop's real stock and starting credits scaled for it
+   (Project Phantasma started at 0; `--credits N` sets it for now).
+   Still to come: the shop's real stock (hidden and prize parts), part
+   preview while choosing, paint (EDIT COLOR,
    the 15 patterns), AC/pilot names, player 2's garage, MoA's part
    parameter pages.
 4. **Arena**: stages from the disc (same mesh decoder), then collision

@@ -153,6 +153,7 @@ static void test_save(void) {
     h.owned[ACR_GEN1_CAT_HEAD][0] = 3;
     h.colours[3][2] = 63;
     h.fitted[ACR_GEN1_SLOT_BLADE] = ACR_GEN1_NO_PART;
+    h.stock[ACR_GEN1_CAT_ARMS][12] = 2;
     char buf[4096];
     const size_t need = acr_gen1_save_write(&h, buf, sizeof buf);
     EXPECT(need < sizeof buf && strlen(buf) == need);
@@ -167,11 +168,12 @@ static void test_save(void) {
     EXPECT(!strcmp(r.ac_name, "TEST _AC_") && !strcmp(r.pilot_name, "PILOT"));
     EXPECT(!memcmp(r.fitted, h.fitted, sizeof r.fitted) && r.options == 0x0005);
     EXPECT(!memcmp(r.owned, h.owned, sizeof r.owned));
+    EXPECT(!memcmp(r.stock, h.stock, sizeof r.stock));
     EXPECT(r.colours[3][2] == 63);
 
     /* Rejected: a newer format, another generation, bad numbers. */
     acr_gen1_hangar keep = r;
-    EXPECT(!acr_gen1_save_read(&r, "format = 2\ngeneration = \"gen1\"\n"));
+    EXPECT(!acr_gen1_save_read(&r, "format = 3\ngeneration = \"gen1\"\n"));
     EXPECT(!acr_gen1_save_read(&r, "format = 1\ngeneration = \"gen2\"\n"));
     EXPECT(!acr_gen1_save_read(&r, "format = 1\ngeneration = \"gen1\"\n[owned]\ncore = [0, 99x]\n"));
     EXPECT(!acr_gen1_save_read(&r, "format = 1\ngeneration = \"gen1\"\n[ac]\ncore = 64\n"));
@@ -180,6 +182,29 @@ static void test_save(void) {
     EXPECT(acr_gen1_save_read(&r, "format = 1\ngeneration = \"gen1\"\ncredits = 5\n[ac]\nlegs = 9\n"));
     EXPECT(r.credits == 5 && r.fitted[ACR_GEN1_SLOT_LEGS] == 9 && r.owned[ACR_GEN1_CAT_LEGS][9] == 1);
     EXPECT(r.fitted[ACR_GEN1_SLOT_CORE] == ACR_GEN1_NO_PART);
+    /* Format 1 (no [shop]) still reads, with an empty shop stock. */
+    EXPECT(acr_gen1_save_read(&r, "format = 1\ngeneration = \"gen1\"\n[owned]\nhead = [0]\n"));
+    EXPECT(r.owned[ACR_GEN1_CAT_HEAD][0] == 1 && r.stock[ACR_GEN1_CAT_ARMS][12] == 0);
+}
+
+/* Test builds: every part owned, nothing for sale; sold parts can be bought back. */
+static void test_test_kit(void) {
+    acr_gen1_catalog shop_closed = g_cat;
+    for (int c = 0; c < ACR_GEN1_CAT_COUNT; ++c)
+        for (int i = 0; i < ACR_GEN1_PART_MAX; ++i) shop_closed.part[c][i].for_sale = 0;
+    acr_gen1_hangar h;
+    acr_gen1_hangar_new(&h, k_start, 0, 0);
+    acr_gen1_hangar_give_all(&h, &shop_closed);
+    EXPECT(h.owned[ACR_GEN1_CAT_LEGS][27] == 1 && h.owned[ACR_GEN1_CAT_ARMS][12] == 1);
+    EXPECT(h.owned[ACR_GEN1_CAT_OPTION][2] == 1 && h.owned[ACR_GEN1_CAT_LEGS][3] == 1);
+    EXPECT(!acr_gen1_shop_offers(&h, &shop_closed, ACR_GEN1_CAT_LEGS, 27));
+    EXPECT(acr_gen1_shop_buy(&h, &shop_closed, ACR_GEN1_CAT_LEGS, 27) == ACR_GEN1_NOT_IN_SHOP);
+    EXPECT(acr_gen1_shop_sell(&h, &shop_closed, ACR_GEN1_CAT_LEGS, 27) == ACR_GEN1_OK);
+    EXPECT(h.credits == 3000 && h.stock[ACR_GEN1_CAT_LEGS][27] == 1);
+    EXPECT(acr_gen1_shop_offers(&h, &shop_closed, ACR_GEN1_CAT_LEGS, 27));
+    EXPECT(acr_gen1_shop_buy(&h, &shop_closed, ACR_GEN1_CAT_LEGS, 27) == ACR_GEN1_OK);
+    EXPECT(h.credits == 0 && h.stock[ACR_GEN1_CAT_LEGS][27] == 0 && h.owned[ACR_GEN1_CAT_LEGS][27] == 1);
+    EXPECT(acr_gen1_shop_buy(&h, &shop_closed, ACR_GEN1_CAT_LEGS, 27) == ACR_GEN1_NOT_IN_SHOP);
 }
 
 int main(void) {
@@ -187,6 +212,7 @@ int main(void) {
     test_new_and_shop();
     test_fit();
     test_save();
+    test_test_kit();
     if (failures) { printf("%d failure(s)\n", failures); return 1; }
     printf("gen1 garage: all passed\n");
     return 0;

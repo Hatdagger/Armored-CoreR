@@ -89,7 +89,8 @@ static int shop_list(const garage_ui *ui, const garage_data *d, int out[LIST_MAX
     for (int i = 0; i < ACR_GEN1_PART_MAX; ++i) {
         const acr_gen1_catalog_part *p = &d->cat->part[cat][i];
         if (!p->present) continue;
-        if (ui->shop_sell ? d->hangar->owned[cat][i] > 0 : p->for_sale) out[n++] = i;
+        if (ui->shop_sell ? d->hangar->owned[cat][i] > 0
+                          : acr_gen1_shop_offers(d->hangar, d->cat, (acr_gen1_category)cat, (unsigned)i)) out[n++] = i;
     }
     return n;
 }
@@ -348,7 +349,7 @@ void garage_draw(garage_ui *ui, const garage_data *d, float hud_w, int elapsed_m
                          d->hangar->owned[cat][list[i]]);
             acr_hud_text(lx + 8, y, line, i == ui->shop ? 255 : 220, i == ui->shop ? 220 : 230, i == ui->shop ? 120 : 235);
         }
-        if (n == 0) acr_hud_text(lx + 10, 76, ui->shop_sell ? "NOTHING TO SELL" : "NOTHING FOR SALE", DIM);
+        if (n == 0) acr_hud_text(lx + 10, 76, ui->shop_sell ? "NOTHING TO SELL" : "SHOP EMPTY: SELL TO STOCK IT", DIM);
         totals(d, rx + 10, 46);
         if (n) part_info(d, cat, list[ui->shop], rx + 10, 200);
         if (ui->confirm && n) {

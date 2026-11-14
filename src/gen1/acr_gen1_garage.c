@@ -43,6 +43,20 @@ unsigned acr_gen1_spare_copies(const acr_gen1_hangar *h, acr_gen1_category cat, 
     return owned > fitted ? owned - fitted : 0;
 }
 
+static const acr_gen1_catalog_part *find(const acr_gen1_catalog *c, acr_gen1_category cat, unsigned index);
+
+void acr_gen1_hangar_give_all(acr_gen1_hangar *h, const acr_gen1_catalog *c) {
+    for (int cat = 0; cat < ACR_GEN1_CAT_COUNT; ++cat)
+        for (unsigned i = 0; i < ACR_GEN1_PART_MAX; ++i)
+            if (c->part[cat][i].present && !h->owned[cat][i]) h->owned[cat][i] = 1;
+}
+
+int acr_gen1_shop_offers(const acr_gen1_hangar *h, const acr_gen1_catalog *c,
+                         acr_gen1_category cat, unsigned index) {
+    const acr_gen1_catalog_part *p = find(c, cat, index);
+    return p && (p->for_sale || h->stock[cat][index]);
+}
+
 static const acr_gen1_catalog_part *find(const acr_gen1_catalog *c, acr_gen1_category cat, unsigned index) {
     if (index >= ACR_GEN1_PART_MAX || !c->part[cat][index].present) return NULL;
     return &c->part[cat][index];
@@ -52,11 +66,12 @@ acr_gen1_result acr_gen1_shop_buy(acr_gen1_hangar *h, const acr_gen1_catalog *c,
                                   acr_gen1_category cat, unsigned index) {
     if (h->credits < 0) return ACR_GEN1_IN_DEBT;
     const acr_gen1_catalog_part *p = find(c, cat, index);
-    if (!p || !p->for_sale) return ACR_GEN1_NOT_IN_SHOP;
+    if (!p || !(p->for_sale || h->stock[cat][index])) return ACR_GEN1_NOT_IN_SHOP;
     if (h->owned[cat][index] >= ACR_GEN1_OWN_MAX) return ACR_GEN1_STOCK_FULL;
     if ((int64_t)h->credits < (int64_t)p->price) return ACR_GEN1_NO_CREDITS;
     h->credits -= (int32_t)p->price;
     ++h->owned[cat][index];
+    if (h->stock[cat][index]) --h->stock[cat][index];
     return ACR_GEN1_OK;
 }
 
@@ -70,6 +85,7 @@ acr_gen1_result acr_gen1_shop_sell(acr_gen1_hangar *h, const acr_gen1_catalog *c
     const int64_t total = (int64_t)h->credits + back;
     h->credits = total > 0x7FFFFFFF ? 0x7FFFFFFF : (int32_t)total;
     --h->owned[cat][index];
+    if (h->stock[cat][index] < 255) ++h->stock[cat][index];
     return ACR_GEN1_OK;
 }
 
@@ -205,6 +221,14 @@ size_t acr_gen1_save_write(const acr_gen1_hangar *h, char *buf, size_t size) {
             for (int n = 0; n < h->owned[c][i]; ++n) { put(&o, first ? "%d" : ", %d", i); first = 0; }
         put(&o, "]\n");
     }
+    put(&o, "\n[shop]   # parts sold to the shop, once per copy: these can be bought back\n");
+    for (int c = 0; c < ACR_GEN1_CAT_COUNT; ++c) {
+        put(&o, "%-10s = [", k_cat_key[c]);
+        int first = 1;
+        for (int i = 0; i < ACR_GEN1_PART_MAX; ++i)
+            for (int n = 0; n < h->stock[c][i]; ++n) { put(&o, first ? "%d" : ", %d", i); first = 0; }
+        put(&o, "]\n");
+    }
     return o.len;
 }
 
@@ -234,11 +258,11 @@ static int parse_list(const char *p, list_fn fn, void *user) {
     }
 }
 
-typedef struct own_ctx { acr_gen1_hangar *h; int cat; } own_ctx;
+typedef struct own_ctx { uint8_t (*counts)[ACR_GEN1_PART_MAX]; int cat; unsigned max; } own_ctx;
 static int add_owned(void *user, long v) {
     own_ctx *c = user;
-    if (v < 0 || v >= ACR_GEN1_PART_MAX || c->h->owned[c->cat][v] >= ACR_GEN1_OWN_MAX) return 0;
-    ++c->h->owned[c->cat][v];
+    if (v < 0 || v >= ACR_GEN1_PART_MAX || c->counts[c->cat][v] >= c->max) return 0;
+    ++c->counts[c->cat][v];
     return 1;
 }
 static int add_option(void *user, long v) {
@@ -313,10 +337,11 @@ int acr_gen1_save_read(acr_gen1_hangar *h, const char *text) {
                             if (v >= ACR_GEN1_PART_MAX || v < -1) ok = 0;
                             else t.fitted[s] = (uint8_t)(v < 0 ? ACR_GEN1_NO_PART : v);
                         }
-            } else if (!strcmp(section, "owned")) {
+            } else if (!strcmp(section, "owned") || !strcmp(section, "shop")) {
+                const int shop = !strcmp(section, "shop");
                 for (int c = 0; c < ACR_GEN1_CAT_COUNT; ++c)
                     if (!strcmp(key, k_cat_key[c])) {
-                        own_ctx oc = { &t, c };
+                        own_ctx oc = { shop ? t.stock : t.owned, c, shop ? 255u : ACR_GEN1_OWN_MAX };
                         ok = parse_list(p, add_owned, &oc);
                     }
             }
@@ -324,7 +349,8 @@ int acr_gen1_save_read(acr_gen1_hangar *h, const char *text) {
         }
         line = next ? next + 1 : NULL;
     }
-    /* Later formats get an upgrade step here; newer ones than this build can't be read. */
+    /* Format 1 had no [shop] section: its stock starts empty. Newer formats
+     * than this build can't be read. */
     if (format < 1 || format > ACR_GEN1_SAVE_FORMAT || !gen1) return 0;
     /* A hand-edited file may list fewer copies than are fitted: own what is fitted. */
     for (int c = 0; c < ACR_GEN1_CAT_COUNT; ++c)

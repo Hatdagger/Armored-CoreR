@@ -5,7 +5,10 @@
  *
  * Economy as in the PS1 games: parts sell back for what they cost, and
  * while the balance is below zero nothing can be bought or sold. A new game
- * starts with the starting AC's parts and a starting balance. */
+ * starts with the starting AC's parts and a starting balance. Parts sold to
+ * the shop stay in its stock and can be bought back, even parts it does not
+ * otherwise sell (the test builds start the player with every part and an
+ * empty shop this way). */
 #ifndef ACR_GEN1_GARAGE_H
 #define ACR_GEN1_GARAGE_H
 
@@ -52,11 +55,19 @@ typedef struct acr_gen1_hangar {
     uint16_t options;                                        /* bit n = option n fitted */
     char     ac_name[20], pilot_name[20];
     uint8_t  colours[4][3];                                  /* 0..63 per channel */
+    uint8_t  stock[ACR_GEN1_CAT_COUNT][ACR_GEN1_PART_MAX];   /* sold to the shop, can be bought back */
 } acr_gen1_hangar;
 
 /* New game: owns one of each starting part (options too) with them fitted. */
 void acr_gen1_hangar_new(acr_gen1_hangar *h, const uint8_t start[ACR_GEN1_SLOT_COUNT],
                          uint16_t start_options, int32_t credits);
+
+/* Test builds: own (at least) one of every part in the catalogue, options too. */
+void acr_gen1_hangar_give_all(acr_gen1_hangar *h, const acr_gen1_catalog *c);
+
+/* The shop offers a part: it sells it, or holds copies sold to it. */
+int acr_gen1_shop_offers(const acr_gen1_hangar *h, const acr_gen1_catalog *c,
+                         acr_gen1_category cat, unsigned index);
 
 /* Copies of a part fitted to the AC (0..2; options 0..1). */
 unsigned acr_gen1_fitted_copies(const acr_gen1_hangar *h, acr_gen1_category cat, unsigned index);
@@ -103,7 +114,7 @@ unsigned acr_gen1_garage_check(const acr_gen1_hangar *h, const acr_gen1_catalog 
 /* ---- save file ----
  * Plain text in the same style as acr-import's part files. `format` is the
  * file's version; readers upgrade older formats. */
-#define ACR_GEN1_SAVE_FORMAT 1
+#define ACR_GEN1_SAVE_FORMAT 2   /* 2: the shop's stock ([shop]) */
 
 /* Writes the save text into buf (always zero-terminated when size > 0).
  * Returns the length it needs, not counting the zero. */

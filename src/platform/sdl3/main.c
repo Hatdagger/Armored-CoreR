@@ -279,6 +279,10 @@ static int parse_args(int argc, char **argv, const char **dir, int parts[SLOT_CO
 
 /* ---------------- garage ---------------- */
 
+/* Test builds: a new game owns every part and the shop starts empty (it
+ * stocks what you sell it). A release turns this off and sets the starting
+ * credits instead. */
+static const int k_test_kit = 1;
 static acr_gen1_hangar g_hangar;
 static const char *g_import_dir = "";
 static acr_gen1_catalog g_catalog;
@@ -303,6 +307,7 @@ static void hangar_open(const int start[SLOT_COUNT]) {
     uint8_t s[SLOT_COUNT];
     for (int i = 0; i < SLOT_COUNT; ++i) s[i] = (uint8_t)start[i];
     acr_gen1_hangar_new(&g_hangar, s, 0, (int32_t)g_new_credits);
+    if (k_test_kit) acr_gen1_hangar_give_all(&g_hangar, &g_catalog);
     char cpath[1200];
     SDL_snprintf(cpath, sizeof cpath, "%s/models/colours.toml", g_import_dir);
     char *ct = SDL_LoadFile(cpath, NULL);
@@ -520,6 +525,9 @@ int main(int argc, char **argv) {
      * new game with the starting AC). */
     g_import_dir = dir;
     demo_catalog(dir, &g_catalog, g_part_names);
+    if (k_test_kit)
+        for (int c = 0; c < ACR_GEN1_CAT_COUNT; ++c)
+            for (int i = 0; i < ACR_GEN1_PART_MAX; ++i) g_catalog.part[c][i].for_sale = 0;
     hangar_open(parts);
     int mode = g_direct_test ? 1 : 0;   /* 0 garage, 1 test arena */
     garage_ui gui;
