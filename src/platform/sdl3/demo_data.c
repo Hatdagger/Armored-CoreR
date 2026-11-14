@@ -298,7 +298,10 @@ int demo_load(const char *import_dir, const int parts[SLOT_COUNT], demo_ac *out,
         if (fcs[cls][0] && w->range > fcs[cls][0]) w->range = (int32_t)fcs[cls][0];
         w->box_w = (uint16_t)fcs[cls][1];
         w->box_h = (uint16_t)fcs[cls][2];
-        w->lock_ms = (uint16_t)(fcs[cls][5] * 1000 / 60);   /* lock time read as 1/60 s */
+        /* Measured in the game: a missile (lock time 128) locks and launches
+         * 56 screen refreshes (0.93 s) after the target enters the box, at
+         * any distance in range; so about 7.3 ms per unit. */
+        w->lock_ms = (uint16_t)(fcs[cls][5] * 933 / 128);
     }
     out->ap = ap;
     out->shell_factor = acr_gen1_damage_factor(shell, 0, 0);

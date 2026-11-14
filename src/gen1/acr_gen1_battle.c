@@ -127,6 +127,7 @@ static void fighter_step(acr_gen1_battle *b, int i, acr_gen1_actions a) {
     if (!a.fire || f->cooldown_ms > 0) return;
     if (w->ammo && !f->ammo[f->current]) return;
     if (!acr_gen1_stance_ok(f)) return;
+    if (w->kind == ACR_GEN1_MISSILE && !f->locked) return;   /* missiles wait for a full lock */
     const int target = 1 - i;
     if (w->kind == ACR_GEN1_BLADE) {
         /* Blade: hits if the target is within reach and in front. */

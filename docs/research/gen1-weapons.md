@@ -112,8 +112,13 @@ other bytes 39, 738, 11 are likely reach and timing).
 damage, with a target AC standing ahead. The damage formula and factors
 are the game's; these are stand-ins until decoded or measured:
 
-- Lock time read as 1/60 s (rifle 1 s, missile 2.1 s); lock box angle
-  taken as box width over a 512-wide screen.
+- Lock time: measured in the game, a missile locks and launches 56 screen
+  refreshes (0.93 s) after the target enters the box, the same at 3,000,
+  6,000 and 7,500; at 8,500 it never locks (the FCS's missile range is
+  8,000). So about 7.3 ms per lock-time unit: rifle 0.44 s, missile
+  0.93 s. Missiles fire only once fully locked; the rifle fires at once
+  and aims at the target when locked.
+- Lock box angle: box width over a 512-wide screen (stand-in).
 - Fire interval: byte x 118 ms (rifle 590 ms, as measured).
 - Shot speeds and missile homing are the game's (above), kept per second at
   any step rate, so at 60 steps a second a rifle shot moves 256 a step.

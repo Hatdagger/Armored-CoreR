@@ -82,6 +82,30 @@ int main(void) {
     b.f[0].human_plus = 1;
     EXPECT(acr_gen1_stance_ok(&b.f[0]));
 
+    /* Missiles only leave once the lock is complete. */
+    {
+        static acr_gen1_battle mb;
+        mb = b;
+        memset(mb.shot, 0, sizeof mb.shot);
+        mb.f[0].human_plus = 0;
+        mb.f[0].weapon[0] = (acr_gen1_weapon){ ACR_GEN1_MISSILE, "MISSILE", 830, 40, 8000, 0, 900, 200, 200,
+                                               1200, 350, 80, 0 };
+        mb.f[0].ammo[0] = 40;
+        mb.f[0].ac = b.f[0].ac;
+        mb.f[1].ac = b.f[1].ac;
+        mb.f[1].ac.x = b.f[0].ac.x;
+        mb.f[1].ac.z = b.f[0].ac.z + 3000 * 64;
+        mb.f[0].ac.yaw = 0;
+        mb.f[0].lock_ms = 0; mb.f[0].locked = 0; mb.f[0].cooldown_ms = 0;
+        mb.step_ms = 45;
+        acr_gen1_battle_step(&mb, none, fire);
+        int n = 0;
+        for (int k = 0; k < ACR_GEN1_MAX_SHOTS; ++k) n += mb.shot[k].active;
+        EXPECT(n == 0);
+        for (int k = 0; k < 25; ++k) acr_gen1_battle_step(&mb, none, fire);
+        EXPECT(mb.f[0].locked && mb.f[0].ammo[0] < 40);
+    }
+
     if (failures) { printf("%d failure(s)\n", failures); return 1; }
     printf("gen1 battle: all passed (first hit after %d steps)\n", steps);
     return 0;
