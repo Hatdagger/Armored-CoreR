@@ -70,10 +70,16 @@ then a PlayStation TMD object table at 0x18, offsets relative to 0x18:
 - Vertices and normals: `s16 x, y, z, pad` (y down, as on the PS1).
 - Primitives are standard TMD packets (`olen, ilen, flag, mode`); seen so
   far: lit flat/gouraud, textured, triangles and quads (modes 0x20-0x2F).
-- `extra_top` points at 8 bytes after the normals: `s16 x, y, z` = the
-  piece's joint position in the bind pose (legs: hip 462 up, thighs 402,
-  knees 211, ankles 32; x +-77 for right/left). Without animation the
-  pieces sit apart (the poses come from entry 0).
+- `extra_top` points at 8 bytes after the normals: `s16 x, y, z`, a point
+  near the piece's centre in the bind pose (legs: hip 462 up, thighs 402,
+  knees 211, ankles 32; x +-77 for right/left). It is **not** the joint
+  position (head: -686 here, joint at -657); the joint position comes from
+  the skeleton (a pivot's position is minus its joint's place).
+- The same part's mesh differs between sets only by where the set's
+  skeleton puts it: moved into its joint's space (vertex + pivot position)
+  the pieces match to within 1 unit. Legs 9 is the exception: sets that do
+  not list it carry a different, unused mesh, so take each part from a set
+  that lists it.
 
 ## Animations (entry 0)
 
@@ -101,7 +107,14 @@ the root (pivot without joint, small up/down bob).
 elbow, wrist), the hand weapon (regular arms only, on the -x wrist), the
 remaining legs pieces (+x leg, then -x), back right 0, back left 0, back
 left 1, booster 0, booster 1, back right 1. Standard sets have 45 nodes and
-23 slots; caterpillars 36/17; others 47 and 52 (not looked at yet).
+23 slots; caterpillars 36/17 (one legs piece).
+
+- 47 nodes / 23 slots: weapon arms (8 pieces, arms 12-21). Same order with
+  8 arms pieces and **no hand slot**.
+- 52 nodes / 25 slots: four legs (9 pieces, legs 21-26). Legs 1-4 (front
+  pair) come before the back units, legs 5-8 (rear pair) after them.
+
+Checked by drawing every kind of set (`moa_anim.py`, `moa_export_view.py`).
 
 **Animation record**: `s16 last_tick, s16 frames, 0`, then `frames - 1`
 hold times in ticks (1-7), then frames. A frame is `s16 n` and n node
@@ -116,9 +129,16 @@ records: `u16` (node << 8 | flags), then data by the flags:
 Values are absolute (not deltas); nodes not listed keep their last value.
 Rotations: 4096 = a full turn, the same units for s8 and s16.
 
-Open: rotation order (X·Y·Z works for the pictures; check against the
-recomp), tables `a` and `b` (they list the arm, waist and back-unit joints:
-likely aiming), sets with 47 and 52 nodes.
+**Rotation order: M = Rx · Ry · Rz** (confirmed 2026-11-14). The game's
+rotation-matrix routine (main executable `0x80029F94`, PsyQ RotMatrix) builds
+exactly this; a Ry · Rx · Rz version also exists (`0x8002A224`) but nothing
+calls it. Checked in the recomp's split-screen VS: a replacement idle record
+with large core rotations was planted in RAM (each player's entry 0 copy) and
+the AC matched the X·Y·Z picture for (1024, 1024, 0) and (1024, 0, 1024),
+which rule out every other order.
+
+Open: tables `a` and `b` (they list the arm, waist and back-unit joints:
+likely aiming).
 
 ## Textures
 
@@ -130,16 +150,53 @@ Each entry is one 8-bit TIM **without a palette**, e.g. cores at VRAM
 How an entry is chosen (CORE_T has 176 entries for 5 cores) is open.
 
 The pixels are shading levels, not colours: index = slot x 64 + shade.
-The palette (CLUT row 486 for player 1, 495 for player 2) is generated
-from the AC's colour scheme: 4 colour slots, each a 64-step ramp from the
-slot colour down to black (about colour x (64 - shade) / 64, in pairs).
-So our engine can build the palette from any colours the player picks,
-the same way, and keep the original look.
+The palette is generated from the AC's colour scheme: 4 colour slots, each
+a 64-step ramp from the slot colour down to black. Each part type has its
+own palette row in VRAM (player 1): core 486, booster 487 (own CLUT), legs
+488, arms 489, head 490, hand weapon 492, back left 493, back right 494;
+player 2's AC palette is row 495. With one colour scheme the core, legs,
+arms and head rows are identical.
+
+Colour schemes are stored as 4 x RGB in 0-63 steps (above 31 is clipped to
+the 5-bit maximum, which brightens slot 0). The menu module holds named
+presets; "DEFAULT" (the starting AC) is the 12 bytes after its name.
+colour x (64 - (shade & ~1)) / 64, rounded, matches the game's palette
+to within about 1 step per channel (not exactly; the exact routine is not
+found yet). So our engine can build the palette from any colours the player
+picks and keep the original look.
+
+Textured faces pick their texture by palette row, not by the part: hand
+weapons draw part of themselves (the hand) with the **arms'** palette and
+texture, a few back-right units use the back-left texture, and some arms and
+back units use a 4-bit effects page at (512, 256) with palette row 510 (not
+found on the disc yet).
+
+## Export (acr-import, `tools/acr_import/acr_models_moa.c`)
+
+`<import>/models/`:
+
+- `<part>/<NN>/pieceK.obj`: one OBJ per piece, full detail only, in its
+  joint's space (vertex + pivot position from the part's source set), axes
+  converted to x right, y up, z back (`(x, -y, -z)`, keeps the winding).
+  Normals included. Materials are named after the part type whose texture
+  and palette a face uses (`core`, `arms`, ...), `fx`, or `rgb-RRGGBB` for
+  untextured faces; `-semi` = semi-transparent, `-2side` = no culling.
+- `<part>/<NN>/texture.png`: 8-bit indexed. Core/head/arms/legs: colour
+  pattern 0, palette from the DEFAULT scheme (indices are exact, so the
+  engine can swap the palette). Others: their own palette, colour 0x0000
+  transparent.
+- `<part>/<NN>/part.toml`: source set, pieces, each piece's node and
+  bind joint position.
+- `sets/set-NN.toml`: nodes (parent, slot, which piece it draws, bind
+  position/rotation from animation 0 frame 0) in game space.
+- `sets/set-NN-anims.txt`: all animations as text (hold ticks, per-frame
+  node changes).
+
+`tools/research/moa_export_view.py` rebuilds an AC from these files only.
 
 ## Next
 
-1. Check the rotation order against the recomp picture.
-2. Exporter in acr-import: OBJ per piece (bind-pose space, y flipped up) +
-   PNG per texture (palette from the default colours, pattern 0) + a rig
-   file (nodes, parents, slots, piece per slot) + animations as text.
-3. Engine: load a build's pieces, play the animations (hold times in ticks).
+1. Engine: load a build's pieces from the export, play the animations
+   (hold times in ticks), palette from the player's colours.
+2. Find the effects texture (page 512,256, palette row 510) and the
+   exact palette ramp routine.

@@ -51,7 +51,7 @@ def state(rec,frame):
             elif pm: o[1]=p
     return st
 
-def rot(r):   # 4096 = full turn; order X*Y*Z is a guess (see the notes)
+def rot(r):   # 4096 = full turn; M = Rx*Ry*Rz (confirmed, see the notes)
     if r is None: return np.eye(3)
     a,b,c=[x*2*math.pi/4096 for x in r]; ca,sa,cb,sb,cc,sc=math.cos(a),math.sin(a),math.cos(b),math.sin(b),math.cos(c),math.sin(c)
     return np.array([[1,0,0],[0,ca,-sa],[0,sa,ca]])@np.array([[cb,0,sb],[0,1,0],[-sb,0,cb]])@np.array([[cc,-sc,0],[sc,cc,0],[0,0,1]])
@@ -71,8 +71,10 @@ def slot_pieces(parts):
     """parts: dict name -> piece count. Slots from the highest down hold these pieces."""
     seq=[('head',0),('core',0),('legs',0)]+[('arms',i) for i in range(parts['arms'])]
     if parts.get('hand'): seq.append(('hand',0))
-    seq+=[('legs',i) for i in range(1,parts['legs'])]
+    rest=list(range(1,parts['legs'])); front=rest if len(rest)<8 else rest[:4]   # four legs: 4 before, 4 after
+    seq+=[('legs',i) for i in front]
     seq+=[('backR',0),('backL',0),('backL',1),('booster',0),('booster',1),('backR',1)]
+    seq+=[('legs',i) for i in rest[len(front):]]
     return seq
 
 if __name__=='__main__':
@@ -83,9 +85,10 @@ if __name__=='__main__':
     E={'core':2+core,'legs':15+legs,'head':57+head,'arms':127+arms,'booster':81+boost,'hand':99+hand,'backL':155+bl,'backR':215+br}
     d=open(pa+'/000.bin','rb').read(); h,recs=records(d); order,slot,parent=joint_table(d,h)
     W=world(parent,state(parse_rec(d,*recs[a]),fr))
+    if hand==0: E.pop('hand')
     meshes={k:parse(open(pa+'/%03d.bin'%e,'rb').read()) for k,e in E.items()}
+    if meshes['arms']['parts']==8: meshes.pop('hand',None)   # weapon arms: no hand slot
     counts={k:m['parts'] for k,m in meshes.items()}
-    if hand==0: counts.pop('hand')
     seq=slot_pieces(counts); n=len(slot); tris=[]
     for node,k in slot.items():
         i=n-1-k

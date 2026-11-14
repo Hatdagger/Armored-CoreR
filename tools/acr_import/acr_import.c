@@ -2,6 +2,7 @@
 #include "acr_disc.h"
 #include "acr_parts_moa.h"
 #include "acr_motion_moa.h"
+#include "acr_models_moa.h"
 
 #include <ctype.h>
 #include <errno.h>
@@ -180,6 +181,12 @@ int acr_import_disc(const char *disc_path, const char *out_dir, acr_import_stats
         snprintf(unpacked, sizeof unpacked, "%s/unpacked", out_dir);
         if (!make_dirs(motion_dir, 1) ||
             !acr_export_moa_motion(menu, unpacked, motion_dir, &stats->motion_sets, err, err_size))
+            return 0;
+        char models_dir[ACR_PATH_MAX];
+        snprintf(models_dir, sizeof models_dir, "%s/models", out_dir);
+        if (!make_dirs(models_dir, 1) ||
+            !acr_export_moa_models(menu, unpacked, models_dir, &stats->model_parts, &stats->model_sets,
+                                   err, err_size))
             return 0;
     }
     return 1;

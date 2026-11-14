@@ -39,7 +39,8 @@ add_library(acr_import_lib STATIC
     tools/acr_import/acr_disc.c
     tools/acr_import/acr_import.c
     tools/acr_import/acr_parts_moa.c
-    tools/acr_import/acr_motion_moa.c)
+    tools/acr_import/acr_motion_moa.c
+    tools/acr_import/acr_models_moa.c)
 target_include_directories(acr_import_lib PUBLIC tools/acr_import)
 target_link_libraries(acr_import_lib PUBLIC acr_gen1)
 add_executable(acr-import tools/acr_import/main.c)
@@ -67,6 +68,9 @@ add_test(NAME gen1_battle COMMAND test_gen1_battle)
 add_executable(test_light tests/test_light.c)
 target_link_libraries(test_light PRIVATE acr_light)
 add_test(NAME light COMMAND test_light)
+add_executable(test_models tests/test_models.c)
+target_link_libraries(test_models PRIVATE acr_import_lib)
+add_test(NAME models COMMAND test_models ${CMAKE_CURRENT_BINARY_DIR}/test_models.png)
 add_executable(test_import tests/test_import.c)
 target_link_libraries(test_import PRIVATE acr_import_lib)
 add_test(NAME import COMMAND test_import ${CMAKE_CURRENT_BINARY_DIR}/test_import_work)

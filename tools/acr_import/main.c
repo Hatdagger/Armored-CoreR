@@ -66,6 +66,9 @@ int main(int argc, char **argv) {
             printf("Wrote %u parts as readable files in %s/parts.\n", (unsigned)stats.parts, out_dir);
         if (stats.motion_sets)
             printf("Wrote %u animation sets' root motion in %s/motion.\n", (unsigned)stats.motion_sets, out_dir);
+        if (stats.model_parts)
+            printf("Wrote %u part models and %u skeletons in %s/models.\n",
+                   (unsigned)stats.model_parts, (unsigned)stats.model_sets, out_dir);
         if (stats.archives_skipped)
             printf("Left %u .T files as they are: their tables did not check out.\n",
                    (unsigned)stats.archives_skipped);

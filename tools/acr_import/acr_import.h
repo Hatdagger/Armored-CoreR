@@ -6,6 +6,7 @@
  *   <out>/unpacked/<path without .T>/archive.toml  the entry table
  *   <out>/parts/<category>/...toml   every part's stats (acr_parts_moa.c)
  *   <out>/motion/...toml             animation sets' root motion (acr_motion_moa.c)
+ *   <out>/models/...                 AC models, textures, skeletons, animations (acr_models_moa.c)
  *
  * A MoA .T archive starts with a u16 entry count followed by count + 1 u16
  * sector offsets (relative to the archive start); entry i covers sectors
@@ -24,6 +25,8 @@ typedef struct acr_import_stats {
     uint32_t archives_skipped; /* .T files whose table did not check out */
     uint32_t parts;            /* part files written to <out>/parts */
     uint32_t motion_sets;      /* animation sets written to <out>/motion */
+    uint32_t model_parts;      /* part models written to <out>/models */
+    uint32_t model_sets;       /* skeletons + animations written to <out>/models/sets */
 } acr_import_stats;
 
 int acr_import_disc(const char *disc_path, const char *out_dir, acr_import_stats *stats,
