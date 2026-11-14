@@ -598,7 +598,7 @@ int main(int argc, char **argv) {
 
     Uint64 last = SDL_GetTicksNS();
     const Uint64 start_ns = last;
-    int running = 1, show_help = 1, back_held = 0, back_combo = 0, switch_pressed[2] = { 0, 0 };
+    int running = 1, show_help = 1, back_held = 0, back_combo = 0, switch_pressed[2] = { 0, 0 }, blade_pressed[2] = { 0, 0 };
     SDL_Gamepad *pads[2] = { pad, NULL };
     {   /* a second controller, if there is one */
         int count = 0;
@@ -639,6 +639,7 @@ int main(int argc, char **argv) {
                 SETUP_FIGHTERS(); prevs[0] = *P; prevs[1] = *T;
             }
             if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_TAB) switch_pressed[0] = 1;
+            if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_V) blade_pressed[0] = 1;
             int toggle_two = 0;
             if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_F2) toggle_two = 1;
             int cycle_rate = 0, cycle_slot = -1, toggle_plus = 0, cycle_who = 0;
@@ -652,6 +653,10 @@ int main(int argc, char **argv) {
                 if (btn == SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER && back_held) { cycle_slot = SLOT_LEGS; back_combo = 1; }
                 if (btn == SDL_GAMEPAD_BUTTON_SOUTH && back_held) { toggle_plus = 1; back_combo = 1; }
                 if (btn == SDL_GAMEPAD_BUTTON_LEFT_SHOULDER && back_held) { toggle_two = 1; back_combo = 1; }
+                if (btn == SDL_GAMEPAD_BUTTON_EAST && !back_held) {   /* the blade: circle / B */
+                    const int who = !two_players ? 0 : pads[1] ? (player_of(pads, e.gbutton.which, 0) == 1) : 1;
+                    blade_pressed[who] = 1;
+                }
                 if (btn == SDL_GAMEPAD_BUTTON_NORTH && !back_held) {
                     /* which player's controller? */
                     const int who = !two_players ? 0 : pads[1] ? (player_of(pads, e.gbutton.which, 0) == 1) : 1;
@@ -775,7 +780,7 @@ int main(int argc, char **argv) {
             hold_fire = v[4];
         }
         const bool *keys = SDL_GetKeyboardState(NULL);
-        acr_gen1_actions act[2] = { { 0, 0 }, { 0, 0 } };
+        acr_gen1_actions act[2] = { { 0, 0, 0 }, { 0, 0, 0 } };
         act[0].fire = (uint8_t)(hold_fire || keys[SDL_SCANCODE_F] || keys[SDL_SCANCODE_LCTRL] ||
                                 (ctl[0] && !back_held && SDL_GetGamepadButton(ctl[0], SDL_GAMEPAD_BUTTON_WEST)));
         if (two_players)
@@ -808,7 +813,10 @@ int main(int argc, char **argv) {
                     break;
                 }
             }
-            for (int k = 0; k < 2; ++k) { act[k].next_weapon = (uint8_t)switch_pressed[k]; switch_pressed[k] = 0; }
+            for (int k = 0; k < 2; ++k) {
+                act[k].next_weapon = (uint8_t)switch_pressed[k]; switch_pressed[k] = 0;
+                act[k].blade = (uint8_t)blade_pressed[k]; blade_pressed[k] = 0;
+            }
             acr_gen1_battle_step(&battle, in2, act);
             for (int k = 0; k < 2; ++k) { in2[k].boost_tapped = 0; boost_released[k] = !in2[k].boost; }
             /* arena walls */
@@ -863,7 +871,8 @@ int main(int argc, char **argv) {
         acr_mat_perspective(proj, 58.0f * 3.14159265f / 180.0f, (float)vpw / (float)ph, 50.0f, 80000.0f);
         for (int k = 0; k < 4; ++k) proj[1 + 4 * k] -= 0.1f * proj[3 + 4 * k];   /* centre 5% low */
         {
-            const float eye[3] = { px - sinf(yaw) * 2200.0f, py + 1200.0f, pz - cosf(yaw) * 2200.0f };
+            /* A little closer than before; to be matched to the game's own camera. */
+            const float eye[3] = { px - sinf(yaw) * 1700.0f, py + 950.0f, pz - cosf(yaw) * 1700.0f };
             const float fwd[3] = { sinf(yaw), -0.22f, cosf(yaw) }, up[3] = { 0, 1, 0 };
             acr_mat_look(viewm, eye, fwd, up);
             for (int k = 0; k < 4; ++k) viewm[4 * k] = -viewm[4 * k];
@@ -983,7 +992,7 @@ int main(int argc, char **argv) {
         if (show_help && !two_players) {
             TEXT(20, 28, "MOVE: STICK/DPAD UP-DOWN  TURN: LEFT-RIGHT");
             TEXT(20, 40, "STRAFE: LB/RB  BOOST: A OR RT (NO DIRECTION = RISE)");
-            TEXT(20, 52, "FIRE: X (F)  SWITCH WEAPON: Y (TAB)");
+            TEXT(20, 52, "FIRE: X (F)  SWITCH WEAPON: Y (TAB)  BLADE: B (V)");
             if (g_direct_test) {
                 TEXT(20, 64, "BACK+X/Y/B/RB (B/G/C/L): BOOSTER/GENERATOR/BACK WEAPON/LEGS");
                 TEXT(20, 76, "START/R: RESET  F1: HIDE HELP  ESC: QUIT");

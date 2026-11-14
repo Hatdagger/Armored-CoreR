@@ -103,17 +103,70 @@ static void damage(acr_gen1_battle *b, int target, const acr_gen1_weapon *w) {
     if (t->ap < 0) t->ap = 0;
 }
 
+/* Blade: a press starts a swing; the AC lunges for the first part of it,
+ * steering at a target ahead, and the swing hits once if the target comes
+ * within reach in front during it. */
+static void blade_step(acr_gen1_battle *b, int i, int blade, int pressed) {
+    acr_gen1_fighter *f = &b->f[i];
+    const int step_ms = b->step_ms ? b->step_ms : 45;
+    if (blade < 0) { f->swing = 0; return; }
+    const acr_gen1_weapon *w = &f->weapon[blade];
+    if (pressed && !f->swing && f->blade_ms <= 0) {
+        f->swing = (uint16_t)((ACR_GEN1_SWING_MS + step_ms - 1) / step_ms);
+        f->swing_hit = 0;
+        f->blade_ms = w->interval_ms;
+    }
+    if (!f->swing) return;
+    const int target = 1 - i;
+    acr_gen1_ac *me = &f->ac;
+    const acr_gen1_ac *it = &b->f[target].ac;
+    const int64_t dx = (it->x - me->x) / 64, dz = (it->z - me->z) / 64;
+    int32_t fx, fz;
+    fwd_vec(me->yaw, &fx, &fz);
+    const int64_t ahead = (dx * fx + dz * fz) / 4096;
+    const uint32_t dist = isqrt64((uint64_t)(dx * dx + dz * dz));
+    const int in_front = ahead * 2 >= (int64_t)dist;
+    const int total = (ACR_GEN1_SWING_MS + step_ms - 1) / step_ms;
+    const int lunge = (ACR_GEN1_LUNGE_MS + step_ms - 1) / step_ms;
+    if (total - f->swing < lunge && f->def) {
+        /* Lunge at ground boost speed, towards the target if it is ahead and near. */
+        int64_t lx = fx, lz = fz;
+        if (b->f[target].ap > 0 && in_front && dist > 0 && dist <= (uint32_t)w->range * ACR_GEN1_LUNGE_RANGE) {
+            lx = dx * 4096 / (int64_t)dist;
+            lz = dz * 4096 / (int64_t)dist;
+        }
+        const int64_t speed = f->def->motion.boost_max;
+        me->vx = (int32_t)(lx * speed / 4096);
+        me->vz = (int32_t)(lz * speed / 4096);
+    }
+    if (!f->swing_hit && b->f[target].ap > 0 && dist <= (uint32_t)w->range && in_front) {
+        damage(b, target, w);
+        f->swing_hit = 1;
+    }
+    --f->swing;
+}
+
 static void fighter_step(acr_gen1_battle *b, int i, acr_gen1_actions a) {
     acr_gen1_fighter *f = &b->f[i];
     if (f->ap <= 0 || !f->weapons) return;
-    if (a.next_weapon) {
-        f->current = (uint8_t)((f->current + 1) % f->weapons);
+    /* The blade is not in the cycle: guns and missiles only. */
+    int blade = -1, cycled = 0;
+    for (int k = 0; k < f->weapons; ++k) {
+        if (f->weapon[k].kind == ACR_GEN1_BLADE) blade = k;
+        else ++cycled;
+    }
+    if (f->weapon[f->current].kind == ACR_GEN1_BLADE && cycled) a.next_weapon = 1;
+    if (a.next_weapon && cycled) {
+        do f->current = (uint8_t)((f->current + 1) % f->weapons);
+        while (f->weapon[f->current].kind == ACR_GEN1_BLADE);
         f->lock_ms = 0;
         f->locked = 0;
     }
-    const acr_gen1_weapon *w = &f->weapon[f->current];
     if (f->cooldown_ms > 0) f->cooldown_ms -= b->step_ms;
-    if (f->swing) --f->swing;
+    if (f->blade_ms > 0) f->blade_ms -= b->step_ms;
+    blade_step(b, i, blade, a.blade);
+    if (!cycled) return;
+    const acr_gen1_weapon *w = &f->weapon[f->current];
 
     /* Lock-on: the target has to stay in the FCS box for the lock time. */
     if (w->lock_ms && acr_gen1_in_lock_box(b, i, w)) {
@@ -129,17 +182,7 @@ static void fighter_step(acr_gen1_battle *b, int i, acr_gen1_actions a) {
     if (!acr_gen1_stance_ok(f)) return;
     if (w->kind == ACR_GEN1_MISSILE && !f->locked) return;   /* missiles wait for a full lock */
     const int target = 1 - i;
-    if (w->kind == ACR_GEN1_BLADE) {
-        /* Blade: hits if the target is within reach and in front. */
-        const acr_gen1_ac *me = &f->ac, *it = &b->f[target].ac;
-        const int64_t dx = (it->x - me->x) / 64, dz = (it->z - me->z) / 64;
-        int32_t fx, fz;
-        fwd_vec(me->yaw, &fx, &fz);
-        const int64_t ahead = (dx * fx + dz * fz) / 4096;
-        const uint32_t dist = isqrt64((uint64_t)(dx * dx + dz * dz));
-        if (dist <= (uint32_t)w->range && ahead * 2 >= (int64_t)dist) damage(b, target, w);
-        f->swing = 6;
-    } else {
+    {
         int32_t ax, ay, az;
         if (f->locked) {
             aim_at(b, target, f->ac.x, f->ac.y - MUZZLE_UP, f->ac.z, &ax, &ay, &az);

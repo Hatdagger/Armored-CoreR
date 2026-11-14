@@ -70,6 +70,16 @@ weapons, damage, two-player test build (see `docs/research/`).
 
 ## Revisit
 
+Play-test feedback (2026-11-14, at 60 steps a second, kept):
+- Lock-on range still feels far too short.
+- The blade now has its own button (circle / B; keyboard V), is out of the
+  weapon cycle and lunges at a target ahead. Swing time, lunge speed and
+  steering are stand-ins (`ACR_GEN1_SWING_MS` etc.): measure in the recomp.
+- The camera was brought closer (1700 back, 950 up) by eye: match it to
+  the game's single-player camera (new game, first mission).
+- Missing animations (boost, blade, firing, landing) make the feel hard
+  to judge.
+
 - Lock range feels short in play (numbers match the game): check world
   scale and lock box width once real models are in.
 - Placeholders listed in `docs/research/gen1-weapons.md`.

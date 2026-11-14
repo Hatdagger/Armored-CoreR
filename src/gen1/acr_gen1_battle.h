@@ -45,7 +45,9 @@ typedef struct acr_gen1_fighter {
     int32_t  cooldown_ms;
     int32_t  lock_ms;                          /* time the target has been in the box */
     uint8_t  locked;
-    uint16_t swing;                            /* blade swing steps left, for drawing */
+    uint16_t swing;                            /* blade swing steps left (drawing, lunge, hit window) */
+    uint8_t  swing_hit;                        /* this swing has already hit */
+    int32_t  blade_ms;                         /* blade cooldown */
     uint8_t  legs;                             /* ACR_GEN1_LEGS_* */
     uint8_t  human_plus;
     uint8_t  kneeling;
@@ -69,9 +71,17 @@ typedef struct acr_gen1_battle {
 } acr_gen1_battle;
 
 typedef struct acr_gen1_actions {
-    uint8_t fire;            /* held */
-    uint8_t next_weapon;     /* pressed this step */
+    uint8_t fire;            /* held: the selected gun or missile */
+    uint8_t next_weapon;     /* pressed this step: cycles guns and missiles (not the blade) */
+    uint8_t blade;           /* pressed this step: the blade has its own button, as in the game */
 } acr_gen1_actions;
+
+/* Blade swing as the game does it: its own button, and the AC lunges
+ * forward, turning towards a target in front. Stand-ins until measured in
+ * the recomp: swing time, lunge speed and how far it steers. */
+#define ACR_GEN1_SWING_MS    270
+#define ACR_GEN1_LUNGE_MS    180    /* first part of the swing */
+#define ACR_GEN1_LUNGE_RANGE 3   /* steers at targets within reach x this */
 
 /* Damage factor from the summed head, core, arms and legs defense
  * (menu module 0x800A83D8), with or without the matching screen option. */

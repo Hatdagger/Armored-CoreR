@@ -38,7 +38,7 @@ int main(void) {
         fi->ammo[0] = 200;
     }
     const acr_gen1_input none[2] = { { 0, 0, 0, 0, 0 }, { 0, 0, 0, 0, 0 } };
-    const acr_gen1_actions fire[2] = { { 1, 0 }, { 0, 0 } };
+    const acr_gen1_actions fire[2] = { { 1, 0, 0 }, { 0, 0, 0 } };
     EXPECT(acr_gen1_in_lock_box(&b, 0, &b.f[0].weapon[0]));
     int steps = 0;
     while (b.f[1].ap == 8384 && steps < 200) { acr_gen1_battle_step(&b, none, fire); ++steps; }
@@ -56,6 +56,39 @@ int main(void) {
     for (int k = 0; k < ACR_GEN1_MAX_SHOTS; ++k)
         if (b.shot[k].active) { found = 1; EXPECT(b.shot[k].vz / 64 == 256); }
     EXPECT(found);
+
+    /* Blade: its own button, not in the weapon cycle. A swing lunges the AC
+     * forward and hits a target ahead within reach once. */
+    {
+        static acr_gen1_battle bb;
+        bb = b;
+        memset(bb.shot, 0, sizeof bb.shot);
+        bb.step_rate = 0; bb.gen1_rate = 0; bb.step_ms = 45;
+        acr_gen1_fighter *me = &bb.f[0];
+        me->weapons = 2;
+        me->weapon[1] = (acr_gen1_weapon){ ACR_GEN1_BLADE, "BLADE", 1000, 0, 740, 1, 1000, 0, 0, 0, 0, 0, 0 };
+        me->current = 0;
+        acr_gen1_ac_spawn(&me->ac, &def, 0, 0, 0);
+        acr_gen1_ac_spawn(&bb.f[1].ac, &def, 0, 1000 * 64, 2048);   /* out of reach until the lunge */
+        bb.f[1].ap = 8384;
+        const acr_gen1_actions cycle[2] = { { 0, 1, 0 }, { 0, 0, 0 } };
+        acr_gen1_battle_step(&bb, none, cycle);
+        EXPECT(me->current == 0);                       /* only the gun to cycle to */
+        const acr_gen1_actions swing[2] = { { 0, 0, 1 }, { 0, 0, 0 } };
+        const acr_gen1_actions idle[2] = { { 0, 0, 0 }, { 0, 0, 0 } };
+        acr_gen1_battle_step(&bb, none, swing);
+        EXPECT(me->swing > 0);
+        for (int k = 0; k < 8; ++k) acr_gen1_battle_step(&bb, none, idle);
+        EXPECT(me->ac.z > 260 * 64);                    /* lunged forward */
+        EXPECT(bb.f[1].ap == 8384 - acr_gen1_hit_ap(1000, 27));   /* one hit */
+        /* Out of reach and behind: a swing hits nothing. */
+        acr_gen1_ac_spawn(&me->ac, &def, 0, 0, 2048);
+        me->blade_ms = 0;
+        const int32_t before = bb.f[1].ap;
+        acr_gen1_battle_step(&bb, none, swing);
+        for (int k = 0; k < 8; ++k) acr_gen1_battle_step(&bb, none, idle);
+        EXPECT(bb.f[1].ap == before);
+    }
 
     /* Cannon stance: a two-legged AC kneels first, four legs need the
      * ground, caterpillars and Human PLUS fire freely. */
