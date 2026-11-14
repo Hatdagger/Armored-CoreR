@@ -48,7 +48,7 @@ typedef struct acr_gen1_ac {
     uint16_t yaw;
     int16_t  turn_rate;
     int32_t  energy;
-    uint8_t  drained;          /* ran out: no boosting until back to the red zone */
+    uint8_t  drained;          /* ran out: no boosting until the bar is full again */
     uint8_t  boost_was_down;   /* booster button last step, to see a fresh press */
     uint8_t  state;
     uint16_t timer;

@@ -272,6 +272,19 @@ rising, 75 falling, 97 landing.
 - Longer falls (both ACs after a full rise) were still landing when the
   recording ended, so whether recovery grows with fall speed is open.
 
+## Energy rules (VS engine `0x80082D90`)
+
+Read from the code after a player's report; matches what players know.
+
+- Boosting costs the rise drain (+20) each step; a ground boost costs half.
+- Not boosting, the generator refills: the moving or standing rate (+26 or
+  +22) depending on what the AC is doing.
+- Below the red zone (+24), both the cost and the refill run at a quarter,
+  so the last part of the bar lasts longer.
+- If the bar runs dry (cost greater than what is left), the booster is
+  locked (player block +0x18, bit 0). The bar then refills at half the
+  usual rate, and the lock lifts only when it is completely full.
+
 ## Still to measure
 
 - Landing recovery after longer falls, and whether it depends on fall

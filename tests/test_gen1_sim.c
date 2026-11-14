@@ -78,6 +78,26 @@ int main(void) {
     acr_gen1_ac_step(&ac, &d, boost);
     EXPECT(ac.state == ACR_GEN1_AIR && ac.vy < 0 && ac.vz > 0);
 
+    /* Energy: a quarter of the cost below the red zone; running dry locks the
+     * booster until the bar is full, refilling at half speed meanwhile. */
+    acr_gen1_ac_spawn(&ac, &d, 0, 0, 0);
+    ac.energy = 9000;                            /* above the red zone (8000) */
+    ac.state = ACR_GEN1_AIR; ac.y = -100000;
+    acr_gen1_ac_step(&ac, &d, up);
+    EXPECT(ac.energy == 9000 - 400);
+    ac.energy = 7000;
+    acr_gen1_ac_step(&ac, &d, up);
+    EXPECT(ac.energy == 7000 - 100);
+    ac.energy = 50;
+    acr_gen1_ac_step(&ac, &d, up);
+    EXPECT(ac.energy == 0 && ac.drained);
+    ac.state = ACR_GEN1_GROUND; ac.y = 0; ac.vx = ac.vy = ac.vz = 0;
+    acr_gen1_ac_step(&ac, &d, none);
+    EXPECT(ac.energy == 100);                    /* standing refill 200, halved */
+    ac.energy = 27950;
+    acr_gen1_ac_step(&ac, &d, up);               /* still locked: no rise */
+    EXPECT(ac.state == ACR_GEN1_GROUND && ac.drained == 0 && ac.energy == 28000);
+
     /* A tap shorter than a step (released and pressed again between steps). */
     acr_gen1_ac_spawn(&ac, &d, 0, 0, 0);
     for (int i = 0; i < 12; ++i) acr_gen1_ac_step(&ac, &d, boost);

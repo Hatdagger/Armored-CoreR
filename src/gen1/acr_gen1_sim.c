@@ -177,7 +177,7 @@ void acr_gen1_ac_step(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
             ac->vx += dx * (int32_t)m->boost_accel / 4096;
             ac->vz += dz * (int32_t)m->boost_accel / 4096;
             limit_length(&ac->vx, &ac->vz, m->boost_max);
-            drain = s->rise_drain / 2;          /* measured: half the rise cost */
+            drain = 2;                          /* marker: ground boost (half cost) */
             set_anim(ac, ACR_GEN1_ANIM_IDLE);
         } else if (can_boost && ac->vx == 0 && ac->vz == 0) {
             takeoff(def, &ac->timer, &ac->vy);
@@ -207,7 +207,7 @@ void acr_gen1_ac_step(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
         if (can_boost) {
             ac->vy -= m->rise_accel;
             if (ac->vy < -(int32_t)m->rise_max) ac->vy = -(int32_t)m->rise_max;
-            drain = s->rise_drain;
+            drain = 1;                          /* marker: rising / air boost */
         } else {
             ac->vy += ACR_GEN1_GRAVITY;
             if (ac->vy > ACR_GEN1_FALL_MAX) ac->vy = ACR_GEN1_FALL_MAX;
@@ -249,14 +249,26 @@ void acr_gen1_ac_step(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
         }
     }
 
-    /* Energy: boosting drains, otherwise the generator refills it. Running
-     * dry locks the booster until the bar is back to the red zone. */
+    /* Energy (VS engine 0x80082D90): boosting drains, otherwise the
+     * generator refills it.
+     * - Below the red zone both draining and refilling run at a quarter.
+     * - A ground boost costs half.
+     * - Running dry locks the booster; the bar then refills at half speed
+     *   and the lock lifts only when it is completely full. */
+    int32_t cost = s->rise_drain;
+    int32_t refill = (moving || ac->vx || ac->vz) ? s->refill_moving : s->refill_standing;
+    if (ac->drained) {
+        ac->energy += refill >> 1;
+        if (ac->energy >= s->energy_capacity) { ac->energy = s->energy_capacity; ac->drained = 0; }
+        return;
+    }
+    if (ac->energy < s->red_zone) { cost >>= 2; refill >>= 2; }
     if (drain) {
-        ac->energy -= drain;
-        if (ac->energy <= 0) { ac->energy = 0; ac->drained = 1; }
+        if (drain == 2) cost >>= 1;
+        if (ac->energy > cost) ac->energy -= cost;
+        else { ac->energy = 0; ac->drained = 1; }
     } else {
-        ac->energy += moving || ac->vx || ac->vz ? s->refill_moving : s->refill_standing;
+        ac->energy += refill;
         if (ac->energy > s->energy_capacity) ac->energy = s->energy_capacity;
-        if (ac->drained && ac->energy >= s->red_zone) ac->drained = 0;
     }
 }
