@@ -102,6 +102,10 @@ target's AP from the debugger is slow; the write trace gives 700.
 
 ## Still to do
 
+- Lock range feels short in play for every weapon (player report), though
+  the numbers match the game; check the world scale (AC size) and the lock
+  box width on screen.
+
 Projectile speeds and missile homing from the code; the fire interval byte;
 lock-on rules (box, time) in the VS engine; the blade (attack 2,050; its
 other bytes 39, 738, 11 are likely reach and timing).
