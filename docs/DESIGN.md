@@ -87,10 +87,41 @@ No servers for now; any server feature is optional and comes later.
   Mountain arenas just appear in a list. PC builds use the same LAN protocol,
   so an Xbox and a PC on one network can play together when their
   simulation versions match.
-- **Over the internet (PC):** peer-to-peer with libjuice and copy-paste
-  connection codes, using public STUN servers. Players who can't connect
-  directly can use a VPN-style LAN (Tailscale, ZeroTier), which makes it look
-  like System Link again.
+- **Over the internet (PC):** peer-to-peer with libjuice, using public STUN
+  servers. Ways to connect, tried in this order:
+  1. **One-way code:** if the host's router allows UPnP port mapping, only the
+     host shares a code and the joiner connects directly.
+  2. **Transmission codes:** otherwise both players exchange a code (host
+     sends, joiner replies). Each code is 9 words picked with the D-pad and
+     shown as AC-style radio chatter (see below). Codes expire after a few
+     minutes.
+  3. **Clickable links:** every code can also be shared as an `acr://` link
+     (for example in Discord); clicking it opens the game and fills in the
+     code.
+  Players behind routers that block all direct connections (strict or
+  carrier-grade NAT) cannot connect over the internet without a relay; that
+  waits for a possible server later.
+- **Transmission codes:** 72 bits (IPv4 address 32, port 16, session key 16,
+  checksum 8) as 9 slots of 256 words each, 8 bits per word. Each slot has
+  a fixed word type, and the template supplies the grammar, so any code
+  reads sensibly:
+  > "[Callsign] to all units. [Action] the [target] at [location],
+  > [sector]. Arriving at [time] under [weather]. [Order]. I'm [status]."
+
+  Example: *"CROW to all units. Destroy the supply depot at the sunken docks,
+  sector 12. Arriving at dawn under heavy fog. Engage on sight. I'm fully
+  armed."* The reply uses its own template ("[Callsign] receiving. I'll
+  [action] the [target] with you at ..."). Rules for the word lists:
+  - every word in a slot works with every word in the other slots (actions
+    fit any target, weather fits "under ___", status fits "I'm ___");
+  - no word appears in two slots; entries are one to three words;
+  - no similar-sounding entries, so codes survive being read aloud;
+  - original words only, no names from the Armored Core games.
+
+  Words are picked from a 16x16 grid per slot. A wrong word fails the
+  checksum and shows "TRANSMISSION GARBLED". Because each slot has a fixed
+  type, the same code can be displayed in other styles (corporate order,
+  arena announcer) as a cosmetic option. The word lists are a data table.
 - Both paths use the same messages, the same handshake and the same
   simulation; only discovery differs.
 
