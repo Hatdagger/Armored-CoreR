@@ -126,8 +126,8 @@ are the game's; these are stand-ins until decoded or measured:
 
 Back cannons need a steady stance: two-legged ACs (humanoid, reverse
 joint) kneel before firing, four-legged ACs fire them only on the ground,
-caterpillars fire them freely. Human PLUS lifts the rule. Missiles and
-rockets on the back fire normally.
+caterpillars fire them freely. Human PLUS lifts the rule. Missiles,
+rockets and radars on the back work freely (confirmed by the player).
 
 Which weapons count: `acr-import` marks `stance = 1` on back weapons of
 kind 2 (WC- cannons, chain gun, slug guns, linear gun, grenade launcher)
