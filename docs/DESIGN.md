@@ -98,9 +98,30 @@ No servers for now; any server feature is optional and comes later.
   3. **Clickable links:** every code can also be shared as an `acr://` link
      (for example in Discord); clicking it opens the game and fills in the
      code.
-  Players behind routers that block all direct connections (strict or
-  carrier-grade NAT) cannot connect over the internet without a relay; that
-  waits for a possible server later.
+  4. **Direct IP:** the host forwards a port on their router once, and
+     joiners enter the host's IP and port on an on-screen number pad. Only
+     the host's router has to cooperate, so this also works for joiners
+     behind strict routers. A host behind carrier-grade NAT cannot forward
+     ports and needs someone else to host.
+  Players whose routers block all direct connections join through a private
+  server (below), which relays for them.
+- **Private servers:** the game has a **dedicated server mode** (the same
+  program without graphics) that anyone can run on a **PC** (Windows or
+  Linux, including small boards like a Raspberry Pi) or a **modded Xbox**.
+  Servers are community-run, never required, and added once by IP as a
+  favourite. A server can provide:
+  - a lobby list and short room codes for its players;
+  - relaying for players who can't connect directly;
+  - invasion alerts over the internet (it knows who is in an invadable
+    mission);
+  - permanent King of the Mountain and survival arenas that it hosts itself,
+    so a round never ends because a player quits;
+  - hosting spectators, taking that load off the players.
+
+  Server mode runs the **same simulation and handshake** as a player. It
+  joins the session as a participant **without an AC**, like a spectator, so
+  it never uses one of the 9 player slots. Without rendering, the
+  simulation and relaying fit easily in the Xbox's CPU and 64 MB.
 - **Transmission codes:** 72 bits (IPv4 address 32, port 16, session key 16,
   checksum 8) as 9 slots of 256 words each, 8 bits per word. Each slot has
   a fixed word type, and the template supplies the grammar, so any code
@@ -182,7 +203,12 @@ this is a mid-mission join (above); the rest is game design and discovery.
   seconds, long enough to run the handshake and transfer the snapshot, so the
   arrival feels instant.
 - **Consent and fairness:** "allow invasions in my missions" and "accept
-  defence alerts" settings, and alerts can be declined. The handshake checks
+  defence alerts" settings, and alerts can be declined. **On LAN both are on
+  by default; over the internet both are off by default.** Alerts only appear
+  while a player is somewhere safe (garage, menus, between missions), never
+  mid-battle. When several LAN players are free, all of them get the alert
+  and the first to accept defends (more if the mission allows several
+  defenders). The handshake checks
   the defender's build against the mission's rules. Rewards for both sides,
   and what each gets when the other leaves, are mission data.
 - **Leaving and results:** if the defender leaves, the mission carries on as
@@ -198,8 +224,8 @@ this is a mid-mission join (above); the rest is game design and discovery.
      invadable"; other games on the network show the alert.
   2. **Friends:** games that have connected before remember each other and can
      show "your friend's mission is open", joined with a fresh code.
-  3. **Later, if servers are ever added:** an invasion board listing open
-     missions, for random internet invasions. Not part of the current plan.
+  3. **Private servers:** a community server lists the invadable missions
+     of its players and sends alerts over the internet.
 
 ## Survival arena
 
