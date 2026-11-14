@@ -28,6 +28,7 @@ typedef struct acr_gen1_input {
     int8_t  turn;     /* +1 right, -1 left */
     int8_t  strafe;   /* +1 right, -1 left */
     uint8_t boost;    /* booster button */
+    uint8_t boost_tapped; /* let go and pressed again since the last step (a quick tap) */
 } acr_gen1_input;
 
 /* Everything fixed for one AC during a match. */

@@ -40,7 +40,7 @@ static SDL_Gamepad *open_first_gamepad(void) {
 
 static acr_gen1_input read_input(SDL_Gamepad *pad) {
     const bool *k = SDL_GetKeyboardState(NULL);
-    acr_gen1_input in = { 0, 0, 0, 0 };
+    acr_gen1_input in = { 0, 0, 0, 0, 0 };
     in.move = (int8_t)((k[SDL_SCANCODE_W] || k[SDL_SCANCODE_UP]) - (k[SDL_SCANCODE_S] || k[SDL_SCANCODE_DOWN]));
     in.turn = (int8_t)((k[SDL_SCANCODE_D] || k[SDL_SCANCODE_RIGHT]) - (k[SDL_SCANCODE_A] || k[SDL_SCANCODE_LEFT]));
     in.strafe = (int8_t)(k[SDL_SCANCODE_E] - k[SDL_SCANCODE_Q]);
@@ -326,12 +326,19 @@ int main(int argc, char **argv) {
             in.move = (int8_t)v[0]; in.turn = (int8_t)v[1]; in.strafe = (int8_t)v[2]; in.boost = (uint8_t)v[3];
         }
 
+        /* A quick release of the booster between two steps still counts. */
+        static int boost_released;
+        if (!in.boost) boost_released = 1;
+        in.boost_tapped = (uint8_t)(in.boost && boost_released);
+
         const Uint64 now = SDL_GetTicksNS();
         const uint32_t ticks = acr_clock_advance(&clock, now - last);
         last = now;
         for (uint32_t i = 0; i < ticks; ++i) {
             prev = ac;
             acr_gen1_ac_step(&ac, def, in);
+            in.boost_tapped = 0;
+            boost_released = !in.boost;
             /* arena walls */
             const int32_t lim = ARENA * 64;
             if (ac.x > lim) { ac.x = lim; ac.vx = 0; }

@@ -149,7 +149,7 @@ void acr_gen1_ac_step(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
     ac->yaw = (uint16_t)((ac->yaw + ac->turn_rate) & 4095);
 
     const int can_boost = in.boost && !ac->drained && ac->energy > 0;
-    const int fresh_press = in.boost && !ac->boost_was_down;
+    const int fresh_press = in.boost && (!ac->boost_was_down || in.boost_tapped);
     ac->boost_was_down = in.boost;
     int32_t drain = 0, mx = 0, mz = 0, dx = 0, dz = 0;
     const int dir = stick_dir(ac->yaw, in, &dx, &dz);
