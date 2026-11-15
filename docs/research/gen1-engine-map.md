@@ -55,3 +55,17 @@ Each engine file starts with a small header: a count, then the entry point
 - The per-AC update: walking, turning, boosting, jumping, energy, heat.
   Leading candidate: `0x8008E55C`, called once a frame from the main loop at
   `0x80052BA4`, which uses the AC object pointers 12 times.
+
+## Camera measured (recomp)
+
+- The camera is the same rig in the first mission and in VS: eye 325
+  behind the AC's origin (feet) and 227-229 up; it looks at a point 81-82
+  ahead and 187 up (about 6 degrees down).
+- RAM (VS): eye/look-at pairs per player at `0x801A9A88` (eye, then look-at
+  after one word); eye copies at `0x800441D8`. First mission: eye at
+  `0x800441D8`, eye + look-at at `0x801BB590`.
+- Projection: single player H 320 on 320x240 (41 degrees vertical,
+  53 across), centre (160, 120). VS: H 160 per 160x240 half (74 vertical,
+  the same 53 across), centre row 115.
+- In our engine (main.c): that rig, 41 degrees vertical, widened to keep
+  at least 53 degrees across on narrow (split-screen) views, view centred.

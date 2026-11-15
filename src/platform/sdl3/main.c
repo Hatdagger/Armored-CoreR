@@ -871,19 +871,25 @@ int main(int argc, char **argv) {
         if (dyaw < -2048) dyaw += 4096;
         const float yaw = ((float)prev.yaw + dyaw * a) * (6.2831853f / 4096.0f);
 
-        /* Camera behind and above, looking slightly down. The engine's
-         * right is (cos, 0, -sin) of the facing, so x is mirrored after the
-         * usual look-at. The view centre sits a little below the middle
-         * of the screen, as before. */
+        /* The game's camera, measured in the recomp (same rig in the first
+         * mission and in VS): eye 325 behind the AC and 227 up, looking at
+         * a point 81 ahead and 187 up (about 6 degrees down), view centred.
+         * Single player shows 41 degrees vertically on 4:3 (H 320); VS
+         * keeps the same 53 degrees across on its tall half views (H 160 on
+         * 160x240). So: 41 degrees vertically, widened when needed to keep
+         * at least 53 degrees across. The engine's right is (cos, 0, -sin)
+         * of the facing, so x is mirrored after the usual look-at. */
         float proj[16], viewm[16];
-        acr_mat_perspective(proj, 58.0f * 3.14159265f / 180.0f, (float)vpw / (float)ph, 12.0f, 80000.0f);
-        for (int k = 0; k < 4; ++k) proj[1 + 4 * k] -= 0.1f * proj[3 + 4 * k];   /* centre 5% low */
         {
-            /* Framed as before the quarter-size models (1700 back, 950 up);
-             * to be matched to the game's own camera. */
-            const float back = 1700.0f * ACR_GEN1_MODEL_SCALE, rise = 950.0f * ACR_GEN1_MODEL_SCALE;
+            const float aspect = (float)vpw / (float)ph, half_v = 0.375f, half_h = 0.5f;
+            const float t = half_h / aspect > half_v ? half_h / aspect : half_v;
+            acr_mat_perspective(proj, 2.0f * atanf(t), aspect, 12.0f, 80000.0f);
+        }
+        {
+            const float back = 325.0f, rise = 227.0f, ahead = 81.0f, look_up = 187.0f;
             const float eye[3] = { px - sinf(yaw) * back, py + rise, pz - cosf(yaw) * back };
-            const float fwd[3] = { sinf(yaw), -0.22f, cosf(yaw) }, up[3] = { 0, 1, 0 };
+            const float fwd[3] = { sinf(yaw) * (back + ahead), look_up - rise, cosf(yaw) * (back + ahead) };
+            const float up[3] = { 0, 1, 0 };
             acr_mat_look(viewm, eye, fwd, up);
             for (int k = 0; k < 4; ++k) viewm[4 * k] = -viewm[4 * k];
         }
