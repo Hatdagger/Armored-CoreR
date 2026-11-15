@@ -22,9 +22,10 @@ int32_t acr_gen1_hit_ap(uint16_t attack, uint8_t factor) {
     return x * 2 / 3;
 }
 
-#define CENTRE_UP (400 * 64)        /* an AC's middle, above its feet */
-#define HIT_RADIUS 260              /* world units */
-#define MUZZLE_UP (480 * 64)
+/* AC sizes in world units, a quarter of the model's (see ACR_GEN1_MODEL_SCALE). */
+#define CENTRE_UP (100 * 64)        /* an AC's middle, above its feet */
+#define HIT_RADIUS 65               /* stand-in */
+#define MUZZLE_UP (120 * 64)
 
 static void fwd_vec(uint16_t yaw, int32_t *x, int32_t *z) {
     *x = acr_gen1_sin(yaw);
@@ -53,9 +54,9 @@ int acr_gen1_in_lock_box(const acr_gen1_battle *b, int i, const acr_gen1_weapon 
     const int64_t ahead = (dx * fx + dz * fz) / 4096;         /* along the facing */
     const int64_t side = (dx * fz - dz * fx) / 4096;
     if (ahead <= 0) return 0;
-    /* The box is in the original's screen units; 256 is half its screen width. */
+    /* The box is in the original's lock units (see ACR_GEN1_BOX_UNITS). */
     const int64_t s = side < 0 ? -side : side, h = dy < 0 ? -dy : dy;
-    return s * 256 <= ahead * (w->box_w / 2) && h * 256 <= ahead * (w->box_h / 2);
+    return s * ACR_GEN1_BOX_UNITS <= ahead * (w->box_w / 2) && h * ACR_GEN1_BOX_UNITS <= ahead * (w->box_h / 2);
 }
 
 /* A Gen 1 per-step speed at this battle's step rate, in 1/64 units. */

@@ -102,9 +102,7 @@ target's AP from the debugger is slow; the write trace gives 700.
 
 ## Still to do
 
-- Lock range feels short in play for every weapon (player report), though
-  the numbers match the game; check the world scale (AC size) and the lock
-  box width on screen.
+- (Done, see "Lock-on measured" below.)
 
 Projectile speeds and missile homing from the code; the fire interval byte;
 lock-on rules (box, time) in the VS engine; the blade (attack 2,050; its
@@ -122,7 +120,7 @@ are the game's; these are stand-ins until decoded or measured:
   8,000). So about 7.3 ms per lock-time unit: rifle 0.44 s, missile
   0.93 s. Missiles fire only once fully locked; the rifle fires at once
   and aims at the target when locked.
-- Lock box angle: box width over a 512-wide screen (stand-in).
+- Lock box angle: box units over 384 (measured, below).
 - Fire interval: byte x 118 ms (rifle 590 ms, as measured).
 - Shot speeds and missile homing are the game's (above), kept per second at
   any step rate, so at 60 steps a second a rifle shot moves 256 a step.
@@ -144,3 +142,19 @@ and the two-slot energy cannons WX-ED2 and WX-C/4. To confirm from the
 game's code. Cannon shot speeds come from VS engine table `0x80091310`
 (6 bytes per model: 500 for most, 600 grenade launcher, 800 WC-IR24); read
 from code, not traced yet. Time to kneel (400 ms) is a stand-in.
+
+## Lock-on measured (recomp, split-screen VS, default AC)
+
+- Range: the rifle (FCS class 0, 6,100) locks out to about 6,250 and the
+  small missile (class 1, 8,000) to about 7,985. The range is the FCS's,
+  give or take 2%. A VS fight starts with the ACs 8,000 apart.
+- World scale: the projection plane is 160 on a 160x240 view. The target's
+  height on screen at 1,000-6,000 gives an AC about 190 world units tall
+  with the camera about 600 behind. The model is about 790 units tall, so
+  the game draws ACs at a quarter of their model's units. Drawing them at
+  full size made every range look four times shorter (the "short lock").
+  `ACR_GEN1_MODEL_SCALE` = 1/4; centre, muzzle and hit sizes follow it.
+- Lock box: at 4,000 ahead the rifle locks with the target 1,000 to the
+  side and not 1,250 (tan 0.29-0.32, the facing was 2 degrees off). Box
+  240 -> tan 0.3125 with 384 units for 45 degrees (`ACR_GEN1_BOX_UNITS`).
+- Test build: ACR_DIST / ACR_SIDE place the target for these checks.

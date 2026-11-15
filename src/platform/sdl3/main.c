@@ -193,7 +193,7 @@ static void draw_ac(int who, const acr_gen1_ac *ac, float x, float y, float z, f
     unsigned tick;
     if (!g_model[who].ok) { add_ac(v3(x, y, z), yaw, crouch, who); return; }
     const int anim = shown_anim(ac, &g_model[who], &tick);
-    demo_model_draw(&g_model[who], anim, tick, x, y, z, yaw, &g_light);
+    demo_model_draw(&g_model[who], anim, tick, x, y, z, yaw, ACR_GEN1_MODEL_SCALE, &g_light);
 }
 
 /* World point -> HUD grid (hud_w x 480) through proj*view; 0 if behind. */
@@ -224,6 +224,11 @@ static int player_of(SDL_Gamepad *const pads[2], SDL_JoystickID id, int fallback
         if (pads[k] && SDL_GetGamepadID(pads[k]) == id) return k;
     return fallback;
 }
+
+/* Test: the target's start, ACR_DIST units ahead of player 1 (default
+ * 5,000) and ACR_SIDE to their right, for measuring against the recomp. */
+static int target_dist(void) { const char *e = SDL_getenv("ACR_DIST"); return e ? SDL_atoi(e) : 5000; }
+static int target_side(void) { const char *e = SDL_getenv("ACR_SIDE"); return e ? SDL_atoi(e) : 0; }
 
 static int g_direct_test = 0;   /* part arguments given: no garage */
 static long g_new_credits = 0;
@@ -400,7 +405,7 @@ static void draw_garage_ac(int pw, int ph, float hud_w, unsigned tick) {
     }
     flush_scene();
     const float yaw = 3.14159265f + (float)tick * 0.004f;
-    if (g_model[0].ok) demo_model_draw(&g_model[0], 0, tick, 0, 0, 0, yaw, &g_light);
+    if (g_model[0].ok) demo_model_draw(&g_model[0], 0, tick, 0, 0, 0, yaw, 1.0f, &g_light);
     else { add_ac(v3(0, 0, 0), yaw, 0, 0); flush_scene(); }
 }
 
@@ -574,7 +579,7 @@ int main(int argc, char **argv) {
             f_->human_plus = (uint8_t)(i_ == 0 && human_plus); f_->kneeling = 0;          \
         }                                                                                 \
         acr_gen1_ac_spawn(P, def, 0, -2500 * 64, 0);                                      \
-        acr_gen1_ac_spawn(T, def2, 0, 2500 * 64, 2048);                                   \
+        acr_gen1_ac_spawn(T, def2, target_side() * 64, (target_dist() - 2500) * 64, 2048);       \
         memset(battle.shot, 0, sizeof battle.shot);                                       \
         round_ms = ROUND_MS; round_over = 0;                                              \
     } while (0)
@@ -834,7 +839,7 @@ int main(int argc, char **argv) {
                 if (respawn_ms >= 3000) {
                     respawn_ms = 0;
                     battle.f[1].ap = battle.f[1].ap_max;
-                    acr_gen1_ac_spawn(T, def2, 0, 2500 * 64, 2048);
+                    acr_gen1_ac_spawn(T, def2, target_side() * 64, (target_dist() - 2500) * 64, 2048);
                     prevs[1] = *T;
                 }
             }
@@ -868,11 +873,13 @@ int main(int argc, char **argv) {
          * usual look-at. The view centre sits a little below the middle
          * of the screen, as before. */
         float proj[16], viewm[16];
-        acr_mat_perspective(proj, 58.0f * 3.14159265f / 180.0f, (float)vpw / (float)ph, 50.0f, 80000.0f);
+        acr_mat_perspective(proj, 58.0f * 3.14159265f / 180.0f, (float)vpw / (float)ph, 12.0f, 80000.0f);
         for (int k = 0; k < 4; ++k) proj[1 + 4 * k] -= 0.1f * proj[3 + 4 * k];   /* centre 5% low */
         {
-            /* A little closer than before; to be matched to the game's own camera. */
-            const float eye[3] = { px - sinf(yaw) * 1700.0f, py + 950.0f, pz - cosf(yaw) * 1700.0f };
+            /* Framed as before the quarter-size models (1700 back, 950 up);
+             * to be matched to the game's own camera. */
+            const float back = 1700.0f * ACR_GEN1_MODEL_SCALE, rise = 950.0f * ACR_GEN1_MODEL_SCALE;
+            const float eye[3] = { px - sinf(yaw) * back, py + rise, pz - cosf(yaw) * back };
             const float fwd[3] = { sinf(yaw), -0.22f, cosf(yaw) }, up[3] = { 0, 1, 0 };
             acr_mat_look(viewm, eye, fwd, up);
             for (int k = 0; k < 4; ++k) viewm[4 * k] = -viewm[4 * k];
@@ -909,15 +916,15 @@ int main(int argc, char **argv) {
             const acr_gen1_shot *sh = &battle.shot[k];
             if (!sh->active) continue;
             const int missile = battle.f[sh->owner].weapon[sh->weapon].kind == ACR_GEN1_MISSILE;
-            if (missile) add_box(v3(sh->x / 64.0f, -sh->y / 64.0f, sh->z / 64.0f), 0, v3(40, 40, 40), 1.0f, 0.55f, 0.15f);
-            else add_box(v3(sh->x / 64.0f, -sh->y / 64.0f, sh->z / 64.0f), 0, v3(20, 20, 20), 1.0f, 0.95f, 0.5f);
+            if (missile) add_box(v3(sh->x / 64.0f, -sh->y / 64.0f, sh->z / 64.0f), 0, v3(10, 10, 10), 1.0f, 0.55f, 0.15f);
+            else add_box(v3(sh->x / 64.0f, -sh->y / 64.0f, sh->z / 64.0f), 0, v3(5, 5, 5), 1.0f, 0.95f, 0.5f);
         }
         if (battle.f[view].swing) {                       /* blade arc */
             const float r = 700.0f;
             for (int k = -3; k < 3; ++k) {
                 const float a0 = yaw + k * 0.25f, a1 = yaw + (k + 1) * 0.25f;
-                line3(v3(px + sinf(a0) * r, py + 450, pz + cosf(a0) * r),
-                      v3(px + sinf(a1) * r, py + 450, pz + cosf(a1) * r), 120, 200, 255);
+                line3(v3(px + sinf(a0) * r, py + 110, pz + cosf(a0) * r),
+                      v3(px + sinf(a1) * r, py + 110, pz + cosf(a1) * r), 120, 200, 255);
             }
         }
         if (py > 1.0f) line3(v3(px, 0, pz), v3(px, py, pz), 230, 160, 40);   /* height marker */
@@ -962,16 +969,17 @@ int main(int argc, char **argv) {
                     if (hint) TEXT(g_vw - 150, rc_y, hint);
                 }
                 if (w->box_w) {
-                    /* The box as the original sizes it: its screen is about
-                     * 512 wide at 4:3, so a unit is 1.25 of our 480 grid. */
-                    const float bw = w->box_w * 1.25f, bh = w->box_h * 1.25f;
+                    /* The box covers the angles that lock (ACR_GEN1_BOX_UNITS),
+                     * through this view's projection. */
+                    const float bw = proj[0] * w->box_w / (float)ACR_GEN1_BOX_UNITS * g_vw * 0.5f,
+                                bh = proj[5] * w->box_h / (float)ACR_GEN1_BOX_UNITS * g_vh * 0.5f;
                     /* The FCS box takes the lock's colour once the target is locked. */
                     if (me->locked) acr_hud_rect(g_vw * 0.5f - bw * 0.5f, g_vh * 0.45f - bh * 0.5f, bw, bh, 255, 60, 50, 255, 0);
                     else acr_hud_rect(g_vw * 0.5f - bw * 0.5f, g_vh * 0.45f - bh * 0.5f, bw, bh, 90, 200, 120, 255, 0);
                 }
                 float sx, sy;
                 if (tg->ap > 0 && acr_gen1_in_lock_box(&battle, view, w) &&
-                    to_hud(proj, viewm, v3(tx, ty + 400, tz), g_vw, &sx, &sy)) {
+                    to_hud(proj, viewm, v3(tx, ty + 100, tz), g_vw, &sx, &sy)) {
                     if (me->locked) {
                         acr_hud_rect(sx - 18, sy - 18, 36, 36, 255, 60, 50, 255, 0);
                         acr_hud_text(sx - 16, sy + 22, "LOCK", 255, 60, 50);

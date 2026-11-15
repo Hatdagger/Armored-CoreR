@@ -124,7 +124,7 @@ static acr_vtx g_out[MAX_MODEL_TRIS * 3], g_batch[MAX_MODEL_TRIS * 3];
 static uint8_t g_group[MAX_MODEL_TRIS];
 
 void demo_model_draw(const demo_model *m, int anim, unsigned tick, float x, float y, float z,
-                     float yaw, const acr_lighting *light) {
+                     float yaw, float scale, const acr_lighting *light) {
     if (!m->ok) return;
     acr_pose pose;
     float mat[ACR_SKEL_MAX_NODES][12];
@@ -159,9 +159,9 @@ void demo_model_draw(const demo_model *m, int anim, unsigned tick, float x, floa
                 const acr_mesh_vertex *v = &mesh->v[t * 3 + j];
                 /* model space has the AC's right hand at -x; the engine's world
                  * has the right at +x (see the camera in main.c) */
-                const float lx = -(M[0] * v->p[0] + M[1] * v->p[1] + M[2] * v->p[2] + M[3]);
-                const float ly = M[4] * v->p[0] + M[5] * v->p[1] + M[6] * v->p[2] + M[7];
-                const float lz = M[8] * v->p[0] + M[9] * v->p[1] + M[10] * v->p[2] + M[11];
+                const float lx = -(M[0] * v->p[0] + M[1] * v->p[1] + M[2] * v->p[2] + M[3]) * scale;
+                const float ly = (M[4] * v->p[0] + M[5] * v->p[1] + M[6] * v->p[2] + M[7]) * scale;
+                const float lz = (M[8] * v->p[0] + M[9] * v->p[1] + M[10] * v->p[2] + M[11]) * scale;
                 const float nx = -(M[0] * v->n[0] + M[1] * v->n[1] + M[2] * v->n[2]);
                 const float ny = M[4] * v->n[0] + M[5] * v->n[1] + M[6] * v->n[2];
                 const float nz = M[8] * v->n[0] + M[9] * v->n[1] + M[10] * v->n[2];

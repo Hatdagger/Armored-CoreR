@@ -76,6 +76,17 @@ typedef struct acr_gen1_actions {
     uint8_t blade;           /* pressed this step: the blade has its own button, as in the game */
 } acr_gen1_actions;
 
+/* The game draws an AC at a quarter of its model's units: measured in the
+ * recomp (projection plane 160 on a 160x240 view), an AC stands about 190
+ * world units tall while its model is about 790. So ranges, speeds and the
+ * lock box keep the game's world numbers and the models are scaled down. */
+#define ACR_GEN1_MODEL_SCALE 0.25f
+
+/* FCS lock box units: half a box this wide spans 45 degrees off the facing.
+ * Measured in the recomp: the default FCS's rifle box (240) locks out to
+ * about 17 degrees either side (tan 0.29-0.32). */
+#define ACR_GEN1_BOX_UNITS 384
+
 /* Blade swing as the game does it: its own button, and the AC lunges
  * forward, turning towards a target in front. Stand-ins until measured in
  * the recomp: swing time, lunge speed and how far it steers. */

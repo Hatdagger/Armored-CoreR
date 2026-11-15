@@ -37,8 +37,9 @@ int  demo_model_load(const char *import_dir, int set, const int parts[SLOT_COUNT
 void demo_model_free(demo_model *m);
 
 /* Draws the AC standing at (x, y, z) (engine world, y up) facing `yaw`
- * (radians, forward = (sin, cos)), posed by animation `anim` at `tick`. */
+ * (radians, forward = (sin, cos)), posed by animation `anim` at `tick`,
+ * at `scale` times its model's size. */
 void demo_model_draw(const demo_model *m, int anim, unsigned tick, float x, float y, float z,
-                     float yaw, const acr_lighting *light);
+                     float yaw, float scale, const acr_lighting *light);
 
 #endif
