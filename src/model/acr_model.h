@@ -73,6 +73,13 @@ void acr_pose_play(const acr_skeleton *skel, const acr_anim_set *set, int anim, 
 
 /* Per node, the 3x4 matrix (row-major, last column = translation) that takes
  * a piece's OBJ vertices into model space. Rotation part also turns normals. */
+/* Smooth playback (presentation only): frame k eases into frame k+1 over
+ * k's hold, `tick` may be fractional. With `loop`, the last frame eases
+ * back into the first; without, the last frame holds. */
+void acr_pose_play_smooth(const acr_skeleton *skel, const acr_anim_set *set, int anim, float tick, int loop,
+                          acr_pose *pose);
+/* a..b by t (0..1): rotations the short way round, positions straight. */
+void acr_pose_mix(const acr_skeleton *skel, const acr_pose *a, const acr_pose *b, float t, acr_pose *out);
 void acr_pose_matrices(const acr_skeleton *skel, const acr_pose *pose, float out[ACR_SKEL_MAX_NODES][12]);
 
 /* ---- meshes ---- */

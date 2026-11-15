@@ -251,6 +251,35 @@ void acr_pose_play(const acr_skeleton *skel, const acr_anim_set *set, int anim, 
     }
 }
 
+void acr_pose_mix(const acr_skeleton *skel, const acr_pose *a, const acr_pose *b, float t, acr_pose *out) {
+    if (t <= 0.0f) { if (out != a) *out = *a; return; }
+    if (t >= 1.0f) { if (out != b) *out = *b; return; }
+    for (int i = 0; i < skel->count; ++i)
+        for (int j = 0; j < 3; ++j) {
+            int d = ((b->rot[i][j] - a->rot[i][j]) % 4096 + 4096 + 2048) % 4096 - 2048;
+            out->rot[i][j] = (int16_t)(a->rot[i][j] + (int)lroundf((float)d * t));
+            out->pos[i][j] = (int16_t)lroundf((float)a->pos[i][j] + (float)(b->pos[i][j] - a->pos[i][j]) * t);
+        }
+}
+
+void acr_pose_play_smooth(const acr_skeleton *skel, const acr_anim_set *set, int anim, float tick, int loop,
+                          acr_pose *pose) {
+    if (tick < 0.0f) tick = 0.0f;
+    const unsigned whole = (unsigned)tick;
+    const int f = acr_anim_frame_at(set, anim, whole);
+    acr_pose_play(skel, set, anim, whole, pose);
+    if (f < 0) return;
+    const acr_anim *a = &set->anim[anim];
+    if (f == a->frames - 1 && (!loop || a->frames < 2)) return;
+    unsigned start = 0;
+    for (int k = 0; k < f; ++k) start += set->frame[a->first_frame + k].hold;
+    unsigned hold = set->frame[a->first_frame + f].hold;
+    if (!hold) hold = 1;
+    acr_pose next;
+    acr_pose_play(skel, set, anim, f + 1 < a->frames ? start + hold : 0, &next);
+    acr_pose_mix(skel, pose, &next, (tick - (float)start) / (float)hold, pose);
+}
+
 /* 3x4 row-major: a * b */
 static void mul34(const float a[12], const float b[12], float o[12]) {
     float r[12];

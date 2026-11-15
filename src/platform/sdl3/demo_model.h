@@ -41,5 +41,8 @@ void demo_model_free(demo_model *m);
  * at `scale` times its model's size. */
 void demo_model_draw(const demo_model *m, int anim, unsigned tick, float x, float y, float z,
                      float yaw, float scale, const acr_lighting *light);
+/* The same with a pose already worked out (smooth playback, crossfades). */
+void demo_model_draw_pose(const demo_model *m, const acr_pose *pose, float x, float y, float z,
+                          float yaw, float scale, const acr_lighting *light);
 
 #endif

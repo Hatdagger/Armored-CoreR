@@ -127,9 +127,15 @@ void demo_model_draw(const demo_model *m, int anim, unsigned tick, float x, floa
                      float yaw, float scale, const acr_lighting *light) {
     if (!m->ok) return;
     acr_pose pose;
-    float mat[ACR_SKEL_MAX_NODES][12];
     acr_pose_play(&m->skel, &m->anims, anim, tick, &pose);
-    acr_pose_matrices(&m->skel, &pose, mat);
+    demo_model_draw_pose(m, &pose, x, y, z, yaw, scale, light);
+}
+
+void demo_model_draw_pose(const demo_model *m, const acr_pose *pose, float x, float y, float z,
+                          float yaw, float scale, const acr_lighting *light) {
+    if (!m->ok) return;
+    float mat[ACR_SKEL_MAX_NODES][12];
+    acr_pose_matrices(&m->skel, pose, mat);
     const float s = sinf(yaw), c = cosf(yaw);
     uint32_t group_tex[GROUPS] = { 0 };
     for (int k = 0; k < ACR_PART_KINDS; ++k) group_tex[k] = m->part[k].texture;

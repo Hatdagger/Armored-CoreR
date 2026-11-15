@@ -193,8 +193,9 @@ enum { ANIM_AIR = 24, ANIM_RISE = 25, ANIM_LAND = 36, ANIM_BOOST = 48, ANIM_SLID
 static int g_swinging[2];                    /* set from the battle before drawing */
 static struct { int shown; Uint64 since; } g_pose[2];
 
-static int shown_anim(int who, const acr_gen1_ac *ac, const demo_model *m, unsigned *tick) {
-    *tick = ac->anim_frame;
+static int shown_anim(int who, const acr_gen1_ac *ac, const demo_model *m, float *tick, int *loop) {
+    *tick = (float)ac->anim_frame;
+    *loop = ac->anim != ACR_GEN1_ANIM_IDLE && ac->anim != ACR_GEN1_ANIM_JUMP;
     int want = ac->anim, ours = 0;
     if (ac->state == ACR_GEN1_AIR) {
         const acr_anim *jump = &m->anims.anim[ACR_GEN1_ANIM_JUMP];
@@ -213,17 +214,46 @@ static int shown_anim(int who, const acr_gen1_ac *ac, const demo_model *m, unsig
         want = (ac->coast != 0) == (along >= 0) ? ANIM_BOOST : ANIM_SLIDE; ours = 1;
     }
     if (!ours) { g_pose[who].shown = want; return want; }
+    *loop = 0;
     if (!m->anims.anim[want].frames) want = want == ANIM_RISE ? ANIM_AIR : ACR_GEN1_ANIM_IDLE;
     if (g_pose[who].shown != want) { g_pose[who].shown = want; g_pose[who].since = SDL_GetTicks(); }
-    *tick = (unsigned)((SDL_GetTicks() - g_pose[who].since) * 22 / 1000);
+    *tick = (float)(SDL_GetTicksNS() - g_pose[who].since * 1000000ull) * 22.0f / 1e9f;
     return want;
 }
 
+/* Animation playback: 1 = smooth (poses ease into each other, animation
+ * changes crossfade over ACR_FADE_MS), 0 = the game's stepped poses. Only
+ * what is drawn changes; the sim, root motion and hits keep the game's ticks.
+ * F5 toggles. */
+static int g_smooth_anim = 1;
+#define ACR_FADE_MS 120.0f
+static struct { int anim, ok; acr_pose drawn, from; Uint64 fade_ns; } g_blend[2];
+
 static void draw_ac(int who, const acr_gen1_ac *ac, float x, float y, float z, float yaw, float crouch) {
-    unsigned tick;
-    if (!g_model[who].ok) { add_ac(v3(x, y, z), yaw, crouch, who); return; }
-    const int anim = shown_anim(who, ac, &g_model[who], &tick);
-    demo_model_draw(&g_model[who], anim, tick, x, y, z, yaw, ACR_GEN1_MODEL_SCALE, &g_light);
+    float tick;
+    int loop;
+    const demo_model *m = &g_model[who];
+    if (!m->ok) { add_ac(v3(x, y, z), yaw, crouch, who); return; }
+    const int anim = shown_anim(who, ac, m, &tick, &loop);
+    if (!g_smooth_anim) {
+        g_blend[who].ok = 0;
+        demo_model_draw(m, anim, (unsigned)tick, x, y, z, yaw, ACR_GEN1_MODEL_SCALE, &g_light);
+        return;
+    }
+    acr_pose pose;
+    acr_pose_play_smooth(&m->skel, &m->anims, anim, tick, loop, &pose);
+    const Uint64 now = SDL_GetTicksNS();
+    if (g_blend[who].ok && g_blend[who].anim != anim) {
+        g_blend[who].from = g_blend[who].drawn;
+        g_blend[who].fade_ns = now;
+    }
+    if (g_blend[who].ok && g_blend[who].fade_ns) {
+        const float t = (float)(now - g_blend[who].fade_ns) / (ACR_FADE_MS * 1e6f);
+        if (t >= 1.0f) g_blend[who].fade_ns = 0;
+        else acr_pose_mix(&m->skel, &g_blend[who].from, &pose, t, &pose);
+    }
+    g_blend[who].anim = anim; g_blend[who].drawn = pose; g_blend[who].ok = 1;
+    demo_model_draw_pose(m, &pose, x, y, z, yaw, ACR_GEN1_MODEL_SCALE, &g_light);
 }
 
 /* World point -> HUD grid (hud_w x 480) through proj*view; 0 if behind. */
@@ -670,6 +700,7 @@ int main(int argc, char **argv) {
                 else to_garage = 1;
             }
             if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_F1) show_help = !show_help;
+            if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_F5) g_smooth_anim = !g_smooth_anim;
             if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_R) {
                 SETUP_FIGHTERS(); prevs[0] = *P; prevs[1] = *T;
             }
@@ -1056,7 +1087,7 @@ int main(int argc, char **argv) {
             TEXT(20, 52, "FIRE: X (F)  SWITCH WEAPON: Y (TAB)  BLADE: B (V)");
             if (g_direct_test) {
                 TEXT(20, 64, "BACK+X/Y/B/RB (B/G/C/L): BOOSTER/GENERATOR/BACK WEAPON/LEGS");
-                TEXT(20, 76, "START/R: RESET  F1: HIDE HELP  ESC: QUIT");
+                TEXT(20, 76, "START/R: RESET  F1: HIDE HELP  F5: ANIM SMOOTH/STEPPED  ESC: QUIT");
             } else {
                 TEXT(20, 64, "BACK+START (ESC): BACK TO THE GARAGE");
                 TEXT(20, 76, "START/R: RESET  F1: HIDE HELP");
