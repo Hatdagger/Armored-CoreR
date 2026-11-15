@@ -220,3 +220,12 @@ textures load); `src/platform/sdl3/demo_model.c` loads a build and draws it.
 1. Garage/shop on the real models; open items above and below.
 2. Find the effects texture (page 512,256, palette row 510) and the
    exact palette ramp routine.
+
+## Which animation the game shows (measured, AC object +108)
+
+Walk start 1 then 2; jump start 22, rising 25, falling 24, landing 36;
+blade swing 56 (from ~10 refreshes after Circle, ~77 refreshes long);
+ground boost 48 while boosting forward and 49 after letting go, reversed
+for a backward boost (49 while boosting back, 48 after): 48 leans into the
+direction of travel, 49 brakes against it. Firing changes no body
+animation. Kneel not checked yet (needs a cannon build).

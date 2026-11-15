@@ -176,23 +176,47 @@ static void refresh_model(int who, const char *dir, const int parts[SLOT_COUNT],
     g_model_set[who] = set;
 }
 
-/* Which animation to show and how far into it: the movement's own one on
- * the ground, the jump then the air pose off it. */
-static int shown_anim(const acr_gen1_ac *ac, const demo_model *m, unsigned *tick) {
+/* Which animation to show and how far into it. The sim runs the walking
+ * animations (their root motion moves the AC); the rest are poses shown
+ * over it, as the game switches them (measured in the recomp, AC object
+ * +108): 56 blade swing; ground boost 48 (leaning into it) and 49 (braking):
+ * 48 boosting forward or sliding out of a backward boost, 49 the reverse; 22 jump start,
+ * 25 rising, 24 falling, 36 landing. Shown at the game's 22 ticks a second
+ * from when each began. Firing has no body animation. */
+enum { ANIM_AIR = 24, ANIM_RISE = 25, ANIM_LAND = 36, ANIM_BOOST = 48, ANIM_SLIDE = 49, ANIM_BLADE = 56 };
+static int g_swinging[2];                    /* set from the battle before drawing */
+static struct { int shown; Uint64 since; } g_pose[2];
+
+static int shown_anim(int who, const acr_gen1_ac *ac, const demo_model *m, unsigned *tick) {
     *tick = ac->anim_frame;
+    int want = ac->anim, ours = 0;
     if (ac->state == ACR_GEN1_AIR) {
         const acr_anim *jump = &m->anims.anim[ACR_GEN1_ANIM_JUMP];
-        if (ac->anim == ACR_GEN1_ANIM_JUMP && jump->frames && ac->anim_frame <= jump->ticks) return ACR_GEN1_ANIM_JUMP;
-        *tick = 0;
-        return m->anims.anim[24].frames ? 24 : ACR_GEN1_ANIM_IDLE;   /* 24: in the air */
+        if (!(ac->anim == ACR_GEN1_ANIM_JUMP && jump->frames && ac->anim_frame <= jump->ticks)) {
+            want = ac->vy < 0 ? ANIM_RISE : ANIM_AIR;
+            ours = 1;
+        }
+    } else if (g_swinging[who] || (g_pose[who].shown == ANIM_BLADE &&
+               (SDL_GetTicks() - g_pose[who].since) * 22 / 1000 < m->anims.anim[ANIM_BLADE].ticks)) {
+        want = ANIM_BLADE; ours = 1;           /* the swing plays out after the lunge */
+    } else if (ac->state == ACR_GEN1_LANDING) {
+        want = ANIM_LAND; ours = 1;
+    } else if (ac->state == ACR_GEN1_GROUND && (ac->vx || ac->vz)) {
+        const float along = (float)ac->vx * sinf(ac->yaw * (6.2831853f / 4096.0f)) +
+                            (float)ac->vz * cosf(ac->yaw * (6.2831853f / 4096.0f));
+        want = (ac->coast != 0) == (along >= 0) ? ANIM_BOOST : ANIM_SLIDE; ours = 1;
     }
-    return ac->anim;
+    if (!ours) { g_pose[who].shown = want; return want; }
+    if (!m->anims.anim[want].frames) want = want == ANIM_RISE ? ANIM_AIR : ACR_GEN1_ANIM_IDLE;
+    if (g_pose[who].shown != want) { g_pose[who].shown = want; g_pose[who].since = SDL_GetTicks(); }
+    *tick = (unsigned)((SDL_GetTicks() - g_pose[who].since) * 22 / 1000);
+    return want;
 }
 
 static void draw_ac(int who, const acr_gen1_ac *ac, float x, float y, float z, float yaw, float crouch) {
     unsigned tick;
     if (!g_model[who].ok) { add_ac(v3(x, y, z), yaw, crouch, who); return; }
-    const int anim = shown_anim(ac, &g_model[who], &tick);
+    const int anim = shown_anim(who, ac, &g_model[who], &tick);
     demo_model_draw(&g_model[who], anim, tick, x, y, z, yaw, ACR_GEN1_MODEL_SCALE, &g_light);
 }
 
@@ -917,6 +941,7 @@ int main(int argc, char **argv) {
         if (ac.state == ACR_GEN1_LANDING) crouch = 70;
         if (battle.f[view].kneeling) crouch = 150;
         flush_scene();
+        for (int k = 0; k < 2; ++k) g_swinging[k] = battle.f[k].swing != 0;
         draw_ac(view, &ac, px, py, pz, yaw, crouch);
         const float tx = (tprev.x + (T->x - tprev.x) * a) / 64.0f, ty = -(tprev.y + (T->y - tprev.y) * a) / 64.0f,
                     tz = (tprev.z + (T->z - tprev.z) * a) / 64.0f;
