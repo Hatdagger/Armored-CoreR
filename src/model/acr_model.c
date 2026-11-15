@@ -306,10 +306,14 @@ void acr_pose_matrices(const acr_skeleton *skel, const acr_pose *pose, float out
         const int p = skel->node[i].parent;
         if (p >= 0) mul34(world[p], local, world[i]);
         else memcpy(world[i], local, sizeof local);
-        /* piece matrix = F * world * T(-position) * F, F = diag(1, -1, -1) */
+        /* piece matrix = F * world * T(-bind position) * F, F = diag(1, -1, -1).
+           The bind position, not the animated one: vertices sit in bind-pose
+           model space, so an animated offset (the root's walk bob, node 2,
+           which draws the legs' hip connector) must move the piece. */
         float m[12];
-        const float back[12] = { 1, 0, 0, (float)-pose->pos[i][0], 0, 1, 0, (float)-pose->pos[i][1],
-                                 0, 0, 1, (float)-pose->pos[i][2] };
+        const int16_t *bp = skel->node[i].pos;
+        const float back[12] = { 1, 0, 0, (float)-bp[0], 0, 1, 0, (float)-bp[1],
+                                 0, 0, 1, (float)-bp[2] };
         mul34(world[i], back, m);
         static const float sgn[3] = { 1, -1, -1 };
         for (int r = 0; r < 3; ++r)
