@@ -213,7 +213,21 @@ static int shown_anim(int who, const acr_gen1_ac *ac, const demo_model *m, float
                             (float)ac->vz * cosf(ac->yaw * (6.2831853f / 4096.0f));
         want = (ac->coast != 0) == (along >= 0) ? ANIM_BOOST : ANIM_SLIDE; ours = 1;
     }
-    if (!ours) { g_pose[who].shown = want; return want; }
+    if (!ours) {
+        /* The sim's walking advances a tick per step (60 a second), faster
+         * than the game's 22: show it at the game's pace on its own clock,
+         * wrapping looped animations. */
+        if (g_pose[who].shown != want) { g_pose[who].shown = want; g_pose[who].since = SDL_GetTicks(); }
+        float t = (float)(SDL_GetTicksNS() - g_pose[who].since * 1000000ull) * 22.0f / 1e9f;
+        const acr_anim *a = &m->anims.anim[want];
+        if (*loop && a->frames) {
+            unsigned total = 0;
+            for (int f = 0; f < a->frames; ++f) total += m->anims.frame[a->first_frame + f].hold ? m->anims.frame[a->first_frame + f].hold : 1;
+            t = fmodf(t, (float)total);
+        }
+        *tick = t;
+        return want;
+    }
     *loop = 0;
     if (!m->anims.anim[want].frames) want = want == ANIM_RISE ? ANIM_AIR : ACR_GEN1_ANIM_IDLE;
     if (g_pose[who].shown != want) { g_pose[who].shown = want; g_pose[who].since = SDL_GetTicks(); }
