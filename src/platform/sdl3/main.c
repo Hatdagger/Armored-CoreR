@@ -193,6 +193,8 @@ enum { ANIM_AIR = 24, ANIM_RISE = 25, ANIM_LAND = 36, ANIM_BOOST = 48, ANIM_SLID
 static int g_swinging[2];                    /* set from the battle before drawing */
 static struct { int shown; Uint64 since; } g_pose[2];
 
+static const acr_gen1_ac_def *g_def[2];      /* for the walk's tick fraction */
+
 static int shown_anim(int who, const acr_gen1_ac *ac, const demo_model *m, float *tick, int *loop) {
     *tick = (float)ac->anim_frame;
     *loop = ac->anim != ACR_GEN1_ANIM_IDLE && ac->anim != ACR_GEN1_ANIM_JUMP;
@@ -214,11 +216,11 @@ static int shown_anim(int who, const acr_gen1_ac *ac, const demo_model *m, float
         want = (ac->coast != 0) == (along >= 0) ? ANIM_BOOST : ANIM_SLIDE; ours = 1;
     }
     if (!ours) {
-        /* The sim's walking advances a tick per step (60 a second), faster
-         * than the game's 22: show it at the game's pace on its own clock,
-         * wrapping looped animations. */
-        if (g_pose[who].shown != want) { g_pose[who].shown = want; g_pose[who].since = SDL_GetTicks(); }
-        float t = (float)(SDL_GetTicksNS() - g_pose[who].since * 1000000ull) * 22.0f / 1e9f;
+        /* The sim's walking advances at the game's 22 ticks a second at any
+         * step rate; draw the tick its movement is spreading over (plus how
+         * far into it), so the legs match the ground. */
+        g_pose[who].shown = want;
+        float t = ac->anim_frame ? (float)ac->anim_frame - 1.0f + acr_gen1_walk_fraction(ac, g_def[who]) : 0.0f;
         const acr_anim *a = &m->anims.anim[want];
         if (*loop && a->frames) {
             unsigned total = 0;
@@ -624,6 +626,7 @@ int main(int argc, char **argv) {
     int *const pp[2] = { parts, parts2 };
     acr_gen1_ac_def *def = &ac_data[0].def;
     acr_gen1_ac_def *def2 = &ac_data[1].def;
+    g_def[0] = def; g_def[1] = def2;
 
     acr_clock clock;
     set_rate(&clock, def, g_tick_rate);

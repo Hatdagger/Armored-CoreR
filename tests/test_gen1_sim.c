@@ -49,6 +49,23 @@ int main(void) {
     for (int i = 0; i < 4; ++i) acr_gen1_ac_step(&ac, &d, diag);
     EXPECT(ac.x > 0 && ac.z > 0 && ac.x - ac.z < 4 * 64 && ac.z - ac.x < 4 * 64);
 
+    /* At 60 steps a second the walk keeps Gen 1's 22 ticks a second: one
+     * second runs 22 track frames, 21 of them moved in full (5 loops of 137
+     * plus 31) and the 22nd (31) partly; the fraction stays in 0..1. */
+    {
+        acr_gen1_ac_def d60 = make_def();
+        d60.step_rate = 60; d60.gen1_rate = 22;
+        acr_gen1_ac_spawn(&ac, &d60, 0, 0, 0);
+        int frac_ok = 1;
+        for (int i = 0; i < 60; ++i) {
+            acr_gen1_ac_step(&ac, &d60, fwd);
+            const float f = acr_gen1_walk_fraction(&ac, &d60);
+            if (f < 0.0f || f >= 1.0f) frac_ok = 0;
+        }
+        EXPECT(ac.z / 64 > 5 * 137 + 31 && ac.z / 64 < 5 * 137 + 62);
+        EXPECT(frac_ok);
+    }
+
     /* Turning: +6 a step up to 38. */
     acr_gen1_ac_spawn(&ac, &d, 0, 0, 0);
     const acr_gen1_input turn = { 0, 1, 0, 0, 0, 0 };

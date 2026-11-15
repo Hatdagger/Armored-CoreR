@@ -77,7 +77,18 @@ typedef struct acr_gen1_ac {
     uint16_t anim_frame;
     uint16_t span_left;
     acr_gen1_stepper step[3];
+    /* Walking at faster step rates: the walk still advances one Gen 1 tick
+     * at a time (22 a second, measured), each tick's movement spread over
+     * the steps it lasts, so the legs keep pace with the ground.
+     * walk_phase counts toward the next tick in gen1_rate units out of
+     * step_rate (0xFFFF = tick on the next step). */
+    uint16_t walk_phase;
+    int32_t  tick_mx, tick_mz;     /* this tick's movement, 1/64 units */
+    int32_t  rem_mx, rem_mz;       /* remainders of the per-step shares */
 } acr_gen1_ac;
+
+/* How far into the current walk tick the AC is, 0..1 (0 at Gen 1's pace). */
+float acr_gen1_walk_fraction(const acr_gen1_ac *ac, const acr_gen1_ac_def *def);
 
 void acr_gen1_ac_spawn(acr_gen1_ac *ac, const acr_gen1_ac_def *def, int32_t x, int32_t z, uint16_t yaw);
 void acr_gen1_ac_step(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_input in);

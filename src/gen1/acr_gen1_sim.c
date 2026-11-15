@@ -68,6 +68,13 @@ static void set_anim(acr_gen1_ac *ac, uint8_t anim) {
     ac->anim = anim;
     ac->anim_frame = 0;
     ac->span_left = 0;
+    ac->walk_phase = 0xFFFF;
+    ac->tick_mx = ac->tick_mz = ac->rem_mx = ac->rem_mz = 0;
+}
+
+float acr_gen1_walk_fraction(const acr_gen1_ac *ac, const acr_gen1_ac_def *def) {
+    if (!def->step_rate || !def->gen1_rate || ac->walk_phase == 0xFFFF) return 0.0f;
+    return (float)ac->walk_phase / (float)def->step_rate;
 }
 
 /* Walking, strafing, walking back: the legs' animation moves the AC. */
@@ -82,31 +89,47 @@ static void walk(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_input in,
         set_anim(ac, def->anim[start] ? start : loop);
     const acr_gen1_root_track *t = def->anim[ac->anim];
     if (!t || ac->anim == ACR_GEN1_ANIM_IDLE) return;
-    if (ac->span_left == 0) {
-        if (ac->anim_frame >= t->length) {
-            if (ac->anim == start && def->anim[loop]) { set_anim(ac, loop); t = def->anim[loop]; }
-            else ac->anim_frame = 0;
-        }
-        int32_t d[3];
-        unsigned frames;
-        if (!acr_gen1_root_span(t, ac->anim_frame, d, &frames)) { ac->anim_frame = t->length; return; }
-        /* Walking diagonally (forward or back with a strafe): the walk
-         * track turned 45 degrees toward the strafe side. The game's own
-         * diagonal walking is not measured yet. */
-        int turn = 0;
-        if (in.move && in.strafe) turn = (in.move > 0 ? in.strafe : -in.strafe) * 512;
-        int32_t wx, wz;
-        to_world((uint16_t)((ac->yaw + turn) & 4095), d[0], d[2], &wx, &wz);
-        acr_gen1_stepper_init(&ac->step[0], (int)frames, div_round(wx, 4));
-        acr_gen1_stepper_init(&ac->step[1], (int)frames, div_round(d[1], 4));
-        acr_gen1_stepper_init(&ac->step[2], (int)frames, div_round(wz, 4));
-        ac->span_left = (uint16_t)frames;
+    const int scaled = def->step_rate && def->gen1_rate;
+    const int32_t rn = scaled ? def->gen1_rate : 1, rd = scaled ? def->step_rate : 1;
+    int tick = 0;
+    if (ac->walk_phase == 0xFFFF) { ac->walk_phase = 0; tick = 1; }
+    else {
+        ac->walk_phase = (uint16_t)(ac->walk_phase + rn);
+        if (ac->walk_phase >= rd) { ac->walk_phase = (uint16_t)(ac->walk_phase - rd); tick = 1; }
     }
-    *mx += acr_gen1_stepper_next(&ac->step[0]) * 64;
-    (void)acr_gen1_stepper_next(&ac->step[1]);
-    *mz += acr_gen1_stepper_next(&ac->step[2]) * 64;
-    ac->anim_frame++;
-    ac->span_left--;
+    if (tick) {
+        if (ac->span_left == 0) {
+            if (ac->anim_frame >= t->length) {
+                if (ac->anim == start && def->anim[loop]) { set_anim(ac, loop); ac->walk_phase = 0; t = def->anim[loop]; }
+                else ac->anim_frame = 0;
+            }
+            int32_t d[3];
+            unsigned frames;
+            if (!acr_gen1_root_span(t, ac->anim_frame, d, &frames)) {
+                ac->anim_frame = t->length; ac->tick_mx = ac->tick_mz = 0; return;
+            }
+            /* Walking diagonally (forward or back with a strafe): the walk
+             * track turned 45 degrees toward the strafe side. The game's own
+             * diagonal walking is not measured yet. */
+            int turn = 0;
+            if (in.move && in.strafe) turn = (in.move > 0 ? in.strafe : -in.strafe) * 512;
+            int32_t wx, wz;
+            to_world((uint16_t)((ac->yaw + turn) & 4095), d[0], d[2], &wx, &wz);
+            acr_gen1_stepper_init(&ac->step[0], (int)frames, div_round(wx, 4));
+            acr_gen1_stepper_init(&ac->step[1], (int)frames, div_round(d[1], 4));
+            acr_gen1_stepper_init(&ac->step[2], (int)frames, div_round(wz, 4));
+            ac->span_left = (uint16_t)frames;
+        }
+        ac->tick_mx = acr_gen1_stepper_next(&ac->step[0]) * 64;
+        (void)acr_gen1_stepper_next(&ac->step[1]);
+        ac->tick_mz = acr_gen1_stepper_next(&ac->step[2]) * 64;
+        ac->anim_frame++;
+        ac->span_left--;
+    }
+    /* This step's share of the tick (all of it at Gen 1's pace). */
+    const int32_t sx = ac->tick_mx * rn + ac->rem_mx, sz = ac->tick_mz * rn + ac->rem_mz;
+    *mx += sx / rd; ac->rem_mx = sx % rd;
+    *mz += sz / rd; ac->rem_mz = sz % rd;
 }
 
 /* Jump: still frames before lift-off and the take-off speed, from the jump
