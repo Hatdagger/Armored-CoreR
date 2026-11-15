@@ -69,3 +69,17 @@ Each engine file starts with a small header: a count, then the entry point
   the same 53 across), centre row 115.
 - In our engine (main.c): that rig, 41 degrees vertical, widened to keep
   at least 53 degrees across on narrow (split-screen) views, view centred.
+
+## View tilt (L2 / R2), measured (recomp, VS)
+
+- L2 tilts the view up, R2 down; it stays where it is let go. L2+R2
+  together bring it back level: the look-at in ~12 refreshes, the eye
+  easing after it over ~45.
+- The look-at turns on a circle of 82 around a pivot 186 up the AC's
+  axis: (82, 187) level, (32, 261) at the up limit, (32, 111) at the down
+  limit, so about +-66 degrees, reached in ~1 s (~80 degrees a second).
+- Eye: (325 behind, 229 up) level; (129 behind, 527 up) looking down;
+  (93 behind, 103 up) looking up (held above the floor).
+- Ours: input `look`, AC `pitch` (sim), lock box and unlocked shots tilt
+  with it (assumed from the games, not measured); camera in main.c.
+  The AC's body does not tilt yet.

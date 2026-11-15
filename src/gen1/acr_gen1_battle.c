@@ -51,11 +51,15 @@ int acr_gen1_in_lock_box(const acr_gen1_battle *b, int i, const acr_gen1_weapon 
     if (dist > (uint64_t)w->range) return 0;
     int32_t fx, fz;
     fwd_vec(me->yaw, &fx, &fz);
-    const int64_t ahead = (dx * fx + dz * fz) / 4096;         /* along the facing */
+    const int64_t flat = (dx * fx + dz * fz) / 4096;          /* along the facing */
     const int64_t side = (dx * fz - dz * fx) / 4096;
+    /* Tilted with the view (L2/R2): +y is down, pitch + is up. */
+    const uint16_t p = (uint16_t)(me->pitch & 4095);
+    const int64_t cp = acr_gen1_cos(p), sp = acr_gen1_sin(p);
+    const int64_t ahead = (flat * cp - dy * sp) / 4096, up = (-dy * cp - flat * sp) / 4096;
     if (ahead <= 0) return 0;
     /* The box is in the original's lock units (see ACR_GEN1_BOX_UNITS). */
-    const int64_t s = side < 0 ? -side : side, h = dy < 0 ? -dy : dy;
+    const int64_t s = side < 0 ? -side : side, h = up < 0 ? -up : up;
     return s * ACR_GEN1_BOX_UNITS <= ahead * (w->box_w / 2) && h * ACR_GEN1_BOX_UNITS <= ahead * (w->box_h / 2);
 }
 
@@ -226,8 +230,12 @@ static void fighter_step(acr_gen1_battle *b, int i, acr_gen1_actions a) {
         if (f->locked) {
             aim_at(b, target, f->ac.x, f->ac.y - MUZZLE_UP, f->ac.z, &ax, &ay, &az);
         } else {
+            /* Along the facing, tilted with the view (+y is down). */
+            const uint16_t p = (uint16_t)(f->ac.pitch & 4095);
             fwd_vec(f->ac.yaw, &ax, &az);
-            ay = 0;
+            ax = (int32_t)((int64_t)ax * acr_gen1_cos(p) / 4096);
+            az = (int32_t)((int64_t)az * acr_gen1_cos(p) / 4096);
+            ay = -acr_gen1_sin(p);
         }
         spawn_shot(b, i, f->current, ax, ay, az);
         if (w->ammo) --f->ammo[f->current];

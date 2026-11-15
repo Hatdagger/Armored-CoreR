@@ -162,6 +162,20 @@ void acr_gen1_ac_step(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
     ac->yaw_fine = (ac->yaw_fine + ac->turn_fine) & (4096 * 256 - 1);
     ac->yaw = (uint16_t)(ac->yaw_fine >> 8);
 
+    /* View tilt: L2 up, R2 down, both back to level (rates per Gen 1 step). */
+    if (in.look == 2) {
+        const int32_t r = (int32_t)((int64_t)ACR_GEN1_PITCH_LEVEL_RATE * 256 * rn / rd);
+        if (ac->pitch_fine > r) ac->pitch_fine -= r;
+        else if (ac->pitch_fine < -r) ac->pitch_fine += r;
+        else ac->pitch_fine = 0;
+    } else if (in.look) {
+        const int32_t lim = ACR_GEN1_PITCH_MAX * 256;
+        ac->pitch_fine += in.look * (int32_t)((int64_t)ACR_GEN1_PITCH_RATE * 256 * rn / rd);
+        if (ac->pitch_fine > lim) ac->pitch_fine = lim;
+        if (ac->pitch_fine < -lim) ac->pitch_fine = -lim;
+    }
+    ac->pitch = (int16_t)(ac->pitch_fine / 256);
+
     const int can_boost = in.boost && !ac->drained && ac->energy > 0;
     const int fresh_press = in.boost && (!ac->boost_was_down || in.boost_tapped);
     ac->boost_was_down = in.boost;

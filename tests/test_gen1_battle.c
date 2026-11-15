@@ -37,9 +37,21 @@ int main(void) {
         fi->weapon[0] = (acr_gen1_weapon){ ACR_GEN1_GUN, "RIFLE", 218, 200, 6100, 0, 1000, 240, 240, 600, 700, 0, 0 };
         fi->ammo[0] = 200;
     }
-    const acr_gen1_input none[2] = { { 0, 0, 0, 0, 0 }, { 0, 0, 0, 0, 0 } };
+    const acr_gen1_input none[2] = { { 0, 0, 0, 0, 0, 0 }, { 0, 0, 0, 0, 0, 0 } };
     const acr_gen1_actions fire[2] = { { 1, 0, 0 }, { 0, 0, 0 } };
     EXPECT(acr_gen1_in_lock_box(&b, 0, &b.f[0].weapon[0]));
+    /* View tilt (L2/R2): a target high above locks only when looking up. */
+    {
+        const int32_t y = b.f[1].ac.y;
+        b.f[1].ac.y = -2000 * 64;                       /* 2,000 up, 3,000 ahead */
+        EXPECT(!acr_gen1_in_lock_box(&b, 0, &b.f[0].weapon[0]));
+        b.f[0].ac.pitch = 600;                          /* ~53 degrees up */
+        EXPECT(!acr_gen1_in_lock_box(&b, 0, &b.f[0].weapon[0]));
+        b.f[0].ac.pitch = 384;                          /* ~34 degrees: on it */
+        EXPECT(acr_gen1_in_lock_box(&b, 0, &b.f[0].weapon[0]));
+        b.f[0].ac.pitch = 0;
+        b.f[1].ac.y = y;
+    }
     int steps = 0;
     while (b.f[1].ap == 8384 && steps < 200) { acr_gen1_battle_step(&b, none, fire); ++steps; }
     EXPECT(b.f[1].ap == 8384 - 60);

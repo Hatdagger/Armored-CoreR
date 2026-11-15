@@ -29,7 +29,16 @@ typedef struct acr_gen1_input {
     int8_t  strafe;   /* +1 right, -1 left */
     uint8_t boost;    /* booster button */
     uint8_t boost_tapped; /* let go and pressed again since the last step (a quick tap) */
+    int8_t  look;     /* +1 tilt the view up (L2), -1 down (R2), 2 both: back to level */
 } acr_gen1_input;
+
+/* View tilt, measured in the recomp (VS): L2 / R2 tilt the aim up / down
+ * by up to ~66 degrees at ~80 degrees a second and it stays where it is let
+ * go; L2+R2 together bring it back level in ~0.2 s. Facing units (4096 a
+ * circle), per Gen 1 step (22 a second). */
+#define ACR_GEN1_PITCH_MAX        751
+#define ACR_GEN1_PITCH_RATE       41
+#define ACR_GEN1_PITCH_LEVEL_RATE 170
 
 /* Everything fixed for one AC during a match. */
 typedef struct acr_gen1_ac_def {
@@ -55,6 +64,8 @@ typedef struct acr_gen1_ac {
     int16_t  turn_rate;        /* facing units per step at Gen 1's pace */
     int32_t  yaw_fine;         /* facing in 1/256 units (lets faster step rates turn smoothly) */
     int32_t  turn_fine;        /* turn speed in 1/256 units per step */
+    int32_t  pitch_fine;       /* view tilt in 1/256 facing units, + = up */
+    int16_t  pitch;            /* view tilt in facing units (pitch_fine >> 8) */
     uint16_t coast;            /* steps left at full speed after a ground boost ends */
     int32_t  energy;
     uint8_t  drained;          /* ran out: no boosting until the bar is full again */

@@ -53,12 +53,16 @@ static SDL_Gamepad *open_first_gamepad(void) {
 
 static acr_gen1_input read_input(SDL_Gamepad *pad, int keyboard) {
     const bool *k = SDL_GetKeyboardState(NULL);
-    acr_gen1_input in = { 0, 0, 0, 0, 0 };
+    acr_gen1_input in = { 0, 0, 0, 0, 0, 0 };
     if (keyboard) {
     in.move = (int8_t)((k[SDL_SCANCODE_W] || k[SDL_SCANCODE_UP]) - (k[SDL_SCANCODE_S] || k[SDL_SCANCODE_DOWN]));
     in.turn = (int8_t)((k[SDL_SCANCODE_D] || k[SDL_SCANCODE_RIGHT]) - (k[SDL_SCANCODE_A] || k[SDL_SCANCODE_LEFT]));
     in.strafe = (int8_t)(k[SDL_SCANCODE_E] - k[SDL_SCANCODE_Q]);
     in.boost = (uint8_t)(k[SDL_SCANCODE_SPACE] || k[SDL_SCANCODE_J]);
+    {
+        const int up = k[SDL_SCANCODE_PAGEUP], down = k[SDL_SCANCODE_PAGEDOWN];
+        in.look = (int8_t)(up && down ? 2 : up - down);
+    }
     }
     if (pad) {
         const int lx = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTX);
@@ -71,9 +75,11 @@ static acr_gen1_input read_input(SDL_Gamepad *pad, int keyboard) {
         if (lx > dead || SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_DPAD_RIGHT)) in.turn = 1;
         if (SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER) || rx < -dead) in.strafe = -1;
         if (SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER) || rx > dead) in.strafe = 1;
-        if (SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_SOUTH) ||
-            SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) > 8000)
-            in.boost = 1;
+        if (SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_SOUTH)) in.boost = 1;
+        /* L2 / R2 tilt the view up / down; both together: back to level. */
+        const int lt = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFT_TRIGGER) > 8000;
+        const int rt = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) > 8000;
+        if (lt || rt) in.look = (int8_t)(lt && rt ? 2 : lt - rt);
     }
     return in;
 }
@@ -796,16 +802,17 @@ int main(int argc, char **argv) {
         }
         acr_gen1_input in2[2];
         in2[0] = read_input(ctl[0], 1);
-        in2[1] = two_players ? read_input(ctl[1], 0) : (acr_gen1_input){ 0, 0, 0, 0, 0 };
-        /* Testing aid: ACR_HOLD="move,turn,strafe,boost[,fire[,blade_ms]]" holds those
+        in2[1] = two_players ? read_input(ctl[1], 0) : (acr_gen1_input){ 0, 0, 0, 0, 0, 0 };
+        /* Testing aid: ACR_HOLD="move,turn,strafe,boost[,fire[,blade_ms[,look]]]" holds those
          * inputs (and presses the blade once, blade_ms after start);
          * ACR_SHOT=file.bmp ACR_SHOT_MS=2000 saves a picture and quits. */
         const char *hold = SDL_getenv("ACR_HOLD");
         int hold_fire = 0;
         if (hold) {
-            int v[6] = { 0, 0, 0, 0, 0, -1 };
+            int v[7] = { 0, 0, 0, 0, 0, -1, 0 };
             static int blade_done;
-            SDL_sscanf(hold, "%d,%d,%d,%d,%d,%d", &v[0], &v[1], &v[2], &v[3], &v[4], &v[5]);
+            SDL_sscanf(hold, "%d,%d,%d,%d,%d,%d,%d", &v[0], &v[1], &v[2], &v[3], &v[4], &v[5], &v[6]);
+            in2[0].look = (int8_t)v[6];
             if (v[5] >= 0 && !blade_done && SDL_GetTicks() >= (Uint64)v[5]) { blade_pressed[0] = 1; blade_done = 1; }
             in2[0].move = (int8_t)v[0]; in2[0].turn = (int8_t)v[1]; in2[0].strafe = (int8_t)v[2];
             in2[0].boost = (uint8_t)v[3];
@@ -910,9 +917,19 @@ int main(int argc, char **argv) {
             acr_mat_perspective(proj, 2.0f * atanf(t), aspect, 12.0f, 80000.0f);
         }
         {
-            const float back = 325.0f, rise = 227.0f, ahead = 81.0f, look_up = 187.0f;
-            const float eye[3] = { px - sinf(yaw) * back, py + rise, pz - cosf(yaw) * back };
-            const float fwd[3] = { sinf(yaw) * (back + ahead), look_up - rise, cosf(yaw) * (back + ahead) };
+            /* L2/R2 tilt (measured): the look-at point turns on a circle of
+             * 82 around a pivot 186 up the AC's axis, up to ~66 degrees; the
+             * eye sits opposite, 328 out and 7.5 degrees above level when
+             * level (stretching to ~365 looking down), kept 100 above the
+             * floor (measured at the up limit: 93 behind, 103 up). */
+            const float th = ((float)prev.pitch + (float)(ac.pitch - prev.pitch) * a) * (6.2831853f / 4096.0f);
+            const float fx = sinf(yaw), fz = cosf(yaw), pivot = 186.0f;
+            const float lo = 82.0f * cosf(th), lu = pivot + 82.0f * sinf(th);
+            const float phi = 0.1309f - th, down = th < 0 ? -th / 1.1519f : 0.0f;
+            float eb = (328.0f + 37.0f * down) * cosf(phi), eu = (328.0f + 37.0f * down) * sinf(phi);
+            if (pivot + eu < 100.0f && eu < 0) { const float t = (pivot - 100.0f) / -eu; eb *= sqrtf(t); eu *= t; }
+            const float eye[3] = { px - fx * eb, py + pivot + eu, pz - fz * eb };
+            const float fwd[3] = { fx * (lo + eb), lu - (pivot + eu), fz * (lo + eb) };
             const float up[3] = { 0, 1, 0 };
             acr_mat_look(viewm, eye, fwd, up);
             for (int k = 0; k < 4; ++k) viewm[4 * k] = -viewm[4 * k];
@@ -1035,7 +1052,7 @@ int main(int argc, char **argv) {
         }
         if (show_help && !two_players) {
             TEXT(20, 28, "MOVE: STICK/DPAD UP-DOWN  TURN: LEFT-RIGHT");
-            TEXT(20, 40, "STRAFE: LB/RB  BOOST: A OR RT (NO DIRECTION = RISE)");
+            TEXT(20, 40, "STRAFE: LB/RB  BOOST: A (NO DIRECTION = RISE)  LOOK UP/DOWN: LT/RT, BOTH = LEVEL (PGUP/PGDN)");
             TEXT(20, 52, "FIRE: X (F)  SWITCH WEAPON: Y (TAB)  BLADE: B (V)");
             if (g_direct_test) {
                 TEXT(20, 64, "BACK+X/Y/B/RB (B/G/C/L): BOOSTER/GENERATOR/BACK WEAPON/LEGS");
