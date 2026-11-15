@@ -126,7 +126,7 @@ are the game's; these are stand-ins until decoded or measured:
   any step rate, so at 60 steps a second a rifle shot moves 256 a step.
   Missiles start at their top speed; shots hit within 260 units of an AC's
   middle (stand-in).
-- Blade: reach 740, one swing a second, energy damage.
+- Blade: measured, see "Blade measured" below.
 - Lock time and fire interval are kept per second too.
 
 ## Cannon stance (as described by a player)
@@ -158,3 +158,26 @@ from code, not traced yet. Time to kneel (400 ms) is a stand-in.
   side and not 1,250 (tan 0.29-0.32, the facing was 2 degrees off). Box
   240 -> tan 0.3125 with 384 units for 45 degrees (`ACR_GEN1_BOX_UNITS`).
 - Test build: ACR_DIST / ACR_SIDE place the target for these checks.
+
+## Blade measured (recomp, VS, default AC with LS-2001)
+
+- **Circle** swings the blade; it is not in the Triangle weapon cycle and
+  the HUD does not list it. Fire (Square) at point blank still fires the
+  rifle.
+- Timeline from the press (22 steps/s): the AC turns toward the target at
+  ~170 ms, starts moving at ~330 ms, and lunges 516 along its facing over
+  7 steps: 125, 125, 125, 50, 44, 24, 24 (about 2,750 units/s, then
+  slowing). The lunge happens with nothing in reach too.
+- Steering: one turn of at most ~22 degrees (~250 facing units) when the
+  target is within ~55 degrees of the facing (45 degrees: clamped turn;
+  63 degrees: no turn). The lunge then follows the new facing.
+- Reach: the swing hits a target ~205 centre to centre in front during
+  the lunge (D 660 hits, 730 misses with the full 516 lunge). A hit in the
+  first 5 lunge steps does full damage (492 on the default AC); in the last
+  two, half (246). A hit stops the lunge and knocks the target ~300 back.
+- Swing to swing: ~1.4-1.6 s (presses every 4-10 refreshes).
+- Part bytes 39, 738, 11: 39 is the same on all five blades (not timing);
+  738 scales with the blade (Moonlight 2,801), so likely energy per swing,
+  not reach (unchecked).
+- Open: our hit does 683 vs the game's 492 (damage path for blades);
+  knockback; other blades' reach and lunge.

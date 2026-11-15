@@ -66,10 +66,10 @@ int main(void) {
         bb.step_rate = 0; bb.gen1_rate = 0; bb.step_ms = 45;
         acr_gen1_fighter *me = &bb.f[0];
         me->weapons = 2;
-        me->weapon[1] = (acr_gen1_weapon){ ACR_GEN1_BLADE, "BLADE", 1000, 0, 740, 1, 1000, 0, 0, 0, 0, 0, 0 };
+        me->weapon[1] = (acr_gen1_weapon){ ACR_GEN1_BLADE, "BLADE", 1000, 0, 200, 1, 1000, 0, 0, 0, 0, 0, 0 };
         me->current = 0;
         acr_gen1_ac_spawn(&me->ac, &def, 0, 0, 0);
-        acr_gen1_ac_spawn(&bb.f[1].ac, &def, 0, 1000 * 64, 2048);   /* out of reach until the lunge */
+        acr_gen1_ac_spawn(&bb.f[1].ac, &def, 0, 600 * 64, 2048);    /* out of reach until the lunge */
         bb.f[1].ap = 8384;
         const acr_gen1_actions cycle[2] = { { 0, 1, 0 }, { 0, 0, 0 } };
         acr_gen1_battle_step(&bb, none, cycle);
@@ -78,15 +78,38 @@ int main(void) {
         const acr_gen1_actions idle[2] = { { 0, 0, 0 }, { 0, 0, 0 } };
         acr_gen1_battle_step(&bb, none, swing);
         EXPECT(me->swing > 0);
-        for (int k = 0; k < 8; ++k) acr_gen1_battle_step(&bb, none, idle);
-        EXPECT(me->ac.z > 260 * 64);                    /* lunged forward */
-        EXPECT(bb.f[1].ap == 8384 - acr_gen1_hit_ap(1000, 27));   /* one hit */
+        for (int k = 0; k < 20; ++k) acr_gen1_battle_step(&bb, none, idle);
+        EXPECT(me->ac.z > 400 * 64 && me->ac.z < 516 * 64);   /* lunged until it hit */
+        EXPECT(bb.f[1].ap == 8384 - acr_gen1_hit_ap(1000, 27));   /* one full hit */
+        EXPECT(me->swing == 0);
+        /* Nothing in reach: the full lunge, 516 straight ahead. */
+        acr_gen1_ac_spawn(&me->ac, &def, 0, 0, 0);
+        acr_gen1_ac_spawn(&bb.f[1].ac, &def, 0, 3000 * 64, 2048);
+        me->blade_ms = 0;
+        acr_gen1_battle_step(&bb, none, swing);
+        for (int k = 0; k < 20; ++k) acr_gen1_battle_step(&bb, none, idle);
+        EXPECT(me->ac.z / 64 >= 510 && me->ac.z / 64 <= 522 && me->ac.x == 0);
+        /* Steering: a target 45 degrees right turns the AC by the full turn. */
+        acr_gen1_ac_spawn(&me->ac, &def, 0, 0, 0);
+        acr_gen1_ac_spawn(&bb.f[1].ac, &def, 2000 * 64, 2000 * 64, 2048);
+        me->blade_ms = 0;
+        acr_gen1_battle_step(&bb, none, swing);
+        for (int k = 0; k < 20; ++k) acr_gen1_battle_step(&bb, none, idle);
+        EXPECT(me->ac.yaw == ACR_GEN1_BLADE_TURN && me->ac.x > 0);
+        /* Far to the side (70 degrees): no turn. */
+        acr_gen1_ac_spawn(&me->ac, &def, 0, 0, 0);
+        acr_gen1_ac_spawn(&bb.f[1].ac, &def, 2750 * 64, 1000 * 64, 2048);
+        me->blade_ms = 0;
+        acr_gen1_battle_step(&bb, none, swing);
+        for (int k = 0; k < 20; ++k) acr_gen1_battle_step(&bb, none, idle);
+        EXPECT(me->ac.yaw == 0);
+        acr_gen1_ac_spawn(&bb.f[1].ac, &def, 0, 600 * 64, 2048);
         /* Out of reach and behind: a swing hits nothing. */
         acr_gen1_ac_spawn(&me->ac, &def, 0, 0, 2048);
         me->blade_ms = 0;
         const int32_t before = bb.f[1].ap;
         acr_gen1_battle_step(&bb, none, swing);
-        for (int k = 0; k < 8; ++k) acr_gen1_battle_step(&bb, none, idle);
+        for (int k = 0; k < 20; ++k) acr_gen1_battle_step(&bb, none, idle);
         EXPECT(bb.f[1].ap == before);
     }
 

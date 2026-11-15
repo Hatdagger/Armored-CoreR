@@ -262,8 +262,10 @@ int demo_load(const char *import_dir, const int parts[SLOT_COUNT], demo_ac *out,
             if (s == SLOT_BLADE) {
                 w->kind = ACR_GEN1_BLADE;
                 w->energy = 1;
-                w->range = 740;          /* stand-in: the blade's reach is not decoded yet */
-                w->interval_ms = 1000;
+                /* Measured in the recomp (LS-2001): hits out to ~205 centre to
+                 * centre, a swing every ~1.45 s. Other blades not measured yet. */
+                w->range = 205;
+                w->interval_ms = 1450;
             } else {
                 const long cls = get_int(t, e, "lock_class", 4);
                 w->kind = s == SLOT_BACK_L ? ACR_GEN1_MISSILE : ACR_GEN1_GUN;

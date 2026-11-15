@@ -104,47 +104,85 @@ static void damage(acr_gen1_battle *b, int target, const acr_gen1_weapon *w) {
     if (t->ap < 0) t->ap = 0;
 }
 
-/* Blade: a press starts a swing; the AC lunges for the first part of it,
- * steering at a target ahead, and the swing hits once if the target comes
- * within reach in front during it. */
+/* Blade lunge distance per Gen 1 step (measured: 516 in all). */
+const int16_t acr_gen1_blade_lunge[ACR_GEN1_BLADE_STEPS] = { 125, 125, 125, 50, 44, 24, 23 };
+
+/* Target offset seen from facing `yaw`: how far ahead and to the side. */
+static void offset(uint16_t yaw, int64_t dx, int64_t dz, int64_t *ahead, int64_t *side) {
+    int32_t fx, fz;
+    fwd_vec(yaw, &fx, &fz);
+    *ahead = (dx * fx + dz * fz) / 4096;
+    *side = (dx * fz - dz * fx) / 4096;
+}
+
+/* Turn toward the target by up to ACR_GEN1_BLADE_TURN if it is in the cone. */
+static void blade_steer(acr_gen1_ac *me, int64_t dx, int64_t dz) {
+    int64_t ahead, side;
+    offset(me->yaw, dx, dz, &ahead, &side);
+    const uint32_t dist = isqrt64((uint64_t)(dx * dx + dz * dz));
+    if (!dist || ahead * 4096 < (int64_t)dist * 2349) return;      /* cos 55 degrees */
+    /* Turning toward +side raises yaw (facing is (sin, cos) of yaw). */
+    const int dir = side > 0 ? 1 : -1;
+    int lo = 0, hi = ACR_GEN1_BLADE_TURN;
+    offset((uint16_t)((me->yaw + dir * hi) & 4095), dx, dz, &ahead, &side);
+    if ((side > 0 ? 1 : -1) == dir) lo = hi;                        /* not past it even at full turn */
+    while (hi - lo > 1) {
+        const int mid = (lo + hi) / 2;
+        offset((uint16_t)((me->yaw + dir * mid) & 4095), dx, dz, &ahead, &side);
+        if ((side > 0 ? 1 : -1) == dir) lo = mid; else hi = mid;
+    }
+    me->yaw = (uint16_t)((me->yaw + dir * lo) & 4095);
+    me->yaw_fine = (int32_t)me->yaw << 8;
+}
+
+/* Blade: a press starts a swing (timings in acr_gen1_battle.h). */
 static void blade_step(acr_gen1_battle *b, int i, int blade, int pressed) {
     acr_gen1_fighter *f = &b->f[i];
     const int step_ms = b->step_ms ? b->step_ms : 45;
     if (blade < 0) { f->swing = 0; return; }
     const acr_gen1_weapon *w = &f->weapon[blade];
     if (pressed && !f->swing && f->blade_ms <= 0) {
-        f->swing = (uint16_t)((ACR_GEN1_SWING_MS + step_ms - 1) / step_ms);
+        f->swing = 1;
         f->swing_hit = 0;
         f->blade_ms = w->interval_ms;
+        f->lunge_x = f->lunge_z = 0;
     }
     if (!f->swing) return;
     const int target = 1 - i;
     acr_gen1_ac *me = &f->ac;
     const acr_gen1_ac *it = &b->f[target].ac;
     const int64_t dx = (it->x - me->x) / 64, dz = (it->z - me->z) / 64;
-    int32_t fx, fz;
-    fwd_vec(me->yaw, &fx, &fz);
-    const int64_t ahead = (dx * fx + dz * fz) / 4096;
-    const uint32_t dist = isqrt64((uint64_t)(dx * dx + dz * dz));
-    const int in_front = ahead * 2 >= (int64_t)dist;
-    const int total = (ACR_GEN1_SWING_MS + step_ms - 1) / step_ms;
-    const int lunge = (ACR_GEN1_LUNGE_MS + step_ms - 1) / step_ms;
-    if (total - f->swing < lunge && f->def) {
-        /* Lunge at ground boost speed, towards the target if it is ahead and near. */
-        int64_t lx = fx, lz = fz;
-        if (b->f[target].ap > 0 && in_front && dist > 0 && dist <= (uint32_t)w->range * ACR_GEN1_LUNGE_RANGE) {
-            lx = dx * 4096 / (int64_t)dist;
-            lz = dz * 4096 / (int64_t)dist;
+    const int t0 = f->swing - 1, t1 = t0 + step_ms;                 /* this step's ms window */
+    if (t0 < ACR_GEN1_BLADE_STEER_MS && t1 >= ACR_GEN1_BLADE_STEER_MS && b->f[target].ap > 0)
+        blade_steer(me, dx, dz);
+    const int lunge_ms = ACR_GEN1_BLADE_STEPS * 1000 / 22;
+    const int in_lunge = t1 > ACR_GEN1_BLADE_LUNGE_MS && t0 < ACR_GEN1_BLADE_LUNGE_MS + lunge_ms;
+    if (in_lunge && !f->swing_hit) {
+        if (!f->lunge_x && !f->lunge_z) fwd_vec(me->yaw, &f->lunge_x, &f->lunge_z);
+        /* Distance covered over this step's slice of the Gen 1 profile. */
+        int64_t d = 0;
+        for (int ms = t0 < ACR_GEN1_BLADE_LUNGE_MS ? ACR_GEN1_BLADE_LUNGE_MS : t0; ms < t1; ++ms) {
+            const int k = (ms - ACR_GEN1_BLADE_LUNGE_MS) * 22 / 1000;
+            if (k >= ACR_GEN1_BLADE_STEPS) break;
+            d += acr_gen1_blade_lunge[k];
         }
-        const int64_t speed = f->def->motion.boost_max;
-        me->vx = (int32_t)(lx * speed / 4096);
-        me->vz = (int32_t)(lz * speed / 4096);
+        d = d * 64 * 22 / 1000;                                     /* 1/64 units */
+        me->x += (int32_t)(f->lunge_x * d / 4096);
+        me->z += (int32_t)(f->lunge_z * d / 4096);
+        me->vx = me->vz = 0;
+        int64_t ahead, side;
+        offset(me->yaw, (it->x - me->x) / 64, (it->z - me->z) / 64, &ahead, &side);
+        const uint32_t dist = isqrt64((uint64_t)(ahead * ahead + side * side));
+        if (b->f[target].ap > 0 && ahead > 0 && dist <= (uint32_t)w->range) {
+            const int k = (t1 - ACR_GEN1_BLADE_LUNGE_MS) * 22 / 1000;
+            const int32_t before = b->f[target].ap;
+            damage(b, target, w);
+            if (k >= ACR_GEN1_BLADE_FULL_STEPS) b->f[target].ap += (before - b->f[target].ap) / 2;
+            f->swing_hit = 1;
+        }
     }
-    if (!f->swing_hit && b->f[target].ap > 0 && dist <= (uint32_t)w->range && in_front) {
-        damage(b, target, w);
-        f->swing_hit = 1;
-    }
-    --f->swing;
+    f->swing = (uint16_t)(t1 + 1);
+    if (t1 >= ACR_GEN1_BLADE_LUNGE_MS + lunge_ms) f->swing = 0;
 }
 
 static void fighter_step(acr_gen1_battle *b, int i, acr_gen1_actions a) {
@@ -289,7 +327,8 @@ void acr_gen1_battle_step(acr_gen1_battle *b, const acr_gen1_input in[2], const 
     for (int i = 0; i < 2; ++i) {
         acr_gen1_fighter *f = &b->f[i];
         if (f->ap <= 0) continue;
-        const acr_gen1_input use = kneel_input(b, f, in[i], act[i]);
+        acr_gen1_input use = kneel_input(b, f, in[i], act[i]);
+        if (f->swing) use.move = use.strafe = use.boost = use.boost_tapped = 0;   /* the swing holds the AC */
         acr_gen1_ac_step(&f->ac, f->def, use);
     }
     for (int i = 0; i < 2; ++i) fighter_step(b, i, act[i]);

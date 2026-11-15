@@ -773,13 +773,16 @@ int main(int argc, char **argv) {
         acr_gen1_input in2[2];
         in2[0] = read_input(ctl[0], 1);
         in2[1] = two_players ? read_input(ctl[1], 0) : (acr_gen1_input){ 0, 0, 0, 0, 0 };
-        /* Testing aid: ACR_HOLD="move,turn,strafe,boost[,fire]" holds those inputs;
+        /* Testing aid: ACR_HOLD="move,turn,strafe,boost[,fire[,blade_ms]]" holds those
+         * inputs (and presses the blade once, blade_ms after start);
          * ACR_SHOT=file.bmp ACR_SHOT_MS=2000 saves a picture and quits. */
         const char *hold = SDL_getenv("ACR_HOLD");
         int hold_fire = 0;
         if (hold) {
-            int v[5] = { 0, 0, 0, 0, 0 };
-            SDL_sscanf(hold, "%d,%d,%d,%d,%d", &v[0], &v[1], &v[2], &v[3], &v[4]);
+            int v[6] = { 0, 0, 0, 0, 0, -1 };
+            static int blade_done;
+            SDL_sscanf(hold, "%d,%d,%d,%d,%d,%d", &v[0], &v[1], &v[2], &v[3], &v[4], &v[5]);
+            if (v[5] >= 0 && !blade_done && SDL_GetTicks() >= (Uint64)v[5]) { blade_pressed[0] = 1; blade_done = 1; }
             in2[0].move = (int8_t)v[0]; in2[0].turn = (int8_t)v[1]; in2[0].strafe = (int8_t)v[2];
             in2[0].boost = (uint8_t)v[3];
             hold_fire = v[4];
@@ -919,8 +922,10 @@ int main(int argc, char **argv) {
             if (missile) add_box(v3(sh->x / 64.0f, -sh->y / 64.0f, sh->z / 64.0f), 0, v3(10, 10, 10), 1.0f, 0.55f, 0.15f);
             else add_box(v3(sh->x / 64.0f, -sh->y / 64.0f, sh->z / 64.0f), 0, v3(5, 5, 5), 1.0f, 0.95f, 0.5f);
         }
-        if (battle.f[view].swing) {                       /* blade arc */
-            const float r = 700.0f;
+        if (battle.f[view].swing >= ACR_GEN1_BLADE_LUNGE_MS) {   /* blade arc while lunging */
+            float r = 205.0f;
+            for (int k = 0; k < battle.f[view].weapons; ++k)
+                if (battle.f[view].weapon[k].kind == ACR_GEN1_BLADE) r = (float)battle.f[view].weapon[k].range;
             for (int k = -3; k < 3; ++k) {
                 const float a0 = yaw + k * 0.25f, a1 = yaw + (k + 1) * 0.25f;
                 line3(v3(px + sinf(a0) * r, py + 110, pz + cosf(a0) * r),
