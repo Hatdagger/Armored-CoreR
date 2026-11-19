@@ -338,6 +338,31 @@ Rules added from the AC1Recomp mapping:
 - **Cannon stance slide** (`0x8007E3E0`, an eighth a tick, zero below 512)
   is part of the tick (the `crouch` input), not the fight's step.
 
+## Landing, from the disc (2026-11-19)
+
+Read from the animation records (PA entry 0 of every set) and the VS
+engine's landing code, not measured in play.
+
+- **Landing animation 36's length** (its `last_tick`) depends on the
+  animation set, so on the legs (and for some humanoid legs the arms), not
+  on weight: caterpillars 12 ticks; reverse-joint and four-legged 16;
+  humanoid LN-1001, LN-1001-PX-0, LN-1001B, LN-502, LN-D-8000R 16; the
+  other humanoid legs 20, or 16 with weapon arms. The default AC (set 0):
+  **16**. The measured pause after a hop was about 20, so the animation
+  alone is ~4 ticks short of it.
+- **The landing ends with that animation**: the handler (`0x80084C20`, in
+  `0x8008389C`) checks "animation finished" (`0x80054C88`: frame >=
+  last_tick - 1 playing forward) and then cuts to standing (`0x8007A884`,
+  animation 0). The handler runs from a per-AC countdown (AC +0x6E, set to
+  2 whenever an animation starts and counted down each tick by the
+  animation callbacks `0x8007DD60` / `0x8007DDD8`), so the check comes
+  every couple of ticks, which adds a little. Where the other ~2 ticks come
+  from is open; the touchdown code itself (whether a harder landing picks
+  a longer path, state 0x60 versus 0x61) is not read yet.
+- The jump take-off animation (22) is 9 ticks on the default AC, the same
+  as the measured wait before lift-off; 7 on caterpillar and four-legged
+  sets, 8-10 on others.
+
 ## Still to measure
 
 - Landing recovery after longer falls, and whether it depends on fall
@@ -347,8 +372,10 @@ Rules added from the AC1Recomp mapping:
   the landing animation's length (animation 36). The test build shows that
   length from the import beside the latest landing's pause and touchdown
   speed; F3 / Back + R3 makes every landing last the animation instead of
-  the guess (`acr_gen1_ac_def.landing_from_anim`). If the default AC's
-  animation is about 20 ticks, as measured after a hop, that supports it.
+  the guess (`acr_gen1_ac_def.landing_from_anim`). The default AC's
+  animation is 16 ticks, short of the ~20 measured after a hop (see
+  "Landing, from the disc" above): the code ends the landing with the
+  animation, but ~4 ticks are not yet accounted for.
 - Whether sideways speed survives a touchdown. "Landing (measured)" above
   says it is dropped; the engine keeps it as a slide because that
   measurement had none left. Test: air boost forward and let go just

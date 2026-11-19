@@ -294,6 +294,10 @@ void acr_gen1_ac_tick(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
         if (mz > lim) mz = lim;
         if (mz < -lim) mz = -lim;
     }
+    /* The jump's take-off animation counts on a frame a tick through the
+     * crouch and into the air, as the game's animation player does; the
+     * drawing plays it from this and turns to the air poses when it ends. */
+    if (ac->anim == ACR_GEN1_ANIM_JUMP && ac->anim_frame < UINT16_MAX) ++ac->anim_frame;
     ac->x += mx;
     ac->z += mz;
     if (ac->state == ACR_GEN1_AIR) {

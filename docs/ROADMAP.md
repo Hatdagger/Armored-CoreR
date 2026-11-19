@@ -90,6 +90,9 @@ Play-test feedback (2026-11-14), and what the AC1Recomp mapping settled
 
 ## Movement and feel (2026-11-18, first priority)
 
+Merged into main (2026-11-19). Play-test: the movement feels convincing;
+the animations looked like a slideshow, jumping from pose to pose.
+
 Done on branch `gen1-movement-feel`:
 - Movement runs on Gen 1 ticks at any step rate (see Decisions).
 - From a stand, the booster jumps even with a direction held; a ground
@@ -109,6 +112,25 @@ test driver's input delay); the boost hop (from a player's description);
 diagonal walking; caterpillar and four-legged refill while walking; turning
 while landing; knock-back and stagger movement (the half-size step limit
 handlers).
+
+Animation blending (branch `gen1-anim-blend`, 2026-11-19), from the VS
+engine's code (`gen1-models.md`, "Blending and which pose shows"):
+- Animation changes cross-fade as the game's do: 8 ticks for most, 4 for
+  the jump take-off and the blade, a cut into and out of a landing. Before,
+  every change faded in a made-up 0.12 s (under 3 ticks).
+- The poses the game picks by direction: eight in the air (by the stick;
+  25 rising on the booster alone, 24 with no input, 30 / 31 turning), eight
+  while boosting along the ground (by the stick) and the matching brake
+  poses while sliding (by where the AC is going); 21 turning on the spot.
+  Before: two air poses and two boost poses.
+- The jump take-off animation now plays (its frame was stuck at 0, so a
+  standing jump showed the first take-off frame until it landed).
+
+Next for the look: the second animation layer (firing), aiming (the arms,
+head and back weapons following the target), the kneel, the eight-way
+walk (the game has diagonal walking animations 3-6 and 16-19), and the
+other handler's rules for four-legged and caterpillar ACs (16-tick fades,
+no boost lean poses).
 
 ## Parity with the AC1Recomp mapping (2026-11-18)
 

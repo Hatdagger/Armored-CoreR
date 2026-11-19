@@ -25,6 +25,7 @@ add_library(acr_gen1 STATIC
     src/gen1/acr_gen1_fit.c
     src/gen1/acr_gen1_anim.c
     src/gen1/acr_gen1_sim.c
+    src/gen1/acr_gen1_pose.c
     src/gen1/acr_gen1_battle.c
     src/gen1/acr_gen1_garage.c)
 target_include_directories(acr_gen1 PUBLIC src/gen1)
@@ -70,6 +71,9 @@ add_test(NAME gen1_anim COMMAND test_gen1_anim)
 add_executable(test_gen1_sim tests/test_gen1_sim.c)
 target_link_libraries(test_gen1_sim PRIVATE acr_gen1)
 add_test(NAME gen1_sim COMMAND test_gen1_sim)
+add_executable(test_gen1_pose tests/test_gen1_pose.c)
+target_link_libraries(test_gen1_pose PRIVATE acr_gen1)
+add_test(NAME gen1_pose COMMAND test_gen1_pose)
 add_executable(test_gen1_battle tests/test_gen1_battle.c)
 target_link_libraries(test_gen1_battle PRIVATE acr_gen1)
 add_test(NAME gen1_battle COMMAND test_gen1_battle)

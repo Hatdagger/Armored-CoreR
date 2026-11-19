@@ -31,6 +31,7 @@
 #include "../../core/acr_gen1.h"
 #include "../../core/acr_pools.h"
 #include "demo_data.h"
+#include "../../gen1/acr_gen1_pose.h"
 #include "demo_model.h"
 #include "garage.h"
 #include "acr_import.h"
@@ -183,37 +184,36 @@ static void refresh_model(int who, const char *dir, const int parts[SLOT_COUNT],
 }
 
 /* Which animation to show and how far into it. The sim runs the walking
- * animations (their root motion moves the AC); the rest are poses shown
- * over it, as the game switches them (measured in the recomp, AC object
- * +108): 56 blade swing; ground boost 48 (leaning into it) and 49 (braking):
- * 48 boosting forward or sliding out of a backward boost, 49 the reverse; 22 jump start,
- * 25 rising, 24 falling, 36 landing. Shown at the game's 22 ticks a second
- * from when each began. Firing has no body animation. */
-enum { ANIM_AIR = 24, ANIM_RISE = 25, ANIM_LAND = 36, ANIM_BOOST = 48, ANIM_SLIDE = 49, ANIM_BLADE = 56 };
+ * animations (their root motion moves the AC) and the jump take-off; the
+ * rest are poses the game picks over the movement (acr_gen1_pose: by
+ * direction in the air, boosting and sliding; turning; landing; the blade
+ * swing). Shown at the game's 22 ticks a second from when each began.
+ * Firing has no body animation of its own (it uses a second layer, not
+ * drawn yet). */
 static int g_swinging[2];                    /* set from the battle before drawing */
+static acr_gen1_input g_in[2];               /* each player's latest input, for the poses */
 static struct { int shown; Uint64 since; } g_pose[2];
+
+/* A pose this animation set lacks: the nearest one it has. */
+static int pose_or_fallback(const demo_model *m, int want) {
+    if (m->anims.anim[want].frames) return want;
+    if (want >= ACR_GEN1_SHOW_RISE && want <= ACR_GEN1_SHOW_AIR_BR && m->anims.anim[ACR_GEN1_SHOW_AIR].frames)
+        return ACR_GEN1_SHOW_AIR;
+    if (want > ACR_GEN1_SHOW_BOOST_FWD && want <= ACR_GEN1_SHOW_BOOST_BR && m->anims.anim[ACR_GEN1_SHOW_BOOST_FWD].frames)
+        return ACR_GEN1_SHOW_BOOST_FWD;
+    return ACR_GEN1_ANIM_IDLE;
+}
 
 static int shown_anim(int who, const acr_gen1_ac *ac, const demo_model *m, float *tick, int *loop) {
     *tick = (float)ac->anim_frame;
     *loop = ac->anim != ACR_GEN1_ANIM_IDLE && ac->anim != ACR_GEN1_ANIM_JUMP;
-    int want = ac->anim, ours = 0;
-    if (ac->state == ACR_GEN1_AIR) {
-        const acr_anim *jump = &m->anims.anim[ACR_GEN1_ANIM_JUMP];
-        if (!(ac->anim == ACR_GEN1_ANIM_JUMP && jump->frames && ac->anim_frame <= jump->ticks)) {
-            want = ac->vy < 0 ? ANIM_RISE : ANIM_AIR;
-            ours = 1;
-        }
-    } else if (g_swinging[who] || (g_pose[who].shown == ANIM_BLADE &&
-               (SDL_GetTicks() - g_pose[who].since) * 22 / 1000 < m->anims.anim[ANIM_BLADE].ticks)) {
-        want = ANIM_BLADE; ours = 1;           /* the swing plays out after the lunge */
-    } else if (ac->state == ACR_GEN1_LANDING) {
-        want = ANIM_LAND; ours = 1;
-    } else if (ac->state == ACR_GEN1_GROUND && (ac->vx || ac->vz)) {
-        const float along = (float)ac->vx * sinf(ac->yaw * (6.2831853f / 4096.0f)) +
-                            (float)ac->vz * cosf(ac->yaw * (6.2831853f / 4096.0f));
-        want = (ac->coast != 0) == (along >= 0) ? ANIM_BOOST : ANIM_SLIDE; ours = 1;
-    }
-    if (!ours) {
+    const acr_anim *jump = &m->anims.anim[ACR_GEN1_ANIM_JUMP];
+    /* the swing plays out after the lunge */
+    const int blade_left = g_pose[who].shown == ACR_GEN1_SHOW_BLADE &&
+        (SDL_GetTicks() - g_pose[who].since) * 22 / 1000 < m->anims.anim[ACR_GEN1_SHOW_BLADE].ticks;
+    int want = acr_gen1_pose_shown(ac, g_in[who], g_swinging[who] || blade_left,
+                                   jump->frames ? jump->ticks : 0);
+    if (want == ac->anim) {
         /* The sim's walking advances a frame each Gen 1 tick (22 a second)
          * at any step rate; draw the frame the shown position is in (plus
          * how far into it), so the legs match the ground. */
@@ -229,19 +229,19 @@ static int shown_anim(int who, const acr_gen1_ac *ac, const demo_model *m, float
         return want;
     }
     *loop = 0;
-    if (!m->anims.anim[want].frames) want = want == ANIM_RISE ? ANIM_AIR : ACR_GEN1_ANIM_IDLE;
+    want = pose_or_fallback(m, want);
     if (g_pose[who].shown != want) { g_pose[who].shown = want; g_pose[who].since = SDL_GetTicks(); }
     *tick = (float)(SDL_GetTicksNS() - g_pose[who].since * 1000000ull) * 22.0f / 1e9f;
     return want;
 }
 
-/* Animation playback: 1 = smooth (poses ease into each other, animation
- * changes crossfade over ACR_FADE_MS), 0 = the game's stepped poses. Only
- * what is drawn changes; the sim, root motion and hits keep the game's ticks.
- * F5 toggles. */
+/* Animation playback: 1 = smooth (poses ease into each other between the
+ * game's ticks, and animation changes cross-fade as the game does:
+ * acr_gen1_pose_fade_step, mostly 8 ticks), 0 = stepped poses, no fades.
+ * Only what is drawn changes; the sim, root motion and hits keep the game's
+ * ticks. F5 toggles. */
 static int g_smooth_anim = 1;
-#define ACR_FADE_MS 120.0f
-static struct { int anim, ok; acr_pose drawn, from; Uint64 fade_ns; } g_blend[2];
+static struct { int anim, ok; acr_pose drawn, from; Uint64 fade_ns; uint16_t fade_step; } g_blend[2];
 
 static void draw_ac(int who, const acr_gen1_ac *ac, float x, float y, float z, float yaw, float crouch) {
     float tick;
@@ -258,11 +258,15 @@ static void draw_ac(int who, const acr_gen1_ac *ac, float x, float y, float z, f
     acr_pose_play_smooth(&m->skel, &m->anims, anim, tick, loop, &pose);
     const Uint64 now = SDL_GetTicksNS();
     if (g_blend[who].ok && g_blend[who].anim != anim) {
+        /* The game freezes each joint where it was drawn and moves it to
+         * the new animation a step a tick (pose routine 0x80059624). */
+        g_blend[who].fade_step = acr_gen1_pose_fade_step(g_blend[who].anim, anim);
         g_blend[who].from = g_blend[who].drawn;
-        g_blend[who].fade_ns = now;
+        g_blend[who].fade_ns = g_blend[who].fade_step ? now : 0;
     }
     if (g_blend[who].ok && g_blend[who].fade_ns) {
-        const float t = (float)(now - g_blend[who].fade_ns) / (ACR_FADE_MS * 1e6f);
+        const float ticks = (float)(now - g_blend[who].fade_ns) / (float)ACR_GEN1_TICK_NS;
+        const float t = acr_gen1_pose_fade_amount(g_blend[who].fade_step, ticks);
         if (t >= 1.0f) g_blend[who].fade_ns = 0;
         else acr_pose_mix(&m->skel, &g_blend[who].from, &pose, t, &pose);
     }
@@ -890,6 +894,8 @@ int main(int argc, char **argv) {
             if (!in2[k].boost) boost_released[k] = 1;
             in2[k].boost_tapped = (uint8_t)(in2[k].boost && boost_released[k]);
         }
+        g_in[0] = in2[0];
+        g_in[1] = in2[1];
 
         const Uint64 now = SDL_GetTicksNS();
         const uint32_t ticks = acr_clock_advance(&clock, now - last);
@@ -1047,7 +1053,10 @@ int main(int argc, char **argv) {
         if (ac.state == ACR_GEN1_LANDING) crouch = 70;
         if (battle.f[view].kneeling) crouch = 150;
         flush_scene();
-        for (int k = 0; k < 2; ++k) g_swinging[k] = battle.f[k].swing != 0;
+        for (int k = 0; k < 2; ++k) {
+            g_swinging[k] = battle.f[k].swing != 0;
+            g_in[k].crouch = battle.f[k].kneeling;   /* the cannon stance keeps its own pose */
+        }
         draw_ac(view, &ac, px, py, pz, yaw, crouch);
         const float tx = (tprev.sx + (T->sx - tprev.sx) * a) / 64.0f, ty = -(tprev.sy + (T->sy - tprev.sy) * a) / 64.0f,
                     tz = (tprev.sz + (T->sz - tprev.sz) * a) / 64.0f;

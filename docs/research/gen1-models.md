@@ -229,6 +229,8 @@ ground boost 48 while boosting forward and 49 after letting go, reversed
 for a backward boost (49 while boosting back, 48 after): 48 leans into the
 direction of travel, 49 brakes against it. Firing changes no body
 animation. Kneel not checked yet (needs a cannon build).
+The code behind these (and the direction poses, fades and the turn pose)
+is under "Blending and which pose shows" below.
 
 ## From the AC1Recomp mapping (2026-11-18)
 
@@ -244,3 +246,78 @@ animation. Kneel not checked yet (needs a cannon build).
   AC +0x6D), aim angles clamped by an aim table (AC +0x84), and a
   cross-fade on animation changes (AC +0x7A, 4.12 a frame). See the fork's
   `renderer.md`, "ACs (VS)".
+
+## Blending and which pose shows (2026-11-19)
+
+Read from the VS engine (FDAT 209, loaded at `0x80050DD8`) in a static
+disassembly of the user's disc, plus the animation records. Engine:
+`src/gen1/acr_gen1_pose.{h,c}` (tested in `tests/test_gen1_pose.c`), drawn
+by the PC test build.
+
+**Two state handlers.** At match start each AC gets one of two handler
+sets by player block +0x278: 0 (and 3) → `0x80085688`, whose state handler
+(the "animation-finished callback", AC +0x58) is `0x8008389C`; 1 or 2 →
+`0x800875C8`, handler `0x80085D40`. The second goes with the animation
+sets that have no ground-boost poses (four-legged and caterpillar sets,
+below), so it is most likely their handler; +0x278's meaning is not read
+yet. Everything below is the first handler (two-legged ACs).
+
+**Cross-fade step** (AC +0x7A, 4.12 a tick; the pose routine takes each
+joint's drawn pose as "from" and moves to the new animation by the step
+each tick: 0x200 = 8 ticks, 0x400 = 4, 0 = a cut). The animation starter
+`0x80054A2C(player, anim, speed, step)` ignores a restart of the playing
+animation; the wrappers `0x8007A884` / `0x8007A8F0` pass 0, others pass
+the step or write +0x7A just after.
+
+| Change | Step | Where |
+| --- | --- | --- |
+| starting to walk, strafe or back off (commands 1-10) | 0x200 | `0x80084890`... |
+| back to standing after walking or a slide | 0x200 | `0x8008449C`, `0x80084ECC` |
+| jump take-off (22) | 0x400 | `0x80084648` |
+| rising and the air poses (24-35) | 0x200 | `0x8007FF44`, `0x80084684`... |
+| ground boost and slide poses (48-55) | 0x200 | `0x8007FFF0`, `0x80084EA0` |
+| turning on the spot (21) | 0x200 | `0x8007A95C` |
+| blade swing (56) | 0x400 | `0x80084F98` |
+| landing (36) in, and out to standing | 0 (cut) | `0x80084C98`, `0x80084C58` |
+| hit stagger (37-40) | 0x400 | `0x8007BC6C` callers |
+
+The walk/strafe loops started through `0x800859F4` (anims 0, 2, 4, 6, 9,
+12, 15, 17, 19) use 0x100 (16 ticks); all its callers are in the second
+handler's family (`0x80085D40`), so four-legged and caterpillar ACs blend
+twice as slowly. Not used yet. The game interpolates between keys too
+(`0x8005953C`: frame and a 4.12 fraction rounded at half a tick).
+
+**Which pose** (handler `0x8008389C`, AC +0x6C):
+
+- In the air (states 0x40-0x4B from the input decoder `0x800853E0`,
+  diagonals checked first): forward 26, back 27, left 28, right 29,
+  forward-left 32, forward-right 33, back-left 34, back-right 35; turning
+  30 / 31 (the d-pad's two turn masks, +0x292 / +0x294; which is left is
+  assumed); the booster alone 25; nothing 24. This is the measured
+  "rising 25, falling 24".
+- On leaving the ground, the first air pose comes from the animation
+  playing (table `0x80051240`): walking 1/2 → 26, 3/4 → 32, 5/6 → 33,
+  8/9 → 28, 11/12 → 29, 14/15 → 27, 16/17 → 34, 18/19 → 35, a boost pose
+  48-55 → 26, 27, 28, 29, 32, 33, 34, 35, else 24.
+- Boosting along the ground (states 0x30-0x37, set from the walking
+  animation by table `0x80051320`): forward 48, back 49, left 50, right 51,
+  forward-left 52, forward-right 53, back-left 54, back-right 55. So the
+  game has eight walking directions (3/4, 5/6, 16/17, 18/19 are the
+  diagonals); the engine walks diagonally on the straight tracks for now.
+- Sliding after a boost (state 0x38, table `0x800517F8`): by the speed's
+  direction against the facing, sector = (ratan2(vx, vz) negated, less the
+  facing, + 0x100) >> 9: 0-7 → 49, 55, 51, 53, 48, 52, 50, 54. That is the
+  pose of a boost the other way (a brake): the measured "49 after letting
+  go of a forward boost".
+- Turning on the spot: 21 (a single pose in set 0).
+
+**Poses missing from some sets** (checked on all 72): the ground-boost
+poses 48-55 are not in the caterpillar sets (1-3, 57-62, 69-71) or the
+four-legged sets (6, 40-47, 63-65); the blade swing 56 is not in the
+weapon-arm sets (31-39, 66-68) or 63-65, 69-71. The test build falls back
+to the nearest pose it has.
+
+**Jump take-off** (22): the engine now counts its frames through the crouch
+and into the air (before, its frame stayed at 0 and a standing jump showed
+the first take-off frame until it landed). Set 0's take-off is 9 ticks,
+the measured wait before lift-off.
