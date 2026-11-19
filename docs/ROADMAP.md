@@ -83,6 +83,19 @@ weapons, damage, two-player test build (see `docs/research/`).
    under F1. Needs a re-import. Still to come: the HUD code's exact
    positions, the split-screen layout, READY / GO, REC once replays exist.
 
+## Next, in order (agreed 2026-11-19)
+
+6. **LAN / direct-IP multiplayer**, like AC1Recomp's (delay-based lockstep
+   with recomp-net; plan in the 2026-11-19 handover).
+7. **Arena**: finish step 4 (the stages' own area boxes, the other stages,
+   stage lights, rankings, opponents and rewards).
+8. **UI**: the game's menus and garage screens to Master of Arena's design
+   (and the split-screen HUD).
+9. **Android**: SDL3 already runs there; needs an OpenGL ES version of the
+   renderer (`src/render/`), picking the disc image with Android's file
+   picker for the import, controllers first (touch controls later), and an
+   APK from the automatic build (installed directly, not via a store).
+
 ## Shortcuts
 
 - The garage and shop need part data, not models: build them in parallel.
