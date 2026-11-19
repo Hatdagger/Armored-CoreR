@@ -46,20 +46,26 @@ separate system that gives orders to tactics; it is not part of combat AI.
 
 ## Profiles
 
-Plain TOML files beside the AC data, so anyone can write or tweak one:
+Plain text files (TOML style) that anyone can write or tweak. The six
+sliders are the rows of Master of Arena's own AI editor (RANKER MK AI),
+0 to 100, so a profile maps straight onto the game's 36-byte AI record
+(`acr_gen1_ai_record` writes it exactly as the editor does):
 
 ```toml
-name = "Sniper"
-preset = "sniper"          # balanced, aggressor, sniper, duelist, evasive
-range = 0.8                # 0 close to 1 far
-aggression = 0.3
-evasion = 0.7
-lock_patience = 0.6
-blade_use = 0.1
-gun_use = 0.9
-missile_use = 0.5
-energy_care = 0.7          # how much boost energy it keeps in reserve
+preset = "sniper"   # balanced, aggressor, sniper, duelist, evasive (sets all six)
+shoot = 95          # how keen it is to pull the trigger
+blade = 10          # how often it goes for the blade up close
+lock = 95           # how long it waits for a lock (missiles: how many locks)
+avoid = 50          # dodging: strafing, boosting away from locks and missiles
+fly = 30            # time in the air, and the energy it is willing to spend
+range = 90          # 0 close, 50 mid, 100 long
+rebel = 0           # Human PLUS level 0..9 (REBEL POINT)
+skill = 50          # reaction time and aim (not in the game's editor)
 ```
+
+Lines after `preset` adjust it. The five presets are the AC1Recomp AI
+card presets. Difficulty (`skill`) changes reaction time and aim, never the
+AC's stats, so a hard opponent is smarter, not stronger.
 
 **AI builder (planned from the start):** an in-game screen, beside the AC
 garage, for making and editing profiles with sliders, the same way the recomp
@@ -73,9 +79,39 @@ without AI settings flies **Balanced**. Difficulty (for example in the
 roguelike tree) scales reaction time and aim, never the AC's stats, so a hard
 opponent is smarter, not stronger.
 
-## When it is built
+## Gen 1 brain, first version (2026-11-19)
 
-After the Gen 1 movement and combat rules (Phase 1), so the AI drives the
-real rules from its first day. The Gen 1 brain is checked against how Master
-of Arena's opponents behave, observed in the recomp, the same way movement
-is checked.
+`src/gen1/acr_gen1_ai.{h,c}`. Each engine step it looks at the battle
+through `acr_gen1_ai_view` (its own AC, weapons, lock state, the target's
+distance and angles, missiles coming at it, the arena walls) and fills in
+the same input and buttons a pad gives. It is our own utility brain, tuned
+by the sliders:
+
+- **Weapon**: scores each gun and missile by distance, ammo and sliders
+  (missiles far away and against flyers; cannons only far off, unpressed,
+  and it commits to the kneel for a few seconds).
+- **Distance**: holds a band from RANGE (blade reach to 5,200), inside the
+  weapon's reach; strafes side to side, switching sooner the higher AVOID.
+- **Booster**: dodge bursts when locked on, hit or a missile is coming
+  (AVOID), dashes to close a long gap, hops (FLY), always keeping an energy
+  reserve (and the blade's charge if it likes the blade).
+- **Trigger**: guns fire in the lock box, waiting for the lock as LOCK
+  says; missiles volley at the number of locks LOCK asks for.
+- **Blade**: pressed close (under 760) and ahead, as often as BLADE says.
+- **Aim**: turns toward the target, letting go a tick early (turning stops
+  dead on release); tilts the view with the target's height. `skill` sets
+  reaction (90-350 ms between decisions) and a held aim error.
+- Deterministic: its own random numbers from a per-round seed; timers in
+  battle milliseconds.
+
+`tests/test_gen1_ai.c` flies every preset against a still target (each
+wins inside two minutes) and against Balanced over six rounds (both sides
+take real damage; the same seed replays the same match). Results at the
+time of writing: Aggressor beat Balanced 5-1, Sniper lost 1-5 (it can't
+keep its range in a 20,000-wide arena against a closer), Balanced 3-3.
+
+**Next**: the game's own opponent AI (arena engine FDAT 210: per frame
+`0x8008D4AC`, setup `0x80055768`, the scoring table at
+`0x80098890-0x80098A70`) is not mapped yet. Once it is, a "MoA" brain
+can sit beside this one, fed by the same record, and each arena
+opponent's build and record from `MENU_TIM.T`.

@@ -27,7 +27,8 @@ add_library(acr_gen1 STATIC
     src/gen1/acr_gen1_sim.c
     src/gen1/acr_gen1_pose.c
     src/gen1/acr_gen1_battle.c
-    src/gen1/acr_gen1_garage.c)
+    src/gen1/acr_gen1_garage.c
+    src/gen1/acr_gen1_ai.c)
 target_include_directories(acr_gen1 PUBLIC src/gen1)
 target_link_libraries(acr_gen1 PUBLIC acr_core)
 
@@ -80,6 +81,9 @@ add_test(NAME gen1_battle COMMAND test_gen1_battle)
 add_executable(test_gen1_garage tests/test_gen1_garage.c)
 target_link_libraries(test_gen1_garage PRIVATE acr_gen1)
 add_test(NAME gen1_garage COMMAND test_gen1_garage)
+add_executable(test_gen1_ai tests/test_gen1_ai.c)
+target_link_libraries(test_gen1_ai PRIVATE acr_gen1)
+add_test(NAME gen1_ai COMMAND test_gen1_ai)
 add_executable(test_light tests/test_light.c)
 target_link_libraries(test_light PRIVATE acr_light)
 add_test(NAME light COMMAND test_light)

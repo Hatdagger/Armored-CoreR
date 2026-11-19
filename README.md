@@ -35,7 +35,8 @@ empty arena with Gen 1 movement.
 | Two players on one machine (split screen) | first version |
 | Renderer: OpenGL 2.1, PS1-style lighting and fog, native resolution | first version |
 | Original Xbox build of the core (nxdk test program) | in automatic builds |
-| Computer opponent, online | not started |
+| Computer opponent (AI presets, AI against AI) | first version |
+| Online | not started |
 
 ## Building
 
@@ -85,6 +86,10 @@ own part models (every part, FCS and options included) go to
    walking, boosting, rising, falling, turning and energy all play at the
    game's pace; faster rates only draw the AC more smoothly between ticks.
    X / B and Y / G cycle the booster and generator.
+   `--ai sniper` (or any preset) starts with a computer opponent;
+   `--ai-file my-pilot.toml` loads your own profile (see `docs/AI.md`);
+   `--ai-vs-ai` puts player 1 on autopilot too. With an AI opponent the
+   round is two minutes, as in VS.
 
 | Action | Controller | Keyboard |
 | --- | --- | --- |
@@ -97,6 +102,8 @@ own part models (every part, FCS and options included) go to
 | Next booster / generator / back weapon / legs | Back + X / Y / B / RB | B / G / C / L |
 | Human PLUS on/off | Back + A | H |
 | Two players, split screen | Back + LB | F2 |
+| Opponent: still target, then AI BALANCED, AGGRESSOR, SNIPER, DUELIST, EVASIVE | Back + d-pad up | F4 |
+| AI against AI (player 1 on autopilot, to watch) | Back + d-pad down | F6 |
 | Landing pause: guess / landing animation's length (test) | Back + R3 | F3 |
 | Change step rate (22, 30, 45, 60 steps a second; same game pace) | Back | T |
 | Reset | Start | R |

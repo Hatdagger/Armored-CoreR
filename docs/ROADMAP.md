@@ -144,6 +144,11 @@ engine's code: steering in the air with or without the booster
 toward the target with the FCS box drifting on screen (`gen1-models.md`,
 "Camera swing and the FCS box").
 
+Computer opponent, first version (branch `gen1-ai-opponent`, on top of
+the feel fixes, 2026-11-19): `docs/AI.md`, "Gen 1 brain". AC TEST can
+put an AI in the other AC (five presets, or a profile file) and can fly
+both ACs (AI against AI). The game's own arena AI is the next step there.
+
 Next for the look: the second animation layer (firing), aiming (the arms,
 head and back weapons following the target), the kneel, the eight-way
 walk (the game has diagonal walking animations 3-6 and 16-19), and the

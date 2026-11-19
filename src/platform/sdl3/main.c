@@ -32,6 +32,7 @@
 #include "../../core/acr_pools.h"
 #include "demo_data.h"
 #include "../../gen1/acr_gen1_pose.h"
+#include "../../gen1/acr_gen1_ai.h"
 #include "demo_model.h"
 #include "../../model/acr_aim.h"
 #include "garage.h"
@@ -360,6 +361,41 @@ static int next_part(const char *dir, int parts[SLOT_COUNT], int slot, demo_ac *
     return demo_load(dir, parts, data, err, sizeof err);
 }
 
+/* Computer opponent (docs/AI.md): 0 = a target that stands still, else
+ * the preset that flies it (ACR_GEN1_AI_*; CUSTOM = the --ai-file profile). */
+static int g_ai_mode = 0;
+static acr_gen1_ai g_ai[2];
+static unsigned g_ai_round = 0;
+static int g_autopilot = 0;              /* player 1 flown by the AI too (AI against AI) */
+static acr_gen1_ai_profile g_ai_file_prof;
+static int g_ai_file_ok = 0;
+
+static int ai_preset_of(const char *s) {
+    for (int k = 1; k < ACR_GEN1_AI_PRESETS; ++k)
+        if (!SDL_strcasecmp(s, acr_gen1_ai_preset_name(k))) return k;
+    const int n = atoi(s);
+    return n >= 0 && n < ACR_GEN1_AI_PRESETS ? n : ACR_GEN1_AI_BALANCED;
+}
+
+/* The profile a mode flies: a preset, or the file's. */
+static acr_gen1_ai_profile ai_profile(int mode) {
+    acr_gen1_ai_profile p;
+    if (mode == ACR_GEN1_AI_CUSTOM && g_ai_file_ok) return g_ai_file_prof;
+    acr_gen1_ai_preset(&p, mode ? mode : ACR_GEN1_AI_BALANCED);
+    return p;
+}
+
+static void load_ai_file(const char *path) {
+    size_t size = 0;
+    char *text = (char *)SDL_LoadFile(path, &size);
+    if (!text) { SDL_Log("AI profile %s: can't read it", path); return; }
+    acr_gen1_ai_preset(&g_ai_file_prof, ACR_GEN1_AI_BALANCED);
+    g_ai_file_prof.preset = ACR_GEN1_AI_CUSTOM;
+    g_ai_file_ok = acr_gen1_ai_parse(&g_ai_file_prof, text);
+    if (g_ai_file_ok) g_ai_mode = ACR_GEN1_AI_CUSTOM;
+    SDL_free(text);
+}
+
 static int parse_args(int argc, char **argv, const char **dir, int parts[SLOT_COUNT]) {
     /* Master of Arena's starting AC. */
     static const int k_default[SLOT_COUNT] = { 0, 0, 5, 1, 0, 1, 0, 40, 0, 0, 3 };
@@ -375,6 +411,9 @@ static int parse_args(int argc, char **argv, const char **dir, int parts[SLOT_CO
         if (!strcmp(argv[i], "--tick") && i + 1 < argc) { g_tick_rate = atoi(argv[++i]); continue; }
         if (!strcmp(argv[i], "--credits") && i + 1 < argc) { g_new_credits = atol(argv[++i]); continue; }
         if (!strcmp(argv[i], "--test")) { g_direct_test = 1; continue; }
+        if (!strcmp(argv[i], "--ai") && i + 1 < argc) { g_ai_mode = ai_preset_of(argv[++i]); if (!g_ai_mode) g_ai_mode = 1; continue; }
+        if (!strcmp(argv[i], "--ai-file") && i + 1 < argc) { load_ai_file(argv[++i]); continue; }
+        if (!strcmp(argv[i], "--ai-vs-ai")) { g_autopilot = 1; if (!g_ai_mode) g_ai_mode = 1; continue; }
         if (slot >= 0 && i + 1 < argc) { parts[slot] = atoi(argv[++i]); g_direct_test = 1; }
         else if (argv[i][0] != '-') *dir = argv[i];
     }
@@ -673,7 +712,7 @@ int main(int argc, char **argv) {
             f_->ap = f_->ap_max = d_->ap;                                                 \
             f_->shell_factor = d_->shell_factor;                                          \
             f_->energy_factor = d_->energy_factor;                                        \
-            f_->weapons = (uint8_t)(i_ == 0 || two_players ? d_->weapons : 0);             \
+            f_->weapons = (uint8_t)(i_ == 0 || two_players || g_ai_mode ? d_->weapons : 0); \
             for (int w_ = 0; w_ < d_->weapons; ++w_) {                                    \
                 f_->weapon[w_] = d_->weapon[w_];                                          \
                 f_->ammo[w_] = d_->weapon[w_].ammo;                                       \
@@ -687,8 +726,13 @@ int main(int argc, char **argv) {
         acr_gen1_ac_spawn(T, def2, target_side() * 64, (target_dist() - 2500) * 64, 2048);       \
         memset(battle.shot, 0, sizeof battle.shot);                                       \
         round_ms = ROUND_MS; round_over = 0; round_result = 0; ko_ms = 0;                 \
+        for (int i_ = 0; i_ < 2; ++i_) {                                                  \
+            const acr_gen1_ai_profile p_ = ai_profile(g_ai_mode);                         \
+            acr_gen1_ai_init(&g_ai[i_], &p_, 0x1234u + (uint32_t)i_ * 977u + (uint32_t)(++g_ai_round) * 7919u); \
+        }                                                                                 \
     } while (0)
     int human_plus = 0, two_players = SDL_getenv("ACR_TWO") != NULL;
+    if (SDL_getenv("ACR_AI")) g_ai_mode = ai_preset_of(SDL_getenv("ACR_AI"));
     #define ROUND_MS 120000   /* two minutes, like Master of Arena's VS mode */
     int32_t round_ms = ROUND_MS, ko_ms = 0;
     int round_over = 0, round_result = 0;
@@ -747,6 +791,24 @@ int main(int argc, char **argv) {
             if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_F1) show_help = !show_help;
             if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_F5) g_smooth_anim = !g_smooth_anim;
             if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_F3) g_landing_anim = !g_landing_anim;
+            int cycle_ai = 0, toggle_autopilot = 0;
+            if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_F4) cycle_ai = 1;
+            if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_F6) toggle_autopilot = 1;
+            if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && back_held && e.gbutton.button == SDL_GAMEPAD_BUTTON_DPAD_UP) { cycle_ai = 1; back_combo = 1; }
+            if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && back_held && e.gbutton.button == SDL_GAMEPAD_BUTTON_DPAD_DOWN) { toggle_autopilot = 1; back_combo = 1; }
+            if (cycle_ai) {
+                /* still target -> BALANCED ... EVASIVE (-> the --ai-file profile) -> still */
+                int next = g_ai_mode == ACR_GEN1_AI_CUSTOM ? 0 : g_ai_mode + 1;
+                if (next >= ACR_GEN1_AI_PRESETS) next = g_ai_file_ok ? ACR_GEN1_AI_CUSTOM : 0;
+                g_ai_mode = next;
+                if (!g_ai_mode) g_autopilot = 0;
+                SETUP_FIGHTERS(); prevs[0] = *P; prevs[1] = *T;
+            }
+            if (toggle_autopilot) {
+                g_autopilot = !g_autopilot;
+                if (g_autopilot && !g_ai_mode) g_ai_mode = ACR_GEN1_AI_BALANCED;
+                SETUP_FIGHTERS(); prevs[0] = *P; prevs[1] = *T;
+            }
             if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_R) {
                 SETUP_FIGHTERS(); prevs[0] = *P; prevs[1] = *T;
             }
@@ -930,7 +992,7 @@ int main(int argc, char **argv) {
             /* Two players: a two-minute round, decided as the VS engine
              * does: a knock-out settles 12 ticks after it (both down is a
              * draw); at time up the higher AP wins, equal AP is a draw. */
-            if (two_players) {
+            if (two_players || g_ai_mode) {
                 round_ms -= battle.step_ms;
                 if (round_ms < 0) round_ms = 0;
                 const int res = acr_gen1_battle_result(&battle, round_ms <= 0);
@@ -943,6 +1005,13 @@ int main(int argc, char **argv) {
             for (int k = 0; k < 2; ++k) {
                 act[k].next_weapon = (uint8_t)switch_pressed[k]; switch_pressed[k] = 0;
                 act[k].blade = (uint8_t)blade_pressed[k]; blade_pressed[k] = 0;
+            }
+            /* The computer pilot presses its buttons like a pad, each step. */
+            for (int k = 0; k < 2; ++k) {
+                const int by_ai = g_ai_mode && ((k == 1 && !two_players) || (k == 0 && g_autopilot));
+                if (!by_ai) continue;
+                acr_gen1_ai_step(&g_ai[k], &battle, k, ARENA, &in2[k], &act[k]);
+                g_in[k] = in2[k];
             }
             acr_gen1_battle_step(&battle, in2, act);
             for (int k = 0; k < 2; ++k) { in2[k].boost_tapped = 0; boost_released[k] = !in2[k].boost; }
@@ -959,7 +1028,7 @@ int main(int argc, char **argv) {
                 }
             }
             /* The target comes back 3 seconds after it is destroyed. */
-            if (!two_players && battle.f[1].ap <= 0) {
+            if (!two_players && !g_ai_mode && battle.f[1].ap <= 0) {
                 respawn_ms += battle.step_ms;
                 if (respawn_ms >= 3000) {
                     respawn_ms = 0;
@@ -1239,20 +1308,29 @@ int main(int argc, char **argv) {
             }
             TEXT(20, 88, "BACK+A (H): HUMAN PLUS  BACK (T): STEP RATE");
             TEXT(20, 100, "BACK+LB (F2): TWO PLAYERS  BACK+R3 (F3): LANDING PAUSE GUESS/ANIMATION");
+            TEXT(20, 112, "BACK+UP (F4): OPPONENT STILL / AI PRESETS  BACK+DOWN (F6): AI VS AI (WATCH)");
         }
         }
         /* Whole-screen HUD: the split line, round clock and result. */
         const float full_w = acr_render_hud(0, 0, pw, ph);
-        if (two_players) {
-            acr_hud_rect(full_w / 2.0f - 1, 0, 2, 480, 0, 0, 0, 255, 1);
+        if (two_players || g_ai_mode) {
+            if (two_players) acr_hud_rect(full_w / 2.0f - 1, 0, 2, 480, 0, 0, 0, 255, 1);
             char clock_text[16];
             SDL_snprintf(clock_text, sizeof clock_text, "%d:%02d", (int)(round_ms / 60000), (int)(round_ms / 1000 % 60));
             acr_hud_text(full_w / 2.0f - 16, 464, clock_text, 240, 240, 240);   /* between the energy bars */
         }
-        if (two_players && round_over) {
+        if (!two_players && g_ai_mode) {
+            char who[64];
+            SDL_snprintf(who, sizeof who, "%sOPPONENT: AI %s", g_autopilot ? "AI VS AI  " : "",
+                         g_ai_mode == ACR_GEN1_AI_CUSTOM ? "FROM FILE" : acr_gen1_ai_preset_name(g_ai_mode));
+            acr_hud_text(full_w / 2.0f - 90, 448, who, 255, 200, 120);
+        }
+        if ((two_players || g_ai_mode) && round_over) {
+            const int vs_ai = !two_players;
             acr_hud_text(full_w / 2.0f - 120, 240,
-                         round_result == 1 ? "PLAYER 1 WINS - START TO RESET" :
-                         round_result == 2 ? "PLAYER 2 WINS - START TO RESET" : "DRAW - START TO RESET", 255, 230, 120);
+                         round_result == 1 ? (vs_ai && !g_autopilot ? "YOU WIN - START TO RESET" : "PLAYER 1 WINS - START TO RESET") :
+                         round_result == 2 ? (vs_ai ? "THE AI WINS - START TO RESET" : "PLAYER 2 WINS - START TO RESET")
+                                           : "DRAW - START TO RESET", 255, 230, 120);
             if (round_ms <= 0) acr_hud_text(full_w / 2.0f - 40, 254, "TIME UP", 255, 230, 120);
         }
         #undef TEXT
