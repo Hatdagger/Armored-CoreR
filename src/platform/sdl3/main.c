@@ -1088,7 +1088,20 @@ int main(int argc, char **argv) {
                 round_ms -= battle.step_ms;
                 if (round_ms < 0) round_ms = 0;
                 const int res = acr_gen1_battle_result(&battle, round_ms <= 0);
+                if (!res) ko_ms = 0;      /* back in the area before it settled */
                 if (res && (round_ms <= 0 || (ko_ms += battle.step_ms) >= 12 * 1000 / 22)) {
+                    round_over = 1;
+                    round_result = res;
+                    break;
+                }
+            } else if (g_stage_on && acr_gen1_stage_has_area_rule(&g_stage.collision)) {
+                /* Against the still target there is no clock, but leaving
+                 * the area (outside both inner boxes) still loses. */
+                const int o0 = acr_gen1_battle_out_of_area(&battle, 0) == 2,
+                          o1 = acr_gen1_battle_out_of_area(&battle, 1) == 2;
+                const int res = o0 || o1 ? (o0 && o1 ? 3 : o0 ? 2 : 1) : 0;
+                if (!res) ko_ms = 0;
+                if (res && (ko_ms += battle.step_ms) >= 12 * 1000 / 22) {
                     round_over = 1;
                     round_result = res;
                     break;
@@ -1472,9 +1485,11 @@ int main(int argc, char **argv) {
                          g_ai_mode == AI_FROM_FILE ? "FROM FILE" : acr_gen1_ai_preset_name(g_ai_mode));
             acr_hud_text(full_w / 2.0f - 90, 448, who, 255, 200, 120);
         }
-        if ((two_players || g_ai_mode) && round_over) {
-            const int vs_ai = !two_players;
+        if (round_over) {
+            const int vs_ai = !two_players, practice = !two_players && !g_ai_mode;
             acr_hud_text(full_w / 2.0f - 120, 240,
+                         practice ? (round_result == 1 ? "TARGET OUT - START TO RESET" :
+                                     round_result == 2 ? "YOU LOSE - START TO RESET" : "DRAW - START TO RESET") :
                          round_result == 1 ? (vs_ai && !g_autopilot ? "YOU WIN - START TO RESET" : "PLAYER 1 WINS - START TO RESET") :
                          round_result == 2 ? (vs_ai ? "THE AI WINS - START TO RESET" : "PLAYER 2 WINS - START TO RESET")
                                            : "DRAW - START TO RESET", 255, 230, 120);
