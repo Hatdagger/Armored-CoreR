@@ -160,23 +160,20 @@ static int prim(const uint8_t *p, const uint8_t *end, unsigned *nv, unsigned v[4
     *len = 4 + ilen * 4;
     if (p + *len > end) return 0;
     const uint8_t *w = p + 4;
-    const unsigned n = (mode & 8) ? 4 : 3, tex = mode & 4, gour = mode & 0x10, lit = !(flag & 1);
-    unsigned i0 = 0;
-    if (tex) i0 = 2 * n;
+    const unsigned n = (mode & 8) ? 4 : 3, tex = mode & 4, gour = mode & 0x10;
+    (void)flag;
+    /* Master of Arena's packets always have the lit layout (a normal, then
+     * the corners), whatever the flag's light bit says (Green Silo's arches
+     * use flag 0x11); read as unlit, the padding became a corner at vertex
+     * 0, the dome's top, and stretched faces up into the roof. The AC
+     * importer reads them the same way. */
+    unsigned i0 = tex ? 2 * n : 0;
     col->r = col->g = col->b = 128;
     col->semi = (uint8_t)((mode & 2) != 0);
-    if (!lit) {
-        col->r = w[i0 * 2]; col->g = w[i0 * 2 + 1]; col->b = w[i0 * 2 + 2];
-        i0 += 2 * (gour ? n : 1);
-        for (unsigned j = 0; j < n; ++j) v[j] = u16(w + (i0 + j) * 2);
-    } else {
-        if (!tex) { col->r = w[0]; col->g = w[1]; col->b = w[2]; i0 = 2; }
-        if (gour) for (unsigned j = 0; j < n; ++j) v[j] = u16(w + (i0 + 2 * j + 1) * 2);
-        else {
-            v[0] = u16(w + (i0 + 1) * 2);
-            for (unsigned j = 1; j < n; ++j) v[j] = u16(w + (i0 + 1 + j) * 2);
-        }
-    }
+    if (!tex) { col->r = w[0]; col->g = w[1]; col->b = w[2]; i0 = 2; }
+    if ((i0 + (gour ? 2 * n : 1 + n)) * 2 > ilen * 4) return 0;
+    if (gour) for (unsigned j = 0; j < n; ++j) v[j] = u16(w + (i0 + 2 * j + 1) * 2);
+    else for (unsigned j = 0; j < n; ++j) v[j] = u16(w + (i0 + 1 + j) * 2);
     *nv = n;
     return 1;
 }
@@ -300,7 +297,19 @@ static int load_tims(const uint8_t *d, size_t n, vram *v) {
     return count;
 }
 
-typedef struct tex_key { uint16_t tpage, clut; } tex_key;
+/* A texture page + palette, and whether its faces blend: on the PS1 a
+ * textured face with the semi-transparency bit (mode bit 1) blends only
+ * where the texel's colour has bit 15 set. Here a palette with any such
+ * colour makes the whole material see-through (Green Silo's glass: every
+ * colour of palette 481 has it, none of 480's). */
+typedef struct tex_key { uint16_t tpage, clut; uint8_t semi; } tex_key;
+
+static int clut_has_stp(const vram *v, uint16_t clut, unsigned colours) {
+    const unsigned cx = (clut & 63) * 16, cy = clut >> 6;
+    for (unsigned i = 0; i < colours && cx + i < VRAM_W && cy < VRAM_H; ++i)
+        if (v->px[cy][cx + i] & 0x8000) return 1;
+    return 0;
+}
 
 /* Texture page as an indexed PNG with its palette (256 x 256 texels). */
 static int write_page(const char *path, const vram *v, tex_key k) {
@@ -417,19 +426,20 @@ static int write_textured(const char *dir, const char *unpacked, unsigned stage,
                 char name[32];
                 int textured = 0;
                 if (mode & 4) {
-                    const tex_key key = { (uint16_t)(u16(w + 6) & 0x1FF), u16(w + 2) };
+                    tex_key key = { (uint16_t)(u16(w + 6) & 0x1FF), u16(w + 2), 0 };
+                    key.semi = (uint8_t)((mode & 2) && clut_has_stp(&v, key.clut, ((key.tpage >> 7) & 3) ? 256 : 16));
                     if (page_loaded(&v, key.tpage)) {
                         unsigned t = 0;
-                        while (t < nkeys && (keys[t].tpage != key.tpage || keys[t].clut != key.clut)) ++t;
+                        while (t < nkeys && (keys[t].tpage != key.tpage || keys[t].clut != key.clut ||
+                                             keys[t].semi != key.semi)) ++t;
                         if (t == nkeys && nkeys < MAX_TEX) keys[nkeys++] = key;
                         if (t < nkeys) {
-                            snprintf(name, sizeof name, "t%02u", t);
+                            snprintf(name, sizeof name, "t%02u%s", t, keys[t].semi ? "-semi" : "");
                             textured = 1;
                             for (unsigned j = 0; j < n; ++j)
                                 fprintf(f, "vt %.5f %.5f\n", (w[j * 4] + 0.5) / 256.0, 1.0 - (w[j * 4 + 1] + 0.5) / 256.0);
                         }
                     }
-                    /* Textured faces blend only where a texel says so: solid. */
                     col.semi = 0;
                 }
                 if (!textured) {
@@ -461,7 +471,8 @@ static int write_textured(const char *dir, const char *unpacked, unsigned stage,
         char png[1200];
         snprintf(png, sizeof png, "%s/texture-%02u.png", dir, t);
         if (!write_page(png, &v, keys[t])) { fclose(f); return 0; }
-        fprintf(f, "newmtl t%02u\nmap_Kd texture-%02u.png\n", t, t);
+        /* Pages shared by a solid and a see-through material are written once each (same picture). */
+        fprintf(f, "newmtl t%02u%s\nmap_Kd texture-%02u.png\n", t, keys[t].semi ? "-semi" : "", t);
     }
     for (unsigned i = 0; i < nflat; ++i) {
         char name[32];

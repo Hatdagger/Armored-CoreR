@@ -69,6 +69,7 @@ static int build_faces(demo_stage *s, const char *obj, const char *mtl_text, con
         char path[1200];
         SDL_snprintf(path, sizeof path, "%s/%s", dir, mtl.m[i].texture);
         s->batch[s->batches].texture = load_texture(path);
+        s->batch[s->batches].semi = mtl.m[i].semi;
         s->batch[s->batches].v = SDL_malloc(sizeof(acr_vtx) * (size_t)(mesh.tri_count * 3 + 3));
         if (!s->batch[s->batches].v) { acr_mesh_free(&mesh); return 0; }
         mtl.m[i].kind = (uint8_t)s->batches++;      /* which batch (kind is unused here) */
@@ -92,7 +93,7 @@ static int build_faces(demo_stage *s, const char *obj, const char *mtl_text, con
             const uint8_t c = (uint8_t)(128 * lit);
             acr_vtx *out = s->batch[m->kind].v + s->batch[m->kind].count;
             for (int j = 0; j < 3; ++j) {
-                out[j] = vtx(mesh.v[t * 3 + j].p, c, c, c, 255);
+                out[j] = vtx(mesh.v[t * 3 + j].p, c, c, c, s->batch[m->kind].semi ? 128 : 255);
                 out[j].u = mesh.v[t * 3 + j].uv[0];
                 out[j].v = 1.0f - mesh.v[t * 3 + j].uv[1];
             }
@@ -240,10 +241,16 @@ void demo_stage_draw(const demo_stage *s, int pass) {
     if (!s->ok) return;
     if (pass == 0) {
         for (int i = 0; i < s->batches; ++i)
-            if (s->batch[i].count) acr_render_mesh(s->batch[i].v, s->batch[i].count, s->batch[i].texture, ACR_MESH_PS1_TEXEL);
+            if (s->batch[i].count && !s->batch[i].semi)
+                acr_render_mesh(s->batch[i].v, s->batch[i].count, s->batch[i].texture, ACR_MESH_PS1_TEXEL);
         if (s->tri_count) acr_render_mesh(s->tris, s->tri_count, 0, 0);
         if (s->edge_count) acr_render_lines(s->edges, s->edge_count);
-    } else if (s->semi_count) {
-        acr_render_mesh(s->semi, s->semi_count, 0, ACR_MESH_SEMI);
+    } else {
+        /* See-through glass and the like: 50/50 (the PS1's default blend). */
+        for (int i = 0; i < s->batches; ++i)
+            if (s->batch[i].count && s->batch[i].semi)
+                acr_render_mesh(s->batch[i].v, s->batch[i].count, s->batch[i].texture,
+                                ACR_MESH_PS1_TEXEL | ACR_MESH_SEMI);
+        if (s->semi_count) acr_render_mesh(s->semi, s->semi_count, 0, ACR_MESH_SEMI);
     }
 }

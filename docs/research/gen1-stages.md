@@ -53,6 +53,17 @@ models (corrected 2026-11-19 after the user's description of Green Silo:
 dark grey arches and floors, green windows). Other stages have more data
 after chunk 13 (not read yet).
 
+TMD packets in stage models (as in AC models) always have the lit layout
+(normal, then corners), whatever the flag byte's light bit: Green Silo's
+arches carry flag 0x11. Read as unlit, a padding zero became a corner at
+vertex 0 (the dome's top) and stretched faces into the roof (user's
+report, fixed 2026-11-19).
+
+See-through textured faces (mode bit 1) blend only where the texel's
+colour has bit 15 set; Green Silo's palette 481 (glass, windows) has it on
+every colour, 480 on none. acr-import marks a page + palette material
+`-semi` when its palette has any such colour; the engine draws those 50/50.
+
 ## Textures: RTIM <stage>
 
 Before the stage file the arena loader reads **RTIM entry <stage>**
