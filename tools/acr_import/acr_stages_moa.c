@@ -544,6 +544,64 @@ static int write_collision(const char *dir, const chunk *c, const area *ar, unsi
     return 1;
 }
 
+/* The same collision as the game keeps it, for the engine's port of the
+ * game's own box sweep (docs/research/gen1-stages.md, "Walls and floors"):
+ * game axes (x not mirrored, y down), model units, every polygon's raw
+ * fields (flags, normal, plane distance, the four corner words with their
+ * low flag bits), and the areas that place each model.
+ *
+ *   area <minx> <miny> <minz> <maxx> <maxy> <maxz> <cx> <cy> <cz> <quarter> <model>
+ *   model <number> <vertices> <polygons>
+ *   v <x> <y> <z>
+ *   p <flags> <nx> <ny> <nz> <d> <c0> <c1> <c2> <c3>                          */
+static int write_collision_game(const char *dir, const chunk *c, const area *ar, unsigned areas) {
+    char path[1200];
+    snprintf(path, sizeof path, "%s/collision.txt", dir);
+    FILE *f = fopen(path, "w");
+    if (!f) return 0;
+    fprintf(f, "# Master of Arena stage collision as the game keeps it (FDAT 5s+4 chunks 7 and 8).\n"
+               "# Game axes (x not mirrored, y down). area: box (world units), centre, quarter\n"
+               "# turns, model. model: its vertices (model units, 4 a world unit) and polygons\n"
+               "# (flags, normal x 4096, plane distance, the four raw corner words).\n");
+    static uint8_t used[1024];
+    memset(used, 0, sizeof used);
+    for (unsigned a = 0; a < areas; ++a) {
+        fprintf(f, "area %d %d %d %d %d %d %d %d %d %u %d\n", ar[a].min[0], ar[a].min[1], ar[a].min[2],
+                ar[a].max[0], ar[a].max[1], ar[a].max[2], ar[a].centre[0], ar[a].centre[1], ar[a].centre[2],
+                ar[a].quarter, ar[a].model);
+        if (ar[a].model >= 0 && ar[a].model < 1024) used[ar[a].model] = 1;
+    }
+    for (unsigned m = 0; m < 1024 && c->n >= 0x2000; ++m) {
+        if (!used[m]) continue;
+        const uint32_t va = u32(c->p + m * 8), pb = u32(c->p + m * 8 + 4);
+        if (!va || !pb || pb + 0x64 > c->n || va >= c->n) continue;
+        const unsigned np = u16(c->p + pb);
+        if (pb + 0x64 + np * 20 > c->n) continue;
+        unsigned max_v = 0;
+        for (unsigned k = 0; k < np; ++k) {
+            const uint8_t *r = c->p + pb + 0x64 + k * 20;
+            const unsigned corners = (u16(r) & 1) ? 4 : 3;
+            for (unsigned j = 0; j < corners; ++j) {
+                const unsigned vi = (u16(r + 12 + 2 * j) & 0x7FF8) / 8;
+                if (vi + 1 > max_v) max_v = vi + 1;
+            }
+        }
+        if (va + max_v * 8 > c->n) continue;
+        fprintf(f, "model %u %u %u\n", m, max_v, np);
+        for (unsigned k = 0; k < max_v; ++k) {
+            const uint8_t *v = c->p + va + k * 8;
+            fprintf(f, "v %d %d %d\n", s16(v), s16(v + 2), s16(v + 4));
+        }
+        for (unsigned k = 0; k < np; ++k) {
+            const uint8_t *r = c->p + pb + 0x64 + k * 20;
+            fprintf(f, "p %u %d %d %d %ld %u %u %u %u\n", u16(r), s16(r + 2), s16(r + 4), s16(r + 6),
+                    (long)(int32_t)u32(r + 8), u16(r + 12), u16(r + 14), u16(r + 16), u16(r + 18));
+        }
+    }
+    fclose(f);
+    return 1;
+}
+
 /* ---- points (chunk 13): 40-byte records; 1 and 2 are the two starts ---- */
 
 static int write_toml(const char *dir, unsigned stage, const chunk *pts, const area *ar, unsigned areas,
@@ -595,6 +653,7 @@ int acr_export_moa_stages(const char *unpacked_dir, const char *out_dir, uint32_
         if (!make_dir(dir) || !write_visual(dir, &ch[4], ar, areas, &faces) ||
             !write_textured(dir, unpacked_dir, s, &ch[1], ar, areas, &tfaces, &textures) ||
             !write_collision(dir, &ch[7], ar, areas, &polys) ||
+            !write_collision_game(dir, &ch[7], ar, areas) ||
             !write_toml(dir, s, &ch[13], ar, areas, tfaces ? tfaces : faces, polys)) {
             free(d);
             set_err(err, err_size, "cannot write the stage files in", dir);

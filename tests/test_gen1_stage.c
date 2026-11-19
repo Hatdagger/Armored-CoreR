@@ -59,6 +59,71 @@ static char *read_text(const char *path) {
     return t;
 }
 
+/* Two computer pilots (balanced and aggressor) fight two minutes on a
+ * stage from their starts: the farthest either gets from the middle, the
+ * lowest feet, the AP left. */
+static void ai_fight(const acr_gen1_stage *st, const acr_gen1_ac_def *def, const int32_t start[2][4], int32_t *far,
+                     int32_t *low, int32_t ap[2]) {
+    static acr_gen1_battle b;
+    memset(&b, 0, sizeof b);
+    b.stage = st;
+    b.step_ms = 45;
+    acr_gen1_ai ai[2];
+    for (int i = 0; i < 2; ++i) {
+        acr_gen1_fighter *f = &b.f[i];
+        f->def = def;
+        f->intercept_shot = -1; f->swing_target = -1; f->last_missile = -1;
+        f->ap = f->ap_max = 8000;
+        f->shell_factor = 27; f->energy_factor = 32;
+        acr_gen1_weapon *w = &f->weapon[0];
+        memset(w, 0, sizeof *w);
+        w->kind = ACR_GEN1_GUN; w->attack = 218; w->ammo = 2000; w->range = 6100;
+        w->lock_ms = 1; w->box_w = 240; w->box_h = 240; w->inner_w = 200; w->inner_h = 200;
+        w->lock_value = 60; w->interval = 5; w->speed = 700; w->shots = 1;
+        f->weapons = 1; f->ammo[0] = 2000;
+        acr_gen1_ac_spawn(&f->ac, def, start[i][0] * 64, start[i][2] * 64, (uint16_t)start[i][3]);
+        f->ac.y = f->ac.py = f->ac.sy = start[i][1] * 64;
+        acr_gen1_ai_profile prof;
+        acr_gen1_ai_preset(&prof, i ? ACR_GEN1_AI_AGGRESSOR : ACR_GEN1_AI_BALANCED);
+        acr_gen1_ai_init(&ai[i], &prof, 77u + (uint32_t)i);
+    }
+    *far = 0;
+    *low = -100000;
+    for (int t = 0; t < 120 * 22 && b.f[0].ap > 0 && b.f[1].ap > 0; ++t) {
+        acr_gen1_input in[2];
+        acr_gen1_actions act[2];
+        for (int i = 0; i < 2; ++i) acr_gen1_ai_step(&ai[i], &b, i, 4700, &in[i], &act[i]);
+        acr_gen1_battle_step(&b, in, act);
+        for (int i = 0; i < 2; ++i) {
+            const int64_t x = b.f[i].ac.x / 64, z = b.f[i].ac.z / 64;
+            const int32_t r = (int32_t)sqrt_i(x * x + z * z);
+            if (r > *far) *far = r;
+            if (b.f[i].ac.y / 64 > *low) *low = b.f[i].ac.y / 64;
+        }
+    }
+    ap[0] = b.f[0].ap;
+    ap[1] = b.f[1].ap;
+}
+
+/* A polygon line for a made-up collision.txt (game axes, model units):
+ * corners in strip order (outline 0-1-3-2), the flags worked out as the
+ * game's (main axis, which corners are the box's min / max). */
+static void gpoly(char *out, size_t n, const int32_t (*v)[3], const int idx[4], int nx, int ny, int nz, long d,
+                  int inside, int cls) {
+    const int ax = abs(nx) >= abs(ny) && abs(nx) >= abs(nz) ? 0 : abs(ny) >= abs(nz) ? 1 : 2;
+    unsigned flags = 1u | (unsigned)ax << 2;
+    for (int k = 0; k < 3; ++k) {
+        int lo = 0, hi = 0;
+        for (int j = 1; j < 4; ++j) {
+            if (v[idx[j]][k] < v[idx[lo]][k]) lo = j;
+            if (v[idx[j]][k] > v[idx[hi]][k]) hi = j;
+        }
+        flags |= (unsigned)lo << (4 + 2 * k) | (unsigned)hi << (10 + 2 * k);
+    }
+    snprintf(out, n, "p %u %d %d %d %ld %d %d %d %d\n", flags, nx, ny, nz, d, idx[0] * 8 + (inside ? 1 : 0),
+             idx[1] * 8 + cls, idx[2] * 8, idx[3] * 8);
+}
+
 int main(void) {
     /* The made-up stage (y down): a floor at 0 from -5000 to 5000; a step
      * 100 high from x 1000 to 2000; a wall at x = 3000; a ceiling 1,500 up
@@ -191,6 +256,79 @@ int main(void) {
         acr_gen1_stage_free(&p);
     }
 
+
+    /* The game's own rules on a made-up stage (game axes: x is mirrored in
+     * the engine). A floor at y 0 out to 2,000; a wall at game x 1,000
+     * (engine x -1,000); a wall of a class ACs pass through at game x
+     * -1,000; a lower floor at y 800 from z 2,000 to 7,500. */
+    {
+        static const int32_t v[16][3] = {
+            { -8000, 0, -8000 }, { 8000, 0, -8000 }, { -8000, 0, 8000 }, { 8000, 0, 8000 },
+            { 4000, -4000, -8000 }, { 4000, -4000, 8000 }, { 4000, 0, -8000 }, { 4000, 0, 8000 },
+            { -4000, -4000, -8000 }, { -4000, -4000, 8000 }, { -4000, 0, -8000 }, { -4000, 0, 8000 },
+            { -8000, 3200, 8000 }, { 8000, 3200, 8000 }, { -8000, 3200, 30000 }, { 8000, 3200, 30000 },
+        };
+        static char text[4096];
+        int o = snprintf(text, sizeof text, "area -3000 -2000 -3000 3000 1000 11000 0 0 0 0 7\nmodel 7 16 4\n");
+        for (int i = 0; i < 16; ++i) o += snprintf(text + o, sizeof text - (size_t)o, "v %d %d %d\n", v[i][0], v[i][1], v[i][2]);
+        const int floor_i[4] = { 0, 1, 2, 3 }, wall_i[4] = { 4, 5, 6, 7 }, ghost_i[4] = { 8, 9, 10, 11 },
+                  low_i[4] = { 12, 13, 14, 15 };
+        gpoly(text + o, sizeof text - (size_t)o, v, floor_i, 0, 4096, 0, 0, 1, 0); o += (int)strlen(text + o);
+        gpoly(text + o, sizeof text - (size_t)o, v, wall_i, 4096, 0, 0, -4000L * 4096, 1, 0); o += (int)strlen(text + o);
+        gpoly(text + o, sizeof text - (size_t)o, v, ghost_i, -4096, 0, 0, -4000L * 4096, 1, 1); o += (int)strlen(text + o);
+        gpoly(text + o, sizeof text - (size_t)o, v, low_i, 0, 4096, 0, -3200L * 4096, 1, 0);
+        acr_gen1_stage g;
+        memset(&g, 0, sizeof g);
+        EXPECT(acr_gen1_stage_parse_game(text, &g));
+        EXPECT(g.areas == 1 && g.gmodels == 1 && g.gmodel[0].polys == 4);
+        /* One try: a step into the wall comes back short of it. */
+        {
+            const int32_t pos[3] = { -880, 0, 0 };
+            int32_t step[3] = { -30, 0, 0 };
+            EXPECT(acr_gen1_stage_try(&g, pos, step, ACR_GEN1_STAGE_BOX_HALF, ACR_GEN1_STAGE_BOX_HEIGHT,
+                                      ACR_GEN1_STAGE_AC_MASK));
+            printf("game rules: a step of -30 at x -880 becomes %d, %d, %d\n", step[0], step[1], step[2]);
+            EXPECT(pos[0] + step[0] >= -900 && pos[0] + step[0] <= -897 && step[1] == 0 && step[2] == 0);
+        }
+        /* The floor probe finds the floor under the feet. */
+        {
+            const int32_t pos[3] = { 0, -30, 0 };
+            int32_t f = 0;
+            EXPECT(acr_gen1_stage_floor_probe(&g, pos, ACR_GEN1_STAGE_PROBE_HALF, ACR_GEN1_STAGE_BOX_HEIGHT,
+                                              ACR_GEN1_STAGE_AC_MASK, &f) && f == 0);
+        }
+        acr_gen1_ac_def def = make_def(&g);
+        const acr_gen1_input fwd = { 1, 0, 0, 0, 0, 0, 0 };
+        acr_gen1_ac ac;
+        /* Walking into the wall stops 100 short of it (the box's half width). */
+        acr_gen1_ac_spawn(&ac, &def, 0, 0, 3072);
+        for (int t = 0; t < 400; ++t) acr_gen1_ac_step(&ac, &def, fwd);
+        printf("game rules: walking into the wall stops at x %d, y %d\n", ac.x / 64, ac.y / 64);
+        /* Feet touching the floor's plane are pushed a unit up off it. */
+        EXPECT(ac.x / 64 >= -900 && ac.x / 64 <= -896 && ac.y / 64 >= -1 && ac.y / 64 <= 0 &&
+               ac.state == ACR_GEN1_GROUND);
+        /* The other wall's class is one ACs pass through. */
+        acr_gen1_ac_spawn(&ac, &def, 0, 0, 1024);
+        int32_t far = 0;
+        for (int t = 0; t < 400 && ac.state != ACR_GEN1_AIR; ++t) {
+            acr_gen1_ac_step(&ac, &def, fwd);
+            if (ac.x > far) far = ac.x;
+        }
+        printf("game rules: through the pass-through wall to x %d\n", far / 64);
+        EXPECT(far / 64 > 1200);
+        /* Off the edge (z 2,000): falls, lands on the lower floor at 800. */
+        acr_gen1_ac_spawn(&ac, &def, 0, 1500 * 64, 0);
+        int fell = 0;
+        for (int t = 0; t < 600; ++t) {
+            acr_gen1_ac_step(&ac, &def, fell ? (acr_gen1_input){ 0 } : fwd);
+            if (ac.state == ACR_GEN1_AIR) fell = 1;
+        }
+        printf("game rules: walked off the edge (fell %d), now at z %d, y %d, state %d\n", fell, ac.z / 64, ac.y / 64,
+               ac.state);
+        EXPECT(fell && ac.state != ACR_GEN1_AIR && ac.y / 64 >= 797 && ac.y / 64 <= 800 && ac.z / 64 > 2000);
+        acr_gen1_stage_free(&g);
+    }
+
     /* Green Silo from the user's own import, when there is one. */
     const char *dir = getenv("ACR_STAGE_DIR");
     if (dir) {
@@ -202,6 +340,14 @@ int main(void) {
         if (text && acr_gen1_stage_parse(text, &silo)) {
             printf("green silo: %u polygons, x %d..%d, y %d..%d\n", (unsigned)silo.polys, silo.lo[0], silo.hi[0],
                    silo.lo[1], silo.hi[1]);
+            /* The game's own collision: the rest of these checks then run
+             * on the game's wall and floor rules. */
+            snprintf(path, sizeof path, "%s/27/collision.txt", dir);
+            char *game = read_text(path);
+            EXPECT(game != NULL);
+            EXPECT(game && acr_gen1_stage_parse_game(game, &silo));
+            free(game);
+            printf("green silo: game collision %u areas, %u models\n", (unsigned)silo.areas, (unsigned)silo.gmodels);
             EXPECT(silo.polys == 396);
             /* Both starts stand on the floor (-662). */
             EXPECT(acr_gen1_stage_floor(&silo, -5000, 0, -800, &y) && y >= -663 && y <= -661);
@@ -238,50 +384,47 @@ int main(void) {
             /* Two computer pilots fight two minutes in the dome: nobody gets
              * out through the wall or under the floor. */
             {
-                static acr_gen1_battle b;
-                memset(&b, 0, sizeof b);
-                b.stage = &silo;
-                b.step_ms = 45;
                 const int32_t start[2][4] = { { -5000, -662, 0, 1024 }, { 5000, -662, 0, 3072 } };
-                acr_gen1_ai ai[2];
-                for (int i = 0; i < 2; ++i) {
-                    acr_gen1_fighter *f = &b.f[i];
-                    f->def = &def;
-                    f->intercept_shot = -1; f->swing_target = -1; f->last_missile = -1;
-                    f->ap = f->ap_max = 8000;
-                    f->shell_factor = 27; f->energy_factor = 32;
-                    acr_gen1_weapon *w = &f->weapon[0];
-                    memset(w, 0, sizeof *w);
-                    w->kind = ACR_GEN1_GUN; w->attack = 218; w->ammo = 2000; w->range = 6100;
-                    w->lock_ms = 1; w->box_w = 240; w->box_h = 240; w->inner_w = 200; w->inner_h = 200;
-                    w->lock_value = 60; w->interval = 5; w->speed = 700; w->shots = 1;
-                    f->weapons = 1; f->ammo[0] = 2000;
-                    acr_gen1_ac_spawn(&f->ac, &def, start[i][0] * 64, start[i][2] * 64, (uint16_t)start[i][3]);
-                    f->ac.y = f->ac.py = f->ac.sy = start[i][1] * 64;
-                    acr_gen1_ai_profile prof;
-                    acr_gen1_ai_preset(&prof, i ? ACR_GEN1_AI_AGGRESSOR : ACR_GEN1_AI_BALANCED);
-                    acr_gen1_ai_init(&ai[i], &prof, 77u + (uint32_t)i);
-                }
-                int32_t far = 0, low = -100000;
-                for (int t = 0; t < 120 * 22 && b.f[0].ap > 0 && b.f[1].ap > 0; ++t) {
-                    acr_gen1_input in[2];
-                    acr_gen1_actions act[2];
-                    for (int i = 0; i < 2; ++i) acr_gen1_ai_step(&ai[i], &b, i, 4700, &in[i], &act[i]);
-                    acr_gen1_battle_step(&b, in, act);
-                    for (int i = 0; i < 2; ++i) {
-                        const int64_t x = b.f[i].ac.x / 64, z = b.f[i].ac.z / 64;
-                        const int32_t r = (int32_t)sqrt_i(x * x + z * z);
-                        if (r > far) far = r;
-                        if (b.f[i].ac.y / 64 > low) low = b.f[i].ac.y / 64;
-                    }
-                }
-                printf("green silo AI fight: farthest from the middle %d, lowest feet %d, AP %d / %d\n", far, low,
-                       b.f[0].ap, b.f[1].ap);
+                int32_t far, low, ap[2];
+                ai_fight(&silo, &def, start, &far, &low, ap);
+                printf("green silo AI fight: farthest from the middle %d, lowest feet %d, AP %d / %d\n", far, low, ap[0],
+                       ap[1]);
                 EXPECT(far < 6718 && low <= -661);
             }
             acr_gen1_stage_free(&silo);
         }
         free(text);
+
+        /* Ocean Platform (stage 39, the user's pick for the next arena):
+         * open to the sea, with polygons ACs pass through (class 1). The
+         * starts stand on the platform; a fight runs. */
+        snprintf(path, sizeof path, "%s/39/collision.obj", dir);
+        text = read_text(path);
+        snprintf(path, sizeof path, "%s/39/collision.txt", dir);
+        char *game = read_text(path);
+        acr_gen1_stage ocean;
+        if (text && game && acr_gen1_stage_parse(text, &ocean)) {
+            EXPECT(acr_gen1_stage_parse_game(game, &ocean));
+            printf("ocean platform: %u polygons, %u areas, %u models\n", (unsigned)ocean.polys, (unsigned)ocean.areas,
+                   (unsigned)ocean.gmodels);
+            const int32_t start[2][4] = { { -38, -176, -9345, 0 }, { -6, -176, 9919, 2048 } };
+            for (int i = 0; i < 2; ++i) {
+                const int32_t pos[3] = { start[i][0], start[i][1], start[i][2] };
+                int32_t f = 0;
+                EXPECT(acr_gen1_stage_floor_probe(&ocean, pos, ACR_GEN1_STAGE_PROBE_HALF, ACR_GEN1_STAGE_BOX_HEIGHT,
+                                                  ACR_GEN1_STAGE_AC_MASK, &f));
+                printf("ocean platform: start %d floor %d\n", i + 1, f);
+                EXPECT(f - pos[1] < ACR_GEN1_STAGE_GROUNDED);
+            }
+            acr_gen1_ac_def def = make_def(&ocean);
+            int32_t far, low, ap[2];
+            ai_fight(&ocean, &def, start, &far, &low, ap);
+            printf("ocean platform AI fight: farthest from the middle %d, lowest feet %d, AP %d / %d\n", far, low,
+                   ap[0], ap[1]);
+            acr_gen1_stage_free(&ocean);
+        }
+        free(text);
+        free(game);
     }
 
     acr_gen1_stage_free(&st);

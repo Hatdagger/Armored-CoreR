@@ -125,8 +125,96 @@ turn the point into the model's space (`0x80074210`), AND the slice masks,
 test the polygons of the groups left (`0x80073A6C` -> `0x8007386C`).
 
 Green Silo: 396 polygons (91 in each quarter dome, 8 in each floor
-quarter). What the engine then does with a hit (wall slide, floor height
-AC +0x2C, ceilings, step heights) is not read yet.
+quarter).
+
+The low 3 bits of the corner words are flags (the vertex offset is bits
+3-14): **corner 0 = 1** asks for the inside-the-outline test (without it
+only the plane and the polygon's box count); **corner 1 = the class**,
+skipped when it shares a bit with the body's mask (an AC's AC +0x43 is 5,
+so class 1 and 4 polygons let ACs through: Ocean Platform has 85 class 1
+polygons; Green Silo none); corner 3 = a priority (x 64 off the score
+below; triangles' corner 3 is the filler 0x7FFC, priority 4 on every
+polygon). Flags bits 2-3 = the main axis (0 x, 1 y, 2 z), bits 4-9 = which
+corners are the polygon box's minimum on x, y, z, bits 10-15 its maximum.
+The normal points **into** the surface the way a body moves into it
+(floors: +y, y being down).
+
+## Walls and floors (read 2026-11-19, VS engine FDAT 209)
+
+How an AC moves through a stage. In the engine since 2026-11-19
+(`acr_gen1_stage_try` / `_move` / `_floor_probe`, `acr_gen1_sim.c`
+`game_stage_tick`); acr-import writes the game's own data for it as
+`stages/<NN>/collision.txt` (**needs a disc re-import**; without it the
+older stand-in rules run).
+
+**The body is a box**, not a cylinder: x and z AC +0x28 (100) either side,
+y from the feet up AC +0x2A (212); square to the world axes whatever the
+AC's facing. (The 75-a-tick step limit is three quarters of +0x28.)
+
+**A movement handler** (walking `0x8007B60C`, and the others that load
+their step through `0x80054124`):
+1. On the ground the step also leans **down by a quarter of its length**
+   (sqrt(x^2 + z^2) / 4), so the AC follows slopes and steps down.
+2. A first try (`0x80078AB0`) at the destination: if the stage pushes it
+   and the corrected step isn't downward, the lean is dropped (the floor
+   already holds the AC).
+3. The move (`0x80078C4C`): up to **six tries**; each puts the box at
+   position + step and, if the stage meets it, replaces the step with the
+   corrected one. Still meeting the stage after six: no move at all. (AC
+   against AC and stage objects come in between; the engine keeps its own
+   AC push.)
+4. Afterwards, where the step taken differs by 7 or more from the step
+   wanted on x or z, the speed becomes the step taken; the y speed is
+   always set from it (so a floor stops a fall and a ceiling a rise).
+
+**One try** (`0x80078AB0` -> `0x800758F0` -> `0x80073EB0`): the box goes
+into each overlapping area's model space ((p - centre) x 4, turned by
+-quarters, `0x80074210`) with the move x 4. For each polygon
+(`0x80073A6C` -> `0x8007386C` -> `0x800734F8`):
+- skipped if normal . move < 0 (it only stops bodies moving into it);
+- the polygon's box must meet the body's (ends included, `0x800739D8`);
+- the four box edges along the polygon's main axis, in the order
+  (a min, b min), (a max, b min), (a min, b max), (a max, b max) (a, b the
+  other axes: y, z for x; x, z for y; x, y for z): where the edge's line
+  meets the plane (integer division) must lie within the box along the
+  main axis, and, with the corner 0 flag, inside the outline (GTE NCLIP
+  signs, either winding, `0x800732BC`). The first such edge is the hit;
+- the corner pushed is that edge's end the normal points to (the far end
+  along the main axis; jump table at `0x80051084`, `0x80073CD8`), and the
+  correction (`0x80073C10`) is
+  `move + n x (((-(n . corner + d)) >> 10) - 16) >> 14`: the corner put a
+  quarter unit (4 model units) short of the plane, the move kept along the
+  surface, so the AC slides.
+The hit kept (`0x8007257C`) is the smallest |x| + |y| + |z| of the
+corrected move minus priority x 64, among polygons whose class the body
+doesn't pass through. Turned back to the world and divided by 4 rounding
+away from zero, it is the new step.
+
+**The floor under the AC** (`0x8007C964` -> `0x800792BC`, written to AC
++0x2C; AC +0x30 = that floor's area): a box AC +0x72 >> 1 (37) either
+side, from the top of the AC to 4,096 below the feet; only polygons with
+normal y > 0; the four corner columns (`0x80075DD8` -> `0x80075B58`) give
+plane heights inside the box (and the outline, with the flag); world y =
+centre + model y >> 2; the highest wins, one above the feet counts as at
+the feet; none = 32,767. (AC +0x2E is the same for class 1 polygons, the
+lowest: water?)
+
+**On the ground** (`0x80083960` / `0x80085DF4`): the AC stays standing
+while AC +0x2C - y < 50. Otherwise, unless a box 50 lower would meet the
+stage (`0x80079230`), it falls: air state 0x4B, y speed 256, sideways speed
+0 (kept during a ground boost, class 0xB0). Engine: touchdown is the fall
+stopped by a floor (the game's own touchdown code not read yet).
+
+Not ported: the slice bit tables (only a shortcut), `0x80074530`'s area
+list (the engine tests every area whose box meets the body), polygon
+classes 2-3 on corner 0 (`0x80078E80`: a callback, perhaps triggers),
+moving stage objects.
+
+Checked: `tests/test_gen1_stage.c` (a made-up stage: a step into a wall
+comes back 100 short of it, walking stops at the wall, a class 1 wall lets
+the AC through, walking off an edge falls straight down and lands on the
+floor below; with `ACR_STAGE_DIR` Green Silo and Ocean Platform starts,
+walks and two-minute computer fights).
 
 ## Points (chunk 13)
 
@@ -165,7 +253,8 @@ y = -game y). Open them in Blender to look around.
 - Movement (`acr_gen1_sim.c`, `def->stage`): walls push the AC out
   sideways; on the ground it steps up to 120, follows a floor dropping by
   up to 120 and falls past that; it lands on the stage's floor and stops
-  rising at a ceiling. **Stand-ins** until the game's rules are read.
+  rising at a ceiling. **Stand-ins**, now only for an import without
+  `collision.txt`; the game's rules replace them ("Walls and floors").
 - Shots and missiles stop at the stage (`battle.stage`).
 - AC TEST loads Green Silo when the import has it (F7 / Back+Left: the
   open test floor), drawn from the textured models (an import from before
@@ -184,9 +273,9 @@ y = -game y). Open them in Blender to look around.
 
 ## Next
 
-1. The game's own wall / floor response (`0x80074FA4` sweep, AC +0x2C /
-   +0x30, the step at `0x80054124`), and out-of-area (the 60 model-8 boxes,
-   player block +0x08).
+1. Done 2026-11-19: the game's own wall / floor response (see "Walls and
+   floors"). `0x80074FA4` turned out to be the line test (sight, blade,
+   missiles), not the body's. Out-of-area: see "Out of area".
 2. The other stages: their textured models already import (chunk 1 +
    RTIM); check them in the engine (Lunar Base first) and read the data
    after chunk 13. Page 448's texture.

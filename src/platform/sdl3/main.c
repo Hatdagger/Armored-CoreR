@@ -438,9 +438,9 @@ static int parse_args(int argc, char **argv, const char **dir, int parts[SLOT_CO
 static const int k_test_kit = 1;
 static acr_gen1_hangar g_hangar;
 static const char *g_import_dir = "";
-/* The arena: Green Silo (stage 27) when the import has it; F7 switches
- * between it and the open test floor. ACR_STAGE=NN picks another stage,
- * ACR_STAGE=0 starts on the open floor. */
+/* The arena: Green Silo (stage 27) when the import has it; F7 cycles Green
+ * Silo, Ocean Platform (39) and the open test floor. ACR_STAGE=NN picks
+ * another stage to start on, ACR_STAGE=0 starts on the open floor. */
 static demo_stage g_stage;
 static int g_stage_id = 27, g_stage_on = 0;
 
@@ -830,10 +830,28 @@ int main(int argc, char **argv) {
             if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_F7) toggle_stage = 1;
             if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && back_held && e.gbutton.button == SDL_GAMEPAD_BUTTON_DPAD_LEFT) { toggle_stage = 1; back_combo = 1; }
             if (toggle_stage) {
-                /* Green Silo <-> the open test floor (loaded the first time it's wanted). */
-                if (g_stage_on) g_stage_on = 0;
-                else if (g_stage.ok || (g_stage_id > 0 && demo_stage_load(dir, g_stage_id, &g_stage))) g_stage_on = 1;
-                else if (demo_stage_load(dir, 27, &g_stage)) { g_stage_id = 27; g_stage_on = 1; }
+                /* Green Silo -> Ocean Platform -> the open test floor -> Green
+                 * Silo (ACR_STAGE's stage, if another, comes first). A stage
+                 * the import lacks is skipped. */
+                static const int k_cycle[] = { 27, 39 };
+                int want_id = 0;
+                if (!g_stage_on) want_id = k_cycle[0];
+                else
+                    for (int k = 0; k < 2; ++k)
+                        if (g_stage_id == k_cycle[k]) want_id = k + 1 < 2 ? k_cycle[k + 1] : 0;
+                g_stage_on = 0;
+                while (want_id) {
+                    if (g_stage.ok && g_stage_id == want_id) { g_stage_on = 1; break; }
+                    demo_stage tmp;
+                    if (demo_stage_load(dir, want_id, &tmp)) {
+                        if (g_stage.ok) demo_stage_free(&g_stage);
+                        g_stage = tmp;
+                        g_stage_id = want_id;
+                        g_stage_on = 1;
+                        break;
+                    }
+                    want_id = want_id == k_cycle[0] ? k_cycle[1] : 0;
+                }
                 def->stage = def2->stage = battle.stage = g_stage_on ? &g_stage.collision : NULL;
                 SETUP_FIGHTERS(); prevs[0] = *P; prevs[1] = *T;
             }
@@ -1396,7 +1414,7 @@ int main(int argc, char **argv) {
             TEXT(20, 88, "BACK+A (H): HUMAN PLUS  BACK (T): STEP RATE");
             TEXT(20, 100, "BACK+LB (F2): TWO PLAYERS  BACK+R3 (F3): LANDING PAUSE GUESS/ANIMATION");
             TEXT(20, 112, "BACK+UP (F4): OPPONENT STILL / AI PRESETS  BACK+DOWN (F6): AI VS AI (WATCH)");
-            TEXT(20, 124, g_stage.ok ? "BACK+LEFT (F7): ARENA STAGE / OPEN TEST FLOOR"
+            TEXT(20, 124, g_stage.ok ? "BACK+LEFT (F7): GREEN SILO / OCEAN PLATFORM / OPEN TEST FLOOR"
                                      : "BACK+LEFT (F7): ARENA STAGE (RE-IMPORT THE DISC FOR STAGES)");
         }
         }

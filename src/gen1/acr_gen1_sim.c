@@ -181,6 +181,101 @@ static void stage_move(acr_gen1_ac *ac, const acr_gen1_ac_def *def, int32_t *flo
     }
 }
 
+/* Touchdown: the fall speed decides the recovery (see below). y is already
+ * at the floor. */
+static void touch_down(acr_gen1_ac *ac, const acr_gen1_ac_def *def) {
+    ac->vy_at_touchdown = ac->vy;
+    ac->vy = 0;
+    /* Sideways speed carries into a ground slide (the game was only
+     * measured landing with none left). */
+    ac->coast = 0;
+    ac->state = ACR_GEN1_LANDING;
+    set_anim(ac, ACR_GEN1_ANIM_IDLE);
+    /* Recovery grows with the speed of the fall: none below 2,000, the
+     * full measured stagger at 5,000 and above (a hop's touchdown), so
+     * feathering the booster before landing softens it. In ticks. The
+     * curve below 5,000 is a stand-in until measured; the test switch
+     * landing_from_anim plays the landing animation out instead. */
+    const int32_t fall = ac->vy_at_touchdown;
+    uint32_t ticks = 0;
+    if (fall >= 5000) ticks = def->landing_steps;
+    else if (fall > 2000) ticks = (uint32_t)def->landing_steps * (uint32_t)(fall - 2000) / 3000u;
+    const acr_gen1_root_track *land = def->anim[ACR_GEN1_ANIM_LAND];
+    if (def->landing_from_anim && land && land->length) ticks = land->length;
+    ac->timer = (uint16_t)ticks;
+    ac->landing_pause = (uint16_t)ticks;
+    if (!ac->timer) ac->state = ACR_GEN1_GROUND;
+}
+
+/* Floor division by 64 (positions are in 1/64 units). */
+static int32_t whole(int32_t v) { return v >= 0 ? v / 64 : -((-v + 63) / 64); }
+
+/* The game's own stage rules (VS engine, gen1-stages.md, "Walls and
+ * floors"), for an import with the game's collision:
+ * - the move goes through the stage as one box (100 either side, 212
+ *   tall), up to six tries, each pushed out of the nearest polygon
+ *   (0x80078C4C); on the ground the step also leans down by a quarter of
+ *   its length, so the AC follows slopes and steps down (0x8007B60C), but
+ *   not where the floor already holds it (the first try comes back level);
+ * - where the stage cut a sideways step by 7 or more the speed becomes the
+ *   step taken; the fall stops at a floor (touchdown) or a ceiling;
+ * - on the ground: once the floor under the AC (0x8007C964) is 50 or more
+ *   below the feet and the AC could drop 50, it falls from 256 a tick
+ *   (0x80083978), its sideways speed gone unless it was ground boosting. */
+static void game_stage_tick(acr_gen1_ac *ac, const acr_gen1_ac_def *def, int32_t mx, int32_t mz, int boosting) {
+    const acr_gen1_stage *st = def->stage;
+    const int air = ac->state == ACR_GEN1_AIR;
+    const int32_t my = air ? ac->vy : 0;
+    const int32_t pos[3] = { whole(ac->x), whole(ac->y), whole(ac->z) };
+    int32_t step[3] = { whole(ac->x + mx) - pos[0], whole(ac->y + my) - pos[1], whole(ac->z + mz) - pos[2] };
+    if (!air) {
+        step[1] = (int32_t)(isqrt64((uint64_t)((int64_t)step[0] * step[0] + (int64_t)step[2] * step[2])) / 4);
+        int32_t t[3] = { step[0], step[1], step[2] };
+        if (acr_gen1_stage_try(st, pos, t, ACR_GEN1_STAGE_BOX_HALF, ACR_GEN1_STAGE_BOX_HEIGHT, ACR_GEN1_STAGE_AC_MASK) &&
+            t[1] <= 0)
+            step[1] = 0;
+    }
+    const int32_t want[3] = { step[0], step[1], step[2] };
+    if (!acr_gen1_stage_move(st, pos, step, ACR_GEN1_STAGE_BOX_HALF, ACR_GEN1_STAGE_BOX_HEIGHT, ACR_GEN1_STAGE_AC_MASK)) {
+        ac->x += mx;
+        ac->z += mz;
+        if (air) ac->y += ac->vy;
+        else ac->y += step[1] * 64;
+    } else {
+        ac->x = (pos[0] + step[0]) * 64 + (ac->x - pos[0] * 64);
+        ac->y = (pos[1] + step[1]) * 64 + (ac->y - pos[1] * 64);
+        ac->z = (pos[2] + step[2]) * 64 + (ac->z - pos[2] * 64);
+        /* Sideways speed (sliding, boosting, the air): what the stage left. */
+        if ((want[0] - step[0] >= 7 || step[0] - want[0] >= 7) && ac->vx) ac->vx = step[0] * 64;
+        if ((want[2] - step[2] >= 7 || step[2] - want[2] >= 7) && ac->vz) ac->vz = step[2] * 64;
+        if (air && step[1] != want[1]) {
+            const int32_t fall = ac->vy;
+            ac->vy = step[1] * 64;
+            if (fall >= 0 && step[1] < want[1]) {          /* stopped by a floor */
+                ac->vy = fall;
+                ac->y = (pos[1] + step[1]) * 64;
+                touch_down(ac, def);
+                return;
+            }
+        }
+    }
+    if (ac->state == ACR_GEN1_AIR) return;
+    /* Still on the ground? */
+    const int32_t now[3] = { whole(ac->x), whole(ac->y), whole(ac->z) };
+    int32_t f;
+    if (acr_gen1_stage_floor_probe(st, now, ACR_GEN1_STAGE_PROBE_HALF, ACR_GEN1_STAGE_BOX_HEIGHT, ACR_GEN1_STAGE_AC_MASK,
+                                   &f) && f - now[1] < ACR_GEN1_STAGE_GROUNDED)
+        return;
+    const int32_t lower[3] = { now[0], now[1] + ACR_GEN1_STAGE_GROUNDED, now[2] };
+    int32_t none[3] = { 0, 0, 0 };
+    if (acr_gen1_stage_try(st, lower, none, ACR_GEN1_STAGE_BOX_HALF, ACR_GEN1_STAGE_BOX_HEIGHT, ACR_GEN1_STAGE_AC_MASK))
+        return;                                         /* something holds it up */
+    ac->state = ACR_GEN1_AIR;
+    ac->vy = 256;
+    ac->timer = 0;
+    if (!boosting) { ac->vx = 0; ac->vz = 0; }
+}
+
 void acr_gen1_ac_spawn(acr_gen1_ac *ac, const acr_gen1_ac_def *def, int32_t x, int32_t z, uint16_t yaw) {
     *ac = (acr_gen1_ac){0};
     ac->x = ac->px = ac->sx = x;
@@ -333,50 +428,33 @@ void acr_gen1_ac_tick(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
      * crouch and into the air, as the game's animation player does; the
      * drawing plays it from this and turns to the air poses when it ends. */
     if (ac->anim == ACR_GEN1_ANIM_JUMP && ac->anim_frame < UINT16_MAX) ++ac->anim_frame;
-    ac->x += mx;
-    ac->z += mz;
-    /* The floor under the AC: y = 0 on the open test floor; in an arena the
-     * stage's (walls first, then floors; see the step stand-ins). */
-    int32_t floor_y = 0;
-    int have_floor = 1;
-    if (def->stage) stage_move(ac, def, &floor_y, &have_floor);
-    if (ac->state == ACR_GEN1_AIR) {
-        ac->y += ac->vy;
-        if (def->stage && ac->vy < 0) {          /* rising into a ceiling */
-            int32_t c;
-            const int32_t head = ac->y / 64 - ACR_GEN1_HIT_HEIGHT_SIM;
-            if (acr_gen1_stage_ceiling(def->stage, ac->x / 64, ac->z / 64, ac->py / 64 - ACR_GEN1_HIT_HEIGHT_SIM, &c) &&
-                head < c) {
-                ac->y = (c + ACR_GEN1_HIT_HEIGHT_SIM) * 64;
-                ac->vy = 0;
+    if (def->stage && def->stage->areas) {
+        game_stage_tick(ac, def, mx, mz, drain == 2);
+    } else {
+        ac->x += mx;
+        ac->z += mz;
+        /* The floor under the AC: y = 0 on the open test floor; in an arena the
+         * stage's (walls first, then floors; see the step stand-ins). */
+        int32_t floor_y = 0;
+        int have_floor = 1;
+        if (def->stage) stage_move(ac, def, &floor_y, &have_floor);
+        if (ac->state == ACR_GEN1_AIR) {
+            ac->y += ac->vy;
+            if (def->stage && ac->vy < 0) {          /* rising into a ceiling */
+                int32_t c;
+                const int32_t head = ac->y / 64 - ACR_GEN1_HIT_HEIGHT_SIM;
+                if (acr_gen1_stage_ceiling(def->stage, ac->x / 64, ac->z / 64, ac->py / 64 - ACR_GEN1_HIT_HEIGHT_SIM, &c) &&
+                    head < c) {
+                    ac->y = (c + ACR_GEN1_HIT_HEIGHT_SIM) * 64;
+                    ac->vy = 0;
+                }
+            }
+            if (have_floor && ac->y >= floor_y && ac->vy >= 0) {          /* touch down */
+                ac->y = floor_y;
+                touch_down(ac, def);
             }
         }
-        if (have_floor && ac->y >= floor_y && ac->vy >= 0) {          /* touch down */
-            ac->vy_at_touchdown = ac->vy;
-            ac->y = floor_y;
-            ac->vy = 0;
-            /* Sideways speed carries into a ground slide (the game was only
-             * measured landing with none left). */
-            ac->coast = 0;
-            ac->state = ACR_GEN1_LANDING;
-            set_anim(ac, ACR_GEN1_ANIM_IDLE);
-            /* Recovery grows with the speed of the fall: none below 2,000, the
-             * full measured stagger at 5,000 and above (a hop's touchdown), so
-             * feathering the booster before landing softens it. In ticks. The
-             * curve below 5,000 is a stand-in until measured; the test switch
-             * landing_from_anim plays the landing animation out instead. */
-            const int32_t fall = ac->vy_at_touchdown;
-            uint32_t ticks = 0;
-            if (fall >= 5000) ticks = def->landing_steps;
-            else if (fall > 2000) ticks = (uint32_t)def->landing_steps * (uint32_t)(fall - 2000) / 3000u;
-            const acr_gen1_root_track *land = def->anim[ACR_GEN1_ANIM_LAND];
-            if (def->landing_from_anim && land && land->length) ticks = land->length;
-            ac->timer = (uint16_t)ticks;
-            ac->landing_pause = (uint16_t)ticks;
-            if (!ac->timer) ac->state = ACR_GEN1_GROUND;
-        }
     }
-
     /* Energy (VS engine 0x80082D90): boosting drains, otherwise the
      * generator refills it.
      * - The moving refill is for an AC moving on the ground (walking,

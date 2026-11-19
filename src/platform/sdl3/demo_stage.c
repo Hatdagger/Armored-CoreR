@@ -183,6 +183,15 @@ int demo_stage_load(const char *dir, int id, demo_stage *out) {
     char *mtl = load_text(path);
     int ok = coll && toml && acr_gen1_stage_parse(coll, &out->collision) &&
              read_start(toml, "start_1", out->start[0]) && read_start(toml, "start_2", out->start[1]);
+    /* The game's own collision (imports from 2026-11-19 on): walls and
+     * floors then follow the game's rules instead of the stand-ins. */
+    if (ok) {
+        SDL_snprintf(path, sizeof path, "%s/collision.txt", sdir);
+        char *game = load_text(path);
+        if (game && !acr_gen1_stage_parse_game(game, &out->collision))
+            SDL_Log("stage %02d: collision.txt unreadable; using the stand-in walls and floors", id);
+        SDL_free(game);
+    }
     /* The textured models; imports from before 2026-11-19 (or a stage
      * without them) fall back to the flat green ones, with outlines. */
     int drawn = ok && vis && build_faces(out, vis, mtl, sdir);
