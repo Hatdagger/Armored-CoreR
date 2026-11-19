@@ -1078,13 +1078,17 @@ int main(int argc, char **argv) {
         battle.step_rate = def->step_rate;
         battle.gen1_rate = def->gen1_rate;
         def->landing_from_anim = def2->landing_from_anim = (uint8_t)g_landing_anim;
-        for (uint32_t i = 0; i < ticks && !round_over; ++i) {
+        for (uint32_t i = 0; i < ticks; ++i) {
             prevs[0] = *P;
             prevs[1] = *T;
             /* Two players: a two-minute round, decided as the VS engine
              * does: a knock-out settles 12 ticks after it (both down is a
              * draw); at time up the higher AP wins, equal AP is a draw. */
-            if (two_players || g_ai_mode) {
+            if (round_over) {
+                /* Round over: the game keeps running with every pilot's
+                 * controls let go (AI included), so the ACs drop to the
+                 * ground where they are. */
+            } else if (two_players || g_ai_mode) {
                 round_ms -= battle.step_ms;
                 if (round_ms < 0) round_ms = 0;
                 const int res = acr_gen1_battle_result(&battle, round_ms <= 0);
@@ -1117,6 +1121,10 @@ int main(int argc, char **argv) {
                 if (!by_ai) continue;
                 acr_gen1_ai_step(&g_ai[k], &battle, k, g_stage_on ? g_stage.half : ARENA, &in2[k], &act[k]);
                 g_in[k] = in2[k];
+            }
+            if (round_over) {
+                SDL_memset(in2, 0, sizeof in2);
+                SDL_memset(act, 0, sizeof act);
             }
             /* The arena's floors and walls (the defs are reloaded on part changes). */
             def->stage = def2->stage = battle.stage = g_stage_on ? &g_stage.collision : NULL;
@@ -1441,7 +1449,14 @@ int main(int argc, char **argv) {
             /* Out of area: the warning outside the first inner box, then the loss. */
             {
                 const int out = acr_gen1_battle_out_of_area(&battle, view);
-                if (out) acr_hud_text(g_vw * 0.5f - 40, g_vh * 0.30f, out == 2 ? "OUT OF AREA" : "AREA WARNING", 255, 80, 60);
+                if (out && !round_over) acr_hud_text(g_vw * 0.5f - 40, g_vh * 0.30f, out == 2 ? "OUT OF AREA" : "AREA WARNING", 255, 80, 60);
+            }
+            /* Round over: each player's own result in their own view. */
+            if (round_over) {
+                const int won = round_result == 1 + view, draw = round_result == 3;
+                const char *res = draw ? "DRAW" : won ? "WIN" : "LOSE";
+                acr_hud_text(g_vw * 0.5f - 4.0f * (float)SDL_strlen(res), g_vh * 0.40f, res,
+                             draw ? 240 : won ? 120 : 255, draw ? 240 : won ? 230 : 80, draw ? 240 : won ? 255 : 60);
             }
             SDL_snprintf(line, sizeof line, "AP %5d", (int)me->ap);
             TEXT(g_vw - 150, rc_y + 48, line);
@@ -1486,16 +1501,12 @@ int main(int argc, char **argv) {
             acr_hud_text(full_w / 2.0f - 90, 448, who, 255, 200, 120);
         }
         if (round_over) {
-            const int vs_ai = !two_players, practice = !two_players && !g_ai_mode;
-            acr_hud_text(full_w / 2.0f - 120, 240,
-                         practice ? (round_result == 1 ? "TARGET OUT - START TO RESET" :
-                                     round_result == 2 ? "YOU LOSE - START TO RESET" : "DRAW - START TO RESET") :
-                         round_result == 1 ? (vs_ai && !g_autopilot ? "YOU WIN - START TO RESET" : "PLAYER 1 WINS - START TO RESET") :
-                         round_result == 2 ? (vs_ai ? "THE AI WINS - START TO RESET" : "PLAYER 2 WINS - START TO RESET")
-                                           : "DRAW - START TO RESET", 255, 230, 120);
-            if (round_ms <= 0) acr_hud_text(full_w / 2.0f - 40, 254, "TIME UP", 255, 230, 120);
-            else if (acr_gen1_battle_out_of_area(&battle, 0) == 2 || acr_gen1_battle_out_of_area(&battle, 1) == 2)
-                acr_hud_text(full_w / 2.0f - 44, 254, "OUT OF AREA", 255, 230, 120);
+            /* The result itself is in each player's view; here, how it ended. */
+            const char *why = round_ms <= 0 && (two_players || g_ai_mode) ? "TIME UP" :
+                              (acr_gen1_battle_out_of_area(&battle, 0) == 2 || acr_gen1_battle_out_of_area(&battle, 1) == 2)
+                                  ? "OUT OF AREA" : "KNOCKED OUT";
+            acr_hud_text(full_w / 2.0f - 4.0f * (float)SDL_strlen(why), 270, why, 255, 230, 120);
+            acr_hud_text(full_w / 2.0f - 56, 284, "START TO RESET", 255, 230, 120);
         }
         #undef TEXT
     present:;
