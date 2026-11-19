@@ -281,8 +281,10 @@ int demo_load(const char *import_dir, const int parts[SLOT_COUNT], demo_ac *out,
                 w->ammo = (uint16_t)get_int(t, e, "ammo", 0);
                 w->range = (int32_t)get_int(t, e, "range", 6000);
                 w->energy = (uint8_t)get_int(t, e, "energy_damage", 0);
-                w->lock_ms = (uint16_t)(cls < 4 ? cls : 0);   /* class for now; FCS applied below */
-                w->box_w = (uint16_t)(cls < 4 ? cls + 1 : 0);
+                w->lock_ms = (uint16_t)(cls < 4 ? 1 : 0);
+                w->box_w = (uint16_t)(cls < 4 ? cls + 1 : 0);   /* class for now; FCS applied below */
+                w->mount = (uint8_t)(s == SLOT_HAND ? ACR_GEN1_MOUNT_HAND
+                                     : s == SLOT_ARMS ? ACR_GEN1_MOUNT_ARMS : ACR_GEN1_MOUNT_BACK);
                 /* Refire wait: detail +0x11 in game ticks (AC +0x48 counts it
                  * down; 5 after a WG-RF35 shot). */
                 w->interval = (uint16_t)get_int(t, e, "fire_interval", 5);
@@ -345,15 +347,14 @@ int demo_load(const char *import_dir, const int parts[SLOT_COUNT], demo_ac *out,
         if (w->kind == ACR_GEN1_BLADE || !w->box_w) { w->box_w = 0; w->lock_ms = 0; continue; }
         const int cls = w->box_w - 1;
         if (fcs[cls][0] && w->range > fcs[cls][0]) w->range = (int32_t)fcs[cls][0];
+        w->lock_range = (int32_t)fcs[cls][0];   /* the sight looks out to the FCS's range */
         w->box_w = (uint16_t)fcs[cls][1];
         w->box_h = (uint16_t)fcs[cls][2];
         w->inner_w = (uint16_t)fcs[cls][3];
         w->inner_h = (uint16_t)fcs[cls][4];
-        /* Guns: the game's gun lock grows with distance (VS 0x80080378) by a
-         * factor not read yet; until then the time measured for the
-         * missile, about 7.3 ms per lock unit. Missiles: cursor speed and
-         * ticks per lock from the FCS value (VS 0x80080638). */
-        w->lock_ms = (uint16_t)(fcs[cls][5] * 933 / 128);
+        /* Guns: lock time from the FCS value, the target's speed and
+         * distance (VS 0x800800E4, see acr_gen1_battle.h). Missiles: cursor
+         * speed and ticks per lock from the FCS value (VS 0x80080638). */
         w->lock_value = (uint8_t)(fcs[cls][5] > 255 ? 255 : fcs[cls][5]);
         w->lock_ticks = (uint8_t)((256 - w->lock_value) / 8);
         if (fcs_max_locks && w->max_locks > fcs_max_locks) w->max_locks = (uint8_t)fcs_max_locks;

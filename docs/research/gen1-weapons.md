@@ -103,10 +103,30 @@ middle (y - 106). Was a 65 sphere at 100 up (stand-in).
 - **Shots per trigger**: detail +2 bits 0-1 (2 or 4), one round each.
 - **Straight fire**: sight bit 2 (rockets) and dispensers (pattern bit 2)
   fire along the facing with no aiming, lock or not.
-- **Lock** (`0x800800E4`): the counter runs while the target is in the
-  box and the lock lands at `distance x lock value / 256 x r / 32768`
-  ticks, so far targets take longer. `r` (lock record +0x04) isn't read
-  yet; the engine still uses about 7.3 ms per lock unit (rifle 0.44 s).
+- **Lock** (`0x800800E4`, read 2026-11-19). The sight sweep `0x80078230`
+  (shared with missiles and the blade) looks from the weapon's joint
+  (`0x80078888`) out to the **FCS class range** (not the weapon's) and
+  marks the target "in sight" (lock record +0x16 bit 1) inside the outer
+  box. The boxes are **angles** (4096 a turn) off the facing (AC +0x12)
+  and the view tilt (+0x218): 240 = 21 degrees, 200 = 17.6. Each tick, with
+  the target in the **inner** box (bit 2):
+  `T = (target speed a tick x lock value >> 8) x distance >> 15`, where the
+  speed is how far the target moved since the last tick and the distance
+  is lock record +0x04 (the "r" that wasn't read before). The first T
+  ticks count +0x08; then +0x0A counts and the lock (bit 3) is on once it
+  reaches T. Out of the inner box both reset and the lock is gone that
+  tick. So a still target locks at once, and the old flat 0.44 s (a
+  stand-in from the missile) made every re-lock slow.
+- **Aiming ahead** (main program `0x800155DC`): while +0x0A runs, the aim
+  point is the target's middle plus its movement times the shot's flight
+  ticks (distance / shot speed), refined `+0x0A / 4` times (at most 8).
+  The angles land in lock record +0x18 / +0x1A; a locked shot leaves along
+  them (`0x80081150`), from the weapon's joint, and flies straight.
+- **The HUD sight** (`0x800576E0`) is the inner box: half-sizes
+  `sin(angle) x 4` at 16,384 out, an octagon with the corners cut by 512.
+  It is a little smaller than the lock area (sin against the angle), and the
+  lock is judged on the target's middle, so an AC half out of the sight
+  stays locked.
 - Shot speeds: from the model id, VS engine `0x80080E38` picks one of five
   tables by id range: below 0x14 `0x80091198` (28 bytes each, speed at +8),
   0x14-0x27 `0x80092980` (40), 0x28-0x3B `0x80092C20` (36), 0x3C-0x59

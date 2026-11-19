@@ -16,7 +16,7 @@ static acr_gen1_weapon rifle(void) {
     w.kind = ACR_GEN1_GUN;
     strcpy(w.name, "RIFLE");
     w.attack = 218; w.ammo = 200; w.range = 6100;
-    w.lock_ms = 440; w.box_w = 240; w.box_h = 240;
+    w.lock_ms = 1; w.box_w = 240; w.box_h = 240; w.inner_w = 200; w.inner_h = 200; w.lock_value = 60;
     w.interval = 5; w.hold = 13; w.speed = 700; w.shots = 1;
     return w;
 }

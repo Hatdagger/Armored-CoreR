@@ -108,29 +108,48 @@ static int32_t per_step(const acr_gen1_battle *b, int32_t gen1_value) {
     return (int32_t)((int64_t)gen1_value * 64 * rate_n(b) / rate_d(b));
 }
 
-/* Inside a lock box of half-sizes w / 2, h / 2 (ACR_GEN1_BOX_UNITS) and the range? */
-static int in_box(const acr_gen1_battle *b, int i, int32_t range, uint16_t box_w, uint16_t box_h) {
-    const acr_gen1_ac *me = &b->f[i].ac, *it = &b->f[1 - i].ac;
-    if (b->f[1 - i].ap <= 0 || !box_w) return 0;
-    const int64_t dx = (it->x - me->x) / 64, dy = (it->y - CENTRE_UP - (me->y - CENTRE_UP)) / 64,
-                  dz = (it->z - me->z) / 64;
-    const uint64_t dist = isqrt64((uint64_t)(dx * dx + dy * dy + dz * dz));
-    if (dist > (uint64_t)range) return 0;
+/* Where fighter i's current weapon fires from (1/64 world units). */
+static void muzzle_at(const acr_gen1_battle *b, int i, int32_t m[3]) {
+    const acr_gen1_fighter *f = &b->f[i];
+    const acr_gen1_ac *me = &f->ac;
+    const int32_t r = f->muzzle_set ? f->muzzle[0] : 0, u = f->muzzle_set ? f->muzzle[1] : 120,
+                  a = f->muzzle_set ? f->muzzle[2] : 0;
     int32_t fx, fz;
     fwd_vec(me->yaw, &fx, &fz);
-    const int64_t flat = (dx * fx + dz * fz) / 4096;          /* along the facing */
-    const int64_t side = (dx * fz - dz * fx) / 4096;
-    /* Tilted with the view (L2/R2): +y is down, pitch + is up. */
-    const uint16_t p = (uint16_t)(me->pitch & 4095);
-    const int64_t cp = acr_gen1_cos(p), sp = acr_gen1_sin(p);
-    const int64_t ahead = (flat * cp - dy * sp) / 4096, up = (-dy * cp - flat * sp) / 4096;
-    if (ahead <= 0) return 0;
-    const int64_t s = side < 0 ? -side : side, h = up < 0 ? -up : up;
-    return s * ACR_GEN1_BOX_UNITS <= ahead * (box_w / 2) && h * ACR_GEN1_BOX_UNITS <= ahead * (box_h / 2);
+    /* right = (fz, -fx), as the shots' side offsets */
+    m[0] = me->x + (int32_t)(((int64_t)r * fz + (int64_t)a * fx) * 64 / 4096);
+    m[1] = me->y - u * 64;
+    m[2] = me->z + (int32_t)(((int64_t)a * fz - (int64_t)r * fx) * 64 / 4096);
 }
 
+/* The target's middle seen from the weapon (VS sight sweep 0x80078230):
+ * distance, and its angles off the facing (+ right) and the view tilt (+ up). */
+static uint32_t sight_angles(const acr_gen1_battle *b, int i, int32_t *dyaw, int32_t *dpitch) {
+    const acr_gen1_ac *me = &b->f[i].ac, *it = &b->f[1 - i].ac;
+    int32_t m[3];
+    muzzle_at(b, i, m);
+    const int64_t dx = (it->x - m[0]) / 64, dy = (it->y - CENTRE_UP - m[1]) / 64, dz = (it->z - m[2]) / 64;
+    uint16_t yaw;
+    int16_t pitch;
+    dir_of(dx, dy, dz, &yaw, &pitch);
+    *dyaw = wrap((int32_t)yaw - me->yaw);
+    *dpitch = wrap((int32_t)pitch - me->pitch);
+    return isqrt64((uint64_t)(dx * dx + dy * dy + dz * dz));
+}
+
+/* Inside a lock box (angles either side, 4096 a turn) and the range? */
+static int in_box(const acr_gen1_battle *b, int i, int32_t range, uint16_t box_w, uint16_t box_h) {
+    if (b->f[1 - i].ap <= 0 || !box_w) return 0;
+    int32_t ay, ap;
+    const uint32_t dist = sight_angles(b, i, &ay, &ap);
+    if (dist > (uint32_t)range) return 0;
+    return ay >= -(int32_t)box_w && ay <= box_w && ap >= -(int32_t)box_h && ap <= box_h;
+}
+
+static int32_t sight_range(const acr_gen1_weapon *w) { return w->lock_range ? w->lock_range : w->range; }
+
 int acr_gen1_in_lock_box(const acr_gen1_battle *b, int i, const acr_gen1_weapon *w) {
-    return in_box(b, i, w->range, w->box_w, w->box_h);
+    return in_box(b, i, sight_range(w), w->box_w, w->box_h);
 }
 
 int acr_gen1_aim(const acr_gen1_battle *b, int i, int16_t aim[3]) {
@@ -144,7 +163,8 @@ int acr_gen1_aim(const acr_gen1_battle *b, int i, int16_t aim[3]) {
     if (!w->straight && acr_gen1_in_lock_box(b, i, w)) {
         uint16_t yaw;
         int16_t pitch;
-        dir_of((it->x - me->x) / 64, (it->y - me->y) / 64, (it->z - me->z) / 64, &yaw, &pitch);
+        if (w->kind == ACR_GEN1_GUN && f->locked) { yaw = f->lead_yaw; pitch = f->lead_pitch; }   /* where the shots go */
+        else dir_of((it->x - me->x) / 64, (it->y - me->y) / 64, (it->z - me->z) / 64, &yaw, &pitch);
         aim[0] = (int16_t)-pitch;
         aim[w->aim_y ? 1 : 2] = (int16_t)wrap((int32_t)yaw - me->yaw);
     }
@@ -160,29 +180,18 @@ static acr_gen1_shot *free_shot(acr_gen1_battle *b) {
 static void spawn_shot(acr_gen1_battle *b, int i, int wi, int32_t side, int32_t dirx, int32_t diry, int32_t dirz) {
     acr_gen1_shot *s = free_shot(b);
     if (!s) return;
-    const acr_gen1_ac *me = &b->f[i].ac;
     const int32_t sp = per_step(b, b->f[i].weapon[wi].speed);
+    int32_t m[3];
+    muzzle_at(b, i, m);
     s->active = 1;
     s->owner = (uint8_t)i;
     s->weapon = (uint8_t)wi;
-    s->x = me->x + side * dirz / 4096 * 64;
-    s->y = me->y - MUZZLE_UP;
-    s->z = me->z - side * dirx / 4096 * 64;
+    s->x = m[0] + side * dirz / 4096 * 64;
+    s->y = m[1];
+    s->z = m[2] - side * dirx / 4096 * 64;
     s->vx = (int32_t)((int64_t)dirx * sp / 4096);
     s->vy = (int32_t)((int64_t)diry * sp / 4096);
     s->vz = (int32_t)((int64_t)dirz * sp / 4096);
-}
-
-/* Unit vector (x 4096) from a point to the other AC's middle. */
-static void aim_at(const acr_gen1_battle *b, int target, int32_t x, int32_t y, int32_t z,
-                   int32_t *ax, int32_t *ay, int32_t *az) {
-    const acr_gen1_ac *t = &b->f[target].ac;
-    const int64_t dx = (t->x - x) / 64, dy = (t->y - CENTRE_UP - y) / 64, dz = (t->z - z) / 64;
-    const uint32_t len = isqrt64((uint64_t)(dx * dx + dy * dy + dz * dz));
-    if (!len) { *ax = 0; *ay = 0; *az = 4096; return; }
-    *ax = (int32_t)(dx * 4096 / len);
-    *ay = (int32_t)(dy * 4096 / len);
-    *az = (int32_t)(dz * 4096 / len);
 }
 
 static void damage(acr_gen1_battle *b, int target, int attacker, const acr_gen1_weapon *w) {
@@ -400,8 +409,8 @@ static void missile_tick(acr_gen1_battle *b, int k) {
 static void missile_lock_tick(acr_gen1_battle *b, int i, const acr_gen1_weapon *w, uint16_t ammo) {
     acr_gen1_fighter *f = &b->f[i];
     const acr_gen1_fighter *t = &b->f[1 - i];
-    const int outer = in_box(b, i, w->range, w->box_w, w->box_h);
-    const int inner = in_box(b, i, w->range, w->inner_w ? w->inner_w : w->box_w, w->inner_h ? w->inner_h : w->box_h);
+    const int outer = in_box(b, i, sight_range(w), w->box_w, w->box_h);
+    const int inner = in_box(b, i, sight_range(w), w->inner_w ? w->inner_w : w->box_w, w->inner_h ? w->inner_h : w->box_h);
     if (!outer || (!f->locks && !inner) || (t->jammer && f->locks && rnd(b) < 1639)) {
         f->locks = 0;
         f->lock_count = 0;
@@ -534,6 +543,47 @@ static void fighter_tick(acr_gen1_battle *b, int i, int fire) {
     if (w->kind == ACR_GEN1_MISSILE) missile_fire_tick(b, i, f->current, fire && acr_gen1_stance_ok(f));
 }
 
+/* Gun lock, one tick (VS 0x800800E4; see ACR_GEN1_LEAD_MAX in the header). */
+static void gun_lock_tick(acr_gen1_battle *b, int i, const acr_gen1_weapon *w) {
+    acr_gen1_fighter *f = &b->f[i];
+    f->locked = 0;
+    if (!w->lock_ms || w->straight ||
+        !in_box(b, i, sight_range(w), w->inner_w ? w->inner_w : w->box_w, w->inner_h ? w->inner_h : w->box_h)) {
+        f->lock_wait = f->lock_lead = 0;
+        return;
+    }
+    const acr_gen1_ac *t = &b->f[1 - i].ac;
+    int32_t m[3];
+    muzzle_at(b, i, m);
+    /* The target's middle and its movement over the last tick. */
+    const int64_t px = t->x / 64, py = (t->y - CENTRE_UP) / 64, pz = t->z / 64;
+    const int64_t vx = (t->x - t->px) / 64, vy = (t->y - t->py) / 64, vz = (t->z - t->pz) / 64;
+    const int64_t mx = m[0] / 64, my = m[1] / 64, mz = m[2] / 64;
+    const uint32_t speed = isqrt64((uint64_t)(vx * vx + vy * vy + vz * vz));
+    const uint32_t dist = isqrt64((uint64_t)((px - mx) * (px - mx) + (py - my) * (py - my) + (pz - mz) * (pz - mz)));
+    const int32_t need = (int32_t)(((int64_t)(speed * w->lock_value >> 8) * dist) >> 15);
+    if ((int16_t)(need - f->lock_wait) > 0) {       /* still waiting */
+        ++f->lock_wait;
+        f->lock_lead = 0;
+        return;
+    }
+    /* Aim ahead: where the target will be when a shot gets there (0x800155DC). */
+    int n = f->lock_lead >> 2;
+    if (n > ACR_GEN1_LEAD_MAX) n = ACR_GEN1_LEAD_MAX;
+    const int64_t shot = w->speed > 0 ? w->speed : 700;
+    int64_t ax = px, ay = py, az = pz;
+    for (;;) {
+        const int64_t d = isqrt64((uint64_t)((ax - mx) * (ax - mx) + (ay - my) * (ay - my) + (az - mz) * (az - mz)));
+        if (--n < 0) break;
+        const int64_t k = d / shot;
+        ax = px + vx * k; ay = py + vy * k; az = pz + vz * k;
+    }
+    dir_of(ax - mx, ay - my, az - mz, &f->lead_yaw, &f->lead_pitch);
+    f->lock_wait = (uint16_t)(need + 0x20);
+    if (f->lock_lead < 0x4000) ++f->lock_lead;
+    f->locked = f->lock_lead >= need;
+}
+
 static void fighter_step(acr_gen1_battle *b, int i, acr_gen1_actions a, int ticks) {
     acr_gen1_fighter *f = &b->f[i];
     if (f->ap <= 0 || !f->weapons) {
@@ -550,7 +600,7 @@ static void fighter_step(acr_gen1_battle *b, int i, acr_gen1_actions a, int tick
     if (a.next_weapon && cycled && !f->volley_ticks) {
         do f->current = (uint8_t)((f->current + 1) % f->weapons);
         while (f->weapon[f->current].kind == ACR_GEN1_BLADE);
-        f->lock_ms = 0;
+        f->lock_wait = f->lock_lead = 0;
         f->locked = 0;
         f->locks = 0;
         f->lock_count = 0;
@@ -562,23 +612,15 @@ static void fighter_step(acr_gen1_battle *b, int i, acr_gen1_actions a, int tick
     const acr_gen1_weapon *w = &f->weapon[f->current];
     if (w->kind == ACR_GEN1_MISSILE) { f->locked = f->locks > 0; return; }
 
-    /* Guns: the target has to stay in the FCS box for the lock time. */
-    if (w->lock_ms && !w->straight && acr_gen1_in_lock_box(b, i, w)) {
-        f->lock_ms += b->step_ms;
-        if (f->lock_ms >= w->lock_ms) f->locked = 1;
-    } else {
-        f->lock_ms = 0;
-        f->locked = 0;
-    }
+    for (int t = 0; t < ticks; ++t) gun_lock_tick(b, i, w);
 
     if (!a.fire || f->cooldown || f->hold_left) return;
     if (w->ammo && !f->ammo[f->current]) return;
     if (!acr_gen1_stance_ok(f)) return;
     if (f->swing) return;
-    const int target = 1 - i;
     int32_t ax, ay, az;
     if (f->locked && !w->straight) {
-        aim_at(b, target, f->ac.x, f->ac.y - MUZZLE_UP, f->ac.z, &ax, &ay, &az);
+        vec_of(f->lead_yaw, f->lead_pitch, &ax, &ay, &az);   /* VS 0x80081150: the lock's aim */
     } else {
         /* Along the facing, tilted with the view (+y is down). */
         const uint16_t p = (uint16_t)(f->ac.pitch & 4095);

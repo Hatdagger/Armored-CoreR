@@ -49,4 +49,9 @@ void demo_model_draw(const demo_model *m, int anim, unsigned tick, float x, floa
 void demo_model_draw_pose(const demo_model *m, const acr_pose *pose, float x, float y, float z,
                           float yaw, float scale, const acr_lighting *light);
 
+/* The forward-most point of the parts in `kinds` (bits 1 << ACR_PART_*),
+ * posed: right, up and forward of the AC's feet, in world units (`scale`
+ * as drawn). Where a weapon's shots leave from. 0 when none is drawn. */
+int demo_model_part_tip(const demo_model *m, const acr_pose *pose, unsigned kinds, float scale, float out[3]);
+
 #endif

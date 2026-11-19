@@ -180,6 +180,9 @@ static const uint8_t k_colours_p2[4][3] = { { 46, 12, 10 }, { 18, 18, 20 }, { 52
 /* Aiming (acr_aim.h): each player's aim table and angles, set from the
  * battle before drawing, and the eased joints. */
 static int g_aim_table[2] = { -1, -1 };
+/* Where each AC's current weapon fires from, as drawn (see draw_aimed). */
+static unsigned g_muzzle_parts[2];
+static struct { int ok; float p[3]; } g_muzzle[2];
 static int16_t g_aim[2][3];
 static struct { acr_aim_state st; Uint64 last_ns; int ok; } g_aiming[2];
 
@@ -260,6 +263,12 @@ static void draw_aimed(int who, const demo_model *m, acr_pose *pose, Uint64 now,
     const float ticks = (float)(now - g_aiming[who].last_ns) / (float)ACR_GEN1_TICK_NS;
     g_aiming[who].last_ns = now;
     acr_aim_apply(&g_aiming[who].st, &m->skel, &m->anims, g_aim_table[who], g_aim[who], ticks, pose);
+    /* The game fires from the weapon's joint (VS 0x80078888): take the
+     * weapon's forward-most point as drawn, aim included. */
+    g_muzzle[who].ok = g_muzzle_parts[who] &&
+                       demo_model_part_tip(m, pose, g_muzzle_parts[who], ACR_GEN1_MODEL_SCALE, g_muzzle[who].p) &&
+                       fabsf(g_muzzle[who].p[0]) < 600 && fabsf(g_muzzle[who].p[2]) < 600 &&
+                       g_muzzle[who].p[1] > -100 && g_muzzle[who].p[1] < 600;   /* else the stand-in */
     demo_model_draw_pose(m, pose, x, y, z, yaw, ACR_GEN1_MODEL_SCALE, &g_light);
 }
 
@@ -1160,6 +1169,16 @@ int main(int argc, char **argv) {
         for (int k = 0; k < 2; ++k) {
             g_swinging[k] = battle.f[k].swing != 0;
             g_aim_table[k] = acr_gen1_aim(&battle, k, g_aim[k]);
+            /* The muzzle drawn last frame feeds the battle's shots and lock. */
+            acr_gen1_fighter *fk = &battle.f[k];
+            const acr_gen1_weapon *wk = fk->weapons && fk->current < fk->weapons ? &fk->weapon[fk->current] : NULL;
+            g_muzzle_parts[k] = !wk || wk->kind == ACR_GEN1_BLADE ? 0
+                              : wk->mount == ACR_GEN1_MOUNT_HAND ? 1u << ACR_PART_HAND
+                              : wk->mount == ACR_GEN1_MOUNT_ARMS ? 1u << ACR_PART_ARMS
+                              : (1u << ACR_PART_BACK_LEFT) | (1u << ACR_PART_BACK_RIGHT);
+            fk->muzzle_set = (uint8_t)g_muzzle[k].ok;
+            if (g_muzzle[k].ok)
+                for (int c = 0; c < 3; ++c) fk->muzzle[c] = (int16_t)g_muzzle[k].p[c];
             g_in[k].crouch = battle.f[k].kneeling;   /* the cannon stance keeps its own pose */
         }
         draw_ac(view, &ac, px, py, pz, yaw, crouch);
@@ -1243,25 +1262,43 @@ int main(int argc, char **argv) {
                     if (hint) TEXT(g_vw - 150, rc_y, hint);
                 }
                 if (w->box_w) {
-                    /* The box covers the angles that lock (ACR_GEN1_BOX_UNITS),
-                     * through this view's projection. Like the game's sight
-                     * (VS 0x800576E0) it is a frame far out along the AC's
-                     * facing and view tilt, seen through the camera: when the
-                     * camera trails or swings toward the target, the box
-                     * drifts off the screen's centre. */
-                    const float bw = proj[0] * w->box_w / (float)ACR_GEN1_BOX_UNITS * g_vw * 0.5f,
-                                bh = proj[5] * w->box_h / (float)ACR_GEN1_BOX_UNITS * g_vh * 0.5f;
-                    float bx = g_vw * 0.5f, by = g_vh * 0.45f;
-                    {
-                        const float pt = ((float)prev.pitch + (float)(ac.pitch - prev.pitch) * a) * (6.2831853f / 4096.0f);
-                        const float far = 16384.0f;
-                        float hx, hy;
-                        if (to_hud(proj, viewm, v3(px + sinf(yaw) * cosf(pt) * far, py + 186.0f + sinf(pt) * far,
-                                                   pz + cosf(yaw) * cosf(pt) * far), g_vw, &hx, &hy)) { bx = hx; by = hy; }
+                    /* The game's sight (VS 0x800576E0): the inner lock box as
+                     * an octagon, half-sizes sin(angle) and corners cut by 512,
+                     * on a frame 16,384 out along the AC's facing and view tilt,
+                     * seen through the camera. When the camera trails or swings
+                     * toward the target, the sight drifts off the screen's
+                     * centre. Locks are judged on the target's middle, so an AC
+                     * whose body pokes out of the sight can stay locked. */
+                    const float pt = ((float)prev.pitch + (float)(ac.pitch - prev.pitch) * a) * (6.2831853f / 4096.0f);
+                    const float D = (float)ACR_GEN1_SIGHT_DEPTH, cut = (float)ACR_GEN1_SIGHT_CORNER;
+                    const float sw = sinf((float)(w->inner_w ? w->inner_w : w->box_w) * (6.2831853f / 4096.0f)) * D,
+                                sh = sinf((float)(w->inner_h ? w->inner_h : w->box_h) * (6.2831853f / 4096.0f)) * D;
+                    const vec3 fw = v3(sinf(yaw) * cosf(pt), sinf(pt), cosf(yaw) * cosf(pt)),
+                               up = v3(-sinf(yaw) * sinf(pt), cosf(pt), -cosf(yaw) * sinf(pt)),
+                               rt = v3(cosf(yaw), 0, -sinf(yaw));
+                    const vec3 o = v3(px, py + 186.0f, pz);
+                    const float oct[8][2] = { { -sw + cut, sh }, { sw - cut, sh }, { sw, sh - cut }, { sw, -sh + cut },
+                                              { sw - cut, -sh }, { -sw + cut, -sh }, { -sw, -sh + cut }, { -sw, sh - cut } };
+                    float hx[8], hy[8];
+                    int seen = 1;
+                    float x0 = 1e9f, x1 = -1e9f, y0 = 1e9f, y1 = -1e9f;
+                    for (int c = 0; c < 8 && seen; ++c) {
+                        const float r = oct[c][0], u = oct[c][1];
+                        seen = to_hud(proj, viewm, v3(o.x + rt.x * r + up.x * u + fw.x * D, o.y + up.y * u + fw.y * D,
+                                                      o.z + rt.z * r + up.z * u + fw.z * D), g_vw, &hx[c], &hy[c]);
+                        if (hx[c] < x0) x0 = hx[c];
+                        if (hx[c] > x1) x1 = hx[c];
+                        if (hy[c] < y0) y0 = hy[c];
+                        if (hy[c] > y1) y1 = hy[c];
                     }
-                    /* The FCS box takes the lock's colour once the target is locked. */
-                    if (me->locked) acr_hud_rect(bx - bw * 0.5f, by - bh * 0.5f, bw, bh, 255, 60, 50, 255, 0);
-                    else acr_hud_rect(bx - bw * 0.5f, by - bh * 0.5f, bw, bh, 90, 200, 120, 255, 0);
+                    float bx = g_vw * 0.5f, by = g_vh * 0.45f, bw = 0, bh = 0;
+                    if (seen) {
+                        bx = (x0 + x1) * 0.5f; by = (y0 + y1) * 0.5f; bw = x1 - x0; bh = y1 - y0;
+                        /* The sight takes the lock's colour once the target is locked. */
+                        const uint8_t cr = me->locked ? 255 : 90, cg = me->locked ? 60 : 200, cb = me->locked ? 50 : 120;
+                        for (int c = 0; c < 8; ++c)
+                            acr_hud_line(hx[c], hy[c], hx[(c + 1) & 7], hy[(c + 1) & 7], cr, cg, cb, 255);
+                    }
                     if (w->kind == ACR_GEN1_MISSILE) {
                         /* The missile lock cursor (player block +0x20 / +0x22) and the locks held. */
                         const float cy = tanf(me->cursor_yaw * (6.2831853f / 4096.0f)),

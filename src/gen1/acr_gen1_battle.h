@@ -17,6 +17,7 @@
 #include "acr_gen1_sim.h"
 
 enum { ACR_GEN1_GUN, ACR_GEN1_MISSILE, ACR_GEN1_BLADE };
+enum { ACR_GEN1_MOUNT_HAND, ACR_GEN1_MOUNT_BACK, ACR_GEN1_MOUNT_ARMS };
 
 /* One row of the VS engine's missile flight table (0x80093114), all per tick. */
 typedef struct acr_gen1_flight {
@@ -36,8 +37,9 @@ typedef struct acr_gen1_weapon {
     uint16_t ammo;          /* 0 = unlimited (blade) */
     int32_t  range;         /* world units, already capped by the FCS; blade: reach */
     uint8_t  energy;        /* energy damage (else shell) */
-    uint16_t lock_ms;       /* guns: FCS lock time for this weapon's class; 0 = no lock */
-    uint16_t box_w, box_h;  /* FCS outer lock box, in the original's screen units */
+    uint16_t lock_ms;       /* guns: non-zero = locks on (the time itself comes from the FCS
+                             * value, the target's speed and distance: see gun lock below) */
+    uint16_t box_w, box_h;  /* FCS outer lock box: angles off the facing / view tilt, 4096 a turn */
     uint16_t interval;      /* refire wait after a shot or the last volley, in ticks (detail +0x11) */
     int32_t  speed;         /* gun shot speed, world units a tick */
     uint8_t  stance;        /* back cannons: needs a steady stance to fire (see below) */
@@ -51,9 +53,12 @@ typedef struct acr_gen1_weapon {
      * rather than z (hand weapons). */
     uint8_t  aim_table;
     uint8_t  aim_y;
+    uint8_t  mount;         /* ACR_GEN1_MOUNT_*: which part the shots leave from */
+    int32_t  lock_range;    /* FCS class range: how far the sight looks (0 = range) */
     /* Missiles */
-    uint16_t inner_w, inner_h;  /* FCS inner box: where a new lock can start */
-    uint8_t  lock_value;    /* FCS class value: the cursor moves value x 3 / 16 a tick */
+    uint16_t inner_w, inner_h;  /* FCS inner box (angles): where a lock can start; guns hold one only here */
+    uint8_t  lock_value;    /* FCS class value. Missiles: the cursor moves value x 3 / 16 a tick;
+                             * guns: lock time grows with it (gun lock below) */
     uint8_t  lock_ticks;    /* ticks on target per lock: (256 - FCS value) / 8 */
     uint8_t  max_locks;     /* the smaller of the FCS's and the weapon's (detail +0x10) */
     uint8_t  volley_a, volley_b;     /* missiles per volley from each side */
@@ -86,8 +91,17 @@ typedef struct acr_gen1_fighter {
     uint16_t ammo[ACR_GEN1_MAX_WEAPONS];
     uint16_t cooldown;                         /* ticks until the next shot (AC +0x48) */
     uint16_t hold_left;                        /* ticks of post-shot hold (AC +0x6D) */
-    int32_t  lock_ms;                          /* guns: time the target has been in the box */
     uint8_t  locked;                           /* guns: locked; missiles: at least one lock */
+    /* Gun lock (lock record at player block +0x7C, VS 0x800800E4) */
+    uint16_t lock_wait;                        /* +0x08: ticks toward the lock time */
+    uint16_t lock_lead;                        /* +0x0A: ticks of aiming ahead since */
+    uint16_t lead_yaw;                         /* where locked shots go (+0x18 / +0x1A, absolute) */
+    int16_t  lead_pitch;
+    /* Where the current weapon's shots leave from (game: the weapon's joint,
+     * VS 0x80078888), from the drawn model: right, up, forward of the AC's
+     * feet in world units. muzzle_set = 0: the stand-in, 120 up the middle. */
+    int16_t  muzzle[3];
+    uint8_t  muzzle_set;
     /* Missiles (lock slot at player block +0x7C) */
     uint8_t  locks;                            /* locks held on the target */
     uint8_t  lock_count;                       /* ticks with the cursor on the target */
@@ -159,10 +173,27 @@ typedef struct acr_gen1_actions {
 #define ACR_GEN1_HIT_RADIUS 75
 #define ACR_GEN1_HIT_HEIGHT 212
 
-/* FCS lock box units: half a box this wide spans 45 degrees off the facing.
- * Measured in the recomp: the default FCS's rifle box (240) locks out to
- * about 17 degrees either side (tan 0.29-0.32). */
-#define ACR_GEN1_BOX_UNITS 384
+/* FCS lock boxes are angles (4096 a turn) either side of the facing and
+ * above / below the view tilt, measured from the weapon (VS sight sweep
+ * 0x80078230). The default FCS's gun boxes, 240 outer and 200 inner, are
+ * 21 and 17.6 degrees; the recomp measured the rifle locking out to about
+ * 17 (tan 0.29-0.32).
+ *
+ * Gun lock (VS 0x800800E4), each tick, while the target is inside the
+ * inner box (leaving it drops the lock at once):
+ *   lock time T = (target speed a tick x FCS value / 256) x distance / 32768
+ *   first T ticks waiting, then T ticks aiming ahead; locked from there.
+ * So a target standing still is locked the tick it enters the box, and one
+ * boosting across far away takes longer (WG-RF35, default FCS, a target
+ * moving 100 a tick 4,000 away: T = 2, locked in 5 ticks). Aiming ahead
+ * (main program 0x800155DC): the point the target will reach when a shot
+ * gets there, refined (ticks aiming / 4) times, at most 8. */
+#define ACR_GEN1_LEAD_MAX 8
+
+/* The HUD's sight (VS 0x800576E0) is the inner box drawn as an octagon:
+ * half-sizes sin(inner angle), corners cut by 512 at 16,384 out. */
+#define ACR_GEN1_SIGHT_DEPTH 16384
+#define ACR_GEN1_SIGHT_CORNER 512
 
 /* Blade swing (VS 0x80083224 / 0x8007EB48, plus measurements). A press
  * needs energy above the charge drain and takes it. The swing looks for an
@@ -208,7 +239,8 @@ void acr_gen1_battle_step(acr_gen1_battle *b, const acr_gen1_input in[2], const 
 /* Can the fighter fire its current weapon in its present stance? */
 int acr_gen1_stance_ok(const acr_gen1_fighter *f);
 
-/* Is the other AC inside fighter i's (outer) lock box for weapon w (and in range)? */
+/* Does fighter i's sight see the other AC for weapon w: inside the outer
+ * lock box and the FCS range (lock record +0x16 bit 1)? */
 int acr_gen1_in_lock_box(const acr_gen1_battle *b, int i, const acr_gen1_weapon *w);
 
 /* What fighter i aims with (presentation only), as the game's fire routines

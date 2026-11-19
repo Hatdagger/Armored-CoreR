@@ -2,6 +2,7 @@
  * VS engine as mapped in the AC1Recomp fork (docs/mapping/battle-system.md). */
 #include <stdio.h>
 #include <string.h>
+#include <math.h>
 
 #include "acr_gen1_battle.h"
 
@@ -17,7 +18,7 @@ static acr_gen1_weapon rifle(void) {
     w.kind = ACR_GEN1_GUN;
     strcpy(w.name, "RIFLE");
     w.attack = 218; w.ammo = 200; w.range = 6100;
-    w.lock_ms = 440; w.box_w = 240; w.box_h = 240;
+    w.lock_ms = 1; w.box_w = 240; w.box_h = 240; w.inner_w = 200; w.inner_h = 200; w.lock_value = 60;
     w.interval = 5; w.hold = 13; w.speed = 700; w.shots = 1;
     return w;
 }
@@ -98,7 +99,7 @@ int main(void) {
         const int32_t y = b.f[1].ac.y;
         b.f[1].ac.y = -2000 * 64;                       /* 2,000 up, 3,000 ahead */
         EXPECT(!acr_gen1_in_lock_box(&b, 0, &b.f[0].weapon[0]));
-        b.f[0].ac.pitch = 600;                          /* ~53 degrees up */
+        b.f[0].ac.pitch = 700;                          /* ~62 degrees up: 28 past it, outside 21 */
         EXPECT(!acr_gen1_in_lock_box(&b, 0, &b.f[0].weapon[0]));
         b.f[0].ac.pitch = 384;                          /* ~34 degrees: on it */
         EXPECT(acr_gen1_in_lock_box(&b, 0, &b.f[0].weapon[0]));
@@ -108,8 +109,8 @@ int main(void) {
         b.f[0].weapon[0].aim_table = 0;
         EXPECT(acr_gen1_aim(&b, 0, aim) == 0);
         EXPECT(aim[0] < -300 && aim[0] > -400 && aim[1] == 0 && aim[2] == 0);   /* ~34 degrees up */
-        b.f[0].ac.pitch = 600;
-        EXPECT(acr_gen1_aim(&b, 0, aim) == 0 && aim[0] == -600);
+        b.f[0].ac.pitch = 700;
+        EXPECT(acr_gen1_aim(&b, 0, aim) == 0 && aim[0] == -700);
         b.f[0].weapon[0].aim_table = 255;
         EXPECT(acr_gen1_aim(&b, 0, aim) == -1);
         b.f[0].weapon[0].aim_table = 0;
@@ -144,6 +145,54 @@ int main(void) {
             if (b.f[0].ammo[0] != ammo) { fired_at[n++] = t; ammo = b.f[0].ammo[0]; }
         }
         EXPECT(n == 3 && fired_at[1] - fired_at[0] == 13 && fired_at[2] - fired_at[1] == 13);
+    }
+
+    /* Gun lock (VS 0x800800E4): a target standing still locks the tick it is
+     * in the inner box; a moving one takes longer, the shots go ahead of it
+     * and hit; leaving the inner box drops the lock at once, though the
+     * sight (outer box) still sees it. */
+    {
+        static acr_gen1_battle g;
+        setup(&g, 4000);
+        for (int i = 0; i < 2; ++i) { g.f[i].weapons = 1; g.f[i].weapon[0] = rifle(); g.f[i].ammo[0] = 200; }
+        acr_gen1_battle_step(&g, none, idle);
+        EXPECT(g.f[0].locked);
+        /* Sliding sideways at about 75 a tick. */
+        setup(&g, 4000);
+        for (int i = 0; i < 2; ++i) { g.f[i].weapons = 1; g.f[i].weapon[0] = rifle(); g.f[i].ammo[0] = 200; }
+        int locked_at = 0;
+        for (int t = 1; t <= 20 && !locked_at; ++t) {
+            g.f[1].ac.vx = 100 * 64; g.f[1].ac.vz = 0;
+            acr_gen1_battle_step(&g, none, idle);
+            if (g.f[0].locked) locked_at = t;
+        }
+        EXPECT(locked_at >= 3 && locked_at <= 12);
+        /* Held on it, the lock aims further ahead each 4 ticks: to the side
+         * the target is going (+x), where it will be when the shot gets there. */
+        for (int t = 0; t < 8; ++t) {
+            g.f[1].ac.vx = 100 * 64; g.f[1].ac.vz = 0;
+            acr_gen1_battle_step(&g, none, idle);
+        }
+        {
+            const double bearing = atan2((double)g.f[1].ac.x / 64, 4000.0) * 4096 / 6.2831853;
+            const int32_t lead = g.f[0].lead_yaw >= 2048 ? g.f[0].lead_yaw - 4096 : g.f[0].lead_yaw;
+            EXPECT(g.f[0].locked && lead > bearing + 40);
+        }
+        /* Fire: the shot goes straight and meets the moving target. */
+        const int32_t ap = g.f[1].ap;
+        for (int t = 0; t < 12 && g.f[1].ap == ap; ++t) {
+            g.f[1].ac.vx = 100 * 64; g.f[1].ac.vz = 0;
+            acr_gen1_battle_step(&g, none, t ? idle : fire);
+        }
+        EXPECT(g.f[1].ap < ap);
+        /* 220 off the facing: inside the outer box (240), outside the inner (200). */
+        setup(&g, 4000);
+        for (int i = 0; i < 2; ++i) { g.f[i].weapons = 1; g.f[i].weapon[0] = rifle(); g.f[i].ammo[0] = 200; }
+        acr_gen1_battle_step(&g, none, idle);
+        EXPECT(g.f[0].locked);
+        g.f[0].ac.yaw = (uint16_t)(4096 - 220);
+        acr_gen1_battle_step(&g, none, idle);
+        EXPECT(!g.f[0].locked && acr_gen1_in_lock_box(&g, 0, &g.f[0].weapon[0]));
     }
 
     /* At 60 steps a second a rifle shot moves 700 x 22 / 60 = 256 units a
