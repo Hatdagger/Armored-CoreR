@@ -55,6 +55,9 @@ add_library(acr_import_lib STATIC
     tools/acr_import/acr_stages_moa.c)
 target_include_directories(acr_import_lib PUBLIC tools/acr_import)
 target_link_libraries(acr_import_lib PUBLIC acr_gen1)
+if(NOT MSVC)
+    target_link_libraries(acr_import_lib PUBLIC m)
+endif()
 add_executable(acr-import tools/acr_import/main.c)
 target_link_libraries(acr-import PRIVATE acr_import_lib)
 

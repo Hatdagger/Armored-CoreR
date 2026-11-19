@@ -21,6 +21,9 @@ typedef struct demo_stage {
      * (drawn pulled toward the eye so they don't flicker through it). */
     struct { acr_vtx *v; int count; uint32_t texture; uint8_t semi, overlay; } batch[32];
     int batches;
+    /* The sky (sky.obj, imports from 2026-11-19 on): drawn around the eye. */
+    struct { acr_vtx *v; int count; uint32_t texture; } sky[4];
+    int skies;
     int textured;                   /* 1: the textured models; 0: the flat green ones */
     int32_t half;                   /* half width of a square inside the walls, for the AI */
 } demo_stage;
@@ -31,5 +34,7 @@ void demo_stage_free(demo_stage *s);
 /* Draws it in the current 3D view: pass 0 = solid faces and outlines,
  * pass 1 = see-through faces (after everything else). */
 void demo_stage_draw(const demo_stage *s, int pass);
+/* The sky around the eye (world position), before demo_stage_draw. */
+void demo_stage_draw_sky(const demo_stage *s, const float eye[3]);
 
 #endif

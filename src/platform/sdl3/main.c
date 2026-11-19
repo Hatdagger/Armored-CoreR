@@ -1193,6 +1193,7 @@ int main(int argc, char **argv) {
             const float t = half_h / aspect > half_v ? half_h / aspect : half_v;
             acr_mat_perspective(proj, 2.0f * atanf(t), aspect, 12.0f, 80000.0f);
         }
+        float sky_eye[3] = { 0, 0, 0 };
         {
             /* L2/R2 tilt (measured): the look-at point turns on a circle of
              * 82 around a pivot 186 up the AC's axis, up to ~66 degrees; the
@@ -1249,7 +1250,7 @@ int main(int argc, char **argv) {
                         cam_eye[view][1] < (float)-fy + 100.0f)
                         cam_eye[view][1] = (float)-fy + 100.0f;
                 } else if (cam_eye[view][1] < 100.0f) cam_eye[view][1] = 100.0f;
-                for (int c = 0; c < 3; ++c) { eye[c] = cam_eye[view][c]; look[c] = cam_look[view][c]; }
+                for (int c = 0; c < 3; ++c) { eye[c] = cam_eye[view][c]; look[c] = cam_look[view][c]; sky_eye[c] = eye[c]; }
             }
             const float fwd[3] = { look[0] - eye[0], look[1] - eye[1], look[2] - eye[2] };
             const float up[3] = { 0, 1, 0 };
@@ -1259,7 +1260,8 @@ int main(int argc, char **argv) {
         const acr_fog fog = { 30000.0f, 60000.0f, 18, 22, 28 };
         acr_render_view3d(vx, 0, vpw, ph, proj, viewm, &fog);
 
-        /* the arena, or the open floor's grid and walls */
+        /* the arena (its sky first, around the eye), or the open floor's grid and walls */
+        if (g_stage_on) demo_stage_draw_sky(&g_stage, sky_eye);
         if (g_stage_on) demo_stage_draw(&g_stage, 0);
         for (int g = -ARENA; g <= ARENA && !g_stage_on; g += 2000) {
             line3(v3((float)g, 0, (float)-ARENA), v3((float)g, 0, (float)ARENA), 52, 70, 76);

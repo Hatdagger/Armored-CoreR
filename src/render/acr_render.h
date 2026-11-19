@@ -48,6 +48,10 @@ enum { ACR_MESH_PS1_TEXEL = 1, ACR_MESH_SEMI = 2, ACR_MESH_OVERLAY = 4 };
  * the eye in depth so they always show over the face below instead of
  * flickering through it. */
 void acr_render_mesh(const acr_vtx *v, int count, uint32_t texture, int flags);
+/* The stage's sky: textured faces drawn PS1-style around the eye (moved
+ * with it), behind everything else (no depth, no fog). Call right after
+ * acr_render_view3d, before the stage. */
+void acr_render_sky(const acr_vtx *v, int count, uint32_t texture, const float eye[3]);
 
 /* HUD over a pixel rectangle; returns the HUD grid width for that rectangle
  * (the height is always 480). */

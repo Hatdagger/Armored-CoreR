@@ -52,7 +52,8 @@ the core, tools and tests, add `-DACR_BUILD_GAME=OFF`.
 
 ## Importing your disc
 
-Re-import after updating to this version: the arenas now carry the
+Re-import after updating to this version: Green Silo now has its sky
+(stars behind the arches). Before that, the arenas gained the
 game's own collision data (`collision.txt`), so walls and floors follow
 the game's rules (an older import keeps the stand-in rules). Before that: the animation sets now carry
 the game's aim tables (the gun arm, waist and back units follow the

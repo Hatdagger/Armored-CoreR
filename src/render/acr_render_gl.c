@@ -79,6 +79,10 @@ typedef unsigned int GLbitfield;
     X(void, Clear, (GLbitfield)) \
     X(void, MatrixMode, (GLenum)) \
     X(void, LoadMatrixf, (const GLfloat *)) \
+    X(void, PushMatrix, (void)) \
+    X(void, PopMatrix, (void)) \
+    X(void, Translatef, (GLfloat, GLfloat, GLfloat)) \
+    X(GLboolean, IsEnabled, (GLenum)) \
     X(void, LoadIdentity, (void)) \
     X(void, Ortho, (GLdouble, GLdouble, GLdouble, GLdouble, GLdouble, GLdouble)) \
     X(void, EnableClientState, (GLenum)) \
@@ -223,6 +227,22 @@ void acr_render_mesh(const acr_vtx *v, int count, uint32_t texture, int flags) {
         glTexEnvf(GL_TEXTURE_ENV, GL_RGB_SCALE, 1.0f);
         glTexEnvi(GL_TEXTURE_ENV, GL_TEXTURE_ENV_MODE, GL_MODULATE);
     }
+}
+
+void acr_render_sky(const acr_vtx *v, int count, uint32_t texture, const float eye[3]) {
+    if (count <= 0) return;
+    const GLboolean fog = glIsEnabled(GL_FOG);
+    glDisable(GL_FOG);
+    glDisable(GL_DEPTH_TEST);
+    glDepthMask(0);
+    glMatrixMode(GL_MODELVIEW);
+    glPushMatrix();
+    glTranslatef(eye[0], eye[1], eye[2]);
+    acr_render_mesh(v, count, texture, ACR_MESH_PS1_TEXEL);
+    glPopMatrix();
+    glDepthMask(1);
+    glEnable(GL_DEPTH_TEST);
+    if (fog) glEnable(GL_FOG);
 }
 
 float acr_render_hud(int x, int y, int w, int h) {

@@ -129,7 +129,7 @@ static void find_overlays(const acr_mesh *mesh, uint8_t *mark) {
     SDL_free(box);
 }
 
-static int build_faces(demo_stage *s, const char *obj, const char *mtl_text, const char *dir) {
+static int build_faces(demo_stage *s, const char *obj, const char *mtl_text, const char *dir, int unlit) {
     acr_mtl mtl;
     if (!acr_mtl_parse(mtl_text ? mtl_text : "", &mtl)) return 0;
     acr_mesh mesh;
@@ -168,8 +168,8 @@ static int build_faces(demo_stage *s, const char *obj, const char *mtl_text, con
         const float u[3] = { b[0] - a[0], b[1] - a[1], b[2] - a[2] }, w[3] = { c[0] - a[0], c[1] - a[1], c[2] - a[2] };
         float n[3] = { u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0] };
         const float len = sqrtf(n[0] * n[0] + n[1] * n[1] + n[2] * n[2]);
-        float lit = 0.75f;
-        if (len > 0) lit = 0.55f + 0.45f * fabsf((n[0] * L[0] + n[1] * L[1] + n[2] * L[2]) / len);
+        float lit = unlit ? 1.0f : 0.75f;
+        if (len > 0 && !unlit) lit = 0.55f + 0.45f * fabsf((n[0] * L[0] + n[1] * L[1] + n[2] * L[2]) / len);
         const acr_material *m = mesh.material[t] < mtl.count ? &mtl.m[mesh.material[t]] : NULL;
         const uint8_t r = (uint8_t)((m ? m->r : 160) * lit), g = (uint8_t)((m ? m->g : 160) * lit),
                       bl = (uint8_t)((m ? m->b : 160) * lit);
@@ -281,7 +281,7 @@ int demo_stage_load(const char *dir, int id, demo_stage *out) {
     }
     /* The textured models; imports from before 2026-11-19 (or a stage
      * without them) fall back to the flat green ones, with outlines. */
-    int drawn = ok && vis && build_faces(out, vis, mtl, sdir);
+    int drawn = ok && vis && build_faces(out, vis, mtl, sdir, 0);
     if (ok && !drawn) {
         demo_stage_free_draw(out);
         SDL_free(vis); SDL_free(mtl);
@@ -295,10 +295,30 @@ int demo_stage_load(const char *dir, int id, demo_stage *out) {
             SDL_snprintf(path, sizeof path, "%s/visual.mtl", sdir);
             mtl = load_text(path);
         }
-        drawn = vis && build_faces(out, vis, mtl, sdir) && build_edges(out, vis);
+        drawn = vis && build_faces(out, vis, mtl, sdir, 0) && build_edges(out, vis);
     }
     ok = ok && drawn;
     if (ok) {
+        /* The sky: its faces built as a stage of their own, then kept. */
+        SDL_snprintf(path, sizeof path, "%s/sky.obj", sdir);
+        char *sky = load_text(path);
+        SDL_snprintf(path, sizeof path, "%s/sky.mtl", sdir);
+        char *sky_mtl = load_text(path);
+        demo_stage tmp;
+        SDL_memset(&tmp, 0, sizeof tmp);
+        if (sky && build_faces(&tmp, sky, sky_mtl, sdir, 1)) {
+            for (int i = 0; i < tmp.batches; ++i) {
+                if (tmp.batch[i].count && out->skies < 4) {
+                    out->sky[out->skies].v = tmp.batch[i].v;
+                    out->sky[out->skies].count = tmp.batch[i].count;
+                    out->sky[out->skies].texture = tmp.batch[i].texture;
+                    ++out->skies;
+                    tmp.batch[i].v = NULL;
+                }
+            }
+        }
+        demo_stage_free_draw(&tmp);
+        SDL_free(sky); SDL_free(sky_mtl);
         out->ok = 1;
         out->id = id;
         const char *n = SDL_strstr(toml, "name = \"");
@@ -324,6 +344,8 @@ static void demo_stage_free_draw(demo_stage *s) {
     s->tri_count = s->semi_count = s->edge_count = 0;
     for (int i = 0; i < s->batches; ++i) SDL_free(s->batch[i].v);   /* textures stay with GL */
     s->batches = 0;
+    for (int i = 0; i < s->skies; ++i) SDL_free(s->sky[i].v);
+    s->skies = 0;
     s->textured = 0;
 }
 
@@ -350,4 +372,9 @@ void demo_stage_draw(const demo_stage *s, int pass) {
                                 ACR_MESH_PS1_TEXEL | ACR_MESH_SEMI | (s->batch[i].overlay ? ACR_MESH_OVERLAY : 0));
         if (s->semi_count) acr_render_mesh(s->semi, s->semi_count, 0, ACR_MESH_SEMI);
     }
+}
+
+void demo_stage_draw_sky(const demo_stage *s, const float eye[3]) {
+    if (!s->ok) return;
+    for (int i = 0; i < s->skies; ++i) acr_render_sky(s->sky[i].v, s->sky[i].count, s->sky[i].texture, eye);
 }

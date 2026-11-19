@@ -246,6 +246,29 @@ has a **test boundary** (F8 / Back + Right: box 1 1,500 past the starts,
 box 2 500 wider on x and narrower on z) to try the warning and the loss.
 `tests/test_gen1_stage.c` walks an AC out of a shrunk boundary.
 
+## The sky (chunk 3, read 2026-11-19)
+
+Chunk 3 is a model set loaded at model slot 0xA0; the arena engine's
+stage-object routine draws slot 0xA0 + the object's +6 (`0x800932B4`).
+Green Silo's entry 1 is a textured, unlit sphere of radius 4,096 around
+its origin (42 points, 80 triangles, flag 1, mode 0xA4): a **starfield**
+on page (640, 0), palette row 485 (RTIM 27's third picture; the faces use
+its top-left 128 x 128). Its faces are the unlit layout (a colour where
+the lit one has a normal: six words, the lit triangle is five);
+acr-import reads that layout for triangles by their length.
+
+Ocean Platform's chunk 3 has no sphere: entry 0 is a small object (24
+points, up at y -1,000..-2,261, page (512, 0)), entry 1 a flat plane of
+104 points, 47,000 across at y 0 (page (320, 0), 4-bit, palette row 507):
+the sea. Not drawn yet; how the game places it is not read.
+
+acr-import writes spheres around their origin as `sky.obj` / `sky.mtl` /
+`sky-NN.png` (only Green Silo has one). The engine draws them around the
+eye, before the stage, without depth or fog (`acr_render_sky`). Not read
+yet: which object draws the sky in the game, and whether it moves with
+the camera (a sphere of 1,024 world units around the arena's middle would
+sit inside the dome, so it must).
+
 ## Points (chunk 13)
 
 256 records of 40 bytes: `s16 x, y, z`, `s16` (-1 from record 3 on),

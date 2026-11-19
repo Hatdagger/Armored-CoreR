@@ -8,6 +8,7 @@
 #include <stdlib.h>
 #include <string.h>
 #include <errno.h>
+#include <math.h>
 #ifdef _WIN32
 #include <direct.h>
 #define acr_mkdir(p) _mkdir(p)
@@ -171,6 +172,10 @@ static int prim(const uint8_t *p, const uint8_t *end, unsigned *nv, unsigned v[4
     col->r = col->g = col->b = 128;
     col->semi = (uint8_t)((mode & 2) != 0);
     if (!tex) { col->r = w[0]; col->g = w[1]; col->b = w[2]; i0 = 2; }
+    /* The one unlit layout seen: a flat textured triangle with a colour
+     * instead of a normal (six words, the lit one is five): Green Silo's
+     * sky (chunk 3, flag 1, mode 0xA4). */
+    else if (!gour && n == 3 && ilen == 6) { col->r = w[i0 * 2]; col->g = w[i0 * 2 + 1]; col->b = w[i0 * 2 + 2]; i0 += 1; }
     if ((i0 + (gour ? 2 * n : 1 + n)) * 2 > ilen * 4) return 0;
     if (gour) for (unsigned j = 0; j < n; ++j) v[j] = u16(w + (i0 + 2 * j + 1) * 2);
     else for (unsigned j = 0; j < n; ++j) v[j] = u16(w + (i0 + 1 + j) * 2);
@@ -350,7 +355,7 @@ static int page_loaded(const vram *v, unsigned tpage) {
     return v->set[py][px / 64] || v->set[py + 128][px / 64];
 }
 
-static int write_textured(const char *dir, const char *unpacked, unsigned stage, const chunk *set,
+static int write_textured(const char *dir, const char *name, const char *unpacked, unsigned stage, const chunk *set,
                           const area *ar, unsigned areas, uint32_t *faces, uint32_t *textures) {
     *faces = *textures = 0;
     /* The models, by number. */
@@ -386,13 +391,13 @@ static int write_textured(const char *dir, const char *unpacked, unsigned stage,
     mat flat[MAX_MATS];
     unsigned nflat = 0;
     char path[1200];
-    snprintf(path, sizeof path, "%s/visual.obj", dir);
+    snprintf(path, sizeof path, "%s/%s.obj", dir, name);
     FILE *f = fopen(path, "w");
     if (!f) return 0;
-    fprintf(f, "# Master of Arena stage models (FDAT 5s+4 chunk 1, textures from RTIM %u),\n"
+    fprintf(f, "# Master of Arena stage models (FDAT 5s+4 chunk %s, textures from RTIM %u),\n"
                "# placed by the area records. Engine world: x = -(game x), y up = -(game y),\n"
                "# z = game z; world units. Materials tNN = texture NN, cRRGGBB = flat colour.\n"
-               "mtllib visual.mtl\n", stage);
+               "mtllib %s.mtl\n", strcmp(name, "visual") ? "3, the sky, around the origin" : "1", stage, name);
     uint32_t base_v = 1, base_t = 1, nf = 0;
     for (unsigned a = 0; a < areas; ++a) {
         const int m = ar[a].model;
@@ -423,7 +428,7 @@ static int write_textured(const char *dir, const char *unpacked, unsigned stage,
                 int ok = 1;
                 for (unsigned j = 0; j < n; ++j) if (vi[j] >= o->nv) ok = 0;
                 if (!ok) continue;
-                char name[32];
+                char mname[32];
                 int textured = 0;
                 if (mode & 4) {
                     tex_key key = { (uint16_t)(u16(w + 6) & 0x1FF), u16(w + 2), 0 };
@@ -434,7 +439,7 @@ static int write_textured(const char *dir, const char *unpacked, unsigned stage,
                                              keys[t].semi != key.semi)) ++t;
                         if (t == nkeys && nkeys < MAX_TEX) keys[nkeys++] = key;
                         if (t < nkeys) {
-                            snprintf(name, sizeof name, "t%02u%s", t, keys[t].semi ? "-semi" : "");
+                            snprintf(mname, sizeof mname, "t%02u%s", t, keys[t].semi ? "-semi" : "");
                             textured = 1;
                             for (unsigned j = 0; j < n; ++j)
                                 fprintf(f, "vt %.5f %.5f\n", (w[j * 4] + 0.5) / 256.0, 1.0 - (w[j * 4 + 1] + 0.5) / 256.0);
@@ -445,9 +450,9 @@ static int write_textured(const char *dir, const char *unpacked, unsigned stage,
                 if (!textured) {
                     if (mode & 4) { col.r = col.g = col.b = 96; }    /* page not loaded: grey */
                     find_mat(flat, &nflat, col);
-                    mat_name(&col, name, sizeof name);
+                    mat_name(&col, mname, sizeof mname);
                 }
-                if (strcmp(name, cur)) { fprintf(f, "usemtl %s\n", name); snprintf(cur, sizeof cur, "%s", name); }
+                if (strcmp(mname, cur)) { fprintf(f, "usemtl %s\n", mname); snprintf(cur, sizeof cur, "%s", mname); }
                 /* TMD quads are in strip order (0 1 2 3 = 0 1 3 2 around). */
                 const unsigned order4[4] = { 0, 1, 3, 2 }, order3[3] = { 0, 1, 2 };
                 const unsigned *ord = n == 4 ? order4 : order3;
@@ -464,15 +469,16 @@ static int write_textured(const char *dir, const char *unpacked, unsigned stage,
         }
     }
     fclose(f);
-    snprintf(path, sizeof path, "%s/visual.mtl", dir);
+    snprintf(path, sizeof path, "%s/%s.mtl", dir, name);
     f = fopen(path, "w");
     if (!f) return 0;
+    const char *png_name = strcmp(name, "visual") ? name : "texture";   /* visual: texture-NN.png, as before */
     for (unsigned t = 0; t < nkeys; ++t) {
         char png[1200];
-        snprintf(png, sizeof png, "%s/texture-%02u.png", dir, t);
+        snprintf(png, sizeof png, "%s/%s-%02u.png", dir, png_name, t);
         if (!write_page(png, &v, keys[t])) { fclose(f); return 0; }
         /* Pages shared by a solid and a see-through material are written once each (same picture). */
-        fprintf(f, "newmtl t%02u%s\nmap_Kd texture-%02u.png\n", t, keys[t].semi ? "-semi" : "", t);
+        fprintf(f, "newmtl t%02u%s\nmap_Kd %s-%02u.png\n", t, keys[t].semi ? "-semi" : "", png_name, t);
     }
     for (unsigned i = 0; i < nflat; ++i) {
         char name[32];
@@ -633,6 +639,50 @@ static int write_toml(const char *dir, unsigned stage, const chunk *pts, const a
     return 1;
 }
 
+/* ---- the sky (chunk 3) ----
+ * Chunk 3 is a model set loaded at model slot 0xA0, drawn by the arena
+ * engine's stage-object routine (0x800932B4: slot 0xA0 + the object's
+ * +6). Green Silo's entry 1 is a textured, unlit sphere of radius 4,096
+ * around its origin (42 points, 80 faces, page (640, 0), palette row
+ * 485): the sky. Ocean Platform's are a small object and a flat sea, not
+ * spheres. Written as sky.obj around the origin; the engine draws it
+ * around the eye, behind everything (how the game places it is not read
+ * yet). Only models that are spheres around their origin count. */
+static unsigned sky_areas(const chunk *set, area *out, unsigned max) {
+    if (set->n < 4) return 0;
+    const unsigned count = u16(set->p);
+    size_t o = 4;
+    unsigned n = 0;
+    for (unsigned k = 0; k < count && n < max; ++k) {
+        if (o + 4 > set->n) break;
+        const uint32_t sz = u32(set->p + o);
+        if (sz < 4 || o + sz > set->n) break;
+        if (sz >= 0x20) {
+            const chunk mc = { set->p + o + 0xC, sz - 0xC };
+            tmd_obj obj[1];
+            if (tmd_objects(&mc, obj, 1) == 1 && obj[0].nv >= 12) {
+                double lo = 1e18, hi = 0, c[3] = { 0, 0, 0 };
+                for (uint32_t i = 0; i < obj[0].nv; ++i) {
+                    const uint8_t *vv = obj[0].vert + i * 8;
+                    const double x = s16(vv), y = s16(vv + 2), z = s16(vv + 4), r = sqrt(x * x + y * y + z * z);
+                    if (r < lo) lo = r;
+                    if (r > hi) hi = r;
+                    c[0] += x; c[1] += y; c[2] += z;
+                }
+                const double off = sqrt(c[0] * c[0] + c[1] * c[1] + c[2] * c[2]) / obj[0].nv;
+                if (hi > 0 && lo > hi * 0.9 && off < hi * 0.05) {
+                    area a;
+                    memset(&a, 0, sizeof a);
+                    a.model = (int16_t)k;
+                    out[n++] = a;
+                }
+            }
+        }
+        o += sz;
+    }
+    return n;
+}
+
 int acr_export_moa_stages(const char *unpacked_dir, const char *out_dir, uint32_t *stages,
                           char *err, size_t err_size) {
     *stages = 0;
@@ -651,13 +701,26 @@ int acr_export_moa_stages(const char *unpacked_dir, const char *out_dir, uint32_
         snprintf(dir, sizeof dir, "%s/%02u", out_dir, s);
         uint32_t faces = 0, polys = 0, tfaces = 0, textures = 0;
         if (!make_dir(dir) || !write_visual(dir, &ch[4], ar, areas, &faces) ||
-            !write_textured(dir, unpacked_dir, s, &ch[1], ar, areas, &tfaces, &textures) ||
+            !write_textured(dir, "visual", unpacked_dir, s, &ch[1], ar, areas, &tfaces, &textures) ||
             !write_collision(dir, &ch[7], ar, areas, &polys) ||
             !write_collision_game(dir, &ch[7], ar, areas) ||
             !write_toml(dir, s, &ch[13], ar, areas, tfaces ? tfaces : faces, polys)) {
             free(d);
             set_err(err, err_size, "cannot write the stage files in", dir);
             return 0;
+        }
+        {
+            area sky[4];
+            const unsigned nsky = sky_areas(&ch[3], sky, 4);
+            uint32_t sf = 0, st = 0;
+            char path2[1300];
+            snprintf(path2, sizeof path2, "%s/sky.obj", dir);
+            remove(path2);   /* a stage without a sky keeps none from an older import */
+            if (nsky && !write_textured(dir, "sky", unpacked_dir, s, &ch[3], sky, nsky, &sf, &st)) {
+                free(d);
+                set_err(err, err_size, "cannot write the sky in", dir);
+                return 0;
+            }
         }
         free(d);
         ++*stages;
