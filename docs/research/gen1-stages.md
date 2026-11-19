@@ -32,7 +32,7 @@ A run of `[u32 size][data]` chunks, read in this order:
 | # | Green Silo size | Loader call | What |
 | --- | --- | --- | --- |
 | 0 | 0x50 | `0x8005A9A0(0x48)` | model set: u16 count, then entries `[u32 size][model]` (size < 5 = empty), registered at model slot 0x48 + i (`0x801A686C`); same mesh format as AC parts |
-| 1 | 0xC778 | `0x8005A9A0(0x104)` | model set (128 slots; Green Silo: 15 textured models, likely effects / objects) |
+| 1 | 0xC778 | `0x8005A9A0(0x104)` | **the stage's textured models**: model set, entry k = the textured version of model k (TMD at entry +0xC; some have two objects, both drawn) |
 | 2 | 0x8 | `0x8005A9A0(0x80)` | model set |
 | 3 | 0xCCC | `0x8005A9A0(0xA0)` | model set |
 | 4 | 0x3A6C | `0x8005E9F0(0, ...)` | **the stage's area models**: one PlayStation TMD (id 0x41), one object per model number |
@@ -46,11 +46,22 @@ A run of `[u32 size][data]` chunks, read in this order:
 | 12 | 0x4 | | ? |
 | 13 | 0x2800 | `0x80079E08` | **points / objects**, 40-byte records |
 
-Other stages have more data after chunk 13 (textures and textured
-models, not read yet). In every stage 20-40 chunk 4's models are flat
-coloured, mostly semi-transparent green (TMD modes 0x22 / 0x2A, lit,
-untextured): for most stages that is a simple version (radar or map?);
-**Green Silo has nothing else**, so its look is these green polygons.
+Chunk 4's models are a flat, see-through green copy of chunk 1's (same
+numbers, same shapes; TMD modes 0x22 / 0x2A) in every stage 20-40: a
+simple version (radar, map or far view?). The look is chunk 1's textured
+models (corrected 2026-11-19 after the user's description of Green Silo:
+dark grey arches and floors, green windows). Other stages have more data
+after chunk 13 (not read yet).
+
+## Textures: RTIM <stage>
+
+Before the stage file the arena loader reads **RTIM entry <stage>**
+(`0x80056230`, the same byte as the FDAT number): TIMs straight into VRAM.
+Green Silo: three 8-bit pages, (320, 0) and (384, 0) 64 x 256 words with
+palettes on rows 480 / 481, and (640, 0) 64 x 128 (palette row 485). The
+faces find them through their TMD tsb (page) and cba (palette). Faces on
+page 448 (a few on models 0, 9, 10) have no texture in RTIM 27: loaded
+elsewhere (shared effects page?); drawn plain grey for now.
 
 ## Area records (chunk 8)
 
@@ -127,8 +138,10 @@ facing numbers stay the same.
 
 - `stage.toml`: name, `start_1` / `start_2` (x, y down, z, facing),
   the area boxes;
-- `visual.obj` + `visual.mtl`: chunk 4's models placed by the areas
-  (materials named by colour, `-semi` = see-through);
+- `visual.obj` + `visual.mtl` + `texture-NN.png`: chunk 1's textured
+  models placed by the areas, a PNG per page and palette used (256 x 256,
+  palette = the CLUT, 0x0000 see-through);
+- `simple.obj` + `simple.mtl`: chunk 4's flat green models;
 - `collision.obj`: chunk 7's polygons placed the same way.
 
 Both OBJ files are in the engine's world with y up (x = -game x,
@@ -144,8 +157,12 @@ y = -game y). Open them in Blender to look around.
   rising at a ceiling. **Stand-ins** until the game's rules are read.
 - Shots and missiles stop at the stage (`battle.stage`).
 - AC TEST loads Green Silo when the import has it (F7 / Back+Left: the
-  open test floor). The see-through faces draw at low alpha with green
-  outlines; the game's real blend mode and look need a comparison.
+  open test floor), drawn from the textured models (an import from before
+  the textures falls back to the flat green ones). Lit by a fixed light
+  until the stage lights are read.
+- The arch pillars inside the dome have no collision polygons of their
+  own in chunk 7 (only the dome shell and floor do): ACs pass through
+  them, as in the data; to check in the game.
 - Tests: `tests/test_gen1_stage.c` (a made-up stage; with
   `ACR_STAGE_DIR=<import>/stages` also Green Silo: the starts stand at
   -662, a walk out stops at the dome, a rise stops at the roof, and two
@@ -156,7 +173,8 @@ y = -game y). Open them in Blender to look around.
 1. The game's own wall / floor response (`0x80074FA4` sweep, AC +0x2C /
    +0x30, the step at `0x80054124`), and out-of-area (the 60 model-8 boxes,
    player block +0x08).
-2. Textured stages: the data after chunk 13 (textures, models) and which
-   areas draw which textured model; then Lunar Base and the other eight.
+2. The other stages: their textured models already import (chunk 1 +
+   RTIM); check them in the engine (Lunar Base first) and read the data
+   after chunk 13. Page 448's texture.
 3. Stage lights (`0x801A8D80` light sets by area +0x30 byte 0) and fog.
 4. Chunks 6, 9-12 and the stage objects in chunk 13.

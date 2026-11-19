@@ -2,6 +2,7 @@
  * docs/research/gen1-stages.md. Everything is read from the user's own
  * import folder; nothing from the disc is built into this program. */
 #include "acr_stages_moa.h"
+#include "acr_models_moa.h"
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -203,12 +204,12 @@ static int write_visual(const char *dir, const chunk *tmd, const area *ar, unsig
     mat mats[MAX_MATS];
     unsigned nm = 0;
     char path[1200];
-    snprintf(path, sizeof path, "%s/visual.obj", dir);
+    snprintf(path, sizeof path, "%s/simple.obj", dir);
     FILE *f = fopen(path, "w");
     if (!f) return 0;
-    fprintf(f, "# Master of Arena stage models (FDAT 5s+4 chunk 4) placed by the area records.\n"
-               "# Engine world: x = -(game x), y up = -(game y), z = game z; world units.\n"
-               "mtllib visual.mtl\n");
+    fprintf(f, "# Master of Arena stage models, flat version (FDAT 5s+4 chunk 4), placed by the\n"
+               "# area records. Engine world: x = -(game x), y up = -(game y), z = game z.\n"
+               "mtllib simple.mtl\n");
     uint32_t base = 1, nf = 0;
     const uint8_t *end = tmd->p + tmd->n;
     for (unsigned a = 0; a < areas; ++a) {
@@ -247,7 +248,7 @@ static int write_visual(const char *dir, const chunk *tmd, const area *ar, unsig
         base += o->nv;
     }
     fclose(f);
-    snprintf(path, sizeof path, "%s/visual.mtl", dir);
+    snprintf(path, sizeof path, "%s/simple.mtl", dir);
     f = fopen(path, "w");
     if (!f) return 0;
     for (unsigned i = 0; i < nm; ++i) {
@@ -258,6 +259,219 @@ static int write_visual(const char *dir, const chunk *tmd, const area *ar, unsig
     }
     fclose(f);
     *faces = nf;
+    return 1;
+}
+
+/* ---- the textured models (chunk 1) and their textures (RTIM <stage>) ----
+ * Chunk 1 is a model set (u16 count, then [u32 size][model] entries, size
+ * < 5 = empty) holding, at entry k, the textured version of model k: a TMD
+ * at +0xC. The arena engine loads RTIM entry <stage> (0x80056230) before
+ * the stage: 8-bit TIMs straight into VRAM, where the faces' texture pages
+ * (TMD tsb) and palettes (cba) find them. */
+
+#define VRAM_W 1024
+#define VRAM_H 512
+#define MAX_TEX 24
+
+typedef struct vram { uint16_t px[VRAM_H][VRAM_W]; uint8_t set[VRAM_H][VRAM_W / 64]; } vram;
+
+static int load_tims(const uint8_t *d, size_t n, vram *v) {
+    size_t o = 0;
+    int count = 0;
+    while (o + 8 <= n && u32(d + o) == 0x10) {
+        const uint32_t flags = u32(d + o + 4);
+        o += 8;
+        for (int part = (flags & 8) ? 0 : 1; part < 2; ++part) {
+            if (o + 12 > n) return count;
+            const uint32_t len = u32(d + o);
+            const unsigned x = u16(d + o + 4), y = u16(d + o + 6), w = u16(d + o + 8), h = u16(d + o + 10);
+            if (len < 12 || o + len > n) return count;
+            for (unsigned r = 0; r < h; ++r)
+                for (unsigned c = 0; c < w; ++c) {
+                    const size_t at = o + 12 + ((size_t)r * w + c) * 2;
+                    if (at + 2 > o + len || y + r >= VRAM_H || x + c >= VRAM_W) continue;
+                    v->px[y + r][x + c] = u16(d + at);
+                    v->set[y + r][(x + c) / 64] = 1;
+                }
+            o += len;
+        }
+        ++count;
+    }
+    return count;
+}
+
+typedef struct tex_key { uint16_t tpage, clut; } tex_key;
+
+/* Texture page as an indexed PNG with its palette (256 x 256 texels). */
+static int write_page(const char *path, const vram *v, tex_key k) {
+    const unsigned px = (k.tpage & 15) * 64, py = ((k.tpage >> 4) & 1) * 256, depth = (k.tpage >> 7) & 3;
+    const unsigned cx = (k.clut & 63) * 16, cy = k.clut >> 6;
+    static uint8_t pixels[256 * 256];
+    uint8_t pal[768], alpha[256];
+    memset(pal, 0, sizeof pal);
+    memset(alpha, 0, sizeof alpha);
+    const unsigned colours = depth == 0 ? 16 : 256;
+    for (unsigned i = 0; i < colours && cx + i < VRAM_W && cy < VRAM_H; ++i) {
+        const unsigned c = v->px[cy][cx + i];
+        const unsigned r = c & 31, g = (c >> 5) & 31, b = (c >> 10) & 31;
+        pal[3 * i] = (uint8_t)(r << 3 | r >> 2);
+        pal[3 * i + 1] = (uint8_t)(g << 3 | g >> 2);
+        pal[3 * i + 2] = (uint8_t)(b << 3 | b >> 2);
+        alpha[i] = c == 0 ? 0 : 255;          /* 0x0000 is see-through on the PS1 */
+    }
+    for (unsigned t = 0; t < 256; ++t)
+        for (unsigned u = 0; u < 256; ++u) {
+            unsigned idx = 0;
+            const unsigned row = py + t;
+            if (depth == 0) {
+                const unsigned w = px + u / 4;
+                if (row < VRAM_H && w < VRAM_W) idx = (v->px[row][w] >> ((u & 3) * 4)) & 15;
+            } else {
+                const unsigned w = px + u / 2;
+                if (row < VRAM_H && w < VRAM_W) idx = (v->px[row][w] >> ((u & 1) * 8)) & 255;
+            }
+            pixels[t * 256 + u] = (uint8_t)idx;
+        }
+    return acr_write_png8(path, 256, 256, pixels, pal, alpha);
+}
+
+/* Is the page's data there (some VRAM written under it)? */
+static int page_loaded(const vram *v, unsigned tpage) {
+    const unsigned px = (tpage & 15) * 64, py = ((tpage >> 4) & 1) * 256;
+    return v->set[py][px / 64] || v->set[py + 128][px / 64];
+}
+
+static int write_textured(const char *dir, const char *unpacked, unsigned stage, const chunk *set,
+                          const area *ar, unsigned areas, uint32_t *faces, uint32_t *textures) {
+    *faces = *textures = 0;
+    /* The models, by number. */
+    const uint8_t *model[256];
+    uint32_t model_n[256];
+    unsigned nmodels = 0;
+    if (set->n < 4) return 1;
+    {
+        const unsigned count = u16(set->p);
+        size_t o = 4;
+        for (unsigned k = 0; k < count && k < 256; ++k) {
+            if (o + 4 > set->n) break;
+            const uint32_t n = u32(set->p + o);
+            if (n < 4 || o + n > set->n) break;
+            model[k] = n >= 5 ? set->p + o : NULL;
+            model_n[k] = n;
+            nmodels = k + 1;
+            o += n;
+        }
+    }
+    if (!nmodels) return 1;
+    static vram v;
+    memset(&v, 0, sizeof v);
+    {
+        char path[1200];
+        snprintf(path, sizeof path, "%s/GG/COM/RTIM/%03u.bin", unpacked, stage);
+        size_t n = 0;
+        uint8_t *d = read_all(path, &n);
+        if (d) { load_tims(d, n, &v); free(d); }
+    }
+    tex_key keys[MAX_TEX];
+    unsigned nkeys = 0;
+    mat flat[MAX_MATS];
+    unsigned nflat = 0;
+    char path[1200];
+    snprintf(path, sizeof path, "%s/visual.obj", dir);
+    FILE *f = fopen(path, "w");
+    if (!f) return 0;
+    fprintf(f, "# Master of Arena stage models (FDAT 5s+4 chunk 1, textures from RTIM %u),\n"
+               "# placed by the area records. Engine world: x = -(game x), y up = -(game y),\n"
+               "# z = game z; world units. Materials tNN = texture NN, cRRGGBB = flat colour.\n"
+               "mtllib visual.mtl\n", stage);
+    uint32_t base_v = 1, base_t = 1, nf = 0;
+    for (unsigned a = 0; a < areas; ++a) {
+        const int m = ar[a].model;
+        if (m < 0 || (unsigned)m >= nmodels || !model[m] || model_n[m] < 0x20) continue;
+        const chunk mc = { model[m] + 0xC, model_n[m] - 0xC };
+        tmd_obj obj[8];
+        const unsigned nobj = tmd_objects(&mc, obj, 8);
+        const uint8_t *end = mc.p + mc.n;
+        for (unsigned oi = 0; oi < nobj; ++oi) {
+            const tmd_obj *o = &obj[oi];
+            if (!o->nv) continue;
+            fprintf(f, "o area%u-model%d-%u\n", a, m, oi);
+            for (uint32_t k = 0; k < o->nv; ++k) {
+                double w[3];
+                const uint8_t *vv = o->vert + k * 8;
+                place(&ar[a], s16(vv), s16(vv + 2), s16(vv + 4), w);
+                fprintf(f, "v %.2f %.2f %.2f\n", w[0], w[1], w[2]);
+            }
+            const uint8_t *p = o->prim;
+            char cur[32] = "";
+            for (uint32_t k = 0; k < o->np; ++k) {
+                unsigned n, vi[4], len;
+                mat col;
+                if (!prim(p, end, &n, vi, &col, &len)) break;
+                const uint8_t mode = p[3];
+                const uint8_t *w = p + 4;
+                p += len;
+                int ok = 1;
+                for (unsigned j = 0; j < n; ++j) if (vi[j] >= o->nv) ok = 0;
+                if (!ok) continue;
+                char name[32];
+                int textured = 0;
+                if (mode & 4) {
+                    const tex_key key = { (uint16_t)(u16(w + 6) & 0x1FF), u16(w + 2) };
+                    if (page_loaded(&v, key.tpage)) {
+                        unsigned t = 0;
+                        while (t < nkeys && (keys[t].tpage != key.tpage || keys[t].clut != key.clut)) ++t;
+                        if (t == nkeys && nkeys < MAX_TEX) keys[nkeys++] = key;
+                        if (t < nkeys) {
+                            snprintf(name, sizeof name, "t%02u", t);
+                            textured = 1;
+                            for (unsigned j = 0; j < n; ++j)
+                                fprintf(f, "vt %.5f %.5f\n", (w[j * 4] + 0.5) / 256.0, 1.0 - (w[j * 4 + 1] + 0.5) / 256.0);
+                        }
+                    }
+                    /* Textured faces blend only where a texel says so: solid. */
+                    col.semi = 0;
+                }
+                if (!textured) {
+                    if (mode & 4) { col.r = col.g = col.b = 96; }    /* page not loaded: grey */
+                    find_mat(flat, &nflat, col);
+                    mat_name(&col, name, sizeof name);
+                }
+                if (strcmp(name, cur)) { fprintf(f, "usemtl %s\n", name); snprintf(cur, sizeof cur, "%s", name); }
+                /* TMD quads are in strip order (0 1 2 3 = 0 1 3 2 around). */
+                const unsigned order4[4] = { 0, 1, 3, 2 }, order3[3] = { 0, 1, 2 };
+                const unsigned *ord = n == 4 ? order4 : order3;
+                fprintf(f, "f");
+                for (unsigned j = 0; j < n; ++j) {
+                    if (textured) fprintf(f, " %u/%u", base_v + vi[ord[j]], base_t + ord[j]);
+                    else fprintf(f, " %u", base_v + vi[ord[j]]);
+                }
+                fprintf(f, "\n");
+                if (textured) base_t += n;
+                ++nf;
+            }
+            base_v += o->nv;
+        }
+    }
+    fclose(f);
+    snprintf(path, sizeof path, "%s/visual.mtl", dir);
+    f = fopen(path, "w");
+    if (!f) return 0;
+    for (unsigned t = 0; t < nkeys; ++t) {
+        char png[1200];
+        snprintf(png, sizeof png, "%s/texture-%02u.png", dir, t);
+        if (!write_page(png, &v, keys[t])) { fclose(f); return 0; }
+        fprintf(f, "newmtl t%02u\nmap_Kd texture-%02u.png\n", t, t);
+    }
+    for (unsigned i = 0; i < nflat; ++i) {
+        char name[32];
+        mat_name(&flat[i], name, sizeof name);
+        fprintf(f, "newmtl %s\nKd %.4f %.4f %.4f\n", name, flat[i].r / 255.0, flat[i].g / 255.0, flat[i].b / 255.0);
+        if (flat[i].semi) fprintf(f, "d 0.5\n");
+    }
+    fclose(f);
+    *faces = nf;
+    *textures = nkeys;
     return 1;
 }
 
@@ -366,10 +580,11 @@ int acr_export_moa_stages(const char *unpacked_dir, const char *out_dir, uint32_
         if (!areas) { free(d); continue; }
         char dir[1200];
         snprintf(dir, sizeof dir, "%s/%02u", out_dir, s);
-        uint32_t faces = 0, polys = 0;
+        uint32_t faces = 0, polys = 0, tfaces = 0, textures = 0;
         if (!make_dir(dir) || !write_visual(dir, &ch[4], ar, areas, &faces) ||
+            !write_textured(dir, unpacked_dir, s, &ch[1], ar, areas, &tfaces, &textures) ||
             !write_collision(dir, &ch[7], ar, areas, &polys) ||
-            !write_toml(dir, s, &ch[13], ar, areas, faces, polys)) {
+            !write_toml(dir, s, &ch[13], ar, areas, tfaces ? tfaces : faces, polys)) {
             free(d);
             set_err(err, err_size, "cannot write the stage files in", dir);
             return 0;

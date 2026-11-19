@@ -7,6 +7,7 @@
 #include <string.h>
 
 #include "acr_model.h"
+#include "acr_png.h"
 
 static char *load_text(const char *path) {
     size_t n = 0;
@@ -34,12 +35,45 @@ static acr_vtx vtx(const float *p, uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
     return v;
 }
 
-/* Faces shaded by a fixed light from above (no stage lights read yet). */
-static int build_faces(demo_stage *s, const char *obj, const char *mtl_text) {
+static uint32_t load_texture(const char *path) {
+    size_t size = 0;
+    uint8_t *data = SDL_LoadFile(path, &size);
+    if (!data) return 0;
+    acr_image img;
+    const int ok = acr_png_decode(data, size, &img);
+    SDL_free(data);
+    if (!ok) return 0;
+    uint32_t tex = 0;
+    uint8_t *rgba = SDL_malloc((size_t)img.w * img.h * 4);
+    if (rgba) {
+        if (img.indexed) for (int i = 0; i < img.w * img.h; ++i) SDL_memcpy(rgba + 4 * i, img.palette[img.pixels[i]], 4);
+        else SDL_memcpy(rgba, img.pixels, (size_t)img.w * img.h * 4);
+        tex = acr_render_texture(rgba, img.w, img.h, 1);
+        SDL_free(rgba);
+    }
+    acr_image_free(&img);
+    return tex;
+}
+
+/* Faces shaded by a fixed light from above (no stage lights read yet).
+ * Textured faces go in a batch per texture, coloured the PS1 way (128 =
+ * the texel as it is). */
+static int build_faces(demo_stage *s, const char *obj, const char *mtl_text, const char *dir) {
     acr_mtl mtl;
     if (!acr_mtl_parse(mtl_text ? mtl_text : "", &mtl)) return 0;
     acr_mesh mesh;
     if (!acr_obj_parse(obj, &mtl, &mesh)) return 0;
+    if (!mesh.tri_count) { acr_mesh_free(&mesh); return 0; }
+    for (int i = 0; i < mtl.count && s->batches < 16; ++i) {
+        if (!mtl.m[i].textured) continue;
+        char path[1200];
+        SDL_snprintf(path, sizeof path, "%s/%s", dir, mtl.m[i].texture);
+        s->batch[s->batches].texture = load_texture(path);
+        s->batch[s->batches].v = SDL_malloc(sizeof(acr_vtx) * (size_t)(mesh.tri_count * 3 + 3));
+        if (!s->batch[s->batches].v) { acr_mesh_free(&mesh); return 0; }
+        mtl.m[i].kind = (uint8_t)s->batches++;      /* which batch (kind is unused here) */
+        s->textured = 1;
+    }
     s->tris = SDL_malloc(sizeof *s->tris * (size_t)(mesh.tri_count * 3 + 3));
     s->semi = SDL_malloc(sizeof *s->semi * (size_t)(mesh.tri_count * 3 + 3));
     if (!s->tris || !s->semi) { acr_mesh_free(&mesh); return 0; }
@@ -54,6 +88,17 @@ static int build_faces(demo_stage *s, const char *obj, const char *mtl_text) {
         const acr_material *m = mesh.material[t] < mtl.count ? &mtl.m[mesh.material[t]] : NULL;
         const uint8_t r = (uint8_t)((m ? m->r : 160) * lit), g = (uint8_t)((m ? m->g : 160) * lit),
                       bl = (uint8_t)((m ? m->b : 160) * lit);
+        if (m && m->textured && m->kind < s->batches) {
+            const uint8_t c = (uint8_t)(128 * lit);
+            acr_vtx *out = s->batch[m->kind].v + s->batch[m->kind].count;
+            for (int j = 0; j < 3; ++j) {
+                out[j] = vtx(mesh.v[t * 3 + j].p, c, c, c, 255);
+                out[j].u = mesh.v[t * 3 + j].uv[0];
+                out[j].v = 1.0f - mesh.v[t * 3 + j].uv[1];
+            }
+            s->batch[m->kind].count += 3;
+            continue;
+        }
         const int semi = m && m->semi;
         acr_vtx *out = semi ? s->semi + s->semi_count : s->tris + s->tri_count;
         for (int j = 0; j < 3; ++j) out[j] = vtx(mesh.v[t * 3 + j].p, r, g, bl, semi ? 40 : 255);
@@ -120,6 +165,8 @@ static int build_edges(demo_stage *s, const char *obj) {
     return 1;
 }
 
+static void demo_stage_free_draw(demo_stage *s);
+
 int demo_stage_load(const char *dir, int id, demo_stage *out) {
     SDL_memset(out, 0, sizeof *out);
     char path[1024];
@@ -127,13 +174,33 @@ int demo_stage_load(const char *dir, int id, demo_stage *out) {
     char *coll = load_text(path);
     SDL_snprintf(path, sizeof path, "%s/stages/%02d/stage.toml", dir, id);
     char *toml = load_text(path);
-    SDL_snprintf(path, sizeof path, "%s/stages/%02d/visual.obj", dir, id);
+    char sdir[1100];
+    SDL_snprintf(sdir, sizeof sdir, "%s/stages/%02d", dir, id);
+    SDL_snprintf(path, sizeof path, "%s/visual.obj", sdir);
     char *vis = load_text(path);
-    SDL_snprintf(path, sizeof path, "%s/stages/%02d/visual.mtl", dir, id);
+    SDL_snprintf(path, sizeof path, "%s/visual.mtl", sdir);
     char *mtl = load_text(path);
-    int ok = coll && toml && vis && acr_gen1_stage_parse(coll, &out->collision) &&
-             read_start(toml, "start_1", out->start[0]) && read_start(toml, "start_2", out->start[1]) &&
-             build_faces(out, vis, mtl) && build_edges(out, vis);
+    int ok = coll && toml && acr_gen1_stage_parse(coll, &out->collision) &&
+             read_start(toml, "start_1", out->start[0]) && read_start(toml, "start_2", out->start[1]);
+    /* The textured models; imports from before 2026-11-19 (or a stage
+     * without them) fall back to the flat green ones, with outlines. */
+    int drawn = ok && vis && build_faces(out, vis, mtl, sdir);
+    if (ok && !drawn) {
+        demo_stage_free_draw(out);
+        SDL_free(vis); SDL_free(mtl);
+        SDL_snprintf(path, sizeof path, "%s/simple.obj", sdir);
+        vis = load_text(path);
+        SDL_snprintf(path, sizeof path, "%s/simple.mtl", sdir);
+        mtl = load_text(path);
+        if (!vis) {   /* the first stage import named the flat models visual.obj */
+            SDL_snprintf(path, sizeof path, "%s/visual.obj", sdir);
+            vis = load_text(path);
+            SDL_snprintf(path, sizeof path, "%s/visual.mtl", sdir);
+            mtl = load_text(path);
+        }
+        drawn = vis && build_faces(out, vis, mtl, sdir) && build_edges(out, vis);
+    }
+    ok = ok && drawn;
     if (ok) {
         out->ok = 1;
         out->id = id;
@@ -154,15 +221,26 @@ int demo_stage_load(const char *dir, int id, demo_stage *out) {
     return ok;
 }
 
+static void demo_stage_free_draw(demo_stage *s) {
+    SDL_free(s->tris); SDL_free(s->semi); SDL_free(s->edges);
+    s->tris = s->semi = s->edges = NULL;
+    s->tri_count = s->semi_count = s->edge_count = 0;
+    for (int i = 0; i < s->batches; ++i) SDL_free(s->batch[i].v);   /* textures stay with GL */
+    s->batches = 0;
+    s->textured = 0;
+}
+
 void demo_stage_free(demo_stage *s) {
     acr_gen1_stage_free(&s->collision);
-    SDL_free(s->tris); SDL_free(s->semi); SDL_free(s->edges);
+    demo_stage_free_draw(s);
     SDL_memset(s, 0, sizeof *s);
 }
 
 void demo_stage_draw(const demo_stage *s, int pass) {
     if (!s->ok) return;
     if (pass == 0) {
+        for (int i = 0; i < s->batches; ++i)
+            if (s->batch[i].count) acr_render_mesh(s->batch[i].v, s->batch[i].count, s->batch[i].texture, ACR_MESH_PS1_TEXEL);
         if (s->tri_count) acr_render_mesh(s->tris, s->tri_count, 0, 0);
         if (s->edge_count) acr_render_lines(s->edges, s->edge_count);
     } else if (s->semi_count) {
