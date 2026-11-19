@@ -64,6 +64,10 @@ weapons, damage, two-player test build (see `docs/research/`).
    parameter pages.
 4. **Arena**: stages from the disc (same mesh decoder), then collision
    (walls, floors, heights), then rankings, opponents and rewards.
+   Started 2026-11-19 (`research/gen1-stages.md`): every stage's areas,
+   flat models and collision import; Green Silo plays in AC TEST with
+   stand-in floor / wall rules. Next: the game's own wall and floor rules,
+   out-of-area, then textured stages.
 
 ## Shortcuts
 

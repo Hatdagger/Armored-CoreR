@@ -34,6 +34,7 @@
 #include "../../gen1/acr_gen1_pose.h"
 #include "../../gen1/acr_gen1_ai.h"
 #include "demo_model.h"
+#include "demo_stage.h"
 #include "../../model/acr_aim.h"
 #include "garage.h"
 #include "acr_import.h"
@@ -437,6 +438,18 @@ static int parse_args(int argc, char **argv, const char **dir, int parts[SLOT_CO
 static const int k_test_kit = 1;
 static acr_gen1_hangar g_hangar;
 static const char *g_import_dir = "";
+/* The arena: Green Silo (stage 27) when the import has it; F7 switches
+ * between it and the open test floor. ACR_STAGE=NN picks another stage,
+ * ACR_STAGE=0 starts on the open floor. */
+static demo_stage g_stage;
+static int g_stage_id = 27, g_stage_on = 0;
+
+/* Places fighter k's AC on the stage's start k (x, y down, z, facing). */
+static void stage_spawn(acr_gen1_ac *ac, const acr_gen1_ac_def *def, int k) {
+    const int32_t *st = g_stage.start[k];
+    acr_gen1_ac_spawn(ac, def, st[0] * 64, st[2] * 64, (uint16_t)(st[3] & 4095));
+    ac->y = ac->py = ac->sy = st[1] * 64;
+}
 static acr_gen1_catalog g_catalog;
 static char g_part_names[ACR_GEN1_CAT_COUNT][ACR_GEN1_PART_MAX][24];
 
@@ -676,6 +689,11 @@ int main(int argc, char **argv) {
     /* The garage: the shop's catalogue from the import, and the save (or a
      * new game with the starting AC). */
     g_import_dir = dir;
+    {
+        const char *want = SDL_getenv("ACR_STAGE");
+        if (want) g_stage_id = SDL_atoi(want);
+        if (g_stage_id > 0 && demo_stage_load(dir, g_stage_id, &g_stage)) g_stage_on = 1;
+    }
     demo_catalog(dir, &g_catalog, g_part_names);
     if (k_test_kit)
         for (int c = 0; c < ACR_GEN1_CAT_COUNT; ++c)
@@ -731,8 +749,11 @@ int main(int argc, char **argv) {
                        : pp[i_][SLOT_LEGS] >= 21 ? ACR_GEN1_LEGS_FOUR : ACR_GEN1_LEGS_TWO); \
             f_->human_plus = (uint8_t)(i_ == 0 && human_plus); f_->kneeling = 0;          \
         }                                                                                 \
-        acr_gen1_ac_spawn(P, def, 0, -2500 * 64, 0);                                      \
-        acr_gen1_ac_spawn(T, def2, target_side() * 64, (target_dist() - 2500) * 64, 2048);       \
+        if (g_stage_on) { stage_spawn(P, def, 0); stage_spawn(T, def2, 1); }               \
+        else {                                                                            \
+            acr_gen1_ac_spawn(P, def, 0, -2500 * 64, 0);                                  \
+            acr_gen1_ac_spawn(T, def2, target_side() * 64, (target_dist() - 2500) * 64, 2048); \
+        }                                                                                 \
         memset(battle.shot, 0, sizeof battle.shot);                                       \
         round_ms = ROUND_MS; round_over = 0; round_result = 0; ko_ms = 0;                 \
         for (int i_ = 0; i_ < 2; ++i_) {                                                  \
@@ -805,6 +826,17 @@ int main(int argc, char **argv) {
             if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_F6) toggle_autopilot = 1;
             if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && back_held && e.gbutton.button == SDL_GAMEPAD_BUTTON_DPAD_UP) { cycle_ai = 1; back_combo = 1; }
             if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && back_held && e.gbutton.button == SDL_GAMEPAD_BUTTON_DPAD_DOWN) { toggle_autopilot = 1; back_combo = 1; }
+            int toggle_stage = 0;
+            if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_F7) toggle_stage = 1;
+            if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && back_held && e.gbutton.button == SDL_GAMEPAD_BUTTON_DPAD_LEFT) { toggle_stage = 1; back_combo = 1; }
+            if (toggle_stage) {
+                /* Green Silo <-> the open test floor (loaded the first time it's wanted). */
+                if (g_stage_on) g_stage_on = 0;
+                else if (g_stage.ok || (g_stage_id > 0 && demo_stage_load(dir, g_stage_id, &g_stage))) g_stage_on = 1;
+                else if (demo_stage_load(dir, 27, &g_stage)) { g_stage_id = 27; g_stage_on = 1; }
+                def->stage = def2->stage = battle.stage = g_stage_on ? &g_stage.collision : NULL;
+                SETUP_FIGHTERS(); prevs[0] = *P; prevs[1] = *T;
+            }
             if (cycle_ai) {
                 /* still target -> BALANCED ... EVASIVE (-> the --ai-file profile) -> still */
                 int next = g_ai_mode == ACR_GEN1_AI_CUSTOM ? 0 : g_ai_mode + 1;
@@ -1019,14 +1051,16 @@ int main(int argc, char **argv) {
             for (int k = 0; k < 2; ++k) {
                 const int by_ai = g_ai_mode && ((k == 1 && !two_players) || (k == 0 && g_autopilot));
                 if (!by_ai) continue;
-                acr_gen1_ai_step(&g_ai[k], &battle, k, ARENA, &in2[k], &act[k]);
+                acr_gen1_ai_step(&g_ai[k], &battle, k, g_stage_on ? g_stage.half : ARENA, &in2[k], &act[k]);
                 g_in[k] = in2[k];
             }
+            /* The arena's floors and walls (the defs are reloaded on part changes). */
+            def->stage = def2->stage = battle.stage = g_stage_on ? &g_stage.collision : NULL;
             acr_gen1_battle_step(&battle, in2, act);
             for (int k = 0; k < 2; ++k) { in2[k].boost_tapped = 0; boost_released[k] = !in2[k].boost; }
-            /* arena walls (the shown position too, so drawing stops there) */
+            /* the open floor's square walls (the shown position too, so drawing stops there) */
             const int32_t lim = ARENA * 64;
-            for (int k = 0; k < 2; ++k) {
+            for (int k = 0; k < 2 && !g_stage_on; ++k) {
                 acr_gen1_ac *q = &battle.f[k].ac;
                 int32_t *const xs[3] = { &q->x, &q->px, &q->sx }, *const zs[3] = { &q->z, &q->pz, &q->sz };
                 for (int c = 0; c < 3; ++c) {
@@ -1042,7 +1076,8 @@ int main(int argc, char **argv) {
                 if (respawn_ms >= 3000) {
                     respawn_ms = 0;
                     battle.f[1].ap = battle.f[1].ap_max;
-                    acr_gen1_ac_spawn(T, def2, target_side() * 64, (target_dist() - 2500) * 64, 2048);
+                    if (g_stage_on) stage_spawn(T, def2, 1);
+                    else acr_gen1_ac_spawn(T, def2, target_side() * 64, (target_dist() - 2500) * 64, 2048);
                     prevs[1] = *T;
                 }
             }
@@ -1134,7 +1169,14 @@ int main(int argc, char **argv) {
                     cam_eye[view][0] += ex * k; cam_eye[view][1] += ey * k; cam_eye[view][2] += ez * k;
                     for (int c = 0; c < 3; ++c) cam_look[view][c] += (look[c] - cam_look[view][c]) * kl;
                 }
-                if (cam_eye[view][1] < 100.0f) cam_eye[view][1] = 100.0f;
+                if (g_stage_on) {
+                    /* Above the floor under the eye (the fight's y is down). */
+                    int32_t fy;
+                    if (acr_gen1_stage_floor(&g_stage.collision, (int32_t)cam_eye[view][0], (int32_t)cam_eye[view][2],
+                                             (int32_t)-cam_eye[view][1] - 400, &fy) &&
+                        cam_eye[view][1] < (float)-fy + 100.0f)
+                        cam_eye[view][1] = (float)-fy + 100.0f;
+                } else if (cam_eye[view][1] < 100.0f) cam_eye[view][1] = 100.0f;
                 for (int c = 0; c < 3; ++c) { eye[c] = cam_eye[view][c]; look[c] = cam_look[view][c]; }
             }
             const float fwd[3] = { look[0] - eye[0], look[1] - eye[1], look[2] - eye[2] };
@@ -1145,12 +1187,13 @@ int main(int argc, char **argv) {
         const acr_fog fog = { 30000.0f, 60000.0f, 18, 22, 28 };
         acr_render_view3d(vx, 0, vpw, ph, proj, viewm, &fog);
 
-        /* floor grid and walls */
-        for (int g = -ARENA; g <= ARENA; g += 2000) {
+        /* the arena, or the open floor's grid and walls */
+        if (g_stage_on) demo_stage_draw(&g_stage, 0);
+        for (int g = -ARENA; g <= ARENA && !g_stage_on; g += 2000) {
             line3(v3((float)g, 0, (float)-ARENA), v3((float)g, 0, (float)ARENA), 52, 70, 76);
             line3(v3((float)-ARENA, 0, (float)g), v3((float)ARENA, 0, (float)g), 52, 70, 76);
         }
-        for (int w = 0; w < 4; ++w) {
+        for (int w = 0; w < 4 && !g_stage_on; ++w) {
             const float s0 = (w & 1) ? ARENA : -ARENA;
             for (int h = 0; h <= 3000; h += 1000) {
                 if (w < 2) line3(v3(s0, (float)h, -ARENA), v3(s0, (float)h, ARENA), 120, 150, 160);
@@ -1158,7 +1201,7 @@ int main(int argc, char **argv) {
             }
         }
         /* pillars for a sense of speed, then the ACs and shots */
-        for (int i = -2; i <= 2; ++i)
+        for (int i = -2; i <= 2 && !g_stage_on; ++i)
             for (int j = -2; j <= 2; ++j)
                 if (i || j) add_box(v3(i * 7000.0f, 1500, j * 7000.0f), 0, v3(300, 1500, 300), 0.35f, 0.42f, 0.48f);
         float crouch = 0;
@@ -1206,8 +1249,15 @@ int main(int argc, char **argv) {
                       v3(px + sinf(a1) * r, py + 110, pz + cosf(a1) * r), 120, 200, 255);
             }
         }
-        if (py > 1.0f) line3(v3(px, 0, pz), v3(px, py, pz), 230, 160, 40);   /* height marker */
+        {   /* height marker, down to the floor under the AC */
+            float ground = 0;
+            int32_t fy;
+            if (g_stage_on && acr_gen1_stage_floor(&g_stage.collision, (int32_t)px, (int32_t)pz, (int32_t)-py - 120, &fy))
+                ground = (float)-fy;
+            if (py > ground + 1.0f) line3(v3(px, ground, pz), v3(px, py, pz), 230, 160, 40);
+        }
         flush_scene();
+        if (g_stage_on) demo_stage_draw(&g_stage, 1);   /* see-through faces last */
 
         /* HUD, on a 480-high grid as wide as this view's shape. */
         g_vw = acr_render_hud(vx, 0, vpw, ph);
@@ -1346,6 +1396,8 @@ int main(int argc, char **argv) {
             TEXT(20, 88, "BACK+A (H): HUMAN PLUS  BACK (T): STEP RATE");
             TEXT(20, 100, "BACK+LB (F2): TWO PLAYERS  BACK+R3 (F3): LANDING PAUSE GUESS/ANIMATION");
             TEXT(20, 112, "BACK+UP (F4): OPPONENT STILL / AI PRESETS  BACK+DOWN (F6): AI VS AI (WATCH)");
+            TEXT(20, 124, g_stage.ok ? "BACK+LEFT (F7): ARENA STAGE / OPEN TEST FLOOR"
+                                     : "BACK+LEFT (F7): ARENA STAGE (RE-IMPORT THE DISC FOR STAGES)");
         }
         }
         /* Whole-screen HUD: the split line, round clock and result. */

@@ -28,7 +28,8 @@ add_library(acr_gen1 STATIC
     src/gen1/acr_gen1_pose.c
     src/gen1/acr_gen1_battle.c
     src/gen1/acr_gen1_garage.c
-    src/gen1/acr_gen1_ai.c)
+    src/gen1/acr_gen1_ai.c
+    src/gen1/acr_gen1_stage.c)
 target_include_directories(acr_gen1 PUBLIC src/gen1)
 target_link_libraries(acr_gen1 PUBLIC acr_core)
 
@@ -50,7 +51,8 @@ add_library(acr_import_lib STATIC
     tools/acr_import/acr_import.c
     tools/acr_import/acr_parts_moa.c
     tools/acr_import/acr_motion_moa.c
-    tools/acr_import/acr_models_moa.c)
+    tools/acr_import/acr_models_moa.c
+    tools/acr_import/acr_stages_moa.c)
 target_include_directories(acr_import_lib PUBLIC tools/acr_import)
 target_link_libraries(acr_import_lib PUBLIC acr_gen1)
 add_executable(acr-import tools/acr_import/main.c)
@@ -81,6 +83,9 @@ if(NOT MSVC)
     target_link_libraries(test_gen1_battle PRIVATE m)
 endif()
 add_test(NAME gen1_battle COMMAND test_gen1_battle)
+add_executable(test_gen1_stage tests/test_gen1_stage.c)
+target_link_libraries(test_gen1_stage PRIVATE acr_gen1)
+add_test(NAME gen1_stage COMMAND test_gen1_stage)
 add_executable(test_gen1_garage tests/test_gen1_garage.c)
 target_link_libraries(test_gen1_garage PRIVATE acr_gen1)
 add_test(NAME gen1_garage COMMAND test_gen1_garage)
@@ -110,7 +115,8 @@ if(ACR_BUILD_GAME)
         GIT_TAG release-3.2.10
         GIT_SHALLOW TRUE)
     FetchContent_MakeAvailable(SDL3)
-    add_executable(armored-corer WIN32 src/platform/sdl3/main.c src/platform/sdl3/demo_data.c src/platform/sdl3/demo_model.c src/platform/sdl3/garage.c)
+    add_executable(armored-corer WIN32 src/platform/sdl3/main.c src/platform/sdl3/demo_data.c src/platform/sdl3/demo_model.c
+                   src/platform/sdl3/demo_stage.c src/platform/sdl3/garage.c)
     add_library(acr_render_gl STATIC src/render/acr_render_gl.c)
     target_include_directories(acr_render_gl PUBLIC src/render)
     target_link_libraries(armored-corer PRIVATE acr_core acr_gen1 acr_import_lib acr_model acr_light acr_render_gl SDL3::SDL3-static)

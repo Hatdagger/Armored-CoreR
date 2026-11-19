@@ -3,6 +3,7 @@
 #include "acr_parts_moa.h"
 #include "acr_motion_moa.h"
 #include "acr_models_moa.h"
+#include "acr_stages_moa.h"
 
 #include <ctype.h>
 #include <errno.h>
@@ -192,6 +193,11 @@ static int import_disc(const char *disc_path, const char *out_dir, acr_import_st
         if (!make_dirs(models_dir, 1) ||
             !acr_export_moa_models(menu, unpacked, models_dir, &stats->model_parts, &stats->model_sets,
                                    err, err_size))
+            return 0;
+        char stages_dir[ACR_PATH_MAX];
+        snprintf(stages_dir, sizeof stages_dir, "%s/stages", out_dir);
+        if (!make_dirs(stages_dir, 1) ||
+            !acr_export_moa_stages(unpacked, stages_dir, &stats->stages, err, err_size))
             return 0;
     }
     return 1;

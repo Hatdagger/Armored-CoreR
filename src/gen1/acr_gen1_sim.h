@@ -15,6 +15,8 @@
 
 #include <stdint.h>
 
+#include "acr_gen1_stage.h"
+
 #include "acr_gen1_anim.h"
 #include "acr_gen1_compile.h"
 
@@ -66,7 +68,16 @@ typedef struct acr_gen1_ac_def {
      * state simply ends with its animation (0x8008389C). 0 = the stand-in
      * curve from landing_steps. */
     uint8_t  landing_from_anim;
+    /* The arena (NULL = the open test floor at y = 0): its floors carry the
+     * AC, its walls stop it (acr_gen1_stage.h; step heights are stand-ins). */
+    const acr_gen1_stage *stage;
 } acr_gen1_ac_def;
+
+/* Arena stand-ins until the game's own rules are read: an AC walks up a
+ * step this high, follows a floor dropping away by this much (slopes)
+ * before it falls, and is a cylinder this wide (its hit cylinder). */
+#define ACR_GEN1_STEP_UP   120
+#define ACR_GEN1_STEP_DOWN 120
 
 enum { ACR_GEN1_GROUND, ACR_GEN1_CROUCH, ACR_GEN1_AIR, ACR_GEN1_LANDING };
 

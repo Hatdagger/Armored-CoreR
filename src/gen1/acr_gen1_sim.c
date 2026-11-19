@@ -147,6 +147,40 @@ static void crouch_slide(int32_t *v) {
     if (*v > -512 && *v < 512) *v = 0;
 }
 
+/* Height of the AC for ceilings (its hit cylinder, 212). */
+#define ACR_GEN1_HIT_HEIGHT_SIM 212
+
+/* Arena: walls push the AC out sideways, then the floor under it.
+ * On the ground it steps up to ACR_GEN1_STEP_UP and follows a floor
+ * dropping away by up to ACR_GEN1_STEP_DOWN; further down it falls. In
+ * the air *floor_y is the floor it would land on (1/64 units). */
+static void stage_move(acr_gen1_ac *ac, const acr_gen1_ac_def *def, int32_t *floor_y, int *have_floor) {
+    const acr_gen1_stage *st = def->stage;
+    int32_t x = ac->x / 64, z = ac->z / 64;
+    const int32_t feet = ac->y / 64;
+    if (acr_gen1_stage_push(st, &x, &z, feet, ACR_GEN1_HIT_HEIGHT_SIM, 75, ACR_GEN1_STEP_UP)) {
+        ac->x = x * 64 + ac->x % 64;
+        ac->z = z * 64 + ac->z % 64;
+    }
+    int32_t f;
+    const int grounded = ac->state != ACR_GEN1_AIR;
+    const int32_t from = grounded ? feet : ac->py / 64;
+    if (!acr_gen1_stage_floor(st, ac->x / 64, ac->z / 64, from - ACR_GEN1_STEP_UP, &f)) {
+        *have_floor = 0;                         /* nothing below: keeps falling */
+        if (grounded) { ac->state = ACR_GEN1_AIR; ac->vy = 0; }
+        return;
+    }
+    *floor_y = f * 64;
+    if (grounded) {
+        if (f - feet > ACR_GEN1_STEP_DOWN) {    /* walked off an edge */
+            ac->state = ACR_GEN1_AIR;
+            ac->vy = 0;
+        } else {
+            ac->y = f * 64;
+        }
+    }
+}
+
 void acr_gen1_ac_spawn(acr_gen1_ac *ac, const acr_gen1_ac_def *def, int32_t x, int32_t z, uint16_t yaw) {
     *ac = (acr_gen1_ac){0};
     ac->x = ac->px = ac->sx = x;
@@ -301,11 +335,25 @@ void acr_gen1_ac_tick(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
     if (ac->anim == ACR_GEN1_ANIM_JUMP && ac->anim_frame < UINT16_MAX) ++ac->anim_frame;
     ac->x += mx;
     ac->z += mz;
+    /* The floor under the AC: y = 0 on the open test floor; in an arena the
+     * stage's (walls first, then floors; see the step stand-ins). */
+    int32_t floor_y = 0;
+    int have_floor = 1;
+    if (def->stage) stage_move(ac, def, &floor_y, &have_floor);
     if (ac->state == ACR_GEN1_AIR) {
         ac->y += ac->vy;
-        if (ac->y >= 0 && ac->vy >= 0) {          /* touch down */
+        if (def->stage && ac->vy < 0) {          /* rising into a ceiling */
+            int32_t c;
+            const int32_t head = ac->y / 64 - ACR_GEN1_HIT_HEIGHT_SIM;
+            if (acr_gen1_stage_ceiling(def->stage, ac->x / 64, ac->z / 64, ac->py / 64 - ACR_GEN1_HIT_HEIGHT_SIM, &c) &&
+                head < c) {
+                ac->y = (c + ACR_GEN1_HIT_HEIGHT_SIM) * 64;
+                ac->vy = 0;
+            }
+        }
+        if (have_floor && ac->y >= floor_y && ac->vy >= 0) {          /* touch down */
             ac->vy_at_touchdown = ac->vy;
-            ac->y = 0;
+            ac->y = floor_y;
             ac->vy = 0;
             /* Sideways speed carries into a ground slide (the game was only
              * measured landing with none left). */

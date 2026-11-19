@@ -27,6 +27,7 @@ typedef struct acr_import_stats {
     uint32_t motion_sets;      /* animation sets written to <out>/motion */
     uint32_t model_parts;      /* part models written to <out>/models */
     uint32_t model_sets;       /* skeletons + animations written to <out>/models/sets */
+    uint32_t stages;           /* arena stages written to <out>/stages */
 } acr_import_stats;
 
 int acr_import_disc(const char *disc_path, const char *out_dir, acr_import_stats *stats,

@@ -155,6 +155,7 @@ typedef struct acr_gen1_battle {
     uint16_t step_rate, gen1_rate;
     uint32_t tick_phase;                       /* counts toward the next tick, in gen1_rate units */
     uint32_t rng;                              /* the battle's own random numbers (0 = default seed) */
+    const acr_gen1_stage *stage;               /* the arena (NULL = open floor): stops shots */
 } acr_gen1_battle;
 
 typedef struct acr_gen1_actions {

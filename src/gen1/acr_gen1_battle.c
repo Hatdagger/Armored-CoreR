@@ -677,11 +677,28 @@ static void shots_step(acr_gen1_battle *b, int ticks) {
             s->travelled += per_step(b, w->speed) / 64;
         }
         const acr_gen1_ac *t = &b->f[target].ac;
-        if (b->f[target].ap > 0 &&
-            segment_hits_ac(x0 / 64, y0 / 64, z0 / 64, s->x / 64, s->y / 64, s->z / 64, t->x / 64, t->y / 64, t->z / 64)) {
+        const int hits_ac = b->f[target].ap > 0 &&
+            segment_hits_ac(x0 / 64, y0 / 64, z0 / 64, s->x / 64, s->y / 64, s->z / 64, t->x / 64, t->y / 64, t->z / 64);
+        /* The arena stops shots (VS 0x80074FA4 tests the stage before the
+         * ACs); here the nearer of the two along the way wins. */
+        int32_t wall_t = 0;
+        int hits_wall = 0;
+        if (b->stage) {
+            const int32_t a[3] = { x0 / 64, y0 / 64, z0 / 64 }, e[3] = { s->x / 64, s->y / 64, s->z / 64 };
+            hits_wall = acr_gen1_stage_segment(b->stage, a, e, &wall_t);
+        }
+        if (hits_ac && hits_wall) {
+            /* How far along the way the AC's middle is, against the wall. */
+            const int64_t dx = s->x / 64 - x0 / 64, dz = s->z / 64 - z0 / 64, len2 = dx * dx + dz * dz;
+            const int64_t ac_t = len2 ? ((int64_t)(t->x / 64 - x0 / 64) * dx + (int64_t)(t->z / 64 - z0 / 64) * dz) * 1024 / len2 : 0;
+            if (ac_t <= wall_t) damage(b, target, s->owner, w);
+            s->active = 0;
+        } else if (hits_ac) {
             damage(b, target, s->owner, w);
             s->active = 0;
-        } else if ((!s->missile && s->travelled > w->range) || s->y > 0) {
+        } else if (hits_wall) {
+            s->active = 0;                              /* into the arena */
+        } else if ((!s->missile && s->travelled > w->range) || (!b->stage && s->y > 0)) {
             s->active = 0;                              /* out of range or into the floor */
         }
     }
