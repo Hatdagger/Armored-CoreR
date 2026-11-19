@@ -6,6 +6,7 @@
 #include <string.h>
 
 #include "acr_model.h"
+#include "acr_aim.h"
 #include "acr_models_moa.h"
 #include "acr_png.h"
 
@@ -22,7 +23,10 @@ static const char k_skel[] =
 static const char k_anims[] =
     "anim 0 idle\nlast_tick 0\nframes 1\nhold\nframe 0\n  node 3 rot 0 1024 0 pos 10 -20 0\n\n"
     "anim 5\nlast_tick 5\nframes 3\nhold 2 3\nframe 0\n  node 3 rot zero pos 10 -20 0\n"
-    "frame 1\n  node 3 rot 0 0 1024\nframe 2\n  node 3 rot zero pos 5 0 0\n  node 99 rot 1 2 3\n";
+    "frame 1\n  node 3 rot 0 0 1024\nframe 2\n  node 3 rot zero pos 5 0 0\n  node 99 rot 1 2 3\n"
+    "\naim 0\nrange rest -1024 0 0 min -2844 -682 -795 max 682 909 795\n"
+    "joint 3 rest -1024 0 0 neg 2304 0 582 pos 3277 0 582\njoint 99 rest 0 0 0 neg 0 0 0 pos 0 0 0\n"
+    "\naim 1\nrange rest 512 0 0 min 512 0 0 max 512 0 0\njoint 3 rest 512 0 0 neg 0 0 0 pos 0 0 0\n";
 
 static const char k_mtl[] =
     "# made up\nnewmtl arms\nKd 1 1 1\nmap_Kd texture.png\n\nnewmtl rgb-FF0000-semi\nKd 1.0000 0.0000 0.0000\nd 0.5\n"
@@ -106,6 +110,53 @@ int main(int argc, char **argv) {
     CHECK(pose.pos[1][0] == 15 && pose.pos[1][1] == -20 && pose.rot[1][2] == 1024);
     acr_pose_play(&sk, &as, 30, 0, &pose);                    /* missing: bind pose */
     CHECK(pose.rot[1][1] == 1024);
+
+    /* ---- aim tables (set 0's rifle table and a fixed one) ---- */
+    CHECK(as.aim[0].count == 1 && as.aim[0].joint[0].node == 1);           /* node 99 left out */
+    CHECK(as.aim[0].min[0] == -2844 && as.aim[0].max[2] == 795 && as.aim[0].joint[0].pos[0] == 3277);
+    CHECK(as.aim[1].count == 1 && as.aim[2].count == 0);
+    CHECK(as.anim[5].frames == 3);                                          /* animations unaffected */
+    /* The game's clamp: inside, the short way to the nearer end, a fixed range. */
+    CHECK(acr_aim_clamp(-1024, -2844, 682, 300) == 300);
+    CHECK(acr_aim_clamp(-1024, -2844, 682, 1800) == 1706);                  /* just past max */
+    CHECK(acr_aim_clamp(-1024, -2844, 682, 2000) == -1820);                 /* nearer min round the back */
+    CHECK(acr_aim_clamp(-1024, -2844, 682, -2000) == -1820);                /* past min */
+    CHECK(acr_aim_clamp(512, 512, 512, 300) == 0);
+    CHECK(acr_aim_clamp(0, -682, 909, 3000) == -682);                       /* 3000 = -1096: nearer min */
+    int16_t tg[ACR_AIM_MAX_JOINTS][3];
+    const int16_t up[3] = { -400, 0, 100 }, level[3] = { 0, 0, 0 };
+    acr_aim_targets(&as.aim[0], up, level, tg);
+    CHECK(tg[0][0] == -1024 + ((-400 * 2304) >> 12) && tg[0][1] == 0 && tg[0][2] == (100 * 582) >> 12);
+    /* The parent's angles move the range: tilted 1,000 down, a 1,500 aim stays. */
+    const int16_t tilted[3] = { 1000, 0, 0 }, far[3] = { 1500, 0, 0 };
+    acr_aim_targets(&as.aim[0], far, tilted, tg);
+    CHECK(tg[0][0] == -1024 + ((1500 * 3277) >> 12));
+    acr_aim_targets(&as.aim[0], far, level, tg);
+    CHECK(tg[0][0] == -1024 + ((1500 * 3277) >> 12));                       /* 1500 < 1706: inside either way */
+    /* Applying: the first frame sets the aim at once, with a rotation of its own;
+     * the aim then eases (1/8 a tick); off again, it eases back to the animation. */
+    acr_aim_state ast;
+    acr_aim_reset(&ast);
+    acr_pose_play(&sk, &as, 0, 0, &pose);
+    acr_aim_apply(&ast, &sk, &as, 0, level, 0.0f, &pose);
+    CHECK(pose.rot[1][0] == -1024 && pose.rot[1][1] == 0 && pose.own_rot[1] == 1 && pose.own_rot[2] == 0);
+    acr_pose_play(&sk, &as, 0, 0, &pose);
+    acr_aim_apply(&ast, &sk, &as, 0, up, 1.0f, &pose);                      /* target -1249: 1/8 of the way */
+    CHECK(pose.rot[1][0] == -1024 - (225 / 8) || pose.rot[1][0] == -1024 - (225 / 8) - 1);
+    for (int k = 0; k < 40; ++k) {
+        acr_pose_play(&sk, &as, 0, 0, &pose);
+        acr_aim_apply(&ast, &sk, &as, 0, up, 1.0f, &pose);
+    }
+    CHECK(pose.rot[1][0] == -1249);
+    for (int k = 0; k < 60; ++k) {
+        acr_pose_play(&sk, &as, 0, 0, &pose);
+        acr_aim_apply(&ast, &sk, &as, -1, level, 1.0f, &pose);
+    }
+    CHECK(pose.rot[1][1] == 1024 && pose.own_rot[1] == 0 && !ast.easing[1]);  /* the animation's again */
+    int16_t ang[3];
+    const float quarter[9] = { 0, 0, 1, 0, 1, 0, -1, 0, 0 };                 /* Ry(90) */
+    acr_rot_angles(quarter, ang);
+    CHECK(ang[0] == 0 && ang[1] == 1024 && ang[2] == 0);
 
     /* ---- matrices: a joint turned a quarter about game y, a pivot below it ---- */
     float m[ACR_SKEL_MAX_NODES][12], o[3];

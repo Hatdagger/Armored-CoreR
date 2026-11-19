@@ -146,8 +146,8 @@ with large core rotations was planted in RAM (each player's entry 0 copy) and
 the AC matched the X·Y·Z picture for (1024, 1024, 0) and (1024, 0, 1024),
 which rule out every other order.
 
-Open: tables `a` and `b` (they list the arm, waist and back-unit joints:
-likely aiming).
+Tables `a` and `b`: `a` (header +0x14) is the aim tables, `b` (+0x18) the
+second animation layer (firing). See "Aiming" below.
 
 ## Textures
 
@@ -342,3 +342,55 @@ to the nearest pose it has.
 and into the air (before, its frame stayed at 0 and a standing jump showed
 the first take-off frame until it landed). Set 0's take-off is 9 ticks,
 the measured wait before lift-off.
+
+## Aiming (2026-11-19)
+
+Read from the VS engine (FDAT 209) and the main program; engine:
+`src/model/acr_aim.{h,c}`, `acr_gen1_aim` (battle), drawn by the PC test
+build. Before, the gun arm swung with the walk.
+
+**Aim tables** (PA entry 0, header +0x14): a list of offsets from the
+entry's start, then per table: u16 joints, s16 rest[3], min[3], max[3]
+(the aim's range on x, y, z), then 20 bytes a joint: u16 node, s16
+rest[3], weights for a negative aim[3], for a positive aim[3] (4.12). Set
+0 has 7: 0 the hand-weapon arm (joints 29-32, rest x -1024 = arm forward),
+1 / 2 the left / right back unit raised (fixed), 3 / 4 the cannon stance
+(waist 23 on y, back unit, legs), 5 / 6 a back unit aiming +-512. The
+weapon-arm sets have an 8th (table 7, used by AW-MG25/2, AW-30/3,
+AW-S60/2, AW-DC/2). `acr-import` writes them after the animations
+("aim N", "range", "joint" lines).
+
+**Which table**: every tick the AC handler sets AC +0x84 = -1
+(`0x80083110`), then the selected weapon's fire routine (by slot kind:
+gun `0x80080DF4`, missile `0x80081888`, cannon `0x80081B18`) writes slot
++10 there (`0x80081000`). Slot +10 is weapon detail +3 (+1 on the right
+back slot) - the part files' `firing_anim`, which is the aim table, not
+an animation. Values on the disc: hand weapons 0, missiles 1, cannons 3,
+rockets and WRR-10 5, weapon arms 0 or 7, two-slot back units 255 (none).
+
+**Aim angles** (AC +0x7E / +0x80 / +0x82, lock routine `0x800800E4`): x
+= the lock record's angle to the target + the view tilt (player block
++0x218) while the target is in the lock box (lock record +0x16 bit 2),
+else the tilt alone; the target's angle off the facing, negated, on y
+(cannons always, guns with detail +2 bit 3: weapon arms) or z (hand
+weapons). Sight bit 2 (rockets): tilt only. Signs in the engine, checked
+by drawing set 0: x + = down, y / z + = toward the AC's right.
+
+**Pose** (`0x80059624`, after the main animation): clamp (`0x800595B0`)
+rest + aim into [min + p, max + p] the short way round a 4096 turn, where
+p = the first joint's parent's angles (`0x800148D0`: y = atan2(m02,
+sqrt(1 - m02^2)), x = atan2(-m12, m22), z = atan2(-m01, m00)); delta =
+clamped - rest. Each joint (not on the second layer): angle = rest +
+delta x weight >> 12 (neg weight below 0), in place of the animation;
+flags 0x1C (easing). The first joint also gets 0x20: its rotation is its
+own, not its parent's x its own (position still from the parent). Eased
+angles chase their targets by 1/8 a frame, snapping within 64 (fork
+mapping). A new table: its first joint's angles become its drawn
+rotation (`0x80059AB4`); the old table's joints lose 0x20 with their
+parent's angles taken off (`0x800599AC`) and ease back into the
+animation. Aimed joints skip the cross-fade (`0x80059C88`: flags 0x50).
+
+Not done: the second layer (firing poses, table `b`, AC +0x6D), the
+state check that skips aiming (AC +0x45 = 0x20 / 0x21; the engine skips
+it during a blade swing), the game's lock angles (lock record +0x18 /
++0x1A; the engine aims at the target's position).

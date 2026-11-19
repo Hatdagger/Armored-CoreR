@@ -265,6 +265,35 @@ static int anim_range(const set_info *s, unsigned a, size_t *start, size_t *end)
     return *start < *end && *end <= s->anim_size;
 }
 
+/* Aim tables (header +0x14, VS pose routine 0x80059624): a list of offsets
+ * from the entry's start, ending where the first table begins. A table:
+ * u16 joints, s16 rest[3], min[3], max[3] (the aim range), then 20 bytes a
+ * joint: u16 node, s16 rest[3], weights for a negative aim[3], weights for a
+ * positive aim[3] (4.12). The weapon picks the table (detail +3). */
+static void write_aim_tables(FILE *f, const set_info *s) {
+    const uint8_t *d = s->anim;
+    const uint32_t list = u32(d + 20), second = u32(d + 24);
+    if (list + 4 > s->anim_size) return;
+    uint32_t end = second > list ? second : (uint32_t)s->anim_size;
+    fprintf(f, "\n# Aim tables: range = rest, min, max of the aim on x, y, z; each joint:\n"
+               "# rest angles, then weights (4.12) for a negative and a positive aim.\n");
+    for (unsigned i = 0; list + 4 * i + 4 <= end && i < 32; ++i) {
+        const uint32_t o = u32(d + list + 4 * i);
+        if (!o || o >= s->anim_size || o < list + 4 * (i + 1)) break;
+        if (o < end) end = o;
+        const unsigned n = u16(d + o);
+        if (n > 16 || o + 0x14 + 20u * n > s->anim_size) break;
+        fprintf(f, "\naim %u\nrange rest %d %d %d min %d %d %d max %d %d %d\n", i,
+                s16(d + o + 2), s16(d + o + 4), s16(d + o + 6), s16(d + o + 8), s16(d + o + 10),
+                s16(d + o + 12), s16(d + o + 14), s16(d + o + 16), s16(d + o + 18));
+        for (unsigned k = 0; k < n; ++k) {
+            const uint8_t *e = d + o + 0x14 + 20 * k;
+            fprintf(f, "joint %u rest %d %d %d neg %d %d %d pos %d %d %d\n", u16(e), s16(e + 2), s16(e + 4),
+                    s16(e + 6), s16(e + 8), s16(e + 10), s16(e + 12), s16(e + 14), s16(e + 16), s16(e + 18));
+        }
+    }
+}
+
 /* Calls `node_cb` for every node record of every frame; returns 0 if the
  * record does not parse to its end. */
 typedef void (*node_fn)(void *ctx, unsigned frame, unsigned node, unsigned rot_mode,
@@ -1090,6 +1119,7 @@ static int write_set(const char *out_dir, unsigned id, const set_info *s) {
         text_ctx t = { f, -1 };
         ok = walk_anim(s, start, end, &frames, NULL, text_cb, &t);
     }
+    if (ok) write_aim_tables(f, s);
     return (fclose(f) == 0) && ok;
 }
 

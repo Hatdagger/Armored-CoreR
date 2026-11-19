@@ -37,7 +37,7 @@ add_library(acr_light STATIC src/render/acr_light.c)
 target_include_directories(acr_light PUBLIC src/render)
 
 # Models: PNG reader, skeletons, joint animations, OBJ/MTL (no OS calls).
-add_library(acr_model STATIC src/model/acr_png.c src/model/acr_model.c)
+add_library(acr_model STATIC src/model/acr_png.c src/model/acr_model.c src/model/acr_aim.c)
 target_include_directories(acr_model PUBLIC src/model)
 if(NOT MSVC)
     target_link_libraries(acr_model PUBLIC m)

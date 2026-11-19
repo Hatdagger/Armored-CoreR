@@ -33,6 +33,7 @@
 #include "demo_data.h"
 #include "../../gen1/acr_gen1_pose.h"
 #include "demo_model.h"
+#include "../../model/acr_aim.h"
 #include "garage.h"
 #include "acr_import.h"
 #include "../../render/acr_render.h"
@@ -175,8 +176,15 @@ static demo_model g_model[2];
 static int g_model_parts[2][SLOT_COUNT], g_model_set[2] = { -1, -1 };
 static const uint8_t k_colours_p2[4][3] = { { 46, 12, 10 }, { 18, 18, 20 }, { 52, 44, 16 }, { 10, 10, 12 } };
 
+/* Aiming (acr_aim.h): each player's aim table and angles, set from the
+ * battle before drawing, and the eased joints. */
+static int g_aim_table[2] = { -1, -1 };
+static int16_t g_aim[2][3];
+static struct { acr_aim_state st; Uint64 last_ns; int ok; } g_aiming[2];
+
 static void refresh_model(int who, const char *dir, const int parts[SLOT_COUNT], int set) {
     if (g_model_set[who] == set && !memcmp(g_model_parts[who], parts, sizeof g_model_parts[who])) return;
+    g_aiming[who].ok = 0;
     demo_model_free(&g_model[who]);
     demo_model_load(dir, set, parts, who ? k_colours_p2 : NULL, &g_model[who]);
     memcpy(g_model_parts[who], parts, sizeof g_model_parts[who]);
@@ -243,20 +251,32 @@ static int shown_anim(int who, const acr_gen1_ac *ac, const demo_model *m, float
 static int g_smooth_anim = 1;
 static struct { int anim, ok; acr_pose drawn, from; Uint64 fade_ns; uint16_t fade_step; } g_blend[2];
 
+/* The aim over the animation (arms, waist, back units on the target), eased
+ * at the game's 1/8 a tick, then the model. */
+static void draw_aimed(int who, const demo_model *m, acr_pose *pose, Uint64 now, float x, float y, float z,
+                       float yaw) {
+    if (!g_aiming[who].ok) { acr_aim_reset(&g_aiming[who].st); g_aiming[who].ok = 1; g_aiming[who].last_ns = now; }
+    const float ticks = (float)(now - g_aiming[who].last_ns) / (float)ACR_GEN1_TICK_NS;
+    g_aiming[who].last_ns = now;
+    acr_aim_apply(&g_aiming[who].st, &m->skel, &m->anims, g_aim_table[who], g_aim[who], ticks, pose);
+    demo_model_draw_pose(m, pose, x, y, z, yaw, ACR_GEN1_MODEL_SCALE, &g_light);
+}
+
 static void draw_ac(int who, const acr_gen1_ac *ac, float x, float y, float z, float yaw, float crouch) {
     float tick;
     int loop;
     const demo_model *m = &g_model[who];
     if (!m->ok) { add_ac(v3(x, y, z), yaw, crouch, who); return; }
     const int anim = shown_anim(who, ac, m, &tick, &loop);
+    acr_pose pose;
+    const Uint64 now = SDL_GetTicksNS();
     if (!g_smooth_anim) {
         g_blend[who].ok = 0;
-        demo_model_draw(m, anim, (unsigned)tick, x, y, z, yaw, ACR_GEN1_MODEL_SCALE, &g_light);
+        acr_pose_play(&m->skel, &m->anims, anim, (unsigned)tick, &pose);
+        draw_aimed(who, m, &pose, now, x, y, z, yaw);
         return;
     }
-    acr_pose pose;
     acr_pose_play_smooth(&m->skel, &m->anims, anim, tick, loop, &pose);
-    const Uint64 now = SDL_GetTicksNS();
     if (g_blend[who].ok && g_blend[who].anim != anim) {
         /* The game freezes each joint where it was drawn and moves it to
          * the new animation a step a tick (pose routine 0x80059624). */
@@ -271,7 +291,7 @@ static void draw_ac(int who, const acr_gen1_ac *ac, float x, float y, float z, f
         else acr_pose_mix(&m->skel, &g_blend[who].from, &pose, t, &pose);
     }
     g_blend[who].anim = anim; g_blend[who].drawn = pose; g_blend[who].ok = 1;
-    demo_model_draw_pose(m, &pose, x, y, z, yaw, ACR_GEN1_MODEL_SCALE, &g_light);
+    draw_aimed(who, m, &pose, now, x, y, z, yaw);
 }
 
 /* World point -> HUD grid (hud_w x 480) through proj*view; 0 if behind. */
@@ -1055,6 +1075,7 @@ int main(int argc, char **argv) {
         flush_scene();
         for (int k = 0; k < 2; ++k) {
             g_swinging[k] = battle.f[k].swing != 0;
+            g_aim_table[k] = acr_gen1_aim(&battle, k, g_aim[k]);
             g_in[k].crouch = battle.f[k].kneeling;   /* the cannon stance keeps its own pose */
         }
         draw_ac(view, &ac, px, py, pz, yaw, crouch);

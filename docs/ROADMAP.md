@@ -133,6 +133,11 @@ frame before, and the engine read them as whole poses, so multi-frame
 animations (walking, blade, take-off, landing) snapped between wrong
 poses. Fixed in the pose player (no re-import needed).
 
+Aiming (2026-11-19): the selected weapon's aim table holds the arms,
+waist or back units on the target over the animation, eased as the game
+does (`gen1-models.md`, "Aiming"). Weapon arms count as the AC's gun in
+the test build. Needs a re-import (the aim tables are new in the export).
+
 Next for the look: the second animation layer (firing), aiming (the arms,
 head and back weapons following the target), the kneel, the eight-way
 walk (the game has diagonal walking animations 3-6 and 16-19), and the

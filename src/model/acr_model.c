@@ -140,13 +140,41 @@ int acr_anim_set_parse(const char *text, const acr_skeleton *skel, acr_anim_set 
     memset(out, 0, sizeof *out);
     uint32_t frame_cap = 0, key_cap = 0;
     int cur = -1;
+    acr_aim_table *aim = NULL;
     uint8_t holds[256];
     int hold_count = 0;
     for (const char *p = text; *p; ) {
         const char *e = line_end(p), *s = skip_ws(p, e), *v;
         long x[8];
-        if (starts(s, e, "anim")) {
+        if (starts(s, e, "aim")) {
+            /* aim N, then "range" and "joint" lines (acr_models_moa.c) */
+            cur = -1;
+            aim = read_ints(s + 3, e, x, 1) == 1 && x[0] >= 0 && x[0] < ACR_AIM_MAX ? &out->aim[x[0]] : NULL;
+            if (aim) memset(aim, 0, sizeof *aim);
+        } else if (aim && starts(s, e, "range")) {
+            long v[9];
+            if (read_ints(s + 5, e, v, 9) != 9) goto fail;
+            for (int i = 0; i < 3; ++i) {
+                aim->rest[i] = (int16_t)v[i];
+                aim->min[i] = (int16_t)v[3 + i];
+                aim->max[i] = (int16_t)v[6 + i];
+            }
+        } else if (aim && starts(s, e, "joint")) {
+            long v[10];
+            if (read_ints(s + 5, e, v, 10) != 10) goto fail;
+            /* A joint this skeleton lacks is left out; the table still works. */
+            if (v[0] >= 0 && v[0] < 256 && skel->index_of[v[0]] >= 0 && aim->count < ACR_AIM_MAX_JOINTS) {
+                acr_aim_joint *j = &aim->joint[aim->count++];
+                j->node = (uint8_t)skel->index_of[v[0]];
+                for (int i = 0; i < 3; ++i) {
+                    j->rest[i] = (int16_t)v[1 + i];
+                    j->neg[i] = (int16_t)v[4 + i];
+                    j->pos[i] = (int16_t)v[7 + i];
+                }
+            }
+        } else if (starts(s, e, "anim")) {
             if (read_ints(s + 4, e, x, 1) != 1 || x[0] < 0 || x[0] >= ACR_ANIM_MAX) goto fail;
+            aim = NULL;
             cur = (int)x[0];
             out->anim[cur].first_frame = out->frame_count;
             out->anim[cur].frames = 0;
@@ -264,6 +292,7 @@ void acr_pose_play(const acr_skeleton *skel, const acr_anim_set *set, int anim, 
 void acr_pose_mix(const acr_skeleton *skel, const acr_pose *a, const acr_pose *b, float t, acr_pose *out) {
     if (t <= 0.0f) { if (out != a) *out = *a; return; }
     if (t >= 1.0f) { if (out != b) *out = *b; return; }
+    memcpy(out->own_rot, b->own_rot, sizeof out->own_rot);
     for (int i = 0; i < skel->count; ++i)
         for (int j = 0; j < 3; ++j) {
             int d = ((b->rot[i][j] - a->rot[i][j]) % 4096 + 4096 + 2048) % 4096 - 2048;
@@ -316,6 +345,9 @@ void acr_pose_matrices(const acr_skeleton *skel, const acr_pose *pose, float out
         const int p = skel->node[i].parent;
         if (p >= 0) mul34(world[p], local, world[i]);
         else memcpy(world[i], local, sizeof local);
+        if (p >= 0 && pose->own_rot[i])      /* its own rotation; still placed by its parent */
+            for (int r = 0; r < 3; ++r)
+                for (int col = 0; col < 3; ++col) world[i][r * 4 + col] = local[r * 4 + col];
         /* piece matrix = F * world * T(-bind position) * F, F = diag(1, -1, -1).
            The bind position, not the animated one: vertices sit in bind-pose
            model space, so an animated offset (the root's walk bob, node 2,
@@ -330,6 +362,36 @@ void acr_pose_matrices(const acr_skeleton *skel, const acr_pose *pose, float out
             for (int col = 0; col < 4; ++col)
                 out[i][r * 4 + col] = m[r * 4 + col] * sgn[r] * (col < 3 ? sgn[col] : 1.0f);
     }
+}
+
+void acr_pose_world_rot(const acr_skeleton *skel, const acr_pose *pose, float out[ACR_SKEL_MAX_NODES][9]) {
+    const float k = 6.28318530718f / 4096.0f;
+    for (int i = 0; i < skel->count; ++i) {
+        const float a = pose->rot[i][0] * k, b = pose->rot[i][1] * k, c = pose->rot[i][2] * k;
+        const float ca = cosf(a), sa = sinf(a), cb = cosf(b), sb = sinf(b), cc = cosf(c), sc = sinf(c);
+        const float local[9] = {
+            cb * cc,                 -cb * sc,                 sb,
+            sa * sb * cc + ca * sc,  -sa * sb * sc + ca * cc,  -sa * cb,
+            -ca * sb * cc + sa * sc, ca * sb * sc + sa * cc,   ca * cb,
+        };
+        const int p = skel->node[i].parent;
+        if (p < 0 || pose->own_rot[i]) { memcpy(out[i], local, sizeof local); continue; }
+        for (int r = 0; r < 3; ++r)
+            for (int col = 0; col < 3; ++col)
+                out[i][r * 3 + col] = out[p][r * 3] * local[col] + out[p][r * 3 + 1] * local[3 + col] +
+                                      out[p][r * 3 + 2] * local[6 + col];
+    }
+}
+
+/* 0x800148D0: y = atan2(m02, sqrt(1 - m02^2)); x = atan2(-m12, m22);
+ * z = atan2(-m01, m00) (the game divides the last two by the cosine first). */
+void acr_rot_angles(const float r[9], int16_t out[3]) {
+    const float k = 4096.0f / 6.28318530718f;
+    float s = r[2] < -1.0f ? -1.0f : r[2] > 1.0f ? 1.0f : r[2];
+    const float c = sqrtf(1.0f - s * s);
+    out[1] = (int16_t)lroundf(atan2f(s, c) * k);
+    out[0] = (int16_t)lroundf(atan2f(-r[5], r[8]) * k);
+    out[2] = (int16_t)lroundf(atan2f(-r[1], r[0]) * k);
 }
 
 /* ---- MTL / OBJ ---- */

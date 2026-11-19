@@ -102,8 +102,33 @@ int main(void) {
         EXPECT(!acr_gen1_in_lock_box(&b, 0, &b.f[0].weapon[0]));
         b.f[0].ac.pitch = 384;                          /* ~34 degrees: on it */
         EXPECT(acr_gen1_in_lock_box(&b, 0, &b.f[0].weapon[0]));
+        /* Aiming (presentation): in the box, x = the angle up to it (- = up),
+         * the hand weapon's left / right on z; out of it, the view tilt. */
+        int16_t aim[3];
+        b.f[0].weapon[0].aim_table = 0;
+        EXPECT(acr_gen1_aim(&b, 0, aim) == 0);
+        EXPECT(aim[0] < -300 && aim[0] > -400 && aim[1] == 0 && aim[2] == 0);   /* ~34 degrees up */
+        b.f[0].ac.pitch = 600;
+        EXPECT(acr_gen1_aim(&b, 0, aim) == 0 && aim[0] == -600);
+        b.f[0].weapon[0].aim_table = 255;
+        EXPECT(acr_gen1_aim(&b, 0, aim) == -1);
+        b.f[0].weapon[0].aim_table = 0;
         b.f[0].ac.pitch = 0;
         b.f[1].ac.y = y;
+    }
+    {
+        /* Off to the right: + on z (hand weapons), on y with aim_y. */
+        int16_t aim[3];
+        const int32_t x = b.f[1].ac.x;
+        b.f[1].ac.x += (b.f[1].ac.z > b.f[0].ac.z ? 1 : -1) * 600 * 64;
+        const int t = acr_gen1_aim(&b, 0, aim);
+        EXPECT(t == 0 && aim[0] == 0 && aim[1] == 0 && aim[2] != 0);
+        const int16_t side = aim[2];
+        b.f[0].weapon[0].aim_y = 1;
+        acr_gen1_aim(&b, 0, aim);
+        EXPECT(aim[1] == side && aim[2] == 0);
+        b.f[0].weapon[0].aim_y = 0;
+        b.f[1].ac.x = x;
     }
     int steps = 0;
     while (b.f[1].ap == 8384 && steps < 200) { acr_gen1_battle_step(&b, none, fire); ++steps; }

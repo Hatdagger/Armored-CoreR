@@ -133,6 +133,24 @@ int acr_gen1_in_lock_box(const acr_gen1_battle *b, int i, const acr_gen1_weapon 
     return in_box(b, i, w->range, w->box_w, w->box_h);
 }
 
+int acr_gen1_aim(const acr_gen1_battle *b, int i, int16_t aim[3]) {
+    const acr_gen1_fighter *f = &b->f[i];
+    aim[0] = aim[1] = aim[2] = 0;
+    if (!f->weapons || f->swing || f->current >= f->weapons) return -1;
+    const acr_gen1_weapon *w = &f->weapon[f->current];
+    if (w->kind == ACR_GEN1_BLADE || w->aim_table == 255) return -1;
+    const acr_gen1_ac *me = &f->ac, *it = &b->f[1 - i].ac;
+    aim[0] = (int16_t)-me->pitch;
+    if (!w->straight && acr_gen1_in_lock_box(b, i, w)) {
+        uint16_t yaw;
+        int16_t pitch;
+        dir_of((it->x - me->x) / 64, (it->y - me->y) / 64, (it->z - me->z) / 64, &yaw, &pitch);
+        aim[0] = (int16_t)-pitch;
+        aim[w->aim_y ? 1 : 2] = (int16_t)wrap((int32_t)yaw - me->yaw);
+    }
+    return w->aim_table;
+}
+
 static acr_gen1_shot *free_shot(acr_gen1_battle *b) {
     for (int k = 0; k < ACR_GEN1_MAX_SHOTS; ++k)
         if (!b->shot[k].active) { memset(&b->shot[k], 0, sizeof b->shot[k]); return &b->shot[k]; }

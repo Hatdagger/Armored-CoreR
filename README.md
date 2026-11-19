@@ -50,9 +50,11 @@ the core, tools and tests, add `-DACR_BUILD_GAME=OFF`.
 
 ## Importing your disc
 
-Re-import after updating to this version: the blade's attack and charge
-drain were swapped in older imports, and missiles, cores and legs gained
-fields the fight now uses.
+Re-import after updating to this version: the animation sets now carry
+the game's aim tables (the gun arm, waist and back units follow the
+target), the blade's attack and charge drain were swapped in older
+imports, and missiles, cores and legs gained fields the fight now uses.
+Without a re-import the game still runs; the AC just doesn't aim.
 
 ```
 build/acr-import "Armored Core - Master of Arena (USA) (Disc 1).cue" Data/moa

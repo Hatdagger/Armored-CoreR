@@ -49,7 +49,22 @@ typedef struct acr_anim_key { uint8_t node; uint8_t flags; int16_t rot[3], pos[3
 typedef struct acr_anim_frame { uint32_t first_key; uint16_t keys; uint8_t hold; } acr_anim_frame;
 typedef struct acr_anim { uint32_t first_frame; uint16_t frames; uint16_t ticks; } acr_anim;
 
+/* Aim tables (VS pose routine 0x80059624): the selected weapon picks one;
+ * its joints are set from the aim angle instead of the animation. */
+#define ACR_AIM_MAX        16
+#define ACR_AIM_MAX_JOINTS 8
+typedef struct acr_aim_joint {
+    uint8_t node;                         /* index into the skeleton */
+    int16_t rest[3], neg[3], pos[3];      /* angles, and weights (4.12) for an aim below / above 0 */
+} acr_aim_joint;
+typedef struct acr_aim_table {
+    uint8_t count;                        /* 0 = not in this set */
+    int16_t rest[3], min[3], max[3];      /* the aim's range, per axis */
+    acr_aim_joint joint[ACR_AIM_MAX_JOINTS];
+} acr_aim_table;
+
 typedef struct acr_anim_set {
+    acr_aim_table aim[ACR_AIM_MAX];
     acr_anim anim[ACR_ANIM_MAX];          /* frames = 0: not in this set */
     acr_anim_frame *frame; uint32_t frame_count;
     acr_anim_key *key; uint32_t key_count;
@@ -61,7 +76,12 @@ void acr_anim_set_free(acr_anim_set *set);
 
 /* ---- pose ---- */
 
-typedef struct acr_pose { int16_t rot[ACR_SKEL_MAX_NODES][3], pos[ACR_SKEL_MAX_NODES][3]; } acr_pose;
+typedef struct acr_pose {
+    int16_t rot[ACR_SKEL_MAX_NODES][3], pos[ACR_SKEL_MAX_NODES][3];
+    /* 1 = the node's rotation is its own, not added to its parent's (joint
+     * flag 0x20, the first joint of an aim table while aiming). */
+    uint8_t own_rot[ACR_SKEL_MAX_NODES];
+} acr_pose;
 
 void acr_pose_bind(const acr_skeleton *skel, acr_pose *pose);
 /* Frame shown `tick` ticks into an animation: each frame stays for its hold
@@ -83,6 +103,11 @@ void acr_pose_play_smooth(const acr_skeleton *skel, const acr_anim_set *set, int
 /* a..b by t (0..1): rotations the short way round, positions straight. */
 void acr_pose_mix(const acr_skeleton *skel, const acr_pose *a, const acr_pose *b, float t, acr_pose *out);
 void acr_pose_matrices(const acr_skeleton *skel, const acr_pose *pose, float out[ACR_SKEL_MAX_NODES][12]);
+/* Each node's rotation in the AC's game space (3x3 row-major). */
+void acr_pose_world_rot(const acr_skeleton *skel, const acr_pose *pose, float out[ACR_SKEL_MAX_NODES][9]);
+/* Angles (4096 a turn) of a rotation, x, y, z for Rx * Ry * Rz, as the
+ * game's main program takes them (0x800148D0). */
+void acr_rot_angles(const float r[9], int16_t out[3]);
 
 /* ---- meshes ---- */
 

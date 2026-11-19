@@ -260,7 +260,9 @@ int demo_load(const char *import_dir, const int parts[SLOT_COUNT], demo_ac *out,
             }
             fcs_max_locks = get_int(t, e, "max_locks", 0);
         }
-        if ((s == SLOT_HAND || s == SLOT_BACK_L || s == SLOT_BLADE) && get_int(t, e, "attack", 0) > 0) {
+        /* Weapon arms (arms 12 and up) are the AC's gun: the game's slot 0. */
+        if ((s == SLOT_HAND || s == SLOT_BACK_L || s == SLOT_BLADE || (s == SLOT_ARMS && parts[SLOT_ARMS] >= 12)) &&
+            get_int(t, e, "attack", 0) > 0 && out->weapons < ACR_GEN1_MAX_WEAPONS) {
             acr_gen1_weapon *w = &out->weapon[out->weapons];
             memset(w, 0, sizeof *w);
             SDL_strlcpy(w->name, out->names[s], sizeof w->name);
@@ -291,6 +293,12 @@ int demo_load(const char *import_dir, const int parts[SLOT_COUNT], demo_ac *out,
                 const long pattern = get_int(t, e, "fire_pattern", 0);
                 w->shots = (uint8_t)((pattern & 3) == 1 ? 2 : (pattern & 3) == 2 ? 4 : 1);
                 w->straight = (uint8_t)((get_int(t, e, "sight", 1) & 4) != 0 || (pattern & 4) != 0);
+                /* Aim table (detail +3; "firing_anim" in older part files' notes)
+                 * and its axis: the gun routine passes fire pattern bit 3, the
+                 * cannon routine always y (VS 0x80080FB4, 0x80081CE4). */
+                const long aim = get_int(t, e, "firing_anim", 255);
+                w->aim_table = (uint8_t)(aim < 0 || aim > 254 ? 255 : aim);
+                w->aim_y = (uint8_t)((pattern & 8) != 0 || kind == 2);
                 w->speed = (int32_t)get_int(t, e, "shot_speed", 700);
                 w->stance = (uint8_t)get_int(t, e, "stance", 0);
                 w->max_locks = (uint8_t)get_int(t, e, "salvo", 1);

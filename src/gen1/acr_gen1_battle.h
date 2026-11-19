@@ -45,6 +45,12 @@ typedef struct acr_gen1_weapon {
     uint8_t  shots;         /* per trigger: 1, 2 or 4 (detail +2 bits 0-1) */
     uint8_t  straight;      /* sight bit 2 (rockets, dispensers): no aiming, straight ahead */
     uint8_t  hold;          /* post-shot hold in ticks (detail +4 != 255; length a stand-in) */
+    /* Aiming (presentation): the animation set's aim table this weapon uses
+     * (detail +3, +1 on the right back slot; 255 none), and whether left /
+     * right goes on the y axis (cannons, weapon arms: fire pattern bit 3)
+     * rather than z (hand weapons). */
+    uint8_t  aim_table;
+    uint8_t  aim_y;
     /* Missiles */
     uint16_t inner_w, inner_h;  /* FCS inner box: where a new lock can start */
     uint8_t  lock_value;    /* FCS class value: the cursor moves value x 3 / 16 a tick */
@@ -197,6 +203,15 @@ int acr_gen1_stance_ok(const acr_gen1_fighter *f);
 
 /* Is the other AC inside fighter i's (outer) lock box for weapon w (and in range)? */
 int acr_gen1_in_lock_box(const acr_gen1_battle *b, int i, const acr_gen1_weapon *w);
+
+/* What fighter i aims with (presentation only), as the game's fire routines
+ * set it every tick (VS 0x80080DF4, 0x800800E4): returns the selected
+ * weapon's aim table (-1: none, e.g. during a blade swing) and the aim
+ * angles (4096 a turn): x = down (+) / up (-), the angle to the target while
+ * it is in the weapon's lock box, else the view tilt; y or z = the target's
+ * angle off the facing (+ = to the right) while in the box, else 0.
+ * Straight-firing weapons (rockets) follow the tilt only. */
+int acr_gen1_aim(const acr_gen1_battle *b, int i, int16_t aim[3]);
 
 /* How a round stands (VS main loop end checks): 0 still fighting, 1 or 2 that
  * player won, 3 a draw. Knock-out: the one standing wins, both down is a
