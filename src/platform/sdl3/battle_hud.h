@@ -40,6 +40,7 @@ typedef struct battle_hud_state {
     int recording;           /* REC: only while the game records replay data
                                 (arena and VS fights, never missions) */
     const char *ac_name;
+    int time_ms;             /* round clock; < 0: none (shown above the radar) */
 } battle_hud_state;
 
 /* Loads the PNGs in <import_dir>/hud. 0 if the import has no HUD pictures (an

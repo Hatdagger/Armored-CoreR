@@ -207,6 +207,21 @@ void battle_hud_draw(const battle_hud_state *s, float hud_w, int frame) {
         box(R, 229, 28, 80, 1, 120, 16, 16, 255, ACR_HUD_ALPHA);
     }
 
+    /* Round clock: above the radar, in the AP's big digits (MM:SS, the
+     * colon an 8-wide cell), right-aligned with the radar frame. */
+    if (s->time_ms >= 0) {
+        const int secs = (s->time_ms + 999) / 1000;
+        SDL_snprintf(line, sizeof line, "%02d:%02d", secs / 60 % 100, secs % 60);
+        float x = 308;
+        for (int i = (int)SDL_strlen(line) - 1; i >= 0; --i) {
+            const int colon = line[i] == ':';
+            x -= colon ? 8 : 16;
+            if (g_ready) spr(R, g_layer[0], colon ? 184 : 24 + 16 * (line[i] - '0'), 113, colon ? 8 : 16, 22, x, 23, GREEN, 255,
+                             ACR_HUD_ALPHA);
+        }
+        if (!g_ready) text_r(R, 308, 30, line, 1, GREEN);
+    }
+
     /* Radar: the frame, the disc (its gap is the view ahead), the enemy. */
     if (s->radar_range > 0) {
         const float fx0 = 261, fy0 = 58, fx1 = 307, fy1 = 101;

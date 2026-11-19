@@ -1504,6 +1504,7 @@ int main(int argc, char **argv) {
                 if (ac.drained) hs.messages |= BATTLE_HUD_MSG_CHARGING;
                 hs.recording = 0;   /* no replays yet: REC shows once fights are recorded */
                 hs.ac_name = view == 0 || !two_players ? g_hangar.ac_name : "";
+                hs.time_ms = two_players || g_ai_mode ? (int)round_ms : -1;
                 battle_hud_draw(&hs, g_vw, g_hud_frame);
             }
             /* Round over: each player's own result in their own view. */
@@ -1534,15 +1535,10 @@ int main(int argc, char **argv) {
                                      : "BACK+LEFT (F7): ARENA STAGE (RE-IMPORT THE DISC FOR STAGES)");
         }
         }
-        /* Whole-screen HUD: the split line, round clock and result. */
+        /* Whole-screen HUD: the split line and the result. */
         const float full_w = acr_render_hud(0, 0, pw, ph);
         if (two_players || g_ai_mode) {
             if (two_players) acr_hud_rect(full_w / 2.0f - 1, 0, 2, 480, 0, 0, 0, 255, 1);
-            char clock_text[16];
-            SDL_snprintf(clock_text, sizeof clock_text, "%d:%02d", (int)(round_ms / 60000), (int)(round_ms / 1000 % 60));
-            /* Under the compass (one view) or at the top of the split line. */
-            battle_hud_text(full_w, g_hud_frame, 0, 160.0f - 3.0f * (float)SDL_strlen(clock_text), two_players ? 4 : 33,
-                            clock_text, 1, 58, 214, 58);
         }
         if (!two_players && g_ai_mode) {
             char who[64];

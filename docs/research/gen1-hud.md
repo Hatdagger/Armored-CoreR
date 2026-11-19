@@ -61,6 +61,7 @@ then kana and kanji. Used for the AC's name.
 | Compass band | x 96-225, y 16-30 | screen x 0.88 |
 | Compass ticks / letters | y 17 / 23, window x 97-225, facing at x 161 | (48, 128, 40) / (42, 198, 42) |
 | REC + line | (228, 20); red line (229, 28, 80 x 1) | (80, 255, 170); (120, 16, 16) |
+| Round clock (big digits, MM:SS) | right-aligned at x 308, y 23, above the radar (user's design; the colon is an 8-wide cell at u 184) | (58, 214, 58) |
 | Radar frame | x 261-307, y 58-101 | bright green |
 | Radar disc | (260, 56), added to the screen | + (64, 120, 24) |
 | Selected weapon (6 x 7) | right-aligned at x 312, y 112; ammo `%3d/%4d` at y 120 | yellow (255, 255, 0) |
@@ -71,6 +72,8 @@ then kana and kanji. Used for the AC's name.
 - The big number is the AP; the vertical bar is energy (its label is
   ENERGY). The name at the bottom left is the AC's name.
 - Weapons are shown by type (RIFLE, SMALL MISSILE), not part name.
+- The round clock sits above the radar, as big as the AP (the user's call).
+  REC (y 20-28) would overlap it: when replays come, one of them moves.
 - REC shows only while the game records replay data: arena and VS fights,
   never missions. The engine has no replays yet, so it stays off.
 - The FCS sight (big frame) is drawn through the camera
