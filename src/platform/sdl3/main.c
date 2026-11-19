@@ -826,6 +826,31 @@ int main(int argc, char **argv) {
             if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_F6) toggle_autopilot = 1;
             if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && back_held && e.gbutton.button == SDL_GAMEPAD_BUTTON_DPAD_UP) { cycle_ai = 1; back_combo = 1; }
             if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && back_held && e.gbutton.button == SDL_GAMEPAD_BUTTON_DPAD_DOWN) { toggle_autopilot = 1; back_combo = 1; }
+            int toggle_bounds = 0;
+            if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_F8) toggle_bounds = 1;
+            if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && back_held && e.gbutton.button == SDL_GAMEPAD_BUTTON_DPAD_RIGHT) { toggle_bounds = 1; back_combo = 1; }
+            if (toggle_bounds && g_stage_on) {
+                /* Test boundary: out-of-area boxes shrunk to just around the
+                 * two starts (box 1 1,500 past them, box 2 500 wider on x and
+                 * 500 narrower on z), so the warning and the loss can be
+                 * tried on any stage. The stages' own boxes aren't imported
+                 * yet. */
+                acr_gen1_stage *cs = &g_stage.collision;
+                if (cs->bounds) cs->bounds = 0;
+                else {
+                    const int32_t *a = g_stage.start[0], *c = g_stage.start[1];
+                    const int32_t x0 = SDL_min(a[0], c[0]) - 1500, x1 = SDL_max(a[0], c[0]) + 1500;
+                    const int32_t z0 = SDL_min(a[2], c[2]) - 1500, z1 = SDL_max(a[2], c[2]) + 1500;
+                    const acr_gen1_stage_bound bd[3] = {
+                        { { -30000, -30000, -30000 }, { 30000, 30000, 30000 }, 0 },
+                        { { x0, -30000, z0 }, { x1, 30000, z1 }, 1 },
+                        { { x0 - 500, -30000, z0 + 500 }, { x1 + 500, 30000, z1 - 500 }, 2 },
+                    };
+                    SDL_memcpy(cs->bound, bd, sizeof bd);
+                    cs->bounds = 3;
+                }
+                SETUP_FIGHTERS(); prevs[0] = *P; prevs[1] = *T;
+            }
             int toggle_stage = 0;
             if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_F7) toggle_stage = 1;
             if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && back_held && e.gbutton.button == SDL_GAMEPAD_BUTTON_DPAD_LEFT) { toggle_stage = 1; back_combo = 1; }
@@ -1392,6 +1417,11 @@ int main(int argc, char **argv) {
             }
             if (me->human_plus) TEXT(20, g_vh - 64, "HUMAN PLUS");
             if (me->hit_flash & 4) acr_hud_text(g_vw * 0.5f - 12, g_vh * 0.45f + 40, "HIT", 255, 90, 60);
+            /* Out of area: the warning outside the first inner box, then the loss. */
+            {
+                const int out = acr_gen1_battle_out_of_area(&battle, view);
+                if (out) acr_hud_text(g_vw * 0.5f - 40, g_vh * 0.30f, out == 2 ? "OUT OF AREA" : "AREA WARNING", 255, 80, 60);
+            }
             SDL_snprintf(line, sizeof line, "AP %5d", (int)me->ap);
             TEXT(g_vw - 150, rc_y + 48, line);
             acr_hud_rect(g_vw - 220, 96, 200, 8, 40, 40, 40, 255, 1);
@@ -1414,6 +1444,8 @@ int main(int argc, char **argv) {
             TEXT(20, 88, "BACK+A (H): HUMAN PLUS  BACK (T): STEP RATE");
             TEXT(20, 100, "BACK+LB (F2): TWO PLAYERS  BACK+R3 (F3): LANDING PAUSE GUESS/ANIMATION");
             TEXT(20, 112, "BACK+UP (F4): OPPONENT STILL / AI PRESETS  BACK+DOWN (F6): AI VS AI (WATCH)");
+            if (g_stage.ok) TEXT(20, 136, g_stage.collision.bounds ? "BACK+RIGHT (F8): TEST BOUNDARY ON (1,500 PAST THE STARTS)"
+                                                                   : "BACK+RIGHT (F8): TEST BOUNDARY OFF");
             TEXT(20, 124, g_stage.ok ? "BACK+LEFT (F7): GREEN SILO / OCEAN PLATFORM / OPEN TEST FLOOR"
                                      : "BACK+LEFT (F7): ARENA STAGE (RE-IMPORT THE DISC FOR STAGES)");
         }
@@ -1439,6 +1471,8 @@ int main(int argc, char **argv) {
                          round_result == 2 ? (vs_ai ? "THE AI WINS - START TO RESET" : "PLAYER 2 WINS - START TO RESET")
                                            : "DRAW - START TO RESET", 255, 230, 120);
             if (round_ms <= 0) acr_hud_text(full_w / 2.0f - 40, 254, "TIME UP", 255, 230, 120);
+            else if (acr_gen1_battle_out_of_area(&battle, 0) == 2 || acr_gen1_battle_out_of_area(&battle, 1) == 2)
+                acr_hud_text(full_w / 2.0f - 44, 254, "OUT OF AREA", 255, 230, 120);
         }
         #undef TEXT
     present:;

@@ -216,6 +216,36 @@ the AC through, walking off an edge falls straight down and lands on the
 floor below; with `ACR_STAGE_DIR` Green Silo and Ocean Platform starts,
 walks and two-minute computer fights).
 
+## Out of area (2026-11-19)
+
+The rule (recomp, VS on the default stage): stage objects, one per box,
+test each AC every tick and set the box's bit in its player block +0x08
+while it is inside (ends included). Box 0 is the whole level, boxes 1 and
+2 overlap to make the arena floor. Outside box 1 only (bits 5): a warning;
+outside both (bits 1): that side loses.
+
+In the arena engine the boxes are stage-code objects too. Ocean Platform's
+arena code (FDAT 197, loaded at `0x8009EFE8`) has the box handler at
+`0x8009F490`: the box is the object's centre (+0 / +2 / +4) plus signed
+bytes x 256 (min +0x22..+0x24, max +0x25..+0x27), bit +0x28, tested for
+both player blocks (`0x80045198` and +0x3A0) by `0x8009F34C`; bits 1 and 2
+also copy the box to the player block (+0x21E / +0x22E, for the map?).
+Its creator `0x8009F580` is stage object type 35 (the type table at the
+code's start, entry 8 + type; the arena engine calls entry + 0x20 + type
+x 4, `0x8007F03C`). **Not found yet: which records make the type 35
+objects.** Chunk 13's records carry other numbers at +0x0E, Green Silo's
+arena code has no box handler at all (enclosed: nothing to leave), and the
+60 empty model 8 areas in Green Silo / 8 model 14 areas in Ocean Platform
+are under the floor / over the sea, not the arena's edges.
+
+In the engine: `acr_gen1_stage_bound` boxes on the stage, the bits
+(`acr_gen1_stage_area_bits`), `acr_gen1_battle_out_of_area` (0 / 1
+warning / 2 out) and the round result (out counts as down; both out is a
+draw). No stage imports its boxes yet, so the rule is off in play; AC TEST
+has a **test boundary** (F8 / Back + Right: box 1 1,500 past the starts,
+box 2 500 wider on x and narrower on z) to try the warning and the loss.
+`tests/test_gen1_stage.c` walks an AC out of a shrunk boundary.
+
 ## Points (chunk 13)
 
 256 records of 40 bytes: `s16 x, y, z`, `s16` (-1 from record 3 on),
@@ -277,7 +307,10 @@ y = -game y). Open them in Blender to look around.
    floors"). `0x80074FA4` turned out to be the line test (sight, blade,
    missiles), not the body's. Out-of-area: see "Out of area".
 2. The other stages: their textured models already import (chunk 1 +
-   RTIM); check them in the engine (Lunar Base first) and read the data
-   after chunk 13. Page 448's texture.
+   RTIM). Ocean Platform (39, the user's pick) is in AC TEST (F7) with the
+   game's collision; the others next. The data after chunk 13 is padding
+   in Ocean Platform. Page 448's texture.
+5. The out-of-area boxes' records (see "Out of area"); the game's own
+   touchdown code; AC against stage objects.
 3. Stage lights (`0x801A8D80` light sets by area +0x30 byte 0) and fog.
 4. Chunks 6, 9-12 and the stage objects in chunk 13.

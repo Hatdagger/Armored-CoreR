@@ -65,9 +65,14 @@ weapons, damage, two-player test build (see `docs/research/`).
 4. **Arena**: stages from the disc (same mesh decoder), then collision
    (walls, floors, heights), then rankings, opponents and rewards.
    Started 2026-11-19 (`research/gen1-stages.md`): every stage's areas,
-   flat models and collision import; Green Silo plays in AC TEST with
-   stand-in floor / wall rules. Next: the game's own wall and floor rules,
-   out-of-area, then textured stages.
+   flat models and collision import; Green Silo plays in AC TEST.
+   The game's own wall and floor rules are in (2026-11-19, branch
+   `gen1-arena-walls`): one box pushed out of the nearest polygon, sliding
+   along walls, following slopes, falling off edges; Ocean Platform (the
+   user's pick for the second arena) joins Green Silo in AC TEST (F7).
+   Out-of-area: the rule is in (warning, then the loss) with a test
+   boundary (F8); the stages' own boxes aren't found yet. Next: those
+   boxes, the other stages, stage lights.
 
 ## Shortcuts
 

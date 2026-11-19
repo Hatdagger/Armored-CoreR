@@ -326,6 +326,48 @@ int main(void) {
         printf("game rules: walked off the edge (fell %d), now at z %d, y %d, state %d\n", fell, ac.z / 64, ac.y / 64,
                ac.state);
         EXPECT(fell && ac.state != ACR_GEN1_AIR && ac.y / 64 >= 797 && ac.y / 64 <= 800 && ac.z / 64 > 2000);
+        /* Out of area, with the boundary shrunk to fit this little stage
+         * (as a test; the made-up floor is open on every side): box 0 the
+         * whole level, box 1 x / z within 600, box 2 x within 800, z 400. */
+        {
+            const acr_gen1_stage_bound bd[3] = {
+                { { -3000, -5000, -3000 }, { 3000, 5000, 3000 }, 0 },
+                { { -600, -5000, -600 }, { 600, 5000, 600 }, 1 },
+                { { -800, -5000, -400 }, { 800, 5000, 400 }, 2 },
+            };
+            memcpy(g.bound, bd, sizeof bd);
+            g.bounds = 3;
+            EXPECT(acr_gen1_stage_has_area_rule(&g));
+            EXPECT(acr_gen1_stage_area_bits(&g, 0, 0, 0) == 7);
+            EXPECT(acr_gen1_stage_area_bits(&g, 700, 0, 0) == 5);
+            EXPECT(acr_gen1_stage_area_bits(&g, 900, 0, 0) == 1);
+            static acr_gen1_battle b;
+            memset(&b, 0, sizeof b);
+            b.stage = &g;
+            b.step_ms = 45;
+            for (int i = 0; i < 2; ++i) {
+                b.f[i].def = &def;
+                b.f[i].ap = b.f[i].ap_max = 8000;
+                b.f[i].intercept_shot = -1; b.f[i].swing_target = -1; b.f[i].last_missile = -1;
+            }
+            acr_gen1_ac_spawn(&b.f[0].ac, &def, 0, 0, 3072);          /* walks toward engine -x */
+            acr_gen1_ac_spawn(&b.f[1].ac, &def, 0, 300 * 64, 0);
+            EXPECT(acr_gen1_battle_result(&b, 0) == 0 && acr_gen1_battle_out_of_area(&b, 0) == 0);
+            int warned = 0, t = 0;
+            for (; t < 400 && !acr_gen1_battle_result(&b, 0); ++t) {
+                acr_gen1_input in[2] = { { 1, 0, 0, 0, 0, 0, 0 }, { 0, 0, 0, 0, 0, 0, 0 } };
+                acr_gen1_actions act[2];
+                memset(act, 0, sizeof act);
+                acr_gen1_battle_step(&b, in, act);
+                if (acr_gen1_battle_out_of_area(&b, 0) == 1) warned = 1;
+            }
+            printf("game rules: out of area at x %d after %d ticks (warned %d), result %d\n", b.f[0].ac.x / 64, t,
+                   warned, acr_gen1_battle_result(&b, 0));
+            EXPECT(warned && acr_gen1_battle_result(&b, 0) == 2 && b.f[0].ac.x / 64 < -800);
+            /* Both out: a draw. */
+            b.f[1].ac.x = -2000 * 64;
+            EXPECT(acr_gen1_battle_result(&b, 0) == 3);
+        }
         acr_gen1_stage_free(&g);
     }
 

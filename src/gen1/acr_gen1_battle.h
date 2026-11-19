@@ -267,9 +267,15 @@ int acr_gen1_aim(const acr_gen1_battle *b, int i, int16_t aim[3]);
  * angles in 4096 a turn, pitch + = up, yaw + = right. */
 #define ACR_GEN1_CAM_PITCH_MAX 800
 
+/* Out of area for fighter i (the stage's boxes, acr_gen1_stage_bound):
+ * 0 inside, 1 outside the first inner box only (the warning), 2 outside
+ * both (that side loses). 0 on a stage without the boxes. */
+int acr_gen1_battle_out_of_area(const acr_gen1_battle *b, int i);
+
 /* How a round stands (VS main loop end checks): 0 still fighting, 1 or 2 that
  * player won, 3 a draw. Knock-out: the one standing wins, both down is a
- * draw. Time up: the higher AP wins, equal AP is a draw. */
+ * draw; out of area counts as down. Time up: the higher AP wins, equal AP is
+ * a draw. */
 int acr_gen1_battle_result(const acr_gen1_battle *b, int time_up);
 
 #endif

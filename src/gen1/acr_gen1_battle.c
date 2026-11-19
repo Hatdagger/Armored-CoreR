@@ -766,8 +766,18 @@ void acr_gen1_battle_step(acr_gen1_battle *b, const acr_gen1_input in[2], const 
     shots_step(b, ticks);
 }
 
+int acr_gen1_battle_out_of_area(const acr_gen1_battle *b, int i) {
+    if (!b->stage || !acr_gen1_stage_has_area_rule(b->stage)) return 0;
+    const acr_gen1_ac *ac = &b->f[i].ac;
+    const uint8_t bits = acr_gen1_stage_area_bits(b->stage, ac->x / 64, ac->y / 64, ac->z / 64);
+    if (!(bits & ACR_GEN1_AREA_INNER)) return 2;
+    return (bits & ACR_GEN1_AREA_INNER) != ACR_GEN1_AREA_INNER ? 1 : 0;
+}
+
 int acr_gen1_battle_result(const acr_gen1_battle *b, int time_up) {
-    const int down0 = b->f[0].ap <= 0, down1 = b->f[1].ap <= 0;
+    /* Out of area (outside both inner boxes) loses like a knock-out. */
+    const int down0 = b->f[0].ap <= 0 || acr_gen1_battle_out_of_area(b, 0) == 2,
+              down1 = b->f[1].ap <= 0 || acr_gen1_battle_out_of_area(b, 1) == 2;
     if (down0 || down1) return down0 && down1 ? 3 : down0 ? 2 : 1;
     if (!time_up) return 0;
     return b->f[0].ap > b->f[1].ap ? 1 : b->f[1].ap > b->f[0].ap ? 2 : 3;

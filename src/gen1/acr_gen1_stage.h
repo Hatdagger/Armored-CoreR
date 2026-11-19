@@ -52,6 +52,21 @@ typedef struct acr_gen1_stage_area {
     int16_t model;            /* index into gmodel, or -1 */
 } acr_gen1_stage_area;
 
+/* An out-of-area box (stage objects: VS stage code's box handler, recomp
+ * 0x80098124; arena stage code, e.g. Ocean Platform's 0x8009F490): centre
+ * plus signed bytes x 256 either way, and a bit the AC sets in its player
+ * block +0x08 while inside (ends included). Engine axes, world units. */
+typedef struct acr_gen1_stage_bound {
+    int32_t lo[3], hi[3];
+    uint8_t bit;
+} acr_gen1_stage_bound;
+
+#define ACR_GEN1_STAGE_BOUNDS 8
+/* Box 0 is the whole level; boxes 1 and 2 overlap to make the arena floor.
+ * Outside box 1 only: a warning. Outside both: that side loses (measured
+ * in the recomp: bits 7 inside, 5 warning, 1 lost). */
+#define ACR_GEN1_AREA_INNER 6
+
 typedef struct acr_gen1_stage {
     acr_gen1_stage_poly *poly;
     uint32_t polys;
@@ -62,6 +77,9 @@ typedef struct acr_gen1_stage {
     uint32_t areas;
     acr_gen1_stage_gmodel *gmodel;
     uint32_t gmodels;
+    /* Out-of-area boxes (0: none known for this stage; the rule is off). */
+    acr_gen1_stage_bound bound[ACR_GEN1_STAGE_BOUNDS];
+    uint8_t bounds;
 } acr_gen1_stage;
 
 /* Parses the collision OBJ text (v / f lines; anything else is skipped).
@@ -127,5 +145,11 @@ int acr_gen1_stage_move(const acr_gen1_stage *s, const int32_t pos[3], int32_t s
  * 32,767). */
 int acr_gen1_stage_floor_probe(const acr_gen1_stage *s, const int32_t pos[3], int32_t half, int32_t height,
                                uint8_t mask, int32_t *floor_y);
+
+/* The out-of-area bits for an AC at (x, y, z): bit k set while inside a
+ * box with bit k (player block +0x08). */
+uint8_t acr_gen1_stage_area_bits(const acr_gen1_stage *s, int32_t x, int32_t y, int32_t z);
+/* Does the stage have the inner boxes the out-of-area rule needs? */
+int acr_gen1_stage_has_area_rule(const acr_gen1_stage *s);
 
 #endif

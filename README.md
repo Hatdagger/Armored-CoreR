@@ -31,6 +31,7 @@ empty arena with Gen 1 movement.
 | Gen 1 fitting rules (what makes an AC legal) | done |
 | Gen 1 movement: walk, strafe, turn, boost, rise, landing, energy, at the game's own 22 ticks a second at any step rate | second version |
 | AC graphics | real models from your disc: parts on the skeleton, joint animations, your colours (PS1-style lighting) |
+| Arenas: Green Silo and Ocean Platform from your disc, with the game's own wall and floor rules | first version |
 | Lock-on, guns, missiles (lock cursor, volleys, flight, giving up), blade, interceptor, damage: following the AC1Recomp fork's mapping of the game code | first version |
 | Two players on one machine (split screen) | first version |
 | Renderer: OpenGL 2.1, PS1-style lighting and fog, native resolution | first version |
@@ -51,7 +52,9 @@ the core, tools and tests, add `-DACR_BUILD_GAME=OFF`.
 
 ## Importing your disc
 
-Re-import after updating to this version: the animation sets now carry
+Re-import after updating to this version: the arenas now carry the
+game's own collision data (`collision.txt`), so walls and floors follow
+the game's rules (an older import keeps the stand-in rules). Before that: the animation sets now carry
 the game's aim tables (the gun arm, waist and back units follow the
 target), the blade's attack and charge drain were swapped in older
 imports, and missiles, cores and legs gained fields the fight now uses.
@@ -103,6 +106,8 @@ own part models (every part, FCS and options included) go to
 | Human PLUS on/off | Back + A | H |
 | Two players, split screen | Back + LB | F2 |
 | Opponent: still target, then AI BALANCED, AGGRESSOR, SNIPER, DUELIST, EVASIVE | Back + d-pad up | F4 |
+| Arena: Green Silo, Ocean Platform, open test floor | Back + d-pad left | F7 |
+| Test boundary for out of area (on / off) | Back + d-pad right | F8 |
 | AI against AI (player 1 on autopilot, to watch) | Back + d-pad down | F6 |
 | Landing pause: guess / landing animation's length (test) | Back + R3 | F3 |
 | Change step rate (22, 30, 45, 60 steps a second; same game pace) | Back | T |

@@ -586,3 +586,22 @@ int acr_gen1_stage_floor_probe(const acr_gen1_stage *s, const int32_t pos[3], in
     *floor_y = best;
     return 1;
 }
+
+/* ---- out of area ---- */
+
+uint8_t acr_gen1_stage_area_bits(const acr_gen1_stage *s, int32_t x, int32_t y, int32_t z) {
+    uint8_t bits = 0;
+    for (unsigned i = 0; i < s->bounds && i < ACR_GEN1_STAGE_BOUNDS; ++i) {
+        const acr_gen1_stage_bound *b = &s->bound[i];
+        if (x < b->lo[0] || x > b->hi[0] || y < b->lo[1] || y > b->hi[1] || z < b->lo[2] || z > b->hi[2]) continue;
+        if (b->bit < 8) bits |= (uint8_t)(1u << b->bit);
+    }
+    return bits;
+}
+
+int acr_gen1_stage_has_area_rule(const acr_gen1_stage *s) {
+    uint8_t have = 0;
+    for (unsigned i = 0; i < s->bounds && i < ACR_GEN1_STAGE_BOUNDS; ++i)
+        if (s->bound[i].bit < 8) have |= (uint8_t)(1u << s->bound[i].bit);
+    return (have & ACR_GEN1_AREA_INNER) != 0;
+}
