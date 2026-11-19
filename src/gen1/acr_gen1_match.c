@@ -47,8 +47,8 @@ void acr_gen1_match_step(acr_gen1_match *m, const acr_gen1_battle *start, const 
             next_round(m, start, r);
             return;
         }
-        static const acr_gen1_input no_in[2];
-        static const acr_gen1_actions no_act[2];
+        static const acr_gen1_input no_in[2] = { { 0 } };
+        static const acr_gen1_actions no_act[2] = { { 0 } };
         acr_gen1_battle_step(&m->b, no_in, no_act);
         floor_walls(m, r->arena_half);
         return;
