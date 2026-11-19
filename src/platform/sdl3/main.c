@@ -37,6 +37,7 @@
 #include "demo_stage.h"
 #include "../../model/acr_aim.h"
 #include "garage.h"
+#include "rogue.h"
 #include "battle_hud.h"
 
 /* HUD framing: the PS1's 4:3 layout in the middle (default) or spread to a
@@ -192,11 +193,20 @@ static struct { int ok; float p[3]; } g_muzzle[2];
 static int16_t g_aim[2][3];
 static struct { acr_aim_state st; Uint64 last_ns; int ok; } g_aiming[2];
 
+/* Rogue Arena paints both ACs (the run's colours, the opponent's own). */
+static int g_paint_on[2];
+static uint8_t g_paint[2][4][3], g_model_paint[2][4][3];
+static int g_model_paint_on[2];
+
 static void refresh_model(int who, const char *dir, const int parts[SLOT_COUNT], int set) {
-    if (g_model_set[who] == set && !memcmp(g_model_parts[who], parts, sizeof g_model_parts[who])) return;
+    if (g_model_set[who] == set && !memcmp(g_model_parts[who], parts, sizeof g_model_parts[who]) &&
+        g_model_paint_on[who] == g_paint_on[who] && (!g_paint_on[who] || !memcmp(g_model_paint[who], g_paint[who], sizeof g_paint[who])))
+        return;
     g_aiming[who].ok = 0;
     demo_model_free(&g_model[who]);
-    demo_model_load(dir, set, parts, who ? k_colours_p2 : NULL, &g_model[who]);
+    g_model_paint_on[who] = g_paint_on[who];
+    memcpy(g_model_paint[who], g_paint[who], sizeof g_paint[who]);
+    demo_model_load(dir, set, parts, g_paint_on[who] ? (const uint8_t (*)[3])g_paint[who] : who ? k_colours_p2 : NULL, &g_model[who]);
     memcpy(g_model_parts[who], parts, sizeof g_model_parts[who]);
     g_model_set[who] = set;
 }
@@ -382,7 +392,11 @@ static int next_part(const char *dir, int parts[SLOT_COUNT], int slot, demo_ac *
  * the test build keeps its own number for the file: F4 used to stick on
  * the still target.) */
 #define AI_FROM_FILE 100
+#define AI_ROGUE 101                     /* the Rogue Arena opponent's own pilot */
 static int g_ai_mode = 0;
+static acr_gen1_ai_profile g_rogue_prof;
+static int g_plus2 = 0;                  /* the opponent's Human PLUS level (Rogue Arena) */
+static int g_rogue_fight = 0;            /* a Rogue Arena fight is on */
 static acr_gen1_ai g_ai[2];
 static unsigned g_ai_round = 0;
 static int g_autopilot = 0;              /* player 1 flown by the AI too (AI against AI) */
@@ -400,6 +414,7 @@ static int ai_preset_of(const char *s) {
 static acr_gen1_ai_profile ai_profile(int mode) {
     acr_gen1_ai_profile p;
     if (mode == AI_FROM_FILE && g_ai_file_ok) return g_ai_file_prof;
+    if (mode == AI_ROGUE) return g_rogue_prof;
     acr_gen1_ai_preset(&p, mode > 0 && mode < ACR_GEN1_AI_PRESETS ? mode : ACR_GEN1_AI_BALANCED);
     return p;
 }
@@ -553,6 +568,22 @@ static garage_action button_action(int b) {
     case SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER: return GA_NEXT_TAB;
     default: return GA_NONE;
     }
+}
+
+/* Testing aid: ACR_KEYS="ok,down,ok,..." feeds the garage and the Rogue
+ * Arena screens one action a frame ("wait" skips a frame). */
+static garage_action script_action(void) {
+    static const char *script;
+    static int script_read;
+    if (!script_read) { script = SDL_getenv("ACR_KEYS"); script_read = 1; }
+    if (!script || !*script) return GA_NONE;
+    garage_action a = GA_NONE;
+    static const char *const k_names[] = { "", "up", "down", "left", "right", "ok", "back", "lb", "rb" };
+    for (int k = 1; k < 9; ++k)
+        if (!SDL_strncmp(script, k_names[k], SDL_strlen(k_names[k]))) { a = (garage_action)k; break; }
+    script = SDL_strchr(script, ',');
+    if (script) ++script;
+    return a;
 }
 
 /* The garage's AC: turning slowly, standing, in the middle of the screen. */
@@ -712,10 +743,12 @@ int main(int argc, char **argv) {
         for (int c = 0; c < ACR_GEN1_CAT_COUNT; ++c)
             for (int i = 0; i < ACR_GEN1_PART_MAX; ++i) g_catalog.part[c][i].for_sale = 0;
     hangar_open(parts);
-    int mode = g_direct_test ? 1 : 0;   /* 0 garage, 1 test arena */
+    rogue_init(dir, &g_catalog, g_part_names);
+    int mode = g_direct_test ? 1 : 0;   /* 0 garage, 1 test arena, 2 Rogue Arena */
     garage_ui gui;
     garage_init(&gui);
-    garage_data gdata = { &g_hangar, &g_catalog, g_part_names };
+    const garage_data gdata_main = { &g_hangar, &g_catalog, g_part_names };
+    garage_data gdata = gdata_main;
     if (!g_direct_test) {
         int fitted[SLOT_COUNT];
         hangar_parts(fitted);
@@ -745,8 +778,9 @@ int main(int argc, char **argv) {
             memset(f_, 0, sizeof *f_);                                                    \
             f_->intercept_shot = -1; f_->swing_target = -1; f_->last_missile = -1;        \
             /* Human PLUS at full (level 9): energy rules of VS 0x80083560. */            \
-            if (i_ == 0 && human_plus && !d_->plus_applied) {                             \
-                acr_gen1_human_plus_energy(&d_->def.stats, 9); d_->plus_applied = 1;      \
+            if ((i_ == 0 ? human_plus : g_plus2) && !d_->plus_applied) {                 \
+                acr_gen1_human_plus_energy(&d_->def.stats, i_ == 0 ? 9 : g_plus2);        \
+                d_->plus_applied = 1;                                                     \
             }                                                                             \
             f_->def = &d_->def;                                                           \
             f_->ap = f_->ap_max = d_->ap;                                                 \
@@ -760,7 +794,7 @@ int main(int argc, char **argv) {
             f_->current = 0;                                                              \
             f_->legs = (uint8_t)(pp[i_][SLOT_LEGS] >= 27 ? ACR_GEN1_LEGS_TRACKS            \
                        : pp[i_][SLOT_LEGS] >= 21 ? ACR_GEN1_LEGS_FOUR : ACR_GEN1_LEGS_TWO); \
-            f_->human_plus = (uint8_t)(i_ == 0 && human_plus); f_->kneeling = 0;          \
+            f_->human_plus = (uint8_t)(i_ == 0 ? human_plus : g_plus2 > 0); f_->kneeling = 0; \
         }                                                                                 \
         if (g_stage_on) { stage_spawn(P, def, 0); stage_spawn(T, def2, 1); }               \
         else {                                                                            \
@@ -795,6 +829,8 @@ int main(int argc, char **argv) {
 
     Uint64 last = SDL_GetTicksNS();
     const Uint64 start_ns = last;
+    Uint64 give_up_until = 0;              /* Rogue Arena: a second Esc before this gives up */
+    Uint64 rogue_over_at = 0;              /* Rogue Arena: when the round ended */
     int running = 1, show_help = 0, back_held = 0, back_combo = 0, switch_pressed[2] = { 0, 0 }, blade_pressed[2] = { 0, 0 };
     SDL_Gamepad *pads[2] = { pad, NULL };
     {   /* a second controller, if there is one */
@@ -807,7 +843,8 @@ int main(int argc, char **argv) {
     while (running) {
         SDL_Event e;
         garage_command gcmd = GC_NONE;
-        int to_garage = 0;
+        rogue_command rcmd = RC_NONE;
+        int to_garage = 0, rogue_done = 0, rogue_give_up = 0;
         while (SDL_PollEvent(&e)) {
             if (e.type == SDL_EVENT_QUIT) running = 0;
             if (e.type == SDL_EVENT_GAMEPAD_ADDED) {
@@ -819,6 +856,47 @@ int main(int argc, char **argv) {
             if (e.type == SDL_EVENT_GAMEPAD_REMOVED)
                 for (int k = 0; k < 2; ++k)
                     if (pads[k] && SDL_GetGamepadID(pads[k]) == e.gdevice.which) { SDL_CloseGamepad(pads[k]); pads[k] = NULL; }
+            if (mode == 2) {   /* Rogue Arena's screens take all other input */
+                garage_action ga = GA_NONE;
+                if (e.type == SDL_EVENT_KEY_DOWN) ga = key_action(e.key.scancode);
+                if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) ga = button_action(e.gbutton.button);
+                const rogue_command rc = rogue_input(ga);
+                if (rc != RC_NONE) rcmd = rc;
+                continue;
+            }
+            if (mode == 1 && g_rogue_fight) {
+                /* A Rogue Arena fight: no test keys. Esc (twice) or Back +
+                 * Start gives up, which counts as a loss; after the round,
+                 * Enter / A goes on. */
+                const int esc = e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_ESCAPE;
+                const int pad_quit = e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && back_held && e.gbutton.button == SDL_GAMEPAD_BUTTON_START;
+                if (esc || pad_quit) {
+                    if (round_over) rogue_done = 1;
+                    else if (SDL_GetTicks() < give_up_until) rogue_give_up = 1;
+                    else give_up_until = SDL_GetTicks() + 2000;
+                    if (pad_quit) back_combo = 1;
+                    continue;
+                }
+                if (round_over && ((e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_RETURN) ||
+                                   (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && e.gbutton.button == SDL_GAMEPAD_BUTTON_SOUTH))) {
+                    rogue_done = 1;
+                    continue;
+                }
+                if (e.type == SDL_EVENT_KEY_DOWN) {
+                    const SDL_Scancode k = e.key.scancode;
+                    const int test_key = (k >= SDL_SCANCODE_F2 && k <= SDL_SCANCODE_F8 && k != SDL_SCANCODE_F5) ||
+                                         (k >= SDL_SCANCODE_2 && k <= SDL_SCANCODE_8 && k != SDL_SCANCODE_5) ||
+                                         k == SDL_SCANCODE_R || k == SDL_SCANCODE_B || k == SDL_SCANCODE_G || k == SDL_SCANCODE_C ||
+                                         k == SDL_SCANCODE_L || k == SDL_SCANCODE_H || k == SDL_SCANCODE_T;
+                    if (test_key) continue;
+                }
+                if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) {
+                    const int b = e.gbutton.button;
+                    if (b == SDL_GAMEPAD_BUTTON_BACK) { back_held = 1; back_combo = 1; continue; }
+                    if (back_held || b == SDL_GAMEPAD_BUTTON_START) continue;
+                }
+                if (e.type == SDL_EVENT_GAMEPAD_BUTTON_UP && e.gbutton.button == SDL_GAMEPAD_BUTTON_BACK) { back_held = 0; continue; }
+            }
             if (mode == 0) {   /* the garage takes all other input */
                 garage_action ga = GA_NONE;
                 if (e.type == SDL_EVENT_KEY_DOWN) ga = key_action(e.key.scancode);
@@ -991,23 +1069,101 @@ int main(int argc, char **argv) {
             }
         }
         if (to_garage) { mode = 0; gui.screen = 0; }
+        /* ---- Rogue Arena (rogue.c): its screens, its fights ---- */
+        #define LOAD_PLAYER_BUILD(src_parts) do {                                                \
+            int lpb_[SLOT_COUNT];                                                                \
+            memcpy(lpb_, (src_parts), sizeof lpb_);                                              \
+            if (demo_load(dir, lpb_, &ac_data[0], err, sizeof err)) memcpy(parts, lpb_, sizeof lpb_); \
+        } while (0)
+        if (mode == 1 && g_rogue_fight) {
+            if (round_over && !rogue_over_at) rogue_over_at = SDL_GetTicks();
+            if (round_over && SDL_GetTicks() - rogue_over_at > 4000) rogue_done = 1;
+            if (rogue_give_up || rogue_done) {
+                rogue_fight_over(rogue_give_up || !round_over ? 2 : round_result);
+                g_rogue_fight = 0;
+                g_ai_mode = 0; g_autopilot = 0; g_plus2 = 0; human_plus = 0;
+                g_paint_on[0] = g_paint_on[1] = 0;
+                rogue_over_at = 0;
+                mode = 2;
+            }
+        }
+        if (mode == 2) {
+            garage_action d = pad_direction(pads[0], SDL_GetTicks());
+            if (d == GA_NONE) d = script_action();
+            if (d != GA_NONE) { const rogue_command c = rogue_input(d); if (c != RC_NONE) rcmd = c; }
+            if (rcmd == RC_LEAVE) {            /* back to the main garage and its AC */
+                mode = 0; gui.screen = 0; gui.rogue = 0; gdata = gdata_main;
+                int f_[SLOT_COUNT];
+                hangar_parts(f_);
+                LOAD_PLAYER_BUILD(f_);
+                g_paint_on[0] = 0;
+            }
+            if (rcmd == RC_GARAGE) {           /* the run's garage: assembly only */
+                mode = 0; gui.screen = 0; gui.menu = 0; gui.rogue = 1; gdata = rogue_garage_data();
+                int f_[SLOT_COUNT];
+                if (rogue_player_ac(f_, g_paint[0])) { g_paint_on[0] = 1; LOAD_PLAYER_BUILD(f_); }
+            }
+            if (rcmd == RC_FIGHT || rogue_vs_due()) {
+                /* The run's AC against the next opponent, flown by its own
+                 * pilot (its AI sliders and Human PLUS), on the stage picked
+                 * at the hub; two minutes, as in the arena. */
+                const rogue_fight *rf = rogue_fight_info();
+                LOAD_PLAYER_BUILD(rf->parts[0]);
+                memcpy(parts2, rf->parts[1], sizeof parts2);
+                demo_load(dir, parts2, &ac_data[1], err, sizeof err);
+                for (int k = 0; k < 2; ++k) { g_paint_on[k] = 1; memcpy(g_paint[k], rf->colours[k], sizeof g_paint[k]); }
+                g_rogue_prof = rf->ai;
+                g_ai_mode = AI_ROGUE; g_autopilot = 0; two_players = 0;
+                human_plus = rf->plus[0] > 0; g_plus2 = rf->plus[1];
+                if (!(g_stage.ok && g_stage_id == rf->stage)) {
+                    demo_stage tmp;
+                    if (demo_stage_load(dir, rf->stage, &tmp)) {
+                        if (g_stage.ok) demo_stage_free(&g_stage);
+                        g_stage = tmp;
+                        g_stage_id = rf->stage;
+                    }
+                }
+                g_stage_on = g_stage.ok && g_stage_id == rf->stage;
+                def->stage = def2->stage = battle.stage = g_stage_on ? &g_stage.collision : NULL;
+                set_rate(&clock, def, g_tick_rate);
+                set_rate(&clock, def2, g_tick_rate);
+                SETUP_FIGHTERS();
+                prevs[0] = *P; prevs[1] = *T;
+                last = SDL_GetTicksNS();
+                g_rogue_fight = 1;
+                rogue_over_at = give_up_until = 0;
+                mode = 1;
+            }
+        }
+        if (mode == 2) {
+            static Uint64 rogue_last_ms;
+            const Uint64 now_ms = SDL_GetTicks();
+            const int elapsed = rogue_last_ms ? (int)(now_ms - rogue_last_ms) : 0;
+            rogue_last_ms = now_ms;
+            int pw = 0, ph = 0;
+            SDL_GetWindowSizeInPixels(window, &pw, &ph);
+            if (pw < 1 || ph < 1) { SDL_Delay(10); continue; }
+            acr_render_begin(pw, ph, 8, 10, 14);
+            rogue_draw(acr_render_hud(0, 0, pw, ph), elapsed);
+            goto present;
+        }
         if (mode == 0) {
             garage_action dir_action = pad_direction(pads[0], SDL_GetTicks());
-            /* Testing aid: ACR_KEYS="ok,down,ok,..." feeds the garage one action a frame. */
-            static const char *script;
-            static int script_read;
-            if (!script_read) { script = SDL_getenv("ACR_KEYS"); script_read = 1; }
-            if (script && *script && dir_action == GA_NONE) {
-                static const char *const k_names[] = { "", "up", "down", "left", "right", "ok", "back", "lb", "rb" };
-                for (int k = 1; k < 9; ++k)
-                    if (!SDL_strncmp(script, k_names[k], SDL_strlen(k_names[k]))) { dir_action = (garage_action)k; break; }
-                script = SDL_strchr(script, ',');
-                if (script) ++script;
-            }
+            if (dir_action == GA_NONE) dir_action = script_action();
             if (dir_action != GA_NONE) {
                 const garage_command c = garage_input(&gui, &gdata, dir_action);
                 if (c != GC_NONE) gcmd = c;
             }
+            if (gui.rogue) {                   /* the Rogue Arena run's garage */
+                if (gcmd == GC_CHANGED) {
+                    int f_[SLOT_COUNT];
+                    rogue_player_ac(f_, g_paint[0]);
+                    LOAD_PLAYER_BUILD(f_);
+                }
+                if (gcmd == GC_QUIT) { rogue_garage_done(); gui.rogue = 0; gdata = gdata_main; mode = 2; }
+                gcmd = GC_NONE;
+            }
+            if (gcmd == GC_ROGUE) { rogue_open(g_hangar.pilot_name, g_hangar.ac_name); mode = 2; }
             if (gcmd == GC_QUIT) running = 0;
             if (gcmd == GC_CHANGED || gcmd == GC_TEST) {
                 int fitted[SLOT_COUNT];
@@ -1542,10 +1698,13 @@ int main(int argc, char **argv) {
         }
         if (!two_players && g_ai_mode) {
             char who[64];
-            SDL_snprintf(who, sizeof who, "%sOPPONENT: AI %s", g_autopilot ? "AI VS AI  " : "",
-                         g_ai_mode == AI_FROM_FILE ? "FROM FILE" : acr_gen1_ai_preset_name(g_ai_mode));
+            if (g_rogue_fight) SDL_snprintf(who, sizeof who, "%s", rogue_fight_info()->name[1]);
+            else SDL_snprintf(who, sizeof who, "%sOPPONENT: AI %s", g_autopilot ? "AI VS AI  " : "",
+                              g_ai_mode == AI_FROM_FILE ? "FROM FILE" : acr_gen1_ai_preset_name(g_ai_mode));
             battle_hud_text(full_w, g_hud_frame, 0, 160.0f - 2.0f * (float)SDL_strlen(who), 42, who, 0, 255, 200, 120);
         }
+        if (g_rogue_fight && !round_over && SDL_GetTicks() < give_up_until)
+            battle_hud_text(full_w, g_hud_frame, 0, 160.0f - 2.0f * 29.0f, 180, "ESC AGAIN: GIVE UP (A LOSS)", 0, 255, 90, 70);
         if (round_over) {
             /* The result itself is in each player's view; here, how it ended. */
             const int time_up = round_ms <= 0 && (two_players || g_ai_mode);
@@ -1553,7 +1712,8 @@ int main(int argc, char **argv) {
                                   ? "OUT OF AREA" : "KNOCKED OUT";
             if (time_up) battle_hud_word(full_w, g_hud_frame, BATTLE_HUD_TIME_UP, 140, 255, 230, 120);
             else battle_hud_text(full_w, g_hud_frame, 0, 160.0f - 3.0f * (float)SDL_strlen(why), 140, why, 1, 255, 230, 120);
-            battle_hud_text(full_w, g_hud_frame, 0, 160.0f - 2.0f * 14.0f, 152 + (time_up ? 54 : 0), "START TO RESET", 0,
+            battle_hud_text(full_w, g_hud_frame, 0, 160.0f - 2.0f * 14.0f, 152 + (time_up ? 54 : 0),
+                            g_rogue_fight ? "ENTER TO GO ON " : "START TO RESET", 0,
                             255, 230, 120);
         }
         #undef TEXT

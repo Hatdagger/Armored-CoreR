@@ -83,6 +83,46 @@ weapons, damage, two-player test build (see `docs/research/`).
    under F1. Needs a re-import. Still to come: the HUD code's exact
    positions, the split-screen layout, READY / GO, REC once replays exist.
 
+## Rogue Arena (branch `gen1-rogue-arena`, 2026-11-19)
+
+Brought over from the AC1Recomp fork's Rogue Arena (release 0.8.4.4.2) at
+its rules, with **19 opponents + the player** instead of 49 + 1, and no
+balance changes (user). Garage menu -> ROGUE ARENA. Needs a re-import:
+acr-import now writes the game's arena opponents to `<import>/arena/`
+(158 on the USA disc: build, colours, names, prize, and the AI editor's
+rows read back from each opponent's 36-byte AI record).
+
+- Rules: `src/gen1/acr_gen1_rogue.{h,c}` (no OS calls; tests in
+  `tests/test_gen1_rogue.c`). One seed makes the run: the ladder (the
+  game's own opponents on AC1Recomp's difficulty curve; Nine-Ball sits
+  out; KARASAWA users kept to the top 10, Human PLUS users to the top 8,
+  scaled from 25 / 20 of 49) and a random legal starting AC with a real gun,
+  at 0 P.
+- Each win +1 P; then the prize screen: cheap / mid / expensive offers (P
+  by where a part's price sits: 1-7), the specials (HUMAN PLUS 13 P,
+  ALL OPTIONS 15 P, +1 P PER WIN 6 P, ARMS SET 7 P on weapon arms), PASS
+  +1 P, RE-ROLL 1 P once a win. EQUIP NOW (what it replaces is gone for
+  good) or SAVE FOR LATER (SWAP PARTS at the hub). AC1Recomp's offer rules
+  are kept (one leg type a screen, no radars or P77-ST, fewer crouch
+  cannons on two legs).
+- Hub: NEXT BATTLE (VS screen, units deploy in 5), SWAP PARTS, STAGE
+  (Green Silo, Ocean Platform, Garden Plaza, Night City: the user's four
+  for now), GARAGE (assembly only), QUIT; the ladder beside it; the
+  background is the belt tile of the player's rank (AC1Recomp's tiles).
+- Fights: two minutes, the opponent flown by our Gen 1 brain with its own
+  AI rows and Human PLUS level, in its own colours. Esc twice gives up (a
+  loss). A draw counts as a loss.
+- One loss: RETRY ARENA (same ladder, new random AC at 0 P; the losing AC,
+  prize parts and all, stays as a ghost at the rank it held, with the AI of
+  the opponent it pushed down), NEW ARENA, QUIT. Beaten ghosts are saved to
+  `rogue-ghosts/`. Rank 1 clears the arena.
+- Files beside the save: `rogue-run.toml`, `rogue-garage.toml`.
+  `ACR_ROGUE_SEED=...` starts new arenas from that seed (testing).
+- Not brought over yet: AC1Recomp's victory picture and music, PART SPECS
+  (triangle), the opponent preview pictures, the shop idea (parts from a
+  lost AC on sale). Option parts are owned and fitted, but the fight
+  doesn't use options yet (true of the whole engine).
+
 ## Next, in order (agreed 2026-11-19)
 
 6. **LAN / direct-IP multiplayer**, like AC1Recomp's (delay-based lockstep

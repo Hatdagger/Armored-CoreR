@@ -37,6 +37,7 @@ empty arena with Gen 1 movement.
 | Renderer: OpenGL 2.1, PS1-style lighting and fog, native resolution | first version |
 | Original Xbox build of the core (nxdk test program) | in automatic builds |
 | Computer opponent (AI presets, AI against AI) | first version |
+| Rogue Arena: 19 + 1 ladder, prizes, ghosts (from the AC1Recomp fork) | first version |
 | Online | not started |
 
 ## Building
@@ -52,7 +53,8 @@ the core, tools and tests, add `-DACR_BUILD_GAME=OFF`.
 
 ## Importing your disc
 
-Re-import after updating to this version: Green Silo now has its sky
+Re-import after updating to this version: Rogue Arena needs the game's
+arena opponents, which the import now writes to `arena/`. Before that: Green Silo got its sky
 (stars behind the arches). Before that, the arenas gained the
 game's own collision data (`collision.txt`), so walls and floors follow
 the game's rules (an older import keeps the stand-in rules). Before that: the animation sets now carry
@@ -118,6 +120,17 @@ own part models (every part, FCS and options included) go to
 Two players: player 2 uses the second controller (or the only one, leaving
 player 1 the keyboard). Both fly the same build; the match ends when one
 AC's AP reaches 0, and Start starts the next.
+
+## Rogue Arena
+
+Garage menu -> **ROGUE ARENA**. One AC, one life, 19 rivals from the
+game's own arenas. You start at rank 20 with a random AC and 0 P. Each win
+pays 1 P and opens a prize screen (pick a part, an upgrade, PASS for +1 P,
+or RE-ROLL once for 1 P). At the hub: NEXT BATTLE, SWAP PARTS (saved
+prizes), STAGE, GARAGE. One loss ends the run: RETRY ARENA keeps the same
+ladder and leaves your old AC on it as a ghost to beat. Reach rank 1 to
+clear it. Esc twice in a fight gives up. Same keys as the garage (arrows /
+WASD, Enter, Esc; Q / E or LB / RB pick a random stage).
 
 ## More
 

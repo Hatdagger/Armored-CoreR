@@ -5,6 +5,7 @@
 
 #include "../../gen1/acr_gen1_battle.h"
 #include "../../gen1/acr_gen1_garage.h"
+#include "../../gen1/acr_gen1_rogue.h"
 
 #define DEMO_MAX_KEYS 4096
 
@@ -37,5 +38,13 @@ int demo_load(const char *import_dir, const int parts[SLOT_COUNT], demo_ac *out,
  * the import has no parts. */
 int demo_catalog(const char *import_dir, acr_gen1_catalog *cat,
                  char names[ACR_GEN1_CAT_COUNT][ACR_GEN1_PART_MAX][24]);
+
+/* Rogue Arena: each part's attack and prize flags (radar, stealth unit,
+ * cannon stance) from the import's part files. */
+int demo_rogue_parts(const char *import_dir, acr_gen1_rogue_parts *info);
+/* The arena opponents acr-import wrote to <import>/arena (none in older
+ * imports); `names` marks KARASAWA users. Returns how many. */
+int demo_rogue_roster(const char *import_dir, acr_gen1_rogue_foe *out, int max,
+                      char names[ACR_GEN1_CAT_COUNT][ACR_GEN1_PART_MAX][24]);
 
 #endif

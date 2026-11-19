@@ -7,6 +7,7 @@
  *   <out>/parts/<category>/...toml   every part's stats (acr_parts_moa.c)
  *   <out>/motion/...toml             animation sets' root motion (acr_motion_moa.c)
  *   <out>/models/...                 AC models, textures, skeletons, animations (acr_models_moa.c)
+ *   <out>/arena/...                  arena opponents: builds, names, AI (acr_arena_moa.c)
  *
  * A MoA .T archive starts with a u16 entry count followed by count + 1 u16
  * sector offsets (relative to the archive start); entry i covers sectors
@@ -28,6 +29,7 @@ typedef struct acr_import_stats {
     uint32_t model_parts;      /* part models written to <out>/models */
     uint32_t model_sets;       /* skeletons + animations written to <out>/models/sets */
     uint32_t stages;           /* arena stages written to <out>/stages */
+    uint32_t opponents;        /* arena opponents written to <out>/arena */
 } acr_import_stats;
 
 int acr_import_disc(const char *disc_path, const char *out_dir, acr_import_stats *stats,
