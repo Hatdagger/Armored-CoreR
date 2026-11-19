@@ -31,7 +31,7 @@ empty arena with Gen 1 movement.
 | Gen 1 fitting rules (what makes an AC legal) | done |
 | Gen 1 movement: walk, strafe, turn, boost, rise, landing, energy | first version |
 | AC graphics | real models from your disc: parts on the skeleton, joint animations, your colours (PS1-style lighting) |
-| Lock-on, rifle / missile / blade, damage (first version, target dummy) | in progress |
+| Lock-on, guns, missiles (lock cursor, volleys, flight, giving up), blade, interceptor, damage: following the AC1Recomp fork's mapping of the game code | first version |
 | Two players on one machine (split screen) | first version |
 | Renderer: OpenGL 2.1, PS1-style lighting and fog, native resolution | first version |
 | Original Xbox build of the core (nxdk test program) | in automatic builds |
@@ -50,6 +50,10 @@ the core, tools and tests, add `-DACR_BUILD_GAME=OFF`.
 
 ## Importing your disc
 
+Re-import after updating to this version: the blade's attack and charge
+drain were swapped in older imports, and missiles, cores and legs gained
+fields the fight now uses.
+
 ```
 build/acr-import "Armored Core - Master of Arena (USA) (Disc 1).cue" Data/moa
 ```
@@ -57,7 +61,9 @@ build/acr-import "Armored Core - Master of Arena (USA) (Disc 1).cue" Data/moa
 This copies every file off the disc into `Data/moa/disc/`, unpacks the
 game's `.T` archives into folders of numbered entries, and writes every part
 (including optional parts) as a readable file in `Data/moa/parts/`, sorted by
-type: `legs/humanoid`, `back/missile`, `option` and so on.
+type: `legs/humanoid`, `back/missile`, `option` and so on. The garage's
+own part models (every part, FCS and options included) go to
+`Data/moa/models/menu/`.
 
 ## Test build
 
@@ -102,4 +108,5 @@ AC's AP reaches 0, and Start starts the next.
 - [Design notes](docs/DESIGN.md)
 - [Full design plan](https://claude.ai/artifact/PAAEo6cvjUi7qxFQqSGPrf)
 - [AC1Recomp fork](https://github.com/Hatdagger/AC1Recomp), used as the
-  reference for how the original plays
+  reference for how the original plays; its `docs/mapping/` is the main
+  source for the Gen 1 rules

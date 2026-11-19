@@ -35,9 +35,14 @@ void acr_gen1_compile(const acr_gen1_build *b, acr_gen1_stats *out) {
     if (cap < weight) weight = cap;
     out->carried_weight = weight;
 
-    out->energy_capacity = b->generator.stat_2c;
+    /* SP-CND-K (Charge expander) adds 12,000 to the store (u16, as the game
+     * stores it; AC1Recomp docs/mapping/stat-block.md +0x12). */
+    out->energy_capacity = (uint16_t)(b->generator.stat_2c +
+                                      ((b->option_mask & ACR_GEN1_OPTION_CHARGE_EXPANDER) ? 12000u : 0u));
     out->red_zone = b->generator.stat_2e;
-    out->blade_power = b->blade.present ? b->blade.stat_2c : 0;
+    out->blade_power = b->blade.present ? b->blade.stat_2c : 0;   /* the swing's charge drain */
+    out->intercept_chance = b->core.intercept_chance;
+    out->intercept_angle = b->core.intercept_angle;
 
     /* Rise drain: booster's boost drain / 10 (legs' own value without one),
      * at least 1. (x << 12) * 0x66666667 >> 34, then >> 12. */
@@ -110,6 +115,20 @@ void acr_gen1_compile(const acr_gen1_build *b, acr_gen1_stats *out) {
         if (h > 64) h = 64;
         out->turn_speed = (uint8_t)h;
 
+        /* Back weapon slots +7 / +8 (0x800A95D4-0x800A96AC): the same two
+         * formulas with legs +0x3C, both clamped 1..64. */
+        const int32_t e3b = (int32_t)(((uint32_t)b->legs.back_turn * 3u) << 16);
+        const int32_t fb = sra(mulhi_s(e3b, 0x66666667), 6) - sra(e3b, 31);
+        uint32_t gb = (((uint32_t)fb * 3573u) / w) >> 12;
+        if ((int32_t)gb < 1) gb = 1;
+        if ((int32_t)gb > 64) gb = 64;
+        out->back_turn_accel = (uint8_t)gb;
+        uint32_t hb = (((uint32_t)b->legs.back_turn * 14635008u) / w) >> 12;
+        if (hb < 1) hb = 1;
+        if (hb > 64) hb = 64;
+        out->back_turn_speed = (uint8_t)hb;
+        if (!b->legs.back_turn) out->back_turn_accel = out->back_turn_speed = 0;   /* not known: imports before legs +0x3C */
+
         uint32_t fr = mulhi_u(weight << 18, 0x10624DD3u) >> 21;
         if (fr < 32) fr = 32;
         if (fr > 96) fr = 96;
@@ -128,4 +147,15 @@ void acr_gen1_motion_from_stats(const acr_gen1_stats *s, acr_gen1_motion *out) {
     out->turn_max = (uint16_t)((s->turn_speed * 15u) >> 4);
     out->friction = s->friction;
     out->axis_step_max = ACR_GEN1_AXIS_STEP_MAX;
+    out->crouch_turn_accel = s->back_turn_speed ? (uint16_t)(s->back_turn_accel * 5u / 32u + 1u) : 0;
+    out->crouch_turn_max = s->back_turn_speed ? (uint16_t)(s->back_turn_speed * 15u / 32u + 1u) : 0;
+}
+
+void acr_gen1_human_plus_energy(acr_gen1_stats *s, unsigned level) {
+    if (level < 6) return;
+    s->rise_drain = (uint16_t)(s->rise_drain >> 1);
+    s->refill_standing = (uint16_t)(s->refill_standing << 1);
+    s->refill_moving = (uint16_t)(s->refill_moving << 1);
+    if (s->refill_standing > s->rise_drain) s->refill_standing = s->rise_drain;
+    if (s->refill_moving > s->rise_drain) s->refill_moving = s->rise_drain;
 }

@@ -70,16 +70,40 @@ weapons, damage, two-player test build (see `docs/research/`).
 
 ## Revisit
 
-Play-test feedback (2026-11-14, at 60 steps a second, kept):
-- Lock-on range still feels far too short.
-- The blade now has its own button (circle / B; keyboard V), is out of the
-  weapon cycle and lunges at a target ahead. Swing time, lunge speed and
-  steering are stand-ins (`ACR_GEN1_SWING_MS` etc.): measure in the recomp.
-- The camera was brought closer (1700 back, 950 up) by eye: match it to
-  the game's single-player camera (new game, first mission).
-- Missing animations (boost, blade, firing, landing) make the feel hard
-  to judge.
+Play-test feedback (2026-11-14), and what the AC1Recomp mapping settled
+(2026-11-18):
+- Lock-on range felt short: the world scale (ACs at a quarter of model
+  units) is confirmed by the game's model draw; ranges and boxes are the
+  FCS's.
+- Blade: own button, lunge, steering at the AC's top turn rate toward an
+  AC up to 3,000 ahead, energy cost, 246 a hit and the close-range double
+  hit, all from the mapped code (`docs/research/gen1-weapons.md`).
+- Camera: the game's chase camera (650 / 2 behind, eases a quarter of the
+  way each tick) is in.
+- Missing animations (boost, blade, firing, landing) still make the feel
+  hard to judge. Firing animations are now known: weapon detail +3 on the
+  AC's second animation layer.
 
-- Lock range feels short in play (numbers match the game): check world
-  scale and lock box width once real models are in.
-- Placeholders listed in `docs/research/gen1-weapons.md`.
+## Parity with the AC1Recomp mapping (2026-11-18)
+
+Brought over from the fork's `docs/mapping/` (battle system, stat block,
+part tables, renderer, menus): see `docs/research/gen1-weapons.md` for the
+fight, `gen1-movement.md` for energy and turning, `gen1-fitting-rules.md`
+for the garage and shop. Still to bring over:
+
+- Garage: PERFORMANCE page and GRADE (OVERALL 25,000+ SUPERFINE, 20,000+
+  GREAT, 15,000+ FINE, 10,000+ OK, else POOR), the 15 paint patterns
+  (HEAD_T head + 18v, CORE_T core + 11v, ARMS_T arms + 24v, LEG_T legs +
+  40v; colours MENU_TIM 26 + 4v + scheme), default paint, EDIT EMBLEM
+  (64 x 64, 16 colours, colour 0 see-through), shop texts (MIS.T 385),
+  option texts (`0x800CDE8C`), the garage's part models (now imported to
+  `models/menu/`).
+- Fight: gun lock distance factor (lock record +0x04), knockback and
+  stagger distances, burn (flag 0x80), cannon kick and recoil, the
+  first-person camera (START + Triangle + Square), radar (range, missile
+  blips, display types), Human PLUS levels below "full".
+- Arena (step 4): stage area boxes (out of bounds: inside both inner boxes
+  or lose), prizes (`arena-prizes.md`), opponent AI records (36 bytes), the
+  match timer options (2:00, 5:00, none).
+- Missions later: `missions.md` (mission code and maps are FDAT 0-99).
+

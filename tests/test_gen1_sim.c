@@ -38,14 +38,14 @@ int main(void) {
 
     /* Walking forward at facing 0 moves +z by the track / 4: 31, 31, 37, 38. */
     acr_gen1_ac_spawn(&ac, &d, 0, 0, 0);
-    const acr_gen1_input fwd = { 1, 0, 0, 0, 0, 0 };
+    const acr_gen1_input fwd = { 1, 0, 0, 0, 0, 0, 0 };
     int32_t last = ac.z, got[4];
     for (int i = 0; i < 4; ++i) { acr_gen1_ac_step(&ac, &d, fwd); got[i] = (ac.z - last) / 64; last = ac.z; }
     EXPECT(got[0] + got[1] == 62 && got[2] + got[3] == 75);
 
     /* Walking forward and right at facing 0 moves along the diagonal. */
     acr_gen1_ac_spawn(&ac, &d, 0, 0, 0);
-    const acr_gen1_input diag = { 1, 0, 1, 0, 0, 0 };
+    const acr_gen1_input diag = { 1, 0, 1, 0, 0, 0, 0 };
     for (int i = 0; i < 4; ++i) acr_gen1_ac_step(&ac, &d, diag);
     EXPECT(ac.x > 0 && ac.z > 0 && ac.x - ac.z < 4 * 64 && ac.z - ac.x < 4 * 64);
 
@@ -68,24 +68,24 @@ int main(void) {
 
     /* Turning: +6 a step up to 38. */
     acr_gen1_ac_spawn(&ac, &d, 0, 0, 0);
-    const acr_gen1_input turn = { 0, 1, 0, 0, 0, 0 };
+    const acr_gen1_input turn = { 0, 1, 0, 0, 0, 0, 0 };
     for (int i = 0; i < 10; ++i) acr_gen1_ac_step(&ac, &d, turn);
     EXPECT(ac.turn_rate == 38);
 
     /* Ground boost: limited to 75 units a step on an axis. */
     acr_gen1_ac_spawn(&ac, &d, 0, 0, 0);
-    const acr_gen1_input boost = { 1, 0, 0, 1, 0, 0 };
+    const acr_gen1_input boost = { 1, 0, 0, 1, 0, 0, 0 };
     for (int i = 0; i < 20; ++i) { last = ac.z; acr_gen1_ac_step(&ac, &d, boost); }
     EXPECT(ac.z - last == 75 * 64);
     EXPECT(ac.energy == 28000 - 20 * 200);
 
     /* Rise: the press, 7 still steps, lift-off at 3,200, then rise acceleration. */
     acr_gen1_ac_spawn(&ac, &d, 0, 0, 0);
-    const acr_gen1_input up = { 0, 0, 0, 1, 0, 0 };
+    const acr_gen1_input up = { 0, 0, 0, 1, 0, 0, 0 };
     for (int i = 0; i < 9; ++i) acr_gen1_ac_step(&ac, &d, up);
     EXPECT(ac.state == ACR_GEN1_AIR && ac.vy == -3200 - 64);
     /* Let go: falls back and lands, then waits. */
-    const acr_gen1_input none = { 0, 0, 0, 0, 0, 0 };
+    const acr_gen1_input none = { 0, 0, 0, 0, 0, 0, 0 };
     int steps = 0;
     while (ac.state == ACR_GEN1_AIR && steps < 200) { acr_gen1_ac_step(&ac, &d, none); ++steps; }
     EXPECT(ac.state == ACR_GEN1_LANDING && ac.y == 0);
@@ -95,7 +95,7 @@ int main(void) {
     /* Boost hop: boost forward, let go one step, press again -> airborne at speed. */
     acr_gen1_ac_spawn(&ac, &d, 0, 0, 0);
     for (int i = 0; i < 12; ++i) acr_gen1_ac_step(&ac, &d, boost);
-    const acr_gen1_input fwd_only = { 1, 0, 0, 0, 0, 0 };
+    const acr_gen1_input fwd_only = { 1, 0, 0, 0, 0, 0, 0 };
     acr_gen1_ac_step(&ac, &d, fwd_only);
     EXPECT(ac.state == ACR_GEN1_GROUND && ac.vz > 0);
     acr_gen1_ac_step(&ac, &d, boost);
@@ -124,7 +124,7 @@ int main(void) {
     /* A tap shorter than a step (released and pressed again between steps). */
     acr_gen1_ac_spawn(&ac, &d, 0, 0, 0);
     for (int i = 0; i < 12; ++i) acr_gen1_ac_step(&ac, &d, boost);
-    const acr_gen1_input tap = { 1, 0, 0, 1, 1, 0 };
+    const acr_gen1_input tap = { 1, 0, 0, 1, 1, 0, 0 };
     acr_gen1_ac_step(&ac, &d, tap);
     EXPECT(ac.state == ACR_GEN1_AIR);
 
@@ -132,7 +132,7 @@ int main(void) {
     {
         acr_gen1_ac t;
         acr_gen1_ac_spawn(&t, &d, 0, 0, 0);
-        acr_gen1_input look = { 0, 0, 0, 0, 0, 1 };
+        acr_gen1_input look = { 0, 0, 0, 0, 0, 1, 0 };
         acr_gen1_ac_step(&t, &d, look);
         EXPECT(t.pitch == ACR_GEN1_PITCH_RATE);
         for (int k = 0; k < 40; ++k) acr_gen1_ac_step(&t, &d, look);

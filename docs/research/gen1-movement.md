@@ -95,7 +95,7 @@ GPS-VVA, COMDEX-C7, LN-1001-PX-0.
 | +22 refill standing | (generator output - standing drain) x 64 / 1000, limited to 1-384 | 210 |
 | +24 red zone | generator +0x2E | 7,800 |
 | +26 refill moving | (generator output - moving drain) x 64 / 1000, limited to 1-192 | 127 |
-| +28 blade power | blade +0x2C | 2,050 |
+| +28 blade charge drain (energy a swing takes; was called "blade power") | blade +0x2C | 2,050 |
 | +36 stability | (legs stability [+800 with SP-ABS, +1600 with SP-ABS_Re] x 4096 / 1018) x (carried weight x 256 / 1000 / 512) / 16384, limited to 32-255 | 38 |
 
 Standing drain = head + arms + core + FCS drains + legs standing drain (2,706);
@@ -284,6 +284,24 @@ Read from the code after a player's report; matches what players know.
 - If the bar runs dry (cost greater than what is left), the booster is
   locked (player block +0x18, bit 0). The bar then refills at half the
   usual rate, and the lock lifts only when it is completely full.
+
+## From the AC1Recomp mapping (2026-11-18)
+
+- **SP-CND-K** adds 12,000 to the energy store (compiled +0x12).
+- **Human PLUS level 6+** at match start (`0x80083560`): rise drain halved,
+  both refills doubled, each then capped at the new rise drain
+  (`acr_gen1_human_plus_energy`; the test build uses level 9, "full").
+- **Crouched turning**: back weapon slots +7 / +8 are the +12 / +13 turn
+  formulas with legs +0x3C (the turning-with-a-back-weapon figure); the
+  selected back weapon gives player block +0x210 = +7 x 5 / 32 + 1 and
+  +0x212 = +8 x 15 / 32 + 1 (hand weapons 11 / 31), used only while
+  crouched in the cannon stance (`0x8007E3E0`, which also bleeds speed by
+  1/8 a step). Engine: `acr_gen1_motion.crouch_turn_*`.
+- **The 75-per-axis limit** is three quarters of the AC's width (AC object
+  +0x28 = 100, from an object-type record, not the parts): a move step is
+  cut to it to keep ACs out of walls. With width 150 the default AC reaches
+  its true top speed, 83 a step.
+- **Boost** is player block +0x298's mask (Cross by default).
 
 ## Still to measure
 

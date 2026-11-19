@@ -138,6 +138,7 @@ static void write_fit(FILE *f, const char *c, uint32_t index) {
 /* Weapon details live in separate 24-byte tables (docs/research/gen1-weapons.md). */
 #define HAND_DETAIL 0x8118Cu   /* 0x800D1F64 in the menu module */
 #define BACK_DETAIL 0x813FCu   /* 0x800D21D4 */
+#define ARMS_DETAIL 0x8100Cu   /* 0x800D1DE4: weapon arms (arms 12 and up), same layout */
 static const uint8_t *g_menu;
 static size_t g_menu_size;
 static uint8_t *g_vs;          /* VS engine (FDAT 209): shot speeds */
@@ -160,7 +161,12 @@ static int gun_speed(unsigned id, uint16_t *out) {
 }
 
 static void write_weapon(FILE *f, const char *c, uint32_t index) {
-    const uint32_t base = !strcmp(c, "hand") ? HAND_DETAIL : !strcmp(c, "back") ? BACK_DETAIL : 0;
+    uint32_t base = !strcmp(c, "hand") ? HAND_DETAIL : !strcmp(c, "back") ? BACK_DETAIL : 0;
+    if (!strcmp(c, "arms")) {
+        if (index < 12) return;
+        base = ARMS_DETAIL;
+        index -= 12;
+    }
     if (!base || !g_menu || base + 24 * (index + 1) > g_menu_size) return;
     const uint8_t *w = g_menu + base + 24 * index;
     if (w[6] == 0 && u16(w + 0x14) == 0 && u16(w + 8) == 0) return;   /* radars and the like */
@@ -172,28 +178,70 @@ static void write_weapon(FILE *f, const char *c, uint32_t index) {
     field(f, "energy_per_shot", u16(w + 0xA), NULL);
     field(f, "ammo_price", u16(w + 0xC), NULL);
     field(f, "salvo", w[0x10], "missiles locked at once");
-    field(f, "fire_interval", w[0x11], "meaning not decoded yet");
+    field(f, "fire_interval", w[0x11], "the garage shows it as RELOAD TIME");
+    field(f, "ammo_flags", w[0x12], "0x10 solid, 0x20 energy; 0x40 stagger (WR-RS7), 0x80 burn (WG-FGI-00)");
     field(f, "impact", w[0x16], NULL);
     field(f, "type_id", w[7], NULL);
-    /* Back cannons need a steady stance (kneel / on the ground) to fire. */
-    if (!strcmp(c, "back") && (w[0] == 2 || (w[0x12] & 0x20 && w[5] == 3)))
-        field(f, "stance", 1, "cannon: bipeds kneel, four legs on the ground only, caterpillars free");
+    /* Read by the VS engine's fire code (AC1Recomp docs/mapping/parts-tables.md). */
+    field(f, "kind", w[0], "0 gun, 1 missile, 2 cannon");
+    field(f, "model_id", w[1], "picks the shot / missile tables");
+    field(f, "fire_pattern", w[2], "guns: bits 0-1 shots per trigger (0 one, 1 two, 2 four, 3 one a side), "
+                                   "bit 2 fixed direction, bit 3 weapon-arm aim; cannons: base recoil");
+    field(f, "firing_anim", w[3], "second-layer animation played on firing (255 none); right back slot +1");
+    field(f, "post_shot_hold", w[4], "guns and cannons: animation hold after a shot (255 none)");
+    field(f, "sight", w[5], "bit 0 lock box, bit 1 aiming guide, bit 2 fires straight ahead (no aiming)");
+    /* Back cannons (kind 2) fire only from a steady stance: the VS cannon
+     * routine 0x80081B18 makes two-legged bodies crouch (AC state 34). */
+    if (w[0] == 2)
+        field(f, "stance", 1, "cannon: bipeds crouch, four legs on the ground only, caterpillars free");
     uint16_t v, a;
     if (w[0] == 0 && gun_speed(w[1], &v))
         field(f, "shot_speed", v, "world units per Gen 1 step");
     /* Cannons: VS engine 0x80081B18, table 0x80091310 (6 bytes per model). */
     if (w[0] == 2 && vs_u16(0x80091310u + 6 * w[1], &v))
         field(f, "shot_speed", v, "world units per Gen 1 step (read from code, not traced)");
-    /* Missiles: VS engine table 0x80093114 (40 bytes per missile model):
-     * steering push per step (+0xC) and top speed (+0xE). */
-    if (w[0] == 1 && vs_u16(0x80093114u + 40 * w[1] + 0xE, &v) && vs_u16(0x80093114u + 40 * w[1] + 0xC, &a)) {
-        field(f, "shot_speed", v, "top speed, world units per Gen 1 step");
-        field(f, "homing", a, "pushed toward the target this much each step");
+    /* Missiles: the launcher table 0x800912B0 (8 bytes per model id) gives the
+     * flight kind, which indexes the flight table 0x80093114 (40 bytes). */
+    if (w[0] == 1) {
+        const uint32_t lt = 0x800912B0u + 8u * w[1] - 0x80050DD8u;
+        if (g_vs && lt + 8 <= g_vs_size) {
+            const uint8_t *l = g_vs + lt;
+            const unsigned kind = l[0];
+            field(f, "flight_kind", kind, "row of the flight table");
+            field(f, "ignition_delay", l[1], "steps before the motor lights");
+            field(f, "volley_a", l[2], "missiles per volley from side A");
+            field(f, "volley_b", l[3], "missiles per volley from side B");
+            field(f, "spread_pitch", u16(l + 4), "random start spread, 4096 a turn");
+            field(f, "spread_yaw", u16(l + 6), NULL);
+            const uint32_t ft = 0x80093114u + 40u * kind;
+            uint16_t fuel, life, turn, cone;
+            if (vs_u16(ft + 0xE, &v) && vs_u16(ft + 0xC, &a) && vs_u16(ft, &fuel) && vs_u16(ft + 2, &life) &&
+                vs_u16(ft + 0x10, &turn) && vs_u16(ft + 0x12, &cone)) {
+                field(f, "shot_speed", v, "top speed, world units per Gen 1 step");
+                field(f, "homing", a, "thrust added along the heading each step");
+                field(f, "fuel", fuel, "steps of thrust, then it drops");
+                field(f, "life", life, "steps before it is removed");
+                field(f, "turn", turn, "most the heading turns per step, 4096 a turn");
+                field(f, "cone", cone, "gives up once the target leaves this +- cone after being in it");
+            }
+            /* Kind 3 splits into four kind-0 missiles six steps after ignition. */
+            if (kind == 3 && vs_u16(0x80093114u + 0xE, &v) && vs_u16(0x80093114u + 0xC, &a) &&
+                vs_u16(0x80093114u, &fuel) && vs_u16(0x80093114u + 2, &life) &&
+                vs_u16(0x80093114u + 0x10, &turn) && vs_u16(0x80093114u + 0x12, &cone)) {
+                field(f, "split_top", v, "the four it splits into: flight kind 0");
+                field(f, "split_thrust", a, NULL);
+                field(f, "split_fuel", fuel, NULL);
+                field(f, "split_life", life, NULL);
+                field(f, "split_turn", turn, NULL);
+                field(f, "split_cone", cone, NULL);
+            }
+        }
     }
 }
 
 static void write_fcs(FILE *f, const uint8_t *rec) {
     field(f, "max_locks", rec[0x2C], NULL);
+    field(f, "lock_area", rec[0x2D], "garage label only: 0 standard, 1 sideway, 2 lengthway, 3 wide, 4 narrow");
     for (int k = 0; k < 4; ++k) {
         const uint8_t *g = rec + 0x2E + 12 * k;
         fprintf(f, "lock_class_%d   = [%u, %u, %u, %u, %u, %u]   # range, box w, h, inner w, h, lock time\n", k,
@@ -238,6 +286,16 @@ static int write_part(const char *dir, const table *t, uint32_t index, const uin
     if (!strcmp(c, "core")) {
         field(f, "arm_load_limit", u16(rec + 0x32), "arms + hand weapon + blade weight (weapon arms: arms alone)");
         field(f, "option_slots", u16(rec + 0x36), NULL);
+        field(f, "interceptor_reaction", rec[0x34], "missile interceptor: chance per step / 128");
+        field(f, "interceptor_angle", rec[0x35], "missile interceptor: +- this x 4 of the facing (4096 a turn)");
+    }
+    if (!strcmp(c, "head")) {
+        field(f, "computer_type", rec[0x32], "0 standard, 1 detailed, 2 rough");
+        field(f, "map_type", rec[0x33], "missions only");
+        field(f, "noise_canceler", rec[0x34], "missions only");
+        field(f, "bio_sensor", rec[0x35], "missions only");
+        field(f, "radar", u16(rec + 0x36), NULL);
+        field(f, "radar_range", u16(rec + 0x38), NULL);
     }
     if (!strcmp(c, "legs")) {
         field(f, "carry_limit", u16(rec + 0x32), NULL);
@@ -246,11 +304,25 @@ static int write_part(const char *dir, const table *t, uint32_t index, const uin
         field(f, "boost_drain", u16(rec + 0x44), "used when no booster is fitted");
         field(f, "turn_accel", u16(rec + 0x38), "turn acceleration, divided by carried weight");
         field(f, "turn_speed", rec[0x3A], "top turn speed, divided by carried weight");
+        field(f, "back_turn", u16(rec + 0x3C), "turning while crouched with a back weapon selected");
+        field(f, "moving_speed", u16(rec + 0x36), "garage MOVING SPEED / 10");
+        field(f, "can_boost", u16(rec + 0x42), "0 = no booster (caterpillars)");
         if (acr_gen1_fixed_boost_moa(index))
             field(f, "fixed_boost", acr_gen1_fixed_boost_moa(index), "ground boost set by the game for these legs");
     }
-    if (!strcmp(c, "blade")) field(f, "attack", u16(rec + 0x2C), NULL);
-    if (!strcmp(c, "hand") || !strcmp(c, "back")) write_weapon(f, c, index);
+    if (!strcmp(c, "blade")) {
+        field(f, "charge_drain", u16(rec + 0x2C), "energy a swing takes (garage CHARGE DRAIN)");
+        field(f, "attack", u16(rec + 0x30), NULL);
+        field(f, "hit_flags", u16(rec + 0x2E), "0x20 energy hit");
+        field(f, "impact", u16(rec + 0x32), "knockback level = impact x 256 / (stability x 25 / 4), 0-5");
+    }
+    if (!strcmp(c, "back") && u16(rec + 0x2C) == 1) {
+        field(f, "radar", 1, NULL);
+        field(f, "radar_range", u16(rec + 0x2E), NULL);
+        field(f, "radar_flags", rec[0x30], "bit 0 shows missiles");
+        field(f, "radar_display", rec[0x31], "radar screen type");
+    }
+    if (!strcmp(c, "hand") || !strcmp(c, "back") || !strcmp(c, "arms")) write_weapon(f, c, index);
     if (!strcmp(c, "fcs")) write_fcs(f, rec);
     write_fit(f, c, index);
     /* Everything after the type text as 16-bit words, so fields not yet

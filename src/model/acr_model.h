@@ -110,9 +110,10 @@ void acr_mesh_free(acr_mesh *mesh);
 /* ---- colours ---- */
 
 /* Patterned textures (core, head, arms, legs) store colour slot x 64 +
- * shade. Palette from 4 slot colours (RGB, 0..63 steps): each slot ramps
- * to black (colour x (64 - even shade) / 64, rounded, capped at 31 in
- * 5-bit steps), a close fit to the game's own ramp. */
+ * shade. Palette from 4 slot colours (RGB, 0..64 per channel) as the game's
+ * ramp builds it (menu module 0x80082530): 32 shades written twice, a value
+ * p <= 31 running from p down towards 1, p = 32..64 from 31 down towards
+ * p - 30 (lighter shadows; 61 and up stay full). */
 void acr_colour_ramp(const uint8_t colours[4][3], uint8_t palette[256][4]);
 
 #endif

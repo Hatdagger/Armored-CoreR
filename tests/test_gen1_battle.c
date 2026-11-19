@@ -1,4 +1,5 @@
-/* Gen 1 damage (checked against the game) and the fight stepping. */
+/* Gen 1 damage (checked against the game) and the fight stepping, against the
+ * VS engine as mapped in the AC1Recomp fork (docs/mapping/battle-system.md). */
 #include <stdio.h>
 #include <string.h>
 
@@ -6,6 +7,62 @@
 
 static int failures;
 #define EXPECT(c) do { if (!(c)) { printf("FAIL %s:%d %s\n", __FILE__, __LINE__, #c); ++failures; } } while (0)
+
+static acr_gen1_ac_def def;
+static const acr_gen1_input none[2];
+
+static acr_gen1_weapon rifle(void) {
+    acr_gen1_weapon w;
+    memset(&w, 0, sizeof w);
+    w.kind = ACR_GEN1_GUN;
+    strcpy(w.name, "RIFLE");
+    w.attack = 218; w.ammo = 200; w.range = 6100;
+    w.lock_ms = 440; w.box_w = 240; w.box_h = 240;
+    w.interval = 5; w.hold = 13; w.speed = 700; w.shots = 1;
+    return w;
+}
+
+static acr_gen1_weapon small_missile(void) {
+    acr_gen1_weapon w;
+    memset(&w, 0, sizeof w);
+    w.kind = ACR_GEN1_MISSILE;
+    strcpy(w.name, "MISSILE");
+    w.attack = 830; w.ammo = 40; w.range = 8000;
+    w.box_w = 200; w.box_h = 200; w.inner_w = 160; w.inner_h = 160;
+    w.interval = 10; w.lock_value = 128; w.lock_ticks = (256 - 128) / 8; w.max_locks = 4;
+    w.volley_a = 1; w.ignition = 1;
+    w.flight = (acr_gen1_flight){ 50, 60, 80, 350, 110, 1024, 0 };
+    return w;
+}
+
+static acr_gen1_weapon blade(void) {
+    acr_gen1_weapon w;
+    memset(&w, 0, sizeof w);
+    w.kind = ACR_GEN1_BLADE;
+    strcpy(w.name, "LS-2001");
+    w.attack = 738; w.energy = 1; w.range = ACR_GEN1_BLADE_REACH; w.charge_drain = 2050;
+    return w;
+}
+
+static void setup(acr_gen1_battle *b, int32_t dist) {
+    memset(b, 0, sizeof *b);
+    b->step_ms = 45;
+    for (int i = 0; i < 2; ++i) {
+        acr_gen1_fighter *fi = &b->f[i];
+        fi->def = &def;
+        fi->intercept_shot = -1;
+        acr_gen1_ac_spawn(&fi->ac, &def, 0, i ? dist * 64 : 0, i ? 2048 : 0);
+        fi->ap = fi->ap_max = 8384;
+        fi->shell_factor = 27;
+        fi->energy_factor = 32;
+    }
+}
+
+static int shots_alive(const acr_gen1_battle *b) {
+    int n = 0;
+    for (int k = 0; k < ACR_GEN1_MAX_SHOTS; ++k) n += b->shot[k].active;
+    return n;
+}
 
 int main(void) {
     /* Factor from defense: the default AC's shell defense 1,604 -> 27. */
@@ -16,29 +73,25 @@ int main(void) {
     static const int ap[] = { 2, 22, 45, 58, 60, 63, 68, 102, 145, 218 };
     for (int i = 0; i < 10; ++i) EXPECT(acr_gen1_hit_ap(218, (uint8_t)f[i]) == ap[i]);
     EXPECT(acr_gen1_hit_ap(830, 27) == 233);        /* missile, measured */
+    EXPECT(acr_gen1_hit_ap(738, 32) == 246);        /* LS-2001 blade on the default AC, measured */
+    /* Knockback level: the blade (impact 11) on stability 38 tops out at 5. */
+    EXPECT(acr_gen1_knockback_level(11, 38) == 5);
+    EXPECT(acr_gen1_knockback_level(3, 38) == 3);
+    EXPECT(acr_gen1_knockback_level(0, 38) == 0);
 
-    /* Two ACs 3,000 apart, facing each other: the rifle locks, then hits. */
-    static acr_gen1_ac_def def;
     memset(&def, 0, sizeof def);
     def.stats.energy_capacity = 28000;
     def.stats.thrust = 32; def.stats.thrust_80 = 25; def.stats.thrust_120 = 38;
     def.stats.turn_accel = 22; def.stats.turn_speed = 41;
     acr_gen1_motion_from_stats(&def.stats, &def.motion);
-    static acr_gen1_battle b;
-    memset(&b, 0, sizeof b);
-    b.step_ms = 45;
-    for (int i = 0; i < 2; ++i) {
-        acr_gen1_fighter *fi = &b.f[i];
-        fi->def = &def;
-        acr_gen1_ac_spawn(&fi->ac, &def, 0, i ? 3000 * 64 : 0, i ? 2048 : 0);
-        fi->ap = fi->ap_max = 8384;
-        fi->shell_factor = fi->energy_factor = 27;
-        fi->weapons = 1;
-        fi->weapon[0] = (acr_gen1_weapon){ ACR_GEN1_GUN, "RIFLE", 218, 200, 6100, 0, 1000, 240, 240, 600, 700, 0, 0 };
-        fi->ammo[0] = 200;
-    }
-    const acr_gen1_input none[2] = { { 0, 0, 0, 0, 0, 0 }, { 0, 0, 0, 0, 0, 0 } };
     const acr_gen1_actions fire[2] = { { 1, 0, 0 }, { 0, 0, 0 } };
+    const acr_gen1_actions idle[2] = { { 0, 0, 0 }, { 0, 0, 0 } };
+    const acr_gen1_actions swing[2] = { { 0, 0, 1 }, { 0, 0, 0 } };
+
+    /* Two ACs 3,000 apart, facing each other: the rifle locks, then hits. */
+    static acr_gen1_battle b;
+    setup(&b, 3000);
+    for (int i = 0; i < 2; ++i) { b.f[i].weapons = 1; b.f[i].weapon[0] = rifle(); b.f[i].ammo[0] = 200; }
     EXPECT(acr_gen1_in_lock_box(&b, 0, &b.f[0].weapon[0]));
     /* View tilt (L2/R2): a target high above locks only when looking up. */
     {
@@ -55,92 +108,113 @@ int main(void) {
     int steps = 0;
     while (b.f[1].ap == 8384 && steps < 200) { acr_gen1_battle_step(&b, none, fire); ++steps; }
     EXPECT(b.f[1].ap == 8384 - 60);
-    EXPECT(b.f[0].locked == 0 || b.f[0].lock_ms >= 1000);
+    EXPECT(b.f[0].hit_flash > 0);
+    /* Cadence: held fire, one shot every 13 ticks (the WG-RF35's hold;
+     * its refire wait of 5 ends first), as measured. */
+    {
+        int fired_at[3] = { 0, 0, 0 }, n = 0;
+        uint16_t ammo = b.f[0].ammo[0];
+        for (int t = 1; t <= 40 && n < 3; ++t) {
+            acr_gen1_battle_step(&b, none, fire);
+            if (b.f[0].ammo[0] != ammo) { fired_at[n++] = t; ammo = b.f[0].ammo[0]; }
+        }
+        EXPECT(n == 3 && fired_at[1] - fired_at[0] == 13 && fired_at[2] - fired_at[1] == 13);
+    }
 
     /* At 60 steps a second a rifle shot moves 700 x 22 / 60 = 256 units a
      * step: the same speed per second as the original. */
     memset(b.shot, 0, sizeof b.shot);
     b.step_rate = 60; b.gen1_rate = 22;
-    b.f[0].cooldown_ms = 0;
+    b.f[0].cooldown = 0; b.f[0].hold_left = 0;
     b.f[1].ac.x = 50000 * 64;                         /* out of the way */
     acr_gen1_battle_step(&b, none, fire);
     int found = 0;
     for (int k = 0; k < ACR_GEN1_MAX_SHOTS; ++k)
         if (b.shot[k].active) { found = 1; EXPECT(b.shot[k].vz / 64 == 256); }
     EXPECT(found);
-
-    /* Blade: its own button, not in the weapon cycle. A swing lunges the AC
-     * forward and hits a target ahead within reach once. */
+    /* Two shots per trigger (fire pattern 1) take two rounds. */
+    memset(b.shot, 0, sizeof b.shot);
+    b.f[0].cooldown = 0; b.f[0].hold_left = 0;
+    b.f[0].weapon[0].shots = 2;
     {
+        const uint16_t ammo = b.f[0].ammo[0];
+        acr_gen1_battle_step(&b, none, fire);
+        EXPECT(shots_alive(&b) == 2 && b.f[0].ammo[0] == ammo - 2);
+    }
+    b.f[0].weapon[0].shots = 1;
+
+    /* Blade: its own button, not in the weapon cycle. One hit = 246 on the
+     * default AC; from 650 and closer the arc hits twice (492), at 700
+     * once, from 800 not at all (measured in the recomp). */
+    {
+        static const int dist[] = { 300, 400, 500, 550, 600, 650, 700, 800 };
+        static const int hits[] = { 2, 2, 2, 2, 2, 2, 1, 0 };
+        for (int d = 0; d < 16; ++d) {
+            static acr_gen1_battle bb;
+            setup(&bb, dist[d & 7]);
+            if (d >= 8) { bb.step_rate = 60; bb.gen1_rate = 22; bb.step_ms = 16; }   /* the same at 60 steps */
+            acr_gen1_fighter *me = &bb.f[0];
+            me->weapons = 2;
+            me->weapon[0] = rifle(); me->ammo[0] = 200;
+            me->weapon[1] = blade();
+            acr_gen1_battle_step(&bb, none, swing);
+            EXPECT(me->swing > 0 && me->ac.energy == 28000 - 2050);
+            for (int k = 0; k < 120; ++k) acr_gen1_battle_step(&bb, none, idle);
+            EXPECT(me->swing == 0);
+            EXPECT(bb.f[1].ap == 8384 - 246 * hits[d & 7]);
+            if (bb.f[1].ap != 8384 - 246 * hits[d & 7])
+                printf("  blade at %d (%s): %d hit(s)\n", dist[d & 7], d >= 8 ? "60/s" : "22/s", (8384 - bb.f[1].ap) / 246);
+        }
         static acr_gen1_battle bb;
-        bb = b;
-        memset(bb.shot, 0, sizeof bb.shot);
-        bb.step_rate = 0; bb.gen1_rate = 0; bb.step_ms = 45;
+        setup(&bb, 3000);
         acr_gen1_fighter *me = &bb.f[0];
         me->weapons = 2;
-        me->weapon[1] = (acr_gen1_weapon){ ACR_GEN1_BLADE, "BLADE", 1000, 0, 200, 1, 1000, 0, 0, 0, 0, 0, 0 };
-        me->current = 0;
-        acr_gen1_ac_spawn(&me->ac, &def, 0, 0, 0);
-        acr_gen1_ac_spawn(&bb.f[1].ac, &def, 0, 600 * 64, 2048);    /* out of reach until the lunge */
-        bb.f[1].ap = 8384;
+        me->weapon[0] = rifle(); me->ammo[0] = 200;
+        me->weapon[1] = blade();
         const acr_gen1_actions cycle[2] = { { 0, 1, 0 }, { 0, 0, 0 } };
         acr_gen1_battle_step(&bb, none, cycle);
         EXPECT(me->current == 0);                       /* only the gun to cycle to */
-        const acr_gen1_actions swing[2] = { { 0, 0, 1 }, { 0, 0, 0 } };
-        const acr_gen1_actions idle[2] = { { 0, 0, 0 }, { 0, 0, 0 } };
-        acr_gen1_battle_step(&bb, none, swing);
-        EXPECT(me->swing > 0);
-        for (int k = 0; k < 20; ++k) acr_gen1_battle_step(&bb, none, idle);
-        EXPECT(me->ac.z > 400 * 64 && me->ac.z < 516 * 64);   /* lunged until it hit */
-        EXPECT(bb.f[1].ap == 8384 - acr_gen1_hit_ap(1000, 27));   /* one full hit */
-        EXPECT(me->swing == 0);
         /* Nothing in reach: the full lunge, 516 straight ahead. */
-        acr_gen1_ac_spawn(&me->ac, &def, 0, 0, 0);
-        acr_gen1_ac_spawn(&bb.f[1].ac, &def, 0, 3000 * 64, 2048);
-        me->blade_ms = 0;
         acr_gen1_battle_step(&bb, none, swing);
-        for (int k = 0; k < 20; ++k) acr_gen1_battle_step(&bb, none, idle);
+        for (int k = 0; k < 40; ++k) acr_gen1_battle_step(&bb, none, idle);
         EXPECT(me->ac.z / 64 >= 510 && me->ac.z / 64 <= 522 && me->ac.x == 0);
-        /* Steering: a target 45 degrees right turns the AC by the full turn. */
+        /* Not enough energy: no swing. */
         acr_gen1_ac_spawn(&me->ac, &def, 0, 0, 0);
-        acr_gen1_ac_spawn(&bb.f[1].ac, &def, 2000 * 64, 2000 * 64, 2048);
-        me->blade_ms = 0;
+        me->ac.energy = 2050;
         acr_gen1_battle_step(&bb, none, swing);
-        for (int k = 0; k < 20; ++k) acr_gen1_battle_step(&bb, none, idle);
-        EXPECT(me->ac.yaw == ACR_GEN1_BLADE_TURN && me->ac.x > 0);
+        EXPECT(me->swing == 0);
+        /* Steering: a target 30 degrees right turns the AC toward it at its
+         * top turn rate (38 a tick) until the lunge. */
+        acr_gen1_ac_spawn(&me->ac, &def, 0, 0, 0);
+        acr_gen1_ac_spawn(&bb.f[1].ac, &def, 1000 * 64, 1732 * 64, 2048);
+        acr_gen1_battle_step(&bb, none, swing);
+        for (int k = 0; k < 40; ++k) acr_gen1_battle_step(&bb, none, idle);
+        EXPECT(me->ac.yaw == def.motion.turn_max * ACR_GEN1_BLADE_STEER_TICKS && me->ac.x > 0);
         /* Far to the side (70 degrees): no turn. */
         acr_gen1_ac_spawn(&me->ac, &def, 0, 0, 0);
         acr_gen1_ac_spawn(&bb.f[1].ac, &def, 2750 * 64, 1000 * 64, 2048);
-        me->blade_ms = 0;
         acr_gen1_battle_step(&bb, none, swing);
-        for (int k = 0; k < 20; ++k) acr_gen1_battle_step(&bb, none, idle);
+        for (int k = 0; k < 40; ++k) acr_gen1_battle_step(&bb, none, idle);
         EXPECT(me->ac.yaw == 0);
-        acr_gen1_ac_spawn(&bb.f[1].ac, &def, 0, 600 * 64, 2048);
-        /* Out of reach and behind: a swing hits nothing. */
+        /* Behind: a swing hits nothing. */
+        acr_gen1_ac_spawn(&bb.f[1].ac, &def, 0, 400 * 64, 2048);
         acr_gen1_ac_spawn(&me->ac, &def, 0, 0, 2048);
-        me->blade_ms = 0;
         const int32_t before = bb.f[1].ap;
         acr_gen1_battle_step(&bb, none, swing);
-        for (int k = 0; k < 20; ++k) acr_gen1_battle_step(&bb, none, idle);
+        for (int k = 0; k < 40; ++k) acr_gen1_battle_step(&bb, none, idle);
         EXPECT(bb.f[1].ap == before);
     }
 
-    /* Cannon stance: a two-legged AC kneels first, four legs need the
+    /* Cannon stance: a two-legged AC crouches first, four legs need the
      * ground, caterpillars and Human PLUS fire freely. */
-    memset(b.shot, 0, sizeof b.shot);
-    b.step_rate = b.gen1_rate = 0;
+    setup(&b, 3000);
+    b.f[0].weapons = 1; b.f[0].weapon[0] = rifle(); b.f[0].ammo[0] = 200;
     b.f[0].weapon[0].stance = 1;
     b.f[0].legs = ACR_GEN1_LEGS_TWO;
-    b.f[0].cooldown_ms = 0;
-    b.f[0].kneeling = 0;
     acr_gen1_battle_step(&b, none, fire);
-    int shots = 0;
-    for (int k = 0; k < ACR_GEN1_MAX_SHOTS; ++k) shots += b.shot[k].active;
-    EXPECT(shots == 0 && b.f[0].kneeling);
+    EXPECT(shots_alive(&b) == 0 && b.f[0].kneeling);
     for (int k = 0; k < 12; ++k) acr_gen1_battle_step(&b, none, fire);
-    shots = 0;
-    for (int k = 0; k < ACR_GEN1_MAX_SHOTS; ++k) shots += b.shot[k].active;
-    EXPECT(shots >= 1);
+    EXPECT(b.f[0].ammo[0] < 200);
     b.f[0].legs = ACR_GEN1_LEGS_FOUR;
     b.f[0].ac.state = ACR_GEN1_AIR;
     EXPECT(!acr_gen1_stance_ok(&b.f[0]));
@@ -150,29 +224,83 @@ int main(void) {
     b.f[0].human_plus = 1;
     EXPECT(acr_gen1_stance_ok(&b.f[0]));
 
-    /* Missiles only leave once the lock is complete. */
+    /* Missiles: the cursor reaches the target, then (256 - 128) / 8 = 16
+     * ticks make a lock; the volley leaves 4 ticks after fire. The game
+     * launched 0.93 s (about 20 ticks) after the target entered the box. */
     {
         static acr_gen1_battle mb;
-        mb = b;
-        memset(mb.shot, 0, sizeof mb.shot);
-        mb.f[0].human_plus = 0;
-        mb.f[0].weapon[0] = (acr_gen1_weapon){ ACR_GEN1_MISSILE, "MISSILE", 830, 40, 8000, 0, 900, 200, 200,
-                                               1200, 350, 80, 0 };
-        mb.f[0].ammo[0] = 40;
-        mb.f[0].ac = b.f[0].ac;
-        mb.f[1].ac = b.f[1].ac;
-        mb.f[1].ac.x = b.f[0].ac.x;
-        mb.f[1].ac.z = b.f[0].ac.z + 3000 * 64;
-        mb.f[0].ac.yaw = 0;
-        mb.f[0].lock_ms = 0; mb.f[0].locked = 0; mb.f[0].cooldown_ms = 0;
-        mb.step_ms = 45;
-        acr_gen1_battle_step(&mb, none, fire);
-        int n = 0;
-        for (int k = 0; k < ACR_GEN1_MAX_SHOTS; ++k) n += mb.shot[k].active;
-        EXPECT(n == 0);
-        for (int k = 0; k < 25; ++k) acr_gen1_battle_step(&mb, none, fire);
-        EXPECT(mb.f[0].locked && mb.f[0].ammo[0] < 40);
+        setup(&mb, 3000);
+        mb.f[0].weapons = 1; mb.f[0].weapon[0] = small_missile(); mb.f[0].ammo[0] = 40;
+        int t = 0;
+        while (mb.f[0].ammo[0] == 40 && t < 60) { acr_gen1_battle_step(&mb, none, fire); ++t; }
+        EXPECT(t >= 18 && t <= 24);
+        EXPECT(mb.f[0].ammo[0] == 39 && shots_alive(&mb) == 1);
+        /* It flies to the target and hits for 233. */
+        for (int k = 0; k < 40 && shots_alive(&mb); ++k) acr_gen1_battle_step(&mb, none, idle);
+        EXPECT(mb.f[1].ap == 8384 - 233);
+        /* Held off fire, the locks stack up to the FCS / weapon cap, and one
+         * press sends a volley per lock. */
+        setup(&mb, 3000);
+        mb.f[0].weapons = 1; mb.f[0].weapon[0] = small_missile(); mb.f[0].ammo[0] = 40;
+        for (int k = 0; k < 120; ++k) acr_gen1_battle_step(&mb, none, idle);
+        EXPECT(mb.f[0].locks == 4);
+        for (int k = 0; k < 20; ++k) acr_gen1_battle_step(&mb, none, k == 0 ? fire : idle);
+        EXPECT(mb.f[0].ammo[0] == 36 && mb.f[0].locks == 0);
+        /* A target well off to the side never starts a lock. */
+        setup(&mb, 3000);
+        mb.f[0].weapons = 1; mb.f[0].weapon[0] = small_missile(); mb.f[0].ammo[0] = 40;
+        mb.f[1].ac.x = 2500 * 64;
+        for (int k = 0; k < 60; ++k) acr_gen1_battle_step(&mb, none, fire);
+        EXPECT(mb.f[0].ammo[0] == 40 && mb.f[0].locks == 0);
+        /* A missile that passes its target and leaves the cone gives up. */
+        setup(&mb, 3000);
+        mb.f[0].weapons = 1; mb.f[0].weapon[0] = small_missile(); mb.f[0].ammo[0] = 40;
+        while (mb.f[0].ammo[0] == 40) acr_gen1_battle_step(&mb, none, fire);
+        mb.f[1].ac.z = -3000 * 64;                    /* the target is suddenly behind */
+        for (int k = 0; k < 6; ++k) acr_gen1_battle_step(&mb, none, idle);
+        int gave_up = 0;
+        for (int k = 0; k < ACR_GEN1_MAX_SHOTS; ++k) if (mb.shot[k].active && (mb.shot[k].flags & 2)) gave_up = 1;
+        EXPECT(gave_up);
+        /* SP-JAM: locks on a jammer break (5% a tick), so they rarely stack. */
+        setup(&mb, 3000);
+        mb.f[0].weapons = 1; mb.f[0].weapon[0] = small_missile(); mb.f[0].ammo[0] = 40;
+        mb.f[1].jammer = 1;
+        int broke = 0;
+        for (int k = 0; k < 400; ++k) {
+            const uint8_t l = mb.f[0].locks;
+            acr_gen1_battle_step(&mb, none, idle);
+            if (mb.f[0].locks < l) ++broke;
+        }
+        EXPECT(broke > 0);
+        /* The interceptor: with chance 128 / 128 it reacts every tick and
+         * shoots down an incoming missile now and then. */
+        int downed = 0;
+        for (int run = 0; run < 20; ++run) {
+            setup(&mb, 4000);
+            mb.rng = (uint32_t)run + 1;
+            static acr_gen1_ac_def tough;
+            tough = def;
+            tough.stats.intercept_chance = 128;
+            tough.stats.intercept_angle = 128;
+            mb.f[1].def = &tough;
+            mb.f[0].weapons = 1; mb.f[0].weapon[0] = small_missile(); mb.f[0].ammo[0] = 40;
+            while (mb.f[0].ammo[0] == 40) acr_gen1_battle_step(&mb, none, fire);
+            for (int k = 0; k < 60 && shots_alive(&mb); ++k) acr_gen1_battle_step(&mb, none, idle);
+            if (mb.f[1].ap == 8384) ++downed;
+        }
+        EXPECT(downed > 0 && downed < 20);
     }
+
+    /* Round result: knock-out, double knock-out, time up on AP. */
+    setup(&b, 3000);
+    EXPECT(acr_gen1_battle_result(&b, 0) == 0);
+    EXPECT(acr_gen1_battle_result(&b, 1) == 3);
+    b.f[1].ap = 100;
+    EXPECT(acr_gen1_battle_result(&b, 1) == 1);
+    b.f[0].ap = 0;
+    EXPECT(acr_gen1_battle_result(&b, 0) == 2);
+    b.f[1].ap = 0;
+    EXPECT(acr_gen1_battle_result(&b, 0) == 3);
 
     if (failures) { printf("%d failure(s)\n", failures); return 1; }
     printf("gen1 battle: all passed (first hit after %d steps)\n", steps);

@@ -77,6 +77,7 @@ typedef struct import_ctx {
     acr_import_stats *stats;
     char *err;
     size_t err_size;
+    int archives_only;   /* launcher install: unpack the .T archives, copy nothing else */
 } import_ctx;
 
 static int unpack_archive(import_ctx *c, const char *disc_path, const uint8_t *data, size_t bytes) {
@@ -113,6 +114,7 @@ static int unpack_archive(import_ctx *c, const char *disc_path, const uint8_t *d
 static int visit(void *ctx, const char *disc_path, uint32_t lba, uint32_t bytes, int is_dir) {
     import_ctx *c = (import_ctx *)ctx;
     if (is_dir) return 1;
+    if (c->archives_only && !ends_with_t(disc_path)) return 1;
     const uint32_t sectors = (bytes + ACR_SECTOR_USER - 1) / ACR_SECTOR_USER;
     uint8_t *data = malloc((size_t)sectors * ACR_SECTOR_USER + 1);
     if (!data) { set_err(c->err, c->err_size, "out of memory reading", disc_path); return 0; }
@@ -142,6 +144,9 @@ static int visit(void *ctx, const char *disc_path, uint32_t lba, uint32_t bytes,
         snprintf(path, sizeof path, "%s/disc/%s.raw2352", c->out, disc_path);
         ok = write_file(path, data, (size_t)sectors * ACR_SECTOR_RAW);
         if (ok) c->stats->raw_files++;
+    } else if (c->archives_only) {
+        snprintf(path, sizeof path, "%s/unpacked/%s", c->out, disc_path);
+        ok = unpack_archive(c, disc_path, data, bytes);
     } else {
         snprintf(path, sizeof path, "%s/disc/%s", c->out, disc_path);
         ok = write_file(path, data, bytes);
@@ -153,8 +158,8 @@ static int visit(void *ctx, const char *disc_path, uint32_t lba, uint32_t bytes,
     return ok;
 }
 
-int acr_import_disc(const char *disc_path, const char *out_dir, acr_import_stats *stats,
-                    char *err, size_t err_size) {
+static int import_disc(const char *disc_path, const char *out_dir, acr_import_stats *stats,
+                       int archives_only, char *err, size_t err_size) {
     acr_disc disc;
     memset(stats, 0, sizeof *stats);
     if (!acr_disc_open(&disc, disc_path, err, err_size)) return 0;
@@ -163,7 +168,7 @@ int acr_import_disc(const char *disc_path, const char *out_dir, acr_import_stats
         set_err(err, err_size, "cannot create", out_dir);
         return 0;
     }
-    import_ctx c = { &disc, out_dir, stats, err, err_size };
+    import_ctx c = { &disc, out_dir, stats, err, err_size, archives_only };
     const int ok = acr_iso_walk(&disc, visit, &c);
     if (!ok && err && !err[0]) set_err(err, err_size, "the disc's file system could not be read", NULL);
     acr_disc_close(&disc);
@@ -190,4 +195,14 @@ int acr_import_disc(const char *disc_path, const char *out_dir, acr_import_stats
             return 0;
     }
     return 1;
+}
+
+int acr_import_disc(const char *disc_path, const char *out_dir, acr_import_stats *stats,
+                    char *err, size_t err_size) {
+    return import_disc(disc_path, out_dir, stats, 0, err, err_size);
+}
+
+int acr_import_disc_models(const char *disc_path, const char *out_dir, acr_import_stats *stats,
+                           char *err, size_t err_size) {
+    return import_disc(disc_path, out_dir, stats, 1, err, err_size);
 }

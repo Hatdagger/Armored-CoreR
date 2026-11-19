@@ -1,39 +1,56 @@
-# Gen 1 weapons, FCS and damage (first pass)
+# Gen 1 weapons, FCS and damage
 
-Read from Master of Arena's menu module (compile routine `0x800A7BB4`,
-FDAT 206) and VS engine (FDAT 209), then checked in the recomp: the
-starting AC's rifle fired at a standing default AC. Test weapons, as asked:
-WG-RF35 rifle, WM-S40/1 missile, LS-2001 blade, with the COMDEX-C7 FCS.
+First read from Master of Arena's menu module (compile routine `0x800A7BB4`,
+FDAT 206) and VS engine (FDAT 209) and checked in the recomp. Since
+2026-11-18 it follows the AC1Recomp fork's mapping of the same code
+([battle-system.md], [stat-block.md], [parts-tables.md]), which settled
+most of the open points below. Where the two disagreed, the mapping (read
+from the code, then run-tested) wins, and the change is noted.
+
+Time: "tick" = one Gen 1 game step (22 a second). The engine keeps every
+counter in ticks and spreads movement over its own steps, so a fight plays
+the same per second at 60 steps a second.
+
+[battle-system.md]: https://github.com/Hatdagger/AC1Recomp/blob/master/docs/mapping/battle-system.md
+[stat-block.md]: https://github.com/Hatdagger/AC1Recomp/blob/master/docs/mapping/stat-block.md
+[parts-tables.md]: https://github.com/Hatdagger/AC1Recomp/blob/master/docs/mapping/parts-tables.md
 
 ## Weapon detail tables (24 bytes per weapon)
 
 Separate from the shop tables (which hold only price, weight and drain):
 hand weapons `0x800D1F64`, back weapons `0x800D21D4`, weapon arms
 `0x800D1DE4` (index arms - 12). Weapon type names (16 bytes each, "RIFLE",
-"SMALL MISSILE"...) at `0x800D5488`, indexed by byte +7.
+"SMALL MISSILE"...) at `0x800D5488`, indexed by byte +7. `acr-import`
+writes every field below into the part file.
 
-| Byte | Meaning | WG-RF35 | WM-S40/1 |
-| --- | --- | --- | --- |
-| +0 | slot kind (0 hand, 1 missile, 2 cannon) | 0 | 1 |
-| +6 | lock class: picks the FCS's range, lock box and lock time (4 = no lock) | 0 | 1 |
-| +7 | type name | 6 RIFLE | 13 SMALL MISSILE |
-| +8 | ammo | 200 | 40 |
-| +0xA | energy per shot (energy weapons) | 0 | 0 |
-| +0xC | ammo price | 18 | 130 |
-| +0xE | weapon range | 8,500 | 9,000 |
-| +0x10 | shots locked at once (missiles), capped by the FCS | 1 | 1 |
-| +0x11 | fire interval byte | 5 | 10 |
-| +0x12 | flags (0x10 / 0x20: shell / energy damage) | 0x17 | 0x17 |
-| +0x14 | attack | 218 | 830 |
-| +0x16 | impact | 3 | 12 |
+| Byte | Meaning | Part file | WG-RF35 | WM-S40/1 |
+| --- | --- | --- | --- | --- |
+| +0 | kind: 0 gun, 1 missile, 2 cannon | `kind` | 0 | 1 |
+| +1 | model id: picks the shot / missile tables | `model_id` | 0 | 0 |
+| +2 | guns: bits 0-1 shots per trigger (0 one, 1 two, 2 four, 3 one a side), bit 2 fixed direction (dispensers), bit 3 weapon-arm aim; cannons: base recoil | `fire_pattern` | | |
+| +3 | firing animation (second animation layer; right back slot +1; 255 none) | `firing_anim` | 0 | 1 |
+| +4 | post-shot hold (guns and cannons; 255 none) | `post_shot_hold` | 0 | |
+| +5 | sight: bit 0 lock box, bit 1 aiming guide, bit 2 fires straight ahead (rockets) | `sight` | 1 | 1 |
+| +6 | lock class: picks the FCS's range, lock box and lock value (4 = no lock) | `lock_class` | 0 | 1 |
+| +7 | type name | `type_id` | 6 RIFLE | 13 SMALL MISSILE |
+| +8 | ammo | `ammo` | 200 | 40 |
+| +0xA | energy per shot (energy weapons) | `energy_per_shot` | 0 | 0 |
+| +0xC | ammo price | `ammo_price` | 18 | 130 |
+| +0xE | weapon range | `range` | 8,500 | 9,000 |
+| +0x10 | locks at once (missiles), capped by the FCS | `salvo` | 1 | 1 |
+| +0x11 | fire interval, **in ticks** (garage RELOAD TIME) | `fire_interval` | 5 | 10 |
+| +0x12 | flags: 0x10 solid / 0x20 energy damage; 0x40 stagger (WR-RS7); 0x80 burn (WG-FGI-00) | `ammo_flags` | 0x17 | 0x17 |
+| +0x14 | attack | `attack` | 218 | 830 |
+| +0x16 | impact | `impact` | 3 | 12 |
 
 ## FCS (96-byte records at `0x800D11D0`)
 
-+0x2C: most targets locked at once (COMDEX-C7: 4). Then four 12-byte
-groups, one per lock class: range, lock box (outer width and height, inner
-width and height), lock time.
++0x2C: most targets locked at once (COMDEX-C7: 4); +0x2D: the garage's
+lock-on area label (text only). Then four 12-byte groups, one per lock
+class: range, lock box (outer width and height, inner width and height),
+lock value.
 
-| Class | Range | Box | Lock time |
+| Class | Range | Box | Lock value |
 | --- | --- | --- | --- |
 | 0 (rifles, handguns, machine guns) | 6,100 | 240x240 / 200x200 | 60 |
 | 1 (missiles) | 8,000 | 200x200 / 160x160 | 128 |
@@ -41,7 +58,10 @@ width and height), lock time.
 | 3 | 8,000 | 90x90 / 72x72 | 35 |
 
 A weapon's working range is the smaller of its own range and its class's
-FCS range (rifle: 6,100). SP-AXL scales the lock time.
+FCS range (rifle: 6,100). The lock value works opposite ways by kind:
+for guns and cannons it is a time (bigger = slower), for missiles a speed
+(bigger = faster). SP-AXL scales it by 1.15 for solid weapons and 0.85 for
+the rest (so missiles and energy guns lock faster, solid guns slower).
 
 ## Damage (VS engine `0x80079500`, checked in game)
 
@@ -53,28 +73,47 @@ Each AC has a shell and an energy damage factor (compiled +0x22, +0x23):
     C = 3,051,520 (shell), 3,584,000 (energy)
 
 A hit takes `((attack * factor) >> 6) * 2 / 3` AP (integer maths), shell
-or energy by the weapon's flags. Default AC: shell defense 1,604 gives
-factor 27, so the rifle does 60 and the missile 233, both as measured.
-Setting the factor by hand gave 2, 22, 45, 58, 60, 63, 68, 102, 145 and
-218 AP for factors 1 to 96, all matching. No distance fall-off.
+or energy by the weapon's flags. Default AC: factors 27 (shell) and 32
+(energy), so the rifle does 60, the missile 233 and the LS-2001 blade 246,
+all as measured. No distance fall-off.
 
-## Shot speeds (VS engine, checked in game)
+Impact sets a knockback level, `impact x 256 / (stability x 25 / 4)`,
+0 to 5 (`0x80079AA4`): the blade (11) is level 5 on the default AC, the
+rifle (3) level 3. `acr_gen1_knockback_level` has it; how far each level
+pushes is not read yet, so the engine doesn't push yet (blade aside).
 
-Guns and missiles do not all fly at the same speed. Speeds are world units
-per Gen 1 step (22 a second).
+## Hit cylinder
 
-- **Guns** (detail kind 0): the speed comes from the weapon's model id
-  (detail byte +1). The VS engine (`0x80080E38`) picks one of five tables
-  by id range: below 0x14 `0x80091198` (28 bytes each, speed at +8),
+An AC is a cylinder for shots, missiles and the blade: radius 75, 212 tall
+(AC object +0x72 / +0x74), standing on its feet; missiles aim at its
+middle (y - 106). Was a 65 sphere at 100 up (stand-in).
+
+## Guns
+
+- **Cadence.** After a shot the refire wait (AC +0x48) is the fire
+  interval byte **in ticks** (5 for WG-RF35) and counts down a tick at a
+  time. The earlier "byte x 118 ms" came from the WG-RF35 alone, whose
+  13-tick cadence (590 ms) is really its **post-shot hold**: weapons with
+  detail +4 below 255 (WG-RF35 and WG-PB26 0, cannons WC-GN230 / WC-IR24 1,
+  WX-ED2 / WX-C/4 2) play a firing animation on the AC's second layer, and
+  no gun or cannon fires until it ends (the cannon's wait pauses during
+  it). The engine uses 13 ticks for a hold of 0 (measured cadence) and
+  13 + 2 x hold for the others (stand-in: the base length lives in the
+  animation data).
+- **Shots per trigger**: detail +2 bits 0-1 (2 or 4), one round each.
+- **Straight fire**: sight bit 2 (rockets) and dispensers (pattern bit 2)
+  fire along the facing with no aiming, lock or not.
+- **Lock** (`0x800800E4`): the counter runs while the target is in the
+  box and the lock lands at `distance x lock value / 256 x r / 32768`
+  ticks, so far targets take longer. `r` (lock record +0x04) isn't read
+  yet; the engine still uses about 7.3 ms per lock unit (rifle 0.44 s).
+- Shot speeds: from the model id, VS engine `0x80080E38` picks one of five
+  tables by id range: below 0x14 `0x80091198` (28 bytes each, speed at +8),
   0x14-0x27 `0x80092980` (40), 0x28-0x3B `0x80092C20` (36), 0x3C-0x59
   `0x80092824` (24), 0x5A on `0x800928E4` (22); speed at +0 in the last
-  four. Shot objects are created by `0x8008AC30` and move in a straight line
-  (with a small random spread).
-- **Missiles** (kind 1): table `0x80093114`, 40 bytes per missile model
-  (detail byte +1). Each step the missile's velocity is pushed toward the
-  target by +0xC and then held to the top speed +0xE (`0x80088BF8`).
+  four. Cannons: `0x80091310` (6 bytes per model).
 
-| Weapon | Speed | Note |
+| Weapon | Speed (world units a tick) | Note |
 | --- | --- | --- |
 | WG-RF35 rifle, machine guns | 700 | traced in game: exactly +700 a step |
 | WG-HG235 handgun | 720 | |
@@ -84,100 +123,114 @@ per Gen 1 step (22 a second).
 | WA-Finger | 1,000 | |
 | WG-RF/E | 2,700 | |
 | WG-B2120 / WG-B2180 bazookas | 512 / 576 | |
-| WM-S40/1 small missile | 350 top, 80 push | traced in game: 350 a step |
-| WM-L201 | 300 top, 60 push | |
 
-Cannons (kind 2) use another table, not read yet. `acr-import` writes
-`shot_speed` (and `homing` for missiles) into each weapon's part file.
+## Missiles (VS `0x80080638`, `0x80081888`, `0x8008907C`)
 
-The earlier estimate of 650 for the rifle was off because polling the
-target's AP from the debugger is slow; the write trace gives 700.
+**Lock.** A lock cursor (player block +0x20 / +0x22) turns toward the
+target by `lock value x 3 / 16` a tick on each axis. Once it sits on the
+target a counter runs; passing `(256 - lock value) / 8` (16 ticks for the
+COMDEX-C7's 128) adds a lock and sends the cursor back to the centre, so
+every extra lock costs the travel again. A new lock needs the target in
+the inner box; locks hold while it stays in the outer one. Locks stop at
+the smaller of the FCS's and the weapon's limit, the ammo left and 6.
+SP-JAM on the target breaks the locks with a 5 % chance a tick.
 
-## Measured, not yet read from code
+**Firing.** With at least one lock and fire held (or SP-M/AUTO with every
+lock taken) a volley run starts: locks x 4 ticks, and every fourth tick a
+volley leaves from both sides (launcher table `0x800912B0`, 8 bytes per
+model id: flight kind, ignition delay, missiles from side A and side B,
+random spread). Each volley uses a lock; after the last one the refire wait
+is the fire interval. Holding fire on a target straight ahead: 16 ticks to
+lock + 4 to launch, about 0.95 s, against 0.93 s measured in the game.
 
-- Rifle shots held down: one every 35-36 screen refreshes (about 13 steps).
-- Missile: switched to with Triangle; first hit 157 refreshes after holding
-  fire at 3,000 (lock time plus flight).
-- Fire is Square.
+**Flight** (table `0x80093114`, 40 bytes per flight kind, **not** per model
+id as first thought; `acr-import` now follows the launcher table):
 
-## Still to do
+| Kind | Fuel | Life | Thrust | Top speed | Turn a tick | Cone |
+| --- | --- | --- | --- | --- | --- | --- |
+| 0, 9 | 50 | 60 | 80 | 350 | 110 (9.7 degrees) | +-90 degrees |
+| 1 | 80 | 100 | 70 | 320 | 100 | +-90 |
+| 2, 3, 4, 12 | 120 | 160 | 60 | 300 | 90 | +-90 |
+| 5 | 180 | 200 | 30 | 100 | 50 | +-90 |
+| 11 | 250 | 300 | 30 | 100 | 60 | +-135 |
 
-- (Done, see "Lock-on measured" below.)
+Each tick: before ignition it coasts under gravity (kind 4 already turns);
+at ignition it thrusts along its heading up to the top speed, the heading
+turning at most "turn" toward the target. Once the target has been inside
+the cone, leaving it makes the missile **give up for good** (it flies on,
+wobbling now and then); kinds 5 and 11 never give up. After the fuel the
+nose drops. Kind 3 splits into four kind-0 missiles 6 ticks after
+ignition. Launch: toward the target plus the spread, at 100 plus the
+launcher's own motion. So missiles can now be dodged by making one
+overshoot, as in the game; before, they homed forever.
 
-Projectile speeds and missile homing from the code; the fire interval byte;
-lock-on rules (box, time) in the VS engine; the blade (attack 2,050; its
-other bytes 39, 738, 11 are likely reach and timing).
+## Missile interceptor (core +0x34 / +0x35, VS `0x800829E4`)
 
-## In the test build
+Each tick, with chance `reaction / 128`, the core looks for an enemy missile
+within 5,000 and within `+-angle x 4` of the facing (both axes). A find
+starts a 15-tick burst; each shot of it (odd ticks) has a 1 in 32 chance
+to destroy the missile. XCA-00: 48 / 48 (37.5 %, +-17 degrees).
 
-`src/gen1/acr_gen1_battle.{h,c}`: lock-on, shots, missiles, blade and
-damage, with a target AC standing ahead. The damage formula and factors
-are the game's; these are stand-ins until decoded or measured:
+## Blade (VS `0x80083224` / `0x8007EB48`)
 
-- Lock time: measured in the game, a missile locks and launches 56 screen
-  refreshes (0.93 s) after the target enters the box, the same at 3,000,
-  6,000 and 7,500; at 8,500 it never locks (the FCS's missile range is
-  8,000). So about 7.3 ms per lock-time unit: rifle 0.44 s, missile
-  0.93 s. Missiles fire only once fully locked; the rifle fires at once
-  and aims at the target when locked.
-- Lock box angle: box units over 384 (measured, below).
-- Fire interval: byte x 118 ms (rifle 590 ms, as measured).
-- Shot speeds and missile homing are the game's (above), kept per second at
-  any step rate, so at 60 steps a second a rifle shot moves 256 a step.
-  Missiles start at their top speed; shots hit within 260 units of an AC's
-  middle (stand-in).
-- Blade: measured, see "Blade measured" below.
-- Lock time and fire interval are kept per second too.
+- **Fields were swapped.** Blade +0x30 is the **attack** (LS-2001 738 ...
+  MOONLIGHT 2,801); +0x2C (2,050) is the **charge drain**, the energy a
+  swing takes (compiled +0x1C, which this doc called "blade power").
+  `acr-import` now writes `attack` and `charge_drain`; re-import a disc
+  imported before 2026-11-18.
+- **Damage.** An energy hit: 738 on the default AC = **246**. The "492
+  seen" was two hits in one swing, not one hit at a different rate.
+- **Start.** Circle, a new press, needs energy above the charge drain and
+  takes it; not while the booster is locked or a swing is running.
+- **Steering.** At the start the game looks for an AC up to 3,000 ahead
+  within +-45 degrees, and the AC turns toward it at its own top turn rate
+  until the lunge (default AC: 38 a tick x 7 = 266, the measured "about
+  22 degrees"; 63 degrees off: no turn).
+- **Lunge** (measured): 125, 125, 125, 50, 44, 24, 24 a tick from 330 ms,
+  with or without a target. Bodies stop it at contact.
+- **Hits.** The game tests the blade line twice a tick over ticks 7-11
+  and has no "already hit" guard, so a close target is hit twice. The
+  engine crosses the front twice, 2 and 3 lunge ticks in, with reaches 450
+  and 420; a hit ends the lunge and pushes the target 10 back. Fitted to
+  the recomp's harness (11 swings at each distance): **2 hits from 650 and
+  closer, 1 at 700, none at 800**. (An older measurement here, a miss at
+  730, disagrees with the harness; the harness wins.)
+- Swing to swing: ~1.45 s (measured).
+- Other blades' reach (MOONLIGHT is longer) not measured yet.
 
-## Cannon stance (as described by a player)
+## Cannon stance
 
-Back cannons need a steady stance: two-legged ACs (humanoid, reverse
-joint) kneel before firing, four-legged ACs fire them only on the ground,
-caterpillars fire them freely. Human PLUS lifts the rule. Missiles,
-rockets and radars on the back work freely (confirmed by the player).
+The VS cannon routine (`0x80081B18`) makes two-legged bodies crouch
+(AC state 34) before a **kind-2** cannon fires; caterpillars fire at once;
+Human PLUS level 4+ turns a two-legged body into body frame 3, which fires
+cannons standing. While crouched the AC turns at the crouch rates (legs
++0x3C through the back-weapon slot formulas: accel `+7 x 5 / 32 + 1`, top
+`+8 x 15 / 32 + 1`) and slides to a stop. Four legs: "only on the ground"
+is from a player's description, not from code yet.
 
-Which weapons count: `acr-import` marks `stance = 1` on back weapons of
-kind 2 (WC- cannons, chain gun, slug guns, linear gun, grenade launcher)
-and the two-slot energy cannons WX-ED2 and WX-C/4. To confirm from the
-game's code. Cannon shot speeds come from VS engine table `0x80091310`
-(6 bytes per model: 500 for most, 600 grenade launcher, 800 WC-IR24); read
-from code, not traced yet. Time to kneel (400 ms) is a stand-in.
+Changed: the two-slot energy cannons WX-ED2 and WX-C/4 are kind 0 (guns)
+in the detail table, and the gun routine has no crouch check, so they no
+longer require the stance. **To confirm in the recomp**: does a biped
+kneel to fire them?
 
-## Lock-on measured (recomp, split-screen VS, default AC)
+## In the engine
 
-- Range: the rifle (FCS class 0, 6,100) locks out to about 6,250 and the
-  small missile (class 1, 8,000) to about 7,985. The range is the FCS's,
-  give or take 2%. A VS fight starts with the ACs 8,000 apart.
-- World scale: the projection plane is 160 on a 160x240 view. The target's
-  height on screen at 1,000-6,000 gives an AC about 190 world units tall
-  with the camera about 600 behind. The model is about 790 units tall, so
-  the game draws ACs at a quarter of their model's units. Drawing them at
-  full size made every range look four times shorter (the "short lock").
-  `ACR_GEN1_MODEL_SCALE` = 1/4; centre, muzzle and hit sizes follow it.
+`src/gen1/acr_gen1_battle.{h,c}`; tests in `tests/test_gen1_battle.c`
+(measured damage, rifle cadence, blade hit counts at 300-800 at both 22
+and 60 steps a second, missile lock time, volleys, giving up, SP-JAM,
+interceptor, round result).
+
+Still stand-ins: the gun lock's distance factor, post-shot hold lengths
+other than WG-RF35, knockback distances, the blade arc (fitted), the
+four-legged cannon rule, cannon kick (player block +0x214) and recoil.
+
+## Earlier measurements (kept)
+
 - Lock box: at 4,000 ahead the rifle locks with the target 1,000 to the
-  side and not 1,250 (tan 0.29-0.32, the facing was 2 degrees off). Box
-  240 -> tan 0.3125 with 384 units for 45 degrees (`ACR_GEN1_BOX_UNITS`).
-- Test build: ACR_DIST / ACR_SIDE place the target for these checks.
-
-## Blade measured (recomp, VS, default AC with LS-2001)
-
-- **Circle** swings the blade; it is not in the Triangle weapon cycle and
-  the HUD does not list it. Fire (Square) at point blank still fires the
-  rifle.
-- Timeline from the press (22 steps/s): the AC turns toward the target at
-  ~170 ms, starts moving at ~330 ms, and lunges 516 along its facing over
-  7 steps: 125, 125, 125, 50, 44, 24, 24 (about 2,750 units/s, then
-  slowing). The lunge happens with nothing in reach too.
-- Steering: one turn of at most ~22 degrees (~250 facing units) when the
-  target is within ~55 degrees of the facing (45 degrees: clamped turn;
-  63 degrees: no turn). The lunge then follows the new facing.
-- Reach: the swing hits a target ~205 centre to centre in front during
-  the lunge (D 660 hits, 730 misses with the full 516 lunge). A hit in the
-  first 5 lunge steps does full damage (492 on the default AC); in the last
-  two, half (246). A hit stops the lunge and knocks the target ~300 back.
-- Swing to swing: ~1.4-1.6 s (presses every 4-10 refreshes).
-- Part bytes 39, 738, 11: 39 is the same on all five blades (not timing);
-  738 scales with the blade (Moonlight 2,801), so likely energy per swing,
-  not reach (unchecked).
-- Open: our hit does 683 vs the game's 492 (damage path for blades);
-  knockback; other blades' reach and lunge.
+  side and not 1,250 (tan 0.29-0.32). Box 240 -> tan 0.3125 with 384 units
+  for 45 degrees (`ACR_GEN1_BOX_UNITS`).
+- Range: the rifle (FCS class 0, 6,100) locks out to about 6,250 and the
+  small missile (class 1, 8,000) to about 7,985.
+- World scale: the game draws ACs at a quarter of their model's units
+  (confirmed in the VS model draw `0x80062C00`), `ACR_GEN1_MODEL_SCALE`.
+- A VS fight starts with the ACs 8,000 apart.

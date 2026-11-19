@@ -23,6 +23,7 @@ typedef struct demo_ac {
     uint8_t shell_factor, energy_factor;
     acr_gen1_weapon weapon[ACR_GEN1_MAX_WEAPONS];
     int weapons;
+    int plus_applied;      /* Human PLUS energy rules applied to def.stats */
 } demo_ac;
 
 /* 1 on success; otherwise 0 and a message for the player in `err`. */

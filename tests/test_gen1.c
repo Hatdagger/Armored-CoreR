@@ -48,6 +48,37 @@ int main(void) {
             ++failures;
         }
     }
+    /* Beyond the vectors (AC1Recomp docs/mapping/stat-block.md):
+     * - back weapon slots +7 / +8 use the +12 / +13 formulas with legs +0x3C;
+     * - SP-CND-K adds 12,000 to the energy store;
+     * - Human PLUS 6+: rise drain halved, refills doubled and capped by it;
+     * - a hand weapon's 64 / 64 gives the crouch turn 11 / 31. */
+    {
+        acr_gen1_build b;
+        memset(&b, 0, sizeof b);
+        b.core.present = b.head.present = b.arms.present = b.legs.present = b.generator.present = b.fcs.present = 1;
+        b.legs.weight = 2000; b.legs.carry_limit = 5000; b.legs.stability = 1000;
+        b.legs.turn_accel = 400; b.legs.turn_speed = 40; b.legs.back_turn = 400;
+        b.generator.stat_2c = 28000; b.generator.energy_drain = 6000; b.booster.present = 1;
+        b.booster.stat_2e = 4360; b.booster.stat_2c = 9000; b.booster.weight = 200;
+        acr_gen1_stats s;
+        acr_gen1_compile(&b, &s);
+        if (s.back_turn_accel != s.turn_accel) { fprintf(stderr, "FAIL back turn accel\n"); ++failures; }
+        b.option_mask = 0x20;
+        acr_gen1_compile(&b, &s);
+        if (s.energy_capacity != 40000) { fprintf(stderr, "FAIL charge expander\n"); ++failures; }
+        const uint16_t rise = s.rise_drain;
+        acr_gen1_human_plus_energy(&s, 5);
+        if (s.rise_drain != rise) { fprintf(stderr, "FAIL human plus 5\n"); ++failures; }
+        acr_gen1_human_plus_energy(&s, 9);
+        if (s.rise_drain != rise / 2 || s.refill_standing > s.rise_drain) { fprintf(stderr, "FAIL human plus 9\n"); ++failures; }
+        acr_gen1_stats h;
+        memset(&h, 0, sizeof h);
+        h.back_turn_accel = h.back_turn_speed = 64;
+        acr_gen1_motion m;
+        acr_gen1_motion_from_stats(&h, &m);
+        if (m.crouch_turn_accel != 11 || m.crouch_turn_max != 31) { fprintf(stderr, "FAIL crouch turn\n"); ++failures; }
+    }
     if (failures) { fprintf(stderr, "%zu of %zu vectors failed\n", failures, n); return 1; }
     printf("gen1 compile: %zu vectors match\n", n);
     return 0;

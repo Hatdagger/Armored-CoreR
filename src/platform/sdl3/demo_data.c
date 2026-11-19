@@ -131,11 +131,15 @@ static void read_part(int slot, const char *t, acr_gen1_part *p, char *name, siz
         p->stat_2e = (uint16_t)get_int(t, e, "boost_drain", 0);
         break;
     case SLOT_BLADE:
-        p->stat_2c = (uint16_t)get_int(t, e, "attack", 0);
+        /* Compiled +0x1C is the swing's charge drain (blade +0x2C). Imports
+         * before the AC1Recomp mapping called it "attack". */
+        p->stat_2c = (uint16_t)get_int(t, e, "charge_drain", get_int(t, e, "attack", 0));
         break;
     case SLOT_CORE:
         p->stat_2c = (uint16_t)get_int(t, e, "ap", 0);
         p->carry_limit = (uint16_t)get_int(t, e, "arm_load_limit", 0);
+        p->intercept_chance = (uint8_t)get_int(t, e, "interceptor_reaction", 0);
+        p->intercept_angle = (uint8_t)get_int(t, e, "interceptor_angle", 0);
         break;
     case SLOT_LEGS:
         p->stat_2c = (uint16_t)get_int(t, e, "ap", 0);
@@ -146,6 +150,7 @@ static void read_part(int slot, const char *t, acr_gen1_part *p, char *name, siz
         p->turn_accel = (uint16_t)get_int(t, e, "turn_accel", 0);
         p->turn_speed = (uint8_t)get_int(t, e, "turn_speed", 0);
         p->fixed_boost = (uint8_t)get_int(t, e, "fixed_boost", 0);
+        p->back_turn = (uint16_t)get_int(t, e, "back_turn", 0);
         break;
     default:
         p->stat_2c = (uint16_t)get_int(t, e, "ap", 0);
@@ -225,7 +230,7 @@ int demo_load(const char *import_dir, const int parts[SLOT_COUNT], demo_ac *out,
     memset(&b, 0, sizeof b);
     int32_t ap = 0;
     uint32_t shell = 0, energy = 0;
-    long fcs[4][6];
+    long fcs[4][6], fcs_max_locks = 0;
     memset(fcs, 0, sizeof fcs);
     acr_gen1_part *by_slot[SLOT_COUNT] = { &b.core, &b.booster, &b.head, &b.arms, &b.blade, &b.hand,
                                            &b.back_l, &b.back_r, &b.generator, &b.fcs, &b.legs };
@@ -253,6 +258,7 @@ int demo_load(const char *import_dir, const int parts[SLOT_COUNT], demo_ac *out,
                 SDL_snprintf(key, sizeof key, "lock_class_%d", k);
                 for (int j = 0; j < 6; ++j) fcs[k][j] = list_at(t, e, key, j, 0);
             }
+            fcs_max_locks = get_int(t, e, "max_locks", 0);
         }
         if ((s == SLOT_HAND || s == SLOT_BACK_L || s == SLOT_BLADE) && get_int(t, e, "attack", 0) > 0) {
             acr_gen1_weapon *w = &out->weapon[out->weapons];
@@ -261,24 +267,57 @@ int demo_load(const char *import_dir, const int parts[SLOT_COUNT], demo_ac *out,
             w->attack = (uint16_t)get_int(t, e, "attack", 0);
             if (s == SLOT_BLADE) {
                 w->kind = ACR_GEN1_BLADE;
-                w->energy = 1;
-                /* Measured in the recomp (LS-2001): hits out to ~205 centre to
-                 * centre, a swing every ~1.45 s. Other blades not measured yet. */
-                w->range = 205;
-                w->interval_ms = 1450;
+                w->energy = (uint8_t)((get_int(t, e, "hit_flags", 0x20) & 0x20) != 0);
+                w->charge_drain = (uint16_t)get_int(t, e, "charge_drain", 0);
+                w->range = ACR_GEN1_BLADE_REACH;    /* fitted to LS-2001 measurements; others not measured */
             } else {
                 const long cls = get_int(t, e, "lock_class", 4);
-                w->kind = s == SLOT_BACK_L ? ACR_GEN1_MISSILE : ACR_GEN1_GUN;
+                /* Kind from the weapon detail (0 gun, 1 missile, 2 cannon); old
+                 * imports without it: the back weapon was taken as a missile. */
+                const long kind = get_int(t, e, "kind", s == SLOT_BACK_L ? 1 : 0);
+                w->kind = kind == 1 ? ACR_GEN1_MISSILE : ACR_GEN1_GUN;
                 w->ammo = (uint16_t)get_int(t, e, "ammo", 0);
                 w->range = (int32_t)get_int(t, e, "range", 6000);
                 w->energy = (uint8_t)get_int(t, e, "energy_damage", 0);
                 w->lock_ms = (uint16_t)(cls < 4 ? cls : 0);   /* class for now; FCS applied below */
                 w->box_w = (uint16_t)(cls < 4 ? cls + 1 : 0);
-                /* Measured: rifle (interval byte 5) fires every ~590 ms. */
-                w->interval_ms = (uint16_t)(get_int(t, e, "fire_interval", 5) * 118);
-                w->speed = (int32_t)get_int(t, e, "shot_speed", w->kind == ACR_GEN1_MISSILE ? 350 : 700);
-                w->homing = (uint16_t)get_int(t, e, "homing", 0);
+                /* Refire wait: detail +0x11 in game ticks (AC +0x48 counts it
+                 * down; 5 after a WG-RF35 shot). */
+                w->interval = (uint16_t)get_int(t, e, "fire_interval", 5);
+                /* Post-shot hold (detail +4, 255 none): WG-RF35's hold sets its
+                 * measured 13-tick cadence; longer holds a stand-in. */
+                const long hold = get_int(t, e, "post_shot_hold", 255);
+                w->hold = (uint8_t)(hold == 255 || kind == 1 ? 0 : 13 + 2 * hold);
+                const long pattern = get_int(t, e, "fire_pattern", 0);
+                w->shots = (uint8_t)((pattern & 3) == 1 ? 2 : (pattern & 3) == 2 ? 4 : 1);
+                w->straight = (uint8_t)((get_int(t, e, "sight", 1) & 4) != 0 || (pattern & 4) != 0);
+                w->speed = (int32_t)get_int(t, e, "shot_speed", 700);
                 w->stance = (uint8_t)get_int(t, e, "stance", 0);
+                w->max_locks = (uint8_t)get_int(t, e, "salvo", 1);
+                if (w->kind == ACR_GEN1_MISSILE) {
+                    w->volley_a = (uint8_t)get_int(t, e, "volley_a", 1);
+                    w->volley_b = (uint8_t)get_int(t, e, "volley_b", 0);
+                    w->ignition = (uint8_t)get_int(t, e, "ignition_delay", 1);
+                    w->spread_pitch = (uint16_t)get_int(t, e, "spread_pitch", 0);
+                    w->spread_yaw = (uint16_t)get_int(t, e, "spread_yaw", 0);
+                    /* Flight (table 0x80093114); defaults are kind 0 (WM-S40/1). */
+                    acr_gen1_flight *fl = &w->flight;
+                    fl->kind = (uint8_t)get_int(t, e, "flight_kind", 0);
+                    fl->top = (uint16_t)get_int(t, e, "shot_speed", 350);
+                    fl->thrust = (uint16_t)get_int(t, e, "homing", 80);
+                    fl->fuel = (uint16_t)get_int(t, e, "fuel", 50);
+                    fl->life = (uint16_t)get_int(t, e, "life", 60);
+                    fl->turn = (uint16_t)get_int(t, e, "turn", 110);
+                    fl->cone = (uint16_t)get_int(t, e, "cone", 1024);
+                    acr_gen1_flight *sp = &w->split;
+                    sp->kind = 0;
+                    sp->top = (uint16_t)get_int(t, e, "split_top", 350);
+                    sp->thrust = (uint16_t)get_int(t, e, "split_thrust", 80);
+                    sp->fuel = (uint16_t)get_int(t, e, "split_fuel", 50);
+                    sp->life = (uint16_t)get_int(t, e, "split_life", 60);
+                    sp->turn = (uint16_t)get_int(t, e, "split_turn", 110);
+                    sp->cone = (uint16_t)get_int(t, e, "split_cone", 1024);
+                }
             }
             ++out->weapons;
         }
@@ -300,10 +339,16 @@ int demo_load(const char *import_dir, const int parts[SLOT_COUNT], demo_ac *out,
         if (fcs[cls][0] && w->range > fcs[cls][0]) w->range = (int32_t)fcs[cls][0];
         w->box_w = (uint16_t)fcs[cls][1];
         w->box_h = (uint16_t)fcs[cls][2];
-        /* Measured in the game: a missile (lock time 128) locks and launches
-         * 56 screen refreshes (0.93 s) after the target enters the box, at
-         * any distance in range; so about 7.3 ms per unit. */
+        w->inner_w = (uint16_t)fcs[cls][3];
+        w->inner_h = (uint16_t)fcs[cls][4];
+        /* Guns: the game's gun lock grows with distance (VS 0x80080378) by a
+         * factor not read yet; until then the time measured for the
+         * missile, about 7.3 ms per lock unit. Missiles: cursor speed and
+         * ticks per lock from the FCS value (VS 0x80080638). */
         w->lock_ms = (uint16_t)(fcs[cls][5] * 933 / 128);
+        w->lock_value = (uint8_t)(fcs[cls][5] > 255 ? 255 : fcs[cls][5]);
+        w->lock_ticks = (uint8_t)((256 - w->lock_value) / 8);
+        if (fcs_max_locks && w->max_locks > fcs_max_locks) w->max_locks = (uint8_t)fcs_max_locks;
     }
     out->ap = ap;
     out->shell_factor = acr_gen1_damage_factor(shell, 0, 0);

@@ -53,7 +53,7 @@ static SDL_Gamepad *open_first_gamepad(void) {
 
 static acr_gen1_input read_input(SDL_Gamepad *pad, int keyboard) {
     const bool *k = SDL_GetKeyboardState(NULL);
-    acr_gen1_input in = { 0, 0, 0, 0, 0, 0 };
+    acr_gen1_input in = { 0, 0, 0, 0, 0, 0, 0 };
     if (keyboard) {
     in.move = (int8_t)((k[SDL_SCANCODE_W] || k[SDL_SCANCODE_UP]) - (k[SDL_SCANCODE_S] || k[SDL_SCANCODE_DOWN]));
     in.turn = (int8_t)((k[SDL_SCANCODE_D] || k[SDL_SCANCODE_RIGHT]) - (k[SDL_SCANCODE_A] || k[SDL_SCANCODE_LEFT]));
@@ -641,6 +641,12 @@ int main(int argc, char **argv) {
         for (int i_ = 0; i_ < 2; ++i_) {                                                  \
             acr_gen1_fighter *f_ = &battle.f[i_];                                         \
             demo_ac *d_ = &ac_data[i_];                                                   \
+            memset(f_, 0, sizeof *f_);                                                    \
+            f_->intercept_shot = -1; f_->swing_target = -1;                               \
+            /* Human PLUS at full (level 9): energy rules of VS 0x80083560. */            \
+            if (i_ == 0 && human_plus && !d_->plus_applied) {                             \
+                acr_gen1_human_plus_energy(&d_->def.stats, 9); d_->plus_applied = 1;      \
+            }                                                                             \
             f_->def = &d_->def;                                                           \
             f_->ap = f_->ap_max = d_->ap;                                                 \
             f_->shell_factor = d_->shell_factor;                                          \
@@ -650,7 +656,7 @@ int main(int argc, char **argv) {
                 f_->weapon[w_] = d_->weapon[w_];                                          \
                 f_->ammo[w_] = d_->weapon[w_].ammo;                                       \
             }                                                                             \
-            f_->current = 0; f_->cooldown_ms = 0; f_->lock_ms = 0; f_->locked = 0;        \
+            f_->current = 0;                                                              \
             f_->legs = (uint8_t)(pp[i_][SLOT_LEGS] >= 27 ? ACR_GEN1_LEGS_TRACKS            \
                        : pp[i_][SLOT_LEGS] >= 21 ? ACR_GEN1_LEGS_FOUR : ACR_GEN1_LEGS_TWO); \
             f_->human_plus = (uint8_t)(i_ == 0 && human_plus); f_->kneeling = 0;          \
@@ -658,12 +664,12 @@ int main(int argc, char **argv) {
         acr_gen1_ac_spawn(P, def, 0, -2500 * 64, 0);                                      \
         acr_gen1_ac_spawn(T, def2, target_side() * 64, (target_dist() - 2500) * 64, 2048);       \
         memset(battle.shot, 0, sizeof battle.shot);                                       \
-        round_ms = ROUND_MS; round_over = 0;                                              \
+        round_ms = ROUND_MS; round_over = 0; round_result = 0; ko_ms = 0;                 \
     } while (0)
     int human_plus = 0, two_players = SDL_getenv("ACR_TWO") != NULL;
     #define ROUND_MS 120000   /* two minutes, like Master of Arena's VS mode */
-    int32_t round_ms = ROUND_MS;
-    int round_over = 0;
+    int32_t round_ms = ROUND_MS, ko_ms = 0;
+    int round_over = 0, round_result = 0;
     SETUP_FIGHTERS();
     acr_gen1_ac prevs[2] = { *P, *T };
     /* After a part change: new stats and weapons, same place in the arena. */
@@ -758,7 +764,12 @@ int main(int argc, char **argv) {
             if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_C) cycle_slot = SLOT_BACK_L;
             if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_L) cycle_slot = SLOT_LEGS;
             if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_H) toggle_plus = 1;
-            if (toggle_plus) { human_plus = !human_plus; battle.f[0].human_plus = (uint8_t)human_plus; }
+            if (toggle_plus) {
+                human_plus = !human_plus;
+                if (!human_plus && ac_data[0].plus_applied) demo_load(dir, parts, &ac_data[0], err, sizeof err);
+                REFRESH_FIGHTERS();
+                battle.f[0].human_plus = (uint8_t)human_plus;
+            }
             if (toggle_two) {
                 two_players = !two_players;
                 SETUP_FIGHTERS(); prevs[0] = *P; prevs[1] = *T;
@@ -850,7 +861,7 @@ int main(int argc, char **argv) {
         }
         acr_gen1_input in2[2];
         in2[0] = read_input(ctl[0], 1);
-        in2[1] = two_players ? read_input(ctl[1], 0) : (acr_gen1_input){ 0, 0, 0, 0, 0, 0 };
+        in2[1] = two_players ? read_input(ctl[1], 0) : (acr_gen1_input){ 0, 0, 0, 0, 0, 0, 0 };
         /* Testing aid: ACR_HOLD="move,turn,strafe,boost[,fire[,blade_ms[,look]]]" holds those
          * inputs (and presses the blade once, blade_ms after start);
          * ACR_SHOT=file.bmp ACR_SHOT_MS=2000 saves a picture and quits. */
@@ -889,14 +900,16 @@ int main(int argc, char **argv) {
         for (uint32_t i = 0; i < ticks && !round_over; ++i) {
             prevs[0] = *P;
             prevs[1] = *T;
-            /* Two players: a two-minute round; it ends when an AC is
-             * destroyed or time runs out (then the larger share of AP left
-             * wins). */
+            /* Two players: a two-minute round, decided as the VS engine
+             * does: a knock-out settles 12 ticks after it (both down is a
+             * draw); at time up the higher AP wins, equal AP is a draw. */
             if (two_players) {
                 round_ms -= battle.step_ms;
-                if (round_ms <= 0 || battle.f[0].ap <= 0 || battle.f[1].ap <= 0) {
-                    if (round_ms < 0) round_ms = 0;
+                if (round_ms < 0) round_ms = 0;
+                const int res = acr_gen1_battle_result(&battle, round_ms <= 0);
+                if (res && (round_ms <= 0 || (ko_ms += battle.step_ms) >= 12 * 1000 / 22)) {
                     round_over = 1;
+                    round_result = res;
                     break;
                 }
             }
@@ -976,8 +989,31 @@ int main(int argc, char **argv) {
             const float phi = 0.1309f - th, down = th < 0 ? -th / 1.1519f : 0.0f;
             float eb = (328.0f + 37.0f * down) * cosf(phi), eu = (328.0f + 37.0f * down) * sinf(phi);
             if (pivot + eu < 100.0f && eu < 0) { const float t = (pivot - 100.0f) / -eu; eb *= sqrtf(t); eu *= t; }
-            const float eye[3] = { px - fx * eb, py + pivot + eu, pz - fz * eb };
-            const float fwd[3] = { fx * (lo + eb), lu - (pivot + eu), fz * (lo + eb) };
+            /* The game's chase camera eases toward its spot a quarter of the
+             * way each Gen 1 tick (camera +0x0E = 2, from stat +0x3C; AC1Recomp
+             * docs/mapping/stat-block.md), so it trails a fast AC and swings
+             * round on turns. Kept per second at any frame rate; snaps on a
+             * jump (reset, respawn). */
+            static float cam_eye[2][3];
+            static int cam_ok[2];
+            static Uint64 cam_ns[2];
+            float eye[3] = { px - fx * eb, py + pivot + eu, pz - fz * eb };
+            {
+                const Uint64 now_ns = SDL_GetTicksNS();
+                const float dt = cam_ok[view] ? (float)(now_ns - cam_ns[view]) / 1e9f : 0.0f;
+                cam_ns[view] = now_ns;
+                const float ex = eye[0] - cam_eye[view][0], ey = eye[1] - cam_eye[view][1], ez = eye[2] - cam_eye[view][2];
+                if (!cam_ok[view] || ex * ex + ey * ey + ez * ez > 2000.0f * 2000.0f || dt > 0.5f) {
+                    cam_eye[view][0] = eye[0]; cam_eye[view][1] = eye[1]; cam_eye[view][2] = eye[2];
+                    cam_ok[view] = 1;
+                } else {
+                    const float k = 1.0f - powf(0.75f, 22.0f * dt);
+                    cam_eye[view][0] += ex * k; cam_eye[view][1] += ey * k; cam_eye[view][2] += ez * k;
+                }
+                if (cam_eye[view][1] < 100.0f) cam_eye[view][1] = 100.0f;
+                eye[0] = cam_eye[view][0]; eye[1] = cam_eye[view][1]; eye[2] = cam_eye[view][2];
+            }
+            const float fwd[3] = { px + fx * lo - eye[0], py + lu - eye[1], pz + fz * lo - eye[2] };
             const float up[3] = { 0, 1, 0 };
             acr_mat_look(viewm, eye, fwd, up);
             for (int k = 0; k < 4; ++k) viewm[4 * k] = -viewm[4 * k];
@@ -1014,7 +1050,7 @@ int main(int argc, char **argv) {
         for (int k = 0; k < ACR_GEN1_MAX_SHOTS; ++k) {
             const acr_gen1_shot *sh = &battle.shot[k];
             if (!sh->active) continue;
-            const int missile = battle.f[sh->owner].weapon[sh->weapon].kind == ACR_GEN1_MISSILE;
+            const int missile = sh->missile;
             if (missile) add_box(v3(sh->x / 64.0f, -sh->y / 64.0f, sh->z / 64.0f), 0, v3(10, 10, 10), 1.0f, 0.55f, 0.15f);
             else add_box(v3(sh->x / 64.0f, -sh->y / 64.0f, sh->z / 64.0f), 0, v3(5, 5, 5), 1.0f, 0.95f, 0.5f);
         }
@@ -1077,6 +1113,17 @@ int main(int argc, char **argv) {
                     /* The FCS box takes the lock's colour once the target is locked. */
                     if (me->locked) acr_hud_rect(g_vw * 0.5f - bw * 0.5f, g_vh * 0.45f - bh * 0.5f, bw, bh, 255, 60, 50, 255, 0);
                     else acr_hud_rect(g_vw * 0.5f - bw * 0.5f, g_vh * 0.45f - bh * 0.5f, bw, bh, 90, 200, 120, 255, 0);
+                    if (w->kind == ACR_GEN1_MISSILE) {
+                        /* The missile lock cursor (player block +0x20 / +0x22) and the locks held. */
+                        const float cy = tanf(me->cursor_yaw * (6.2831853f / 4096.0f)),
+                                    cp = tanf(me->cursor_pitch * (6.2831853f / 4096.0f));
+                        const float cx = g_vw * 0.5f + cy * proj[0] * g_vw * 0.5f, cyy = g_vh * 0.45f - cp * proj[5] * g_vh * 0.5f;
+                        acr_hud_rect(cx - 6, cyy - 6, 12, 12, 240, 220, 60, 255, 0);
+                        if (me->locks) {
+                            SDL_snprintf(line, sizeof line, "LOCK x%d", (int)me->locks);
+                            acr_hud_text(g_vw * 0.5f + bw * 0.5f + 6, g_vh * 0.45f - bh * 0.5f, line, 255, 60, 50);
+                        }
+                    }
                 }
                 float sx, sy;
                 if (tg->ap > 0 && acr_gen1_in_lock_box(&battle, view, w) &&
@@ -1090,6 +1137,7 @@ int main(int argc, char **argv) {
                 }
             }
             if (me->human_plus) TEXT(20, g_vh - 64, "HUMAN PLUS");
+            if (me->hit_flash & 4) acr_hud_text(g_vw * 0.5f - 12, g_vh * 0.45f + 40, "HIT", 255, 90, 60);
             SDL_snprintf(line, sizeof line, "AP %5d", (int)me->ap);
             TEXT(g_vw - 150, rc_y + 48, line);
             acr_hud_rect(g_vw - 220, 96, 200, 8, 40, 40, 40, 255, 1);
@@ -1122,12 +1170,9 @@ int main(int argc, char **argv) {
             acr_hud_text(full_w / 2.0f - 16, 464, clock_text, 240, 240, 240);   /* between the energy bars */
         }
         if (two_players && round_over) {
-            /* Winner: the AC still standing, or on time the larger share of AP. */
-            const int64_t s0 = (int64_t)battle.f[0].ap * (battle.f[1].ap_max ? battle.f[1].ap_max : 1);
-            const int64_t s1 = (int64_t)battle.f[1].ap * (battle.f[0].ap_max ? battle.f[0].ap_max : 1);
             acr_hud_text(full_w / 2.0f - 120, 240,
-                         s0 > s1 ? "PLAYER 1 WINS - START TO RESET" :
-                         s1 > s0 ? "PLAYER 2 WINS - START TO RESET" : "DRAW - START TO RESET", 255, 230, 120);
+                         round_result == 1 ? "PLAYER 1 WINS - START TO RESET" :
+                         round_result == 2 ? "PLAYER 2 WINS - START TO RESET" : "DRAW - START TO RESET", 255, 230, 120);
             if (round_ms <= 0) acr_hud_text(full_w / 2.0f - 40, 254, "TIME UP", 255, 230, 120);
         }
         #undef TEXT

@@ -62,9 +62,12 @@ static void test_new_and_shop(void) {
     EXPECT(acr_gen1_spare_copies(&h, ACR_GEN1_CAT_LEGS, 3) == 0);
     EXPECT(acr_gen1_garage_check(&h, &g_cat, NULL) == 0);
 
-    /* No money: can't buy; fitted parts can't be sold. */
+    /* No money: can't buy. In debt a fitted frame part can't be sold
+     * ("Pay back your debt first"). */
     EXPECT(acr_gen1_shop_buy(&h, &g_cat, ACR_GEN1_CAT_CORE, 1) == ACR_GEN1_NO_CREDITS);
-    EXPECT(acr_gen1_shop_sell(&h, &g_cat, ACR_GEN1_CAT_LEGS, 3) == ACR_GEN1_NONE_SPARE);
+    h.credits = -1;
+    EXPECT(acr_gen1_shop_sell(&h, &g_cat, ACR_GEN1_CAT_LEGS, 3) == ACR_GEN1_IN_DEBT);
+    h.credits = 0;
     EXPECT(acr_gen1_shop_buy(&h, &g_cat, ACR_GEN1_CAT_ARMS, 12) == ACR_GEN1_NOT_IN_SHOP);
     EXPECT(acr_gen1_shop_buy(&h, &g_cat, ACR_GEN1_CAT_ARMS, 7) == ACR_GEN1_NOT_IN_SHOP);
 
@@ -80,10 +83,17 @@ static void test_new_and_shop(void) {
     EXPECT(acr_gen1_shop_sell(&h, &g_cat, ACR_GEN1_CAT_CORE, 1) == ACR_GEN1_OK);
     EXPECT(h.credits == 499 + 500);
     g_cat.sell_percent = 100;
-    /* In debt: no buying or selling. */
+    /* In debt: buying needs the credits; weapons still sell, even fitted
+     * (the slot is emptied), as in the game's shop. */
     h.credits = -1;
-    EXPECT(acr_gen1_shop_buy(&h, &g_cat, ACR_GEN1_CAT_FCS, 0) == ACR_GEN1_IN_DEBT);
-    EXPECT(acr_gen1_shop_sell(&h, &g_cat, ACR_GEN1_CAT_BLADE, 0) == ACR_GEN1_IN_DEBT);
+    EXPECT(acr_gen1_shop_buy(&h, &g_cat, ACR_GEN1_CAT_FCS, 0) == ACR_GEN1_NO_CREDITS);
+    EXPECT(acr_gen1_shop_sell(&h, &g_cat, ACR_GEN1_CAT_BLADE, 0) == ACR_GEN1_OK);
+    EXPECT(h.fitted[ACR_GEN1_SLOT_BLADE] == ACR_GEN1_NO_PART);
+    /* Out of debt a fitted frame part sells too, leaving the slot empty. */
+    h.credits = 0;
+    EXPECT(acr_gen1_shop_sell(&h, &g_cat, ACR_GEN1_CAT_LEGS, 3) == ACR_GEN1_OK);
+    EXPECT(h.fitted[ACR_GEN1_SLOT_LEGS] == ACR_GEN1_NO_PART);
+    EXPECT(acr_gen1_garage_check(&h, &g_cat, NULL) & ACR_GEN1_FAIL_MISSING_PART);
     /* Stock limit. */
     h.credits = 1000000;
     h.owned[ACR_GEN1_CAT_FCS][0] = ACR_GEN1_OWN_MAX;
@@ -119,9 +129,10 @@ static void test_fit(void) {
     EXPECT(off == ((1u << ACR_GEN1_SLOT_BOOSTER) | (1u << ACR_GEN1_SLOT_BACK_R)));
     EXPECT(acr_gen1_garage_fit(&h, &g_cat, ACR_GEN1_SLOT_BOOSTER, 0, &off) == ACR_GEN1_NOT_ALLOWED);
     EXPECT(acr_gen1_garage_check(&h, &g_cat, NULL) == 0);   /* caterpillars need no booster */
+    /* Leaving caterpillars fits the first owned booster again. */
     EXPECT(acr_gen1_garage_fit(&h, &g_cat, ACR_GEN1_SLOT_LEGS, 3, &off) == ACR_GEN1_OK);
-    EXPECT(acr_gen1_garage_check(&h, &g_cat, NULL) == ACR_GEN1_FAIL_NO_BOOSTER);
-    EXPECT(acr_gen1_garage_fit(&h, &g_cat, ACR_GEN1_SLOT_BOOSTER, 0, &off) == ACR_GEN1_OK);
+    EXPECT(h.fitted[ACR_GEN1_SLOT_BOOSTER] == 0);
+    EXPECT(acr_gen1_garage_check(&h, &g_cat, NULL) == 0);
 
     /* A two-slot unit empties the other back slot; the same part twice needs two copies. */
     EXPECT(acr_gen1_garage_fit(&h, &g_cat, ACR_GEN1_SLOT_BACK_R, 0, &off) == ACR_GEN1_NONE_SPARE);
@@ -137,12 +148,16 @@ static void test_fit(void) {
     EXPECT(acr_gen1_garage_option(&h, &g_cat, 0, 1) == ACR_GEN1_OK);
     EXPECT(acr_gen1_garage_option(&h, &g_cat, 2, 1) == ACR_GEN1_OK);
     EXPECT(acr_gen1_garage_option(&h, &g_cat, 1, 1) == ACR_GEN1_NO_OPTION_SLOTS);
-    EXPECT(acr_gen1_shop_sell(&h, &g_cat, ACR_GEN1_CAT_OPTION, 2) == ACR_GEN1_NONE_SPARE);
     EXPECT(acr_gen1_garage_option(&h, &g_cat, 2, 0) == ACR_GEN1_OK);
     EXPECT(acr_gen1_garage_option(&h, &g_cat, 1, 1) == ACR_GEN1_OK);
-    /* A core with fewer slots fails the AC TEST check rather than dropping options. */
+    /* A core with fewer slots keeps the options in bit order while they
+     * fit; the first that doesn't and every one after it come off. */
     EXPECT(acr_gen1_garage_fit(&h, &g_cat, ACR_GEN1_SLOT_CORE, 0, &off) == ACR_GEN1_OK);
-    EXPECT(acr_gen1_garage_check(&h, &g_cat, NULL) & ACR_GEN1_FAIL_OPTION_SLOTS);
+    EXPECT(!(acr_gen1_garage_check(&h, &g_cat, NULL) & ACR_GEN1_FAIL_OPTION_SLOTS));
+    EXPECT((h.options & 1u) && !(h.options & 2u));
+    /* Selling a fitted option takes it off. */
+    EXPECT(acr_gen1_shop_sell(&h, &g_cat, ACR_GEN1_CAT_OPTION, 0) == ACR_GEN1_OK);
+    EXPECT(!(h.options & 1u));
 }
 
 static void test_save(void) {

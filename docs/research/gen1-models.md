@@ -229,3 +229,18 @@ ground boost 48 while boosting forward and 49 after letting go, reversed
 for a backward boost (49 while boosting back, 48 after): 48 leans into the
 direction of travel, 49 brakes against it. Firing changes no body
 animation. Kneel not checked yet (needs a cannon build).
+
+## From the AC1Recomp mapping (2026-11-18)
+
+- **Paint ramp** (`0x80082530`): each colour is 32 shades written twice; a
+  channel p of 0-31 runs from p down towards 1, 32-64 from 31 down towards
+  p - 30 (lighter shadows, 61+ stays full). `acr_colour_ramp` and the
+  importer now match it (they faded everything to black before).
+- **Garage models**: GG/MS/MENU_TMD holds every part on its own (core 3,
+  legs 14, arms 54, head 78, booster 96, back 110, blade 170, hand 176,
+  FCS 202, options 218, generator 237 + part number); `acr-import` writes
+  them to `models/menu/<kind>/NN/` (from the fork).
+- **Pose** (VS `0x80059624`): a main animation, a second layer (firing,
+  AC +0x6D), aim angles clamped by an aim table (AC +0x84), and a
+  cross-fade on animation changes (AC +0x7A, 4.12 a frame). See the fork's
+  `renderer.md`, "ACs (VS)".

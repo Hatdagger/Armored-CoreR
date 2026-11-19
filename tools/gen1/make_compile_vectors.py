@@ -68,7 +68,9 @@ def compile_ref(p, opt):
     fr = multu_hi((w << 18) & M, 0x10624DD3) >> 21
     fr = 32 if fr < 32 else fr
     fr = 96 if fr >= 0x61 else fr
-    return [p['gen']['2c'], rise, still, p['gen']['2e'], moving, blade, v, w, thrust, c, d, g, h, fr]
+    # +18 energy capacity: SP-CND-K (option bit 5) adds 12,000 (u16 store)
+    cap18 = (p['gen']['2c'] + (12000 if opt & 0x20 else 0)) & 0xFFFF
+    return [cap18, rise, still, p['gen']['2e'], moving, blade, v, w, thrust, c, d, g, h, fr]
 
 random.seed(1)
 KEYS = ('core','booster','head','arms','blade','hand','backl','backr','gen','fcs','legs')

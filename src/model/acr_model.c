@@ -451,12 +451,28 @@ int acr_obj_parse(const char *text, const acr_mtl *mtl, acr_mesh *out) {
 
 /* ---- colours ---- */
 
+/* The game's paint ramp (menu module 0x80082530): each colour fills 64
+ * palette entries as 32 shades, bright to dark, each written twice. A
+ * channel value p of 0-31 runs from p down towards 1; 32-64 runs from 31
+ * (full) down towards p - 30, so bright paint keeps lighter shadows and 61+
+ * stays full. Equal steps in 1/256 units, stopping at the end value.
+ * Source: AC1Recomp docs/mapping/menus-screens.md, 2l. */
+static int ramp_shade(int p, int k) {
+    int start = p, end = 1;
+    if (p > 31) { start = 31; end = p - 30; }
+    if (p > 64) end = 34;
+    if (end > start) end = start;
+    const int step = ((start - end) << 8) / 32;
+    int v = ((start << 8) - k * step) >> 8;
+    if (v < end) v = end;
+    return v;
+}
+
 void acr_colour_ramp(const uint8_t colours[4][3], uint8_t palette[256][4]) {
     for (int s = 0; s < 4; ++s)
         for (int k = 0; k < 64; ++k) {
             for (int ch = 0; ch < 3; ++ch) {
-                int v = (colours[s][ch] * (64 - (k & ~1)) + 32) / 64;
-                if (v > 31) v = 31;
+                const int v = ramp_shade(colours[s][ch], k >> 1);
                 palette[s * 64 + k][ch] = (uint8_t)(v << 3 | v >> 2);
             }
             palette[s * 64 + k][3] = 255;

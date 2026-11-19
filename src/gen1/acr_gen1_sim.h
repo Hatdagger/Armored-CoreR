@@ -30,6 +30,7 @@ typedef struct acr_gen1_input {
     uint8_t boost;    /* booster button */
     uint8_t boost_tapped; /* let go and pressed again since the last step (a quick tap) */
     int8_t  look;     /* +1 tilt the view up (L2), -1 down (R2), 2 both: back to level */
+    uint8_t crouch;   /* crouched in the cannon stance: turns at the crouch rates */
 } acr_gen1_input;
 
 /* View tilt, measured in the recomp (VS): L2 / R2 tilt the aim up / down

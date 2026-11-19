@@ -151,10 +151,17 @@ int main(int argc, char **argv) {
     const uint8_t cols[4][3] = { { 63, 0, 31 }, { 16, 16, 16 }, { 0, 0, 0 }, { 31, 31, 31 } };
     uint8_t ramp[256][4];
     acr_colour_ramp(cols, ramp);
-    CHECK(ramp[0][0] == 255 && ramp[0][1] == 0 && ramp[0][2] == 255);    /* capped at 31 */
+    CHECK(ramp[0][0] == 255 && ramp[0][1] == 0 && ramp[0][2] == 255);    /* full at the top */
+    CHECK(ramp[63][0] == 255);                                           /* 61+ stays full */
     CHECK(ramp[64][0] == (16 << 3 | 16 >> 2));
     CHECK(ramp[64 + 2][0] == ramp[64 + 3][0]);                           /* even shades */
+    CHECK(ramp[127][0] == (1 << 3 | 1 >> 2));                            /* down towards 1 */
     CHECK(ramp[128][0] == 0 && ramp[255][3] == 255);
+    {   /* the default BASE green (36) runs 31 -> 6 in the game */
+        const uint8_t def[4][3] = { { 32, 36, 28 }, { 0 }, { 0 }, { 0 } };
+        acr_colour_ramp(def, ramp);
+        CHECK(ramp[0][1] == 255 && ramp[63][1] >= (6 << 3) && ramp[63][1] < (8 << 3));
+    }
 
     if (failures) { fprintf(stderr, "%d failure(s)\n", failures); return 1; }
     printf("test_model: ok\n");

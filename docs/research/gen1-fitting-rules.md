@@ -88,3 +88,22 @@ A modded part opts into a rule by listing the flag.
 Handles weapon arms. Still to add: two-slot back units, caterpillar
 removals, Karasawa legs, ANKS-1A46J back weapons, and the VS START check
 (energy, arm load, weight, option slots).
+
+## From the AC1Recomp mapping (2026-11-18, menus-screens.md 2h-2i)
+
+- The game's sortie check (`0x8007E164`) checks parts, energy, arm load
+  and weight, but **not** option slots or the fit rules (the garage
+  enforces those). The engine keeps its option-slot check; the garage
+  never lets it fail.
+- New core: the options stay in bit order while they fit; the first that
+  doesn't and every one after it come off (engine: `acr_gen1_garage_fit`).
+- Legs that aren't caterpillars, fitted in place of caterpillars, get the
+  first owned booster (engine: yes).
+- Weapon arms back to regular arms restore the visit's last hand weapon
+  and blade (engine: not yet, a garage-screen memory).
+- Shop: buying needs credits at least the price (so nothing in debt).
+  Selling out of debt is always allowed, fitted parts too (the slot
+  empties). In debt, weapons and options still sell; a frame part (head,
+  core, arms, legs, generator, FCS, booster) is refused if fitted or while
+  the AC is incomplete, overweight or short of energy ("Pay back your debt
+  first"). Engine: `acr_gen1_shop_buy` / `acr_gen1_shop_sell`.

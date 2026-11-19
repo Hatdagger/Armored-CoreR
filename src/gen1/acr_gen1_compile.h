@@ -22,6 +22,9 @@ typedef struct acr_gen1_part {
     uint8_t  turn_speed;       /* legs +0x3A */
     uint8_t  fixed_boost;      /* legs: ground boost byte set by the game for some
                                   four-legged and caterpillar legs (0 = computed) */
+    uint16_t back_turn;        /* legs +0x3C: turning while crouched with a back weapon */
+    uint8_t  intercept_chance; /* core +0x34: missile interceptor, chance per step / 128 */
+    uint8_t  intercept_angle;  /* core +0x35: interceptor cone, +- this x 4 (4096 a turn) */
 } acr_gen1_part;
 
 typedef struct acr_gen1_build {
@@ -46,6 +49,11 @@ typedef struct acr_gen1_stats {
     uint8_t  turn_accel;       /* +12 */
     uint8_t  turn_speed;       /* +13, 0..64 */
     uint8_t  friction;         /* +14: weight * 8 / 1000, 32..96 */
+    /* Not in the compile test vectors (AC1Recomp docs/mapping/stat-block.md): */
+    uint8_t  intercept_chance; /* +0x0F, core +0x34 */
+    uint8_t  intercept_angle;  /* +0x10, core +0x35 */
+    uint8_t  back_turn_accel;  /* back weapon slots +7: the +12 formula with legs +0x3C */
+    uint8_t  back_turn_speed;  /* back weapon slots +8: the +13 formula with legs +0x3C, 1..64 */
 } acr_gen1_stats;
 
 /* What the battle engine derives at match start (VS engine 0x8008342C).
@@ -61,6 +69,11 @@ typedef struct acr_gen1_motion {
     uint16_t turn_max;         /* +13 x 15 / 16 */
     uint16_t friction;         /* +14, taken off each ground axis per step */
     uint16_t axis_step_max;    /* world units per step on each ground axis; 0 = no limit */
+    /* Turning while crouched in the cannon stance (VS 0x8007E3E0 with player
+     * block +0x210 / +0x212): slot +7 x 5 / 32 + 1 and +8 x 15 / 32 + 1 for a
+     * back weapon (hand weapons give 64 -> 11 / 31). */
+    uint16_t crouch_turn_accel;
+    uint16_t crouch_turn_max;
 } acr_gen1_motion;
 
 /* Fixed by the engine, not by parts. */
@@ -85,6 +98,11 @@ typedef struct acr_gen1_motion {
 #define ACR_GEN1_OPTION_BALANCER_RE    0x1000u /* SP-ABS_Re: legs stability +1600 */
 
 void acr_gen1_compile(const acr_gen1_build *b, acr_gen1_stats *out);
+
+/* Match start with Human PLUS level 6 and up (VS 0x80083560): rise drain
+ * halved, both refills doubled, each refill then capped at the new rise
+ * drain. Lower levels change nothing here. */
+void acr_gen1_human_plus_energy(acr_gen1_stats *s, unsigned level);
 void acr_gen1_motion_from_stats(const acr_gen1_stats *s, acr_gen1_motion *out);
 
 #endif

@@ -32,6 +32,12 @@ typedef struct acr_import_stats {
 int acr_import_disc(const char *disc_path, const char *out_dir, acr_import_stats *stats,
                     char *err, size_t err_size);
 
+/* The same, but only unpacks the .T archives (no copy of the disc's other
+ * files): enough for parts/, motion/ and models/. The launcher's install
+ * uses it and deletes <out>/unpacked afterwards. */
+int acr_import_disc_models(const char *disc_path, const char *out_dir, acr_import_stats *stats,
+                           char *err, size_t err_size);
+
 /* Parse an archive table from a .T file's bytes. Fills `offsets` (count + 1
  * values) and returns the entry count, or 0 when the table is not valid. */
 uint32_t acr_moa_archive_table(const uint8_t *data, size_t bytes, uint16_t *offsets,

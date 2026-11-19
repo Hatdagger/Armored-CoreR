@@ -64,7 +64,8 @@ static const acr_gen1_catalog_part *find(const acr_gen1_catalog *c, acr_gen1_cat
 
 acr_gen1_result acr_gen1_shop_buy(acr_gen1_hangar *h, const acr_gen1_catalog *c,
                                   acr_gen1_category cat, unsigned index) {
-    if (h->credits < 0) return ACR_GEN1_IN_DEBT;
+    /* The game's shop (0x800A01B4) only checks credits against the price,
+     * so nothing can be bought while in debt ("Not enough credits."). */
     const acr_gen1_catalog_part *p = find(c, cat, index);
     if (!p || !(p->for_sale || h->stock[cat][index])) return ACR_GEN1_NOT_IN_SHOP;
     if (h->owned[cat][index] >= ACR_GEN1_OWN_MAX) return ACR_GEN1_STOCK_FULL;
@@ -75,17 +76,47 @@ acr_gen1_result acr_gen1_shop_buy(acr_gen1_hangar *h, const acr_gen1_catalog *c,
     return ACR_GEN1_OK;
 }
 
+/* Frame parts: the ones the shop guards while the player is in debt. */
+static int frame_category(acr_gen1_category cat) {
+    return cat == ACR_GEN1_CAT_HEAD || cat == ACR_GEN1_CAT_CORE || cat == ACR_GEN1_CAT_ARMS ||
+           cat == ACR_GEN1_CAT_LEGS || cat == ACR_GEN1_CAT_GENERATOR || cat == ACR_GEN1_CAT_FCS ||
+           cat == ACR_GEN1_CAT_BOOSTER;
+}
+
+/* After a sale: slots whose part has no copy left come off (the shop's exit,
+ * 0x80099EAC); the right back slot goes first when both sides hold it. */
+static void drop_unowned(acr_gen1_hangar *h, acr_gen1_category cat, unsigned index) {
+    if (cat == ACR_GEN1_CAT_OPTION) {
+        if (index < ACR_GEN1_OPTION_MAX && !h->owned[cat][index]) h->options &= (uint16_t)~(1u << index);
+        return;
+    }
+    for (int s = ACR_GEN1_SLOT_COUNT - 1; s >= 0; --s) {
+        if (acr_gen1_slot_category((acr_gen1_slot)s) != cat || h->fitted[s] != index) continue;
+        if (acr_gen1_fitted_copies(h, cat, index) > h->owned[cat][index]) h->fitted[s] = ACR_GEN1_NO_PART;
+    }
+}
+
 acr_gen1_result acr_gen1_shop_sell(acr_gen1_hangar *h, const acr_gen1_catalog *c,
                                    acr_gen1_category cat, unsigned index) {
-    if (h->credits < 0) return ACR_GEN1_IN_DEBT;
     const acr_gen1_catalog_part *p = find(c, cat, index);
     if (!p) return ACR_GEN1_NOT_IN_SHOP;
-    if (!acr_gen1_spare_copies(h, cat, index)) return ACR_GEN1_NONE_SPARE;
+    if (!h->owned[cat][index]) return ACR_GEN1_NONE_SPARE;
+    /* In debt the game refuses to sell a frame part (head, core, arms,
+     * legs, generator, FCS, booster) that is fitted, or any frame part while
+     * the AC is incomplete, overweight or short of energy ("Pay back your
+     * debt first"). Weapons and options always sell, and out of debt
+     * anything does, fitted or not (0x800A01B4 and its checks). */
+    if (h->credits < 0 && frame_category(cat)) {
+        if (!acr_gen1_spare_copies(h, cat, index)) return ACR_GEN1_IN_DEBT;
+        acr_gen1_fit_numbers n;
+        if (acr_gen1_garage_check(h, c, &n) & ~ACR_GEN1_FAIL_OPTION_SLOTS) return ACR_GEN1_IN_DEBT;
+    }
     const int64_t back = (int64_t)p->price * c->sell_percent / 100;
     const int64_t total = (int64_t)h->credits + back;
     h->credits = total > 0x7FFFFFFF ? 0x7FFFFFFF : (int32_t)total;
     --h->owned[cat][index];
     if (h->stock[cat][index] < 255) ++h->stock[cat][index];
+    drop_unowned(h, cat, index);
     return ACR_GEN1_OK;
 }
 
@@ -138,6 +169,33 @@ acr_gen1_result acr_gen1_garage_fit(acr_gen1_hangar *h, const acr_gen1_catalog *
     if (off & (1u << slot)) return ACR_GEN1_NOT_ALLOWED;
     for (int s = 0; s < ACR_GEN1_SLOT_COUNT; ++s)
         if (off & (1u << s)) t.fitted[s] = ACR_GEN1_NO_PART;
+    /* The game's ASSEMBLY fix-ups (menus-screens.md 2h):
+     * - a new core keeps the options in bit order while they fit its slots;
+     *   the first that doesn't, and every one after it, come off;
+     * - legs that aren't caterpillars, fitted in place of caterpillars, get
+     *   the first owned booster. */
+    if (slot == ACR_GEN1_SLOT_CORE && t.options) {
+        const acr_gen1_catalog_part *core = find(c, ACR_GEN1_CAT_CORE, index);
+        unsigned used = 0;
+        int full = 0;
+        for (unsigned bit = 0; bit < ACR_GEN1_OPTION_MAX; ++bit) {
+            const uint16_t m = (uint16_t)(1u << bit);
+            if (!(t.options & m)) continue;
+            const acr_gen1_catalog_part *o = find(c, ACR_GEN1_CAT_OPTION, bit);
+            if (!full && core && used + (o ? o->slots : 0) <= core->slots) { used += o ? o->slots : 0; continue; }
+            full = 1;
+            t.options &= (uint16_t)~m;
+        }
+    }
+    const acr_gen1_catalog_part *old_legs = find(c, ACR_GEN1_CAT_LEGS, h->fitted[ACR_GEN1_SLOT_LEGS]);
+    if (slot == ACR_GEN1_SLOT_LEGS && t.fitted[ACR_GEN1_SLOT_BOOSTER] == ACR_GEN1_NO_PART &&
+        old_legs && (old_legs->flags & ACR_GEN1_FIT_CATERPILLAR) && !(b.flags[ACR_GEN1_SLOT_LEGS] & ACR_GEN1_FIT_CATERPILLAR)) {
+        for (unsigned k = 0; k < ACR_GEN1_PART_MAX; ++k)
+            if (h->owned[ACR_GEN1_CAT_BOOSTER][k] && find(c, ACR_GEN1_CAT_BOOSTER, k)) {
+                t.fitted[ACR_GEN1_SLOT_BOOSTER] = (uint8_t)k;
+                break;
+            }
+    }
     *h = t;
     if (removed) *removed = off;
     return ACR_GEN1_OK;

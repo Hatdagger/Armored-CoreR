@@ -173,8 +173,10 @@ void acr_gen1_ac_step(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
     const int scaled = def->step_rate && def->gen1_rate;
     const int64_t rn = scaled ? def->gen1_rate : 1, rd = scaled ? def->step_rate : 1;
     if (in.turn && ac->state != ACR_GEN1_LANDING) {
-        const int32_t accel = (int32_t)((int64_t)m->turn_accel * 256 * rn * rn / (rd * rd));
-        const int32_t top = (int32_t)((int64_t)m->turn_max * 256 * rn / rd);
+        const uint16_t ta = in.crouch && m->crouch_turn_max ? m->crouch_turn_accel : m->turn_accel;
+        const uint16_t tm = in.crouch && m->crouch_turn_max ? m->crouch_turn_max : m->turn_max;
+        const int32_t accel = (int32_t)((int64_t)ta * 256 * rn * rn / (rd * rd));
+        const int32_t top = (int32_t)((int64_t)tm * 256 * rn / rd);
         ac->turn_fine += in.turn * (accel ? accel : 1);
         if (ac->turn_fine > top) ac->turn_fine = top;
         if (ac->turn_fine < -top) ac->turn_fine = -top;
