@@ -42,7 +42,11 @@ void acr_render_lines(const acr_vtx *v, int count);
  * 128 shows the texel as it is (texel x colour / 128, up to twice as
  * bright); see-through texels (alpha 0) are skipped. ACR_MESH_SEMI blends
  * without writing depth (draw these after the solid ones). */
-enum { ACR_MESH_PS1_TEXEL = 1, ACR_MESH_SEMI = 2 };
+enum { ACR_MESH_PS1_TEXEL = 1, ACR_MESH_SEMI = 2, ACR_MESH_OVERLAY = 4 };
+/* ACR_MESH_OVERLAY: faces lying on top of others in the same plane (a
+ * model's second layer, which the PS1 simply drew later) are pulled toward
+ * the eye in depth so they always show over the face below instead of
+ * flickering through it. */
 void acr_render_mesh(const acr_vtx *v, int count, uint32_t texture, int flags);
 
 /* HUD over a pixel rectangle; returns the HUD grid width for that rectangle
@@ -52,7 +56,8 @@ void  acr_hud_rect(float x, float y, float w, float h, uint8_t r, uint8_t g, uin
 void  acr_hud_line(float x0, float y0, float x1, float y1, uint8_t r, uint8_t g, uint8_t b, uint8_t a);
 void  acr_hud_text(float x, float y, const char *text, uint8_t r, uint8_t g, uint8_t b);
 
-/* Textures: RGBA8 pixels. `nearest` keeps the sharp PS1 look. */
+/* Textures: RGBA8 pixels. `nearest` 1 keeps the sharp PS1 look; 2 is that
+ * up close with mipmaps further off (no shimmer in the distance). */
 uint32_t acr_render_texture(const uint8_t *rgba, int w, int h, int nearest);
 
 /* Read the frame back (RGBA, bottom row first), for tests and screenshots. */

@@ -44,6 +44,10 @@ typedef unsigned int GLbitfield;
 #define GL_TEXTURE_WRAP_T 0x2803
 #define GL_NEAREST 0x2600
 #define GL_LINEAR 0x2601
+#define GL_NEAREST_MIPMAP_LINEAR 0x2702
+#define GL_GENERATE_MIPMAP 0x8191
+#define GL_TEXTURE_MAX_LEVEL 0x813D
+#define GL_POLYGON_OFFSET_FILL 0x8037
 #define GL_CLAMP_TO_EDGE 0x812F
 #define GL_REPEAT 0x2901
 #define GL_FOG_MODE 0x0B65
@@ -97,7 +101,8 @@ typedef unsigned int GLbitfield;
     X(void, ShadeModel, (GLenum)) \
     X(void, TexEnvi, (GLenum, GLenum, GLint)) \
     X(void, TexEnvf, (GLenum, GLenum, GLfloat)) \
-    X(void, AlphaFunc, (GLenum, GLfloat))
+    X(void, AlphaFunc, (GLenum, GLfloat)) \
+    X(void, PolygonOffset, (GLfloat, GLfloat))
 
 #define DECLARE(ret, name, args) typedef ret (GLAPI_ENTRY *pfn_##name) args; static pfn_##name gl##name;
 GL_FUNCS(DECLARE)
@@ -206,7 +211,12 @@ void acr_render_mesh(const acr_vtx *v, int count, uint32_t texture, int flags) {
         glAlphaFunc(GL_GREATER, 0.5f / 255.0f);
     }
     if (flags & ACR_MESH_SEMI) glDepthMask(0);
+    if (flags & ACR_MESH_OVERLAY) {
+        glEnable(GL_POLYGON_OFFSET_FILL);
+        glPolygonOffset(-1.0f, -4.0f);
+    }
     draw(GL_TRIANGLES, v, count, texture);
+    if (flags & ACR_MESH_OVERLAY) glDisable(GL_POLYGON_OFFSET_FILL);
     if (flags & ACR_MESH_SEMI) glDepthMask(1);
     if (texture) glDisable(GL_ALPHA_TEST);
     if (texture && (flags & ACR_MESH_PS1_TEXEL)) {
@@ -277,7 +287,15 @@ uint32_t acr_render_texture(const uint8_t *rgba, int w, int h, int nearest) {
     GLuint t = 0;
     glGenTextures(1, &t);
     glBindTexture(GL_TEXTURE_2D, t);
-    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER, nearest ? GL_NEAREST : GL_LINEAR);
+    /* nearest 2: crisp up close, mipmapped further off (no shimmer on
+     * floors far away); a few levels only, so a texture page's neighbouring
+     * pictures barely bleed into each other. */
+    if (nearest == 2) {
+        glTexParameteri(GL_TEXTURE_2D, GL_GENERATE_MIPMAP, 1);
+        glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAX_LEVEL, 3);
+    }
+    glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MIN_FILTER,
+                    nearest == 2 ? GL_NEAREST_MIPMAP_LINEAR : nearest ? GL_NEAREST : GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_MAG_FILTER, nearest ? GL_NEAREST : GL_LINEAR);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_S, GL_CLAMP_TO_EDGE);
     glTexParameteri(GL_TEXTURE_2D, GL_TEXTURE_WRAP_T, GL_CLAMP_TO_EDGE);

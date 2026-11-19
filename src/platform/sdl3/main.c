@@ -372,7 +372,11 @@ static int next_part(const char *dir, int parts[SLOT_COUNT], int slot, demo_ac *
 }
 
 /* Computer opponent (docs/AI.md): 0 = a target that stands still, else
- * the preset that flies it (ACR_GEN1_AI_*; CUSTOM = the --ai-file profile). */
+ * the preset that flies it (ACR_GEN1_AI_*), or AI_FROM_FILE = the --ai-file
+ * profile. (The library's ACR_GEN1_AI_CUSTOM is 0, the same as "still", so
+ * the test build keeps its own number for the file: F4 used to stick on
+ * the still target.) */
+#define AI_FROM_FILE 100
 static int g_ai_mode = 0;
 static acr_gen1_ai g_ai[2];
 static unsigned g_ai_round = 0;
@@ -390,8 +394,8 @@ static int ai_preset_of(const char *s) {
 /* The profile a mode flies: a preset, or the file's. */
 static acr_gen1_ai_profile ai_profile(int mode) {
     acr_gen1_ai_profile p;
-    if (mode == ACR_GEN1_AI_CUSTOM && g_ai_file_ok) return g_ai_file_prof;
-    acr_gen1_ai_preset(&p, mode ? mode : ACR_GEN1_AI_BALANCED);
+    if (mode == AI_FROM_FILE && g_ai_file_ok) return g_ai_file_prof;
+    acr_gen1_ai_preset(&p, mode > 0 && mode < ACR_GEN1_AI_PRESETS ? mode : ACR_GEN1_AI_BALANCED);
     return p;
 }
 
@@ -402,7 +406,7 @@ static void load_ai_file(const char *path) {
     acr_gen1_ai_preset(&g_ai_file_prof, ACR_GEN1_AI_BALANCED);
     g_ai_file_prof.preset = ACR_GEN1_AI_CUSTOM;
     g_ai_file_ok = acr_gen1_ai_parse(&g_ai_file_prof, text);
-    if (g_ai_file_ok) g_ai_mode = ACR_GEN1_AI_CUSTOM;
+    if (g_ai_file_ok) g_ai_mode = AI_FROM_FILE;
     SDL_free(text);
 }
 
@@ -814,6 +818,10 @@ int main(int argc, char **argv) {
                 if (c != GC_NONE) gcmd = c;
                 continue;
             }
+            /* Number keys 1-8 work as F1-F8 (laptop F keys often do other
+             * things without Fn). */
+            if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode >= SDL_SCANCODE_1 && e.key.scancode <= SDL_SCANCODE_8)
+                e.key.scancode = (SDL_Scancode)(SDL_SCANCODE_F1 + (e.key.scancode - SDL_SCANCODE_1));
             if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_ESCAPE) {
                 if (g_direct_test) running = 0;
                 else to_garage = 1;
@@ -882,8 +890,8 @@ int main(int argc, char **argv) {
             }
             if (cycle_ai) {
                 /* still target -> BALANCED ... EVASIVE (-> the --ai-file profile) -> still */
-                int next = g_ai_mode == ACR_GEN1_AI_CUSTOM ? 0 : g_ai_mode + 1;
-                if (next >= ACR_GEN1_AI_PRESETS) next = g_ai_file_ok ? ACR_GEN1_AI_CUSTOM : 0;
+                int next = g_ai_mode == AI_FROM_FILE ? 0 : g_ai_mode + 1;
+                if (next >= ACR_GEN1_AI_PRESETS && next != AI_FROM_FILE) next = g_ai_file_ok ? AI_FROM_FILE : 0;
                 g_ai_mode = next;
                 if (!g_ai_mode) g_autopilot = 0;
                 SETUP_FIGHTERS(); prevs[0] = *P; prevs[1] = *T;
@@ -1436,10 +1444,10 @@ int main(int argc, char **argv) {
             TEXT(20, 52, "FIRE: X (F)  SWITCH WEAPON: Y (TAB)  BLADE: B (V)");
             if (g_direct_test) {
                 TEXT(20, 64, "BACK+X/Y/B/RB (B/G/C/L): BOOSTER/GENERATOR/BACK WEAPON/LEGS");
-                TEXT(20, 76, "START/R: RESET  F1: HIDE HELP  F5: ANIM SMOOTH/STEPPED  ESC: QUIT");
+                TEXT(20, 76, "START/R: RESET  F1: HIDE HELP  F5: ANIM SMOOTH/STEPPED  ESC: QUIT  (KEYS 1-8 = F1-F8)");
             } else {
                 TEXT(20, 64, "BACK+START (ESC): BACK TO THE GARAGE");
-                TEXT(20, 76, "START/R: RESET  F1: HIDE HELP");
+                TEXT(20, 76, "START/R: RESET  F1: HIDE HELP  (KEYS 1-8 WORK AS F1-F8)");
             }
             TEXT(20, 88, "BACK+A (H): HUMAN PLUS  BACK (T): STEP RATE");
             TEXT(20, 100, "BACK+LB (F2): TWO PLAYERS  BACK+R3 (F3): LANDING PAUSE GUESS/ANIMATION");
@@ -1461,7 +1469,7 @@ int main(int argc, char **argv) {
         if (!two_players && g_ai_mode) {
             char who[64];
             SDL_snprintf(who, sizeof who, "%sOPPONENT: AI %s", g_autopilot ? "AI VS AI  " : "",
-                         g_ai_mode == ACR_GEN1_AI_CUSTOM ? "FROM FILE" : acr_gen1_ai_preset_name(g_ai_mode));
+                         g_ai_mode == AI_FROM_FILE ? "FROM FILE" : acr_gen1_ai_preset_name(g_ai_mode));
             acr_hud_text(full_w / 2.0f - 90, 448, who, 255, 200, 120);
         }
         if ((two_players || g_ai_mode) && round_over) {

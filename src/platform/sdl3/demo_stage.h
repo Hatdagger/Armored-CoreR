@@ -16,8 +16,10 @@ typedef struct demo_stage {
     int32_t start[2][4];            /* x, y (down), z, facing */
     acr_vtx *tris, *semi, *edges;   /* drawn: solid faces, see-through faces, outlines */
     int tri_count, semi_count, edge_count;
-    /* Textured faces, one batch per texture (the game's texture pages). */
-    struct { acr_vtx *v; int count; uint32_t texture; uint8_t semi; } batch[16];
+    /* Textured faces, two batches per texture (the game's texture pages):
+     * the faces, then those lying over another face in the same plane
+     * (drawn pulled toward the eye so they don't flicker through it). */
+    struct { acr_vtx *v; int count; uint32_t texture; uint8_t semi, overlay; } batch[32];
     int batches;
     int textured;                   /* 1: the textured models; 0: the flat green ones */
     int32_t half;                   /* half width of a square inside the walls, for the AI */

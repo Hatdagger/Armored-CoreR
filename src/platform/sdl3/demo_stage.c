@@ -48,7 +48,7 @@ static uint32_t load_texture(const char *path) {
     if (rgba) {
         if (img.indexed) for (int i = 0; i < img.w * img.h; ++i) SDL_memcpy(rgba + 4 * i, img.palette[img.pixels[i]], 4);
         else SDL_memcpy(rgba, img.pixels, (size_t)img.w * img.h * 4);
-        tex = acr_render_texture(rgba, img.w, img.h, 1);
+        tex = acr_render_texture(rgba, img.w, img.h, 2);   /* sharp, mipmapped far off */
         SDL_free(rgba);
     }
     acr_image_free(&img);
@@ -58,22 +58,106 @@ static uint32_t load_texture(const char *path) {
 /* Faces shaded by a fixed light from above (no stage lights read yet).
  * Textured faces go in a batch per texture, coloured the PS1 way (128 =
  * the texel as it is). */
+/* Faces lying on another face in the same plane: the smaller of two such
+ * faces is the overlay (a decal or a model's second layer); an exact copy
+ * of an earlier face is dropped (2). Plane within half a unit, normals
+ * within about 2.5 degrees, the overlay's middle inside the other face. */
+static void find_overlays(const acr_mesh *mesh, uint8_t *mark) {
+    const int n = mesh->tri_count;
+    float (*nrm)[4] = SDL_malloc(sizeof *nrm * (size_t)(n ? n : 1));
+    float (*box)[6] = SDL_malloc(sizeof *box * (size_t)(n ? n : 1));
+    if (!nrm || !box) { SDL_free(nrm); SDL_free(box); return; }
+    for (int t = 0; t < n; ++t) {
+        const float *a = mesh->v[t * 3].p, *b = mesh->v[t * 3 + 1].p, *c = mesh->v[t * 3 + 2].p;
+        const float u[3] = { b[0] - a[0], b[1] - a[1], b[2] - a[2] }, w[3] = { c[0] - a[0], c[1] - a[1], c[2] - a[2] };
+        float q[3] = { u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0] };
+        const float len = sqrtf(q[0] * q[0] + q[1] * q[1] + q[2] * q[2]);
+        nrm[t][3] = len * 0.5f;                                     /* area */
+        for (int k = 0; k < 3; ++k) nrm[t][k] = len > 0 ? q[k] / len : 0;
+        for (int k = 0; k < 3; ++k) {
+            box[t][k] = SDL_min(a[k], SDL_min(b[k], c[k]));
+            box[t][3 + k] = SDL_max(a[k], SDL_max(b[k], c[k]));
+        }
+    }
+    for (int i = 0; i < n; ++i) {
+        if (nrm[i][3] <= 0) continue;
+        for (int j = i + 1; j < n; ++j) {
+            if (nrm[j][3] <= 0 || mark[i] == 2 || mark[j] == 2) continue;
+            if (box[j][0] > box[i][3] + 0.5f || box[j][3] < box[i][0] - 0.5f || box[j][1] > box[i][4] + 0.5f ||
+                box[j][4] < box[i][1] - 0.5f || box[j][2] > box[i][5] + 0.5f || box[j][5] < box[i][2] - 0.5f) continue;
+            const float d = nrm[i][0] * nrm[j][0] + nrm[i][1] * nrm[j][1] + nrm[i][2] * nrm[j][2];
+            if (d < 0.999f && d > -0.999f) continue;
+            const float *pi = mesh->v[i * 3].p;
+            int same_plane = 1;
+            for (int k = 0; k < 3 && same_plane; ++k) {
+                const float *pj = mesh->v[j * 3 + k].p;
+                const float off = (pj[0] - pi[0]) * nrm[i][0] + (pj[1] - pi[1]) * nrm[i][1] + (pj[2] - pi[2]) * nrm[i][2];
+                if (off > 0.5f || off < -0.5f) same_plane = 0;
+            }
+            if (!same_plane) continue;
+            /* Exact copy? */
+            int copy = 1;
+            for (int k = 0; k < 3 && copy; ++k) {
+                int found = 0;
+                for (int m = 0; m < 3; ++m) {
+                    const float *a = mesh->v[i * 3 + m].p, *b = mesh->v[j * 3 + k].p;
+                    if (SDL_fabsf(a[0] - b[0]) < 0.01f && SDL_fabsf(a[1] - b[1]) < 0.01f && SDL_fabsf(a[2] - b[2]) < 0.01f)
+                        found = 1;
+                }
+                if (!found) copy = 0;
+            }
+            if (copy) { mark[j] = 2; continue; }
+            /* The smaller one's middle inside the bigger one. */
+            const int small = nrm[j][3] <= nrm[i][3] ? j : i, big = small == j ? i : j;
+            float mid[3] = { 0, 0, 0 };
+            for (int k = 0; k < 3; ++k)
+                for (int m = 0; m < 3; ++m) mid[m] += mesh->v[small * 3 + k].p[m] / 3.0f;
+            int pos = 0, neg = 0;
+            for (int k = 0; k < 3; ++k) {
+                const float *a = mesh->v[big * 3 + k].p, *b = mesh->v[big * 3 + (k + 1) % 3].p;
+                const float e[3] = { b[0] - a[0], b[1] - a[1], b[2] - a[2] }, r[3] = { mid[0] - a[0], mid[1] - a[1], mid[2] - a[2] };
+                const float c[3] = { e[1] * r[2] - e[2] * r[1], e[2] * r[0] - e[0] * r[2], e[0] * r[1] - e[1] * r[0] };
+                const float side = c[0] * nrm[big][0] + c[1] * nrm[big][1] + c[2] * nrm[big][2];
+                if (side > 0) ++pos;
+                if (side < 0) ++neg;
+            }
+            if (pos && neg) continue;
+            if (!mark[small]) mark[small] = 1;
+        }
+    }
+    SDL_free(nrm);
+    SDL_free(box);
+}
+
 static int build_faces(demo_stage *s, const char *obj, const char *mtl_text, const char *dir) {
     acr_mtl mtl;
     if (!acr_mtl_parse(mtl_text ? mtl_text : "", &mtl)) return 0;
     acr_mesh mesh;
     if (!acr_obj_parse(obj, &mtl, &mesh)) return 0;
     if (!mesh.tri_count) { acr_mesh_free(&mesh); return 0; }
-    for (int i = 0; i < mtl.count && s->batches < 16; ++i) {
+    for (int i = 0; i < mtl.count && s->batches + 2 <= 32; ++i) {
         if (!mtl.m[i].textured) continue;
         char path[1200];
         SDL_snprintf(path, sizeof path, "%s/%s", dir, mtl.m[i].texture);
-        s->batch[s->batches].texture = load_texture(path);
-        s->batch[s->batches].semi = mtl.m[i].semi;
-        s->batch[s->batches].v = SDL_malloc(sizeof(acr_vtx) * (size_t)(mesh.tri_count * 3 + 3));
-        if (!s->batch[s->batches].v) { acr_mesh_free(&mesh); return 0; }
-        mtl.m[i].kind = (uint8_t)s->batches++;      /* which batch (kind is unused here) */
+        const uint32_t tex = load_texture(path);
+        for (int ov = 0; ov < 2; ++ov) {
+            s->batch[s->batches + ov].texture = tex;
+            s->batch[s->batches + ov].semi = mtl.m[i].semi;
+            s->batch[s->batches + ov].overlay = (uint8_t)ov;
+            s->batch[s->batches + ov].v = SDL_malloc(sizeof(acr_vtx) * (size_t)(mesh.tri_count * 3 + 3));
+            if (!s->batch[s->batches + ov].v) { acr_mesh_free(&mesh); return 0; }
+        }
+        mtl.m[i].kind = (uint8_t)s->batches;          /* which batch (kind is unused here); +1 = overlays */
+        s->batches += 2;
         s->textured = 1;
+    }
+    uint8_t *mark = SDL_calloc((size_t)mesh.tri_count + 1, 1);
+    if (!mark) { acr_mesh_free(&mesh); return 0; }
+    find_overlays(&mesh, mark);
+    {
+        int ov = 0, cp = 0;
+        for (int t = 0; t < mesh.tri_count; ++t) { ov += mark[t] == 1; cp += mark[t] == 2; }
+        SDL_Log("stage faces: %d, lying on another face: %d, exact copies dropped: %d", mesh.tri_count, ov, cp);
     }
     s->tris = SDL_malloc(sizeof *s->tris * (size_t)(mesh.tri_count * 3 + 3));
     s->semi = SDL_malloc(sizeof *s->semi * (size_t)(mesh.tri_count * 3 + 3));
@@ -89,15 +173,17 @@ static int build_faces(demo_stage *s, const char *obj, const char *mtl_text, con
         const acr_material *m = mesh.material[t] < mtl.count ? &mtl.m[mesh.material[t]] : NULL;
         const uint8_t r = (uint8_t)((m ? m->r : 160) * lit), g = (uint8_t)((m ? m->g : 160) * lit),
                       bl = (uint8_t)((m ? m->b : 160) * lit);
+        if (mark[t] == 2) continue;                    /* an exact copy of an earlier face */
         if (m && m->textured && m->kind < s->batches) {
             const uint8_t c = (uint8_t)(128 * lit);
-            acr_vtx *out = s->batch[m->kind].v + s->batch[m->kind].count;
+            const int bi = m->kind + (mark[t] ? 1 : 0);
+            acr_vtx *out = s->batch[bi].v + s->batch[bi].count;
             for (int j = 0; j < 3; ++j) {
-                out[j] = vtx(mesh.v[t * 3 + j].p, c, c, c, s->batch[m->kind].semi ? 128 : 255);
+                out[j] = vtx(mesh.v[t * 3 + j].p, c, c, c, s->batch[bi].semi ? 128 : 255);
                 out[j].u = mesh.v[t * 3 + j].uv[0];
                 out[j].v = 1.0f - mesh.v[t * 3 + j].uv[1];
             }
-            s->batch[m->kind].count += 3;
+            s->batch[bi].count += 3;
             continue;
         }
         const int semi = m && m->semi;
@@ -106,6 +192,7 @@ static int build_faces(demo_stage *s, const char *obj, const char *mtl_text, con
         if (semi) s->semi_count += 3;
         else s->tri_count += 3;
     }
+    SDL_free(mark);
     acr_mesh_free(&mesh);
     return 1;
 }
@@ -251,7 +338,8 @@ void demo_stage_draw(const demo_stage *s, int pass) {
     if (pass == 0) {
         for (int i = 0; i < s->batches; ++i)
             if (s->batch[i].count && !s->batch[i].semi)
-                acr_render_mesh(s->batch[i].v, s->batch[i].count, s->batch[i].texture, ACR_MESH_PS1_TEXEL);
+                acr_render_mesh(s->batch[i].v, s->batch[i].count, s->batch[i].texture,
+                                ACR_MESH_PS1_TEXEL | (s->batch[i].overlay ? ACR_MESH_OVERLAY : 0));
         if (s->tri_count) acr_render_mesh(s->tris, s->tri_count, 0, 0);
         if (s->edge_count) acr_render_lines(s->edges, s->edge_count);
     } else {
@@ -259,7 +347,7 @@ void demo_stage_draw(const demo_stage *s, int pass) {
         for (int i = 0; i < s->batches; ++i)
             if (s->batch[i].count && s->batch[i].semi)
                 acr_render_mesh(s->batch[i].v, s->batch[i].count, s->batch[i].texture,
-                                ACR_MESH_PS1_TEXEL | ACR_MESH_SEMI);
+                                ACR_MESH_PS1_TEXEL | ACR_MESH_SEMI | (s->batch[i].overlay ? ACR_MESH_OVERLAY : 0));
         if (s->semi_count) acr_render_mesh(s->semi, s->semi_count, 0, ACR_MESH_SEMI);
     }
 }
