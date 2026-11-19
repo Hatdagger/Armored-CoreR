@@ -95,6 +95,7 @@ own part models (every part, FCS and options included) go to
 | Next booster / generator / back weapon / legs | Back + X / Y / B / RB | B / G / C / L |
 | Human PLUS on/off | Back + A | H |
 | Two players, split screen | Back + LB | F2 |
+| Landing pause: guess / landing animation's length (test) | Back + R3 | F3 |
 | Change step rate (22, 30, 45, 60 steps a second; same game pace) | Back | T |
 | Reset | Start | R |
 | Hide help | | F1 |

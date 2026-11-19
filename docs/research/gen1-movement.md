@@ -344,7 +344,11 @@ Rules added from the AC1Recomp mapping:
   speed, weight or the legs. The engine's recovery curve below a 5,000
   touchdown is a stand-in. The game's landing states (0x60 / 0x61) end in
   the animation-finished callback `0x8008389C`, so recovery may simply be
-  the landing animation's length (animation 36).
+  the landing animation's length (animation 36). The test build shows that
+  length from the import beside the latest landing's pause and touchdown
+  speed; F3 / Back + R3 makes every landing last the animation instead of
+  the guess (`acr_gen1_ac_def.landing_from_anim`). If the default AC's
+  animation is about 20 ticks, as measured after a hop, that supports it.
 - Whether sideways speed survives a touchdown. "Landing (measured)" above
   says it is dropped; the engine keeps it as a slide because that
   measurement had none left. Test: air boost forward and let go just

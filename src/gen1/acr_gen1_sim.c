@@ -310,12 +310,16 @@ void acr_gen1_ac_tick(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
             /* Recovery grows with the speed of the fall: none below 2,000, the
              * full measured stagger at 5,000 and above (a hop's touchdown), so
              * feathering the booster before landing softens it. In ticks. The
-             * curve below 5,000 is a stand-in until measured. */
+             * curve below 5,000 is a stand-in until measured; the test switch
+             * landing_from_anim plays the landing animation out instead. */
             const int32_t fall = ac->vy_at_touchdown;
             uint32_t ticks = 0;
             if (fall >= 5000) ticks = def->landing_steps;
             else if (fall > 2000) ticks = (uint32_t)def->landing_steps * (uint32_t)(fall - 2000) / 3000u;
+            const acr_gen1_root_track *land = def->anim[ACR_GEN1_ANIM_LAND];
+            if (def->landing_from_anim && land && land->length) ticks = land->length;
             ac->timer = (uint16_t)ticks;
+            ac->landing_pause = (uint16_t)ticks;
             if (!ac->timer) ac->state = ACR_GEN1_GROUND;
         }
     }

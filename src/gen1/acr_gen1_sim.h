@@ -26,6 +26,7 @@ enum {
     ACR_GEN1_ANIM_STRAFE_R_START = 11, ACR_GEN1_ANIM_STRAFE_R = 12,
     ACR_GEN1_ANIM_BACK_START = 14, ACR_GEN1_ANIM_BACK = 15,
     ACR_GEN1_ANIM_JUMP = 22,
+    ACR_GEN1_ANIM_LAND = 36,
     ACR_GEN1_ANIM_COUNT = 64
 };
 
@@ -60,6 +61,11 @@ typedef struct acr_gen1_ac_def {
      * 22 times a second, between steps. 0 / 0 = a tick every step. */
     uint16_t step_rate, gen1_rate;
     uint8_t  no_boost_hop;    /* caterpillars: re-pressing boost while sliding does not jump */
+    /* Test: every landing lasts the landing animation's length (animation
+     * 36's track), whatever the fall, as it would if the game's landing
+     * state simply ends with its animation (0x8008389C). 0 = the stand-in
+     * curve from landing_steps. */
+    uint8_t  landing_from_anim;
 } acr_gen1_ac_def;
 
 enum { ACR_GEN1_GROUND, ACR_GEN1_CROUCH, ACR_GEN1_AIR, ACR_GEN1_LANDING };
@@ -79,7 +85,8 @@ typedef struct acr_gen1_ac {
     uint8_t  boost_released;   /* let go of since the latest tick (a tap between ticks) */
     uint8_t  state;
     uint16_t timer;
-    int32_t  vy_at_touchdown;
+    int32_t  vy_at_touchdown;  /* fall speed at the latest touchdown */
+    uint16_t landing_pause;    /* ticks the latest landing lasted (0: none) */
     uint8_t  anim;
     uint16_t anim_frame;
     uint16_t span_left;

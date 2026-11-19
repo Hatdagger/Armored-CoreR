@@ -307,6 +307,7 @@ static int target_side(void) { const char *e = SDL_getenv("ACR_SIDE"); return e 
 static int g_direct_test = 0;   /* part arguments given: no garage */
 static long g_new_credits = 0;
 static int g_tick_rate = 60;   /* test: steps a second; 22 = Gen 1's own pace */
+static int g_landing_anim = 0; /* test: landings last the landing animation (F3 / Back + R3) */
 static const int k_tick_rates[] = { 22, 30, 45, 60 };
 
 /* Starts the clock at the chosen rate. Faster than Gen 1, the game's rules
@@ -721,6 +722,7 @@ int main(int argc, char **argv) {
             }
             if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_F1) show_help = !show_help;
             if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_F5) g_smooth_anim = !g_smooth_anim;
+            if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_F3) g_landing_anim = !g_landing_anim;
             if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_R) {
                 SETUP_FIGHTERS(); prevs[0] = *P; prevs[1] = *T;
             }
@@ -739,6 +741,7 @@ int main(int argc, char **argv) {
                 if (btn == SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER && back_held) { cycle_slot = SLOT_LEGS; back_combo = 1; }
                 if (btn == SDL_GAMEPAD_BUTTON_SOUTH && back_held) { toggle_plus = 1; back_combo = 1; }
                 if (btn == SDL_GAMEPAD_BUTTON_LEFT_SHOULDER && back_held) { toggle_two = 1; back_combo = 1; }
+                if (btn == SDL_GAMEPAD_BUTTON_RIGHT_STICK && back_held) { g_landing_anim = !g_landing_anim; back_combo = 1; }
                 if (btn == SDL_GAMEPAD_BUTTON_EAST && !back_held) {   /* the blade: circle / B */
                     const int who = !two_players ? 0 : pads[1] ? (player_of(pads, e.gbutton.which, 0) == 1) : 1;
                     blade_pressed[who] = 1;
@@ -894,6 +897,7 @@ int main(int argc, char **argv) {
         battle.step_ms = (uint16_t)(1000 / (g_tick_rate > 0 ? g_tick_rate : 22));
         battle.step_rate = def->step_rate;
         battle.gen1_rate = def->gen1_rate;
+        def->landing_from_anim = def2->landing_from_anim = (uint8_t)g_landing_anim;
         for (uint32_t i = 0; i < ticks && !round_over; ++i) {
             prevs[0] = *P;
             prevs[1] = *T;
@@ -1092,6 +1096,19 @@ int main(int argc, char **argv) {
         SDL_snprintf(line, sizeof line, "ENERGY %5d  %-7s  SPEED %3d  RISE %4d", (int)ac.energy,
                      k_state[ac.state], (int)sqrtf((float)(dx * dx + dz * dz)), -dy);
         TEXT(20, g_vh - 48, line);
+        /* Landing check: the landing animation's length against the pause
+         * the latest landing really had, and its touchdown speed (the recomp
+         * measured about 20 ticks after a hop that touched down at 5,000+). */
+        {
+            const acr_gen1_root_track *land = ac_data[view].def.anim[ACR_GEN1_ANIM_LAND];
+            char land_len[16];
+            if (land && land->length) SDL_snprintf(land_len, sizeof land_len, "%d TICKS", (int)land->length);
+            else SDL_snprintf(land_len, sizeof land_len, "NOT FOUND");
+            SDL_snprintf(line, sizeof line, "LANDING ANIM %s  LAST LANDING %d TICKS, FALL %d  PAUSE: %s",
+                         land_len, (int)ac.landing_pause, (int)ac.vy_at_touchdown,
+                         g_landing_anim ? "ANIMATION" : "GUESS");
+            TEXT(20, g_vh - 80, line);
+        }
         SDL_snprintf(line, sizeof line, "LEGS %s  BOOSTER %s  GENERATOR %s", ac_data[view].names[SLOT_LEGS],
                      ac_data[view].names[SLOT_BOOSTER], ac_data[view].names[SLOT_GEN]);
         TEXT(20, 12, line);
@@ -1163,8 +1180,8 @@ int main(int argc, char **argv) {
                 TEXT(20, 64, "BACK+START (ESC): BACK TO THE GARAGE");
                 TEXT(20, 76, "START/R: RESET  F1: HIDE HELP");
             }
-            TEXT(20, 88, "BACK+A (H): HUMAN PLUS  BACK (T): SPEED");
-            TEXT(20, 100, "BACK+LB (F2): TWO PLAYERS");
+            TEXT(20, 88, "BACK+A (H): HUMAN PLUS  BACK (T): STEP RATE");
+            TEXT(20, 100, "BACK+LB (F2): TWO PLAYERS  BACK+R3 (F3): LANDING PAUSE GUESS/ANIMATION");
         }
         }
         /* Whole-screen HUD: the split line, round clock and result. */
