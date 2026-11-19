@@ -193,8 +193,6 @@ enum { ANIM_AIR = 24, ANIM_RISE = 25, ANIM_LAND = 36, ANIM_BOOST = 48, ANIM_SLID
 static int g_swinging[2];                    /* set from the battle before drawing */
 static struct { int shown; Uint64 since; } g_pose[2];
 
-static const acr_gen1_ac_def *g_def[2];      /* for the walk's tick fraction */
-
 static int shown_anim(int who, const acr_gen1_ac *ac, const demo_model *m, float *tick, int *loop) {
     *tick = (float)ac->anim_frame;
     *loop = ac->anim != ACR_GEN1_ANIM_IDLE && ac->anim != ACR_GEN1_ANIM_JUMP;
@@ -216,11 +214,11 @@ static int shown_anim(int who, const acr_gen1_ac *ac, const demo_model *m, float
         want = (ac->coast != 0) == (along >= 0) ? ANIM_BOOST : ANIM_SLIDE; ours = 1;
     }
     if (!ours) {
-        /* The sim's walking advances at the game's 22 ticks a second at any
-         * step rate; draw the tick its movement is spreading over (plus how
-         * far into it), so the legs match the ground. */
+        /* The sim's walking advances a frame each Gen 1 tick (22 a second)
+         * at any step rate; draw the frame the shown position is in (plus
+         * how far into it), so the legs match the ground. */
         g_pose[who].shown = want;
-        float t = ac->anim_frame ? (float)ac->anim_frame - 1.0f + acr_gen1_walk_fraction(ac, g_def[who]) : 0.0f;
+        float t = ac->anim_frame ? (float)ac->anim_frame - 1.0f + acr_gen1_tick_fraction(ac) : 0.0f;
         const acr_anim *a = &m->anims.anim[want];
         if (*loop && a->frames) {
             unsigned total = 0;
@@ -311,9 +309,9 @@ static long g_new_credits = 0;
 static int g_tick_rate = 60;   /* test: steps a second; 22 = Gen 1's own pace */
 static const int k_tick_rates[] = { 22, 30, 45, 60 };
 
-/* Starts the clock at the chosen rate. Faster than Gen 1, movement per step
- * stays as the game has it (so it runs faster), while energy and recovery
- * times are kept per second. */
+/* Starts the clock at the chosen rate. Faster than Gen 1, the game's rules
+ * still run 22 times a second between steps, so every rate plays at the
+ * game's pace; the extra steps only make the drawing smoother. */
 static void set_rate(acr_clock *clock, acr_gen1_ac_def *def, int rate) {
     if (rate == 22 || rate <= 0) {
         acr_clock_init_ns(clock, ACR_GEN1_TICK_NS, 8);
@@ -626,7 +624,6 @@ int main(int argc, char **argv) {
     int *const pp[2] = { parts, parts2 };
     acr_gen1_ac_def *def = &ac_data[0].def;
     acr_gen1_ac_def *def2 = &ac_data[1].def;
-    g_def[0] = def; g_def[1] = def2;
 
     acr_clock clock;
     set_rate(&clock, def, g_tick_rate);
@@ -919,14 +916,17 @@ int main(int argc, char **argv) {
             }
             acr_gen1_battle_step(&battle, in2, act);
             for (int k = 0; k < 2; ++k) { in2[k].boost_tapped = 0; boost_released[k] = !in2[k].boost; }
-            /* arena walls */
+            /* arena walls (the shown position too, so drawing stops there) */
             const int32_t lim = ARENA * 64;
             for (int k = 0; k < 2; ++k) {
                 acr_gen1_ac *q = &battle.f[k].ac;
-                if (q->x > lim) { q->x = lim; q->vx = 0; }
-                if (q->x < -lim) { q->x = -lim; q->vx = 0; }
-                if (q->z > lim) { q->z = lim; q->vz = 0; }
-                if (q->z < -lim) { q->z = -lim; q->vz = 0; }
+                int32_t *const xs[3] = { &q->x, &q->px, &q->sx }, *const zs[3] = { &q->z, &q->pz, &q->sz };
+                for (int c = 0; c < 3; ++c) {
+                    if (*xs[c] > lim) { *xs[c] = lim; q->vx = 0; }
+                    if (*xs[c] < -lim) { *xs[c] = -lim; q->vx = 0; }
+                    if (*zs[c] > lim) { *zs[c] = lim; q->vz = 0; }
+                    if (*zs[c] < -lim) { *zs[c] = -lim; q->vz = 0; }
+                }
             }
             /* The target comes back 3 seconds after it is destroyed. */
             if (!two_players && battle.f[1].ap <= 0) {
@@ -953,15 +953,16 @@ int main(int argc, char **argv) {
         const acr_gen1_ac prev = prevs[view];
         const acr_gen1_ac *const T = &battle.f[1 - view].ac;
         const acr_gen1_ac tprev = prevs[1 - view];
-        /* Interpolate between the last two steps. */
+        /* Interpolate the shown ACs (already between Gen 1 ticks) between
+         * the last two steps. */
         const float a = (float)acr_clock_alpha(&clock) / (float)ACR_FX_ONE;
-        const float px = (prev.x + (ac.x - prev.x) * a) / 64.0f;
-        const float py = -(prev.y + (ac.y - prev.y) * a) / 64.0f;
-        const float pz = (prev.z + (ac.z - prev.z) * a) / 64.0f;
-        int dyaw = (int)ac.yaw - (int)prev.yaw;
+        const float px = (prev.sx + (ac.sx - prev.sx) * a) / 64.0f;
+        const float py = -(prev.sy + (ac.sy - prev.sy) * a) / 64.0f;
+        const float pz = (prev.sz + (ac.sz - prev.sz) * a) / 64.0f;
+        int dyaw = (int)ac.syaw - (int)prev.syaw;
         if (dyaw > 2048) dyaw -= 4096;
         if (dyaw < -2048) dyaw += 4096;
-        const float yaw = ((float)prev.yaw + dyaw * a) * (6.2831853f / 4096.0f);
+        const float yaw = ((float)prev.syaw + dyaw * a) * (6.2831853f / 4096.0f);
 
         /* The game's camera, measured in the recomp (same rig in the first
          * mission and in VS): eye 325 behind the AC and 227 up, looking at
@@ -1044,9 +1045,13 @@ int main(int argc, char **argv) {
         flush_scene();
         for (int k = 0; k < 2; ++k) g_swinging[k] = battle.f[k].swing != 0;
         draw_ac(view, &ac, px, py, pz, yaw, crouch);
-        const float tx = (tprev.x + (T->x - tprev.x) * a) / 64.0f, ty = -(tprev.y + (T->y - tprev.y) * a) / 64.0f,
-                    tz = (tprev.z + (T->z - tprev.z) * a) / 64.0f;
-        if (battle.f[1 - view].ap > 0) draw_ac(1 - view, T, tx, ty, tz, T->yaw * (6.2831853f / 4096.0f), 0);
+        const float tx = (tprev.sx + (T->sx - tprev.sx) * a) / 64.0f, ty = -(tprev.sy + (T->sy - tprev.sy) * a) / 64.0f,
+                    tz = (tprev.sz + (T->sz - tprev.sz) * a) / 64.0f;
+        int tdyaw = (int)T->syaw - (int)tprev.syaw;
+        if (tdyaw > 2048) tdyaw -= 4096;
+        if (tdyaw < -2048) tdyaw += 4096;
+        if (battle.f[1 - view].ap > 0)
+            draw_ac(1 - view, T, tx, ty, tz, ((float)tprev.syaw + tdyaw * a) * (6.2831853f / 4096.0f), 0);
         for (int k = 0; k < ACR_GEN1_MAX_SHOTS; ++k) {
             const acr_gen1_shot *sh = &battle.shot[k];
             if (!sh->active) continue;
@@ -1080,7 +1085,8 @@ int main(int argc, char **argv) {
         acr_hud_line(20 + 300 * red, g_vh - 33, 20 + 300 * red, g_vh - 17, 230, 60, 50, 255);
 
         static const char *const k_state[] = { "GROUND", "CROUCH", "AIR", "LANDING" };
-        const int dx = (ac.x - prev.x) / 64, dz = (ac.z - prev.z) / 64, dy = (ac.y - prev.y) / 64;
+        /* Speeds per Gen 1 tick, as the recomp measures them. */
+        const int dx = (ac.x - ac.px) / 64, dz = (ac.z - ac.pz) / 64, dy = (ac.y - ac.py) / 64;
         char line[160];
         #define TEXT(x, y, s) acr_hud_text((x), (y), (s), 220, 230, 235)
         SDL_snprintf(line, sizeof line, "ENERGY %5d  %-7s  SPEED %3d  RISE %4d", (int)ac.energy,

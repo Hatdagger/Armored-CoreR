@@ -211,8 +211,7 @@ static void lunge_move(acr_gen1_battle *b, int i, int from, int to) {
         d = gap > 0 ? gap * 64 : 0;
         f->lunge_done = 1;
     }
-    me->x += (int32_t)(f->lunge_x * d / 4096);
-    me->z += (int32_t)(f->lunge_z * d / 4096);
+    acr_gen1_ac_shift(me, (int32_t)(f->lunge_x * d / 4096), (int32_t)(f->lunge_z * d / 4096));
     me->vx = me->vz = 0;
 }
 
@@ -246,8 +245,7 @@ static void blade_step(acr_gen1_battle *b, int i, int blade, int pressed) {
         const int64_t dx = (it->x - me->x) / 64, dz = (it->z - me->z) / 64;
         int32_t rate = (int32_t)((int64_t)f->def->motion.turn_max * rate_n(b) / rate_d(b));
         if (rate < 1) rate = 1;
-        me->yaw = (uint16_t)(turn_toward(me->yaw, angle_of(dx, dz), rate) & 4095);
-        me->yaw_fine = (int32_t)me->yaw << 8;
+        acr_gen1_ac_set_yaw(me, (uint16_t)(turn_toward(me->yaw, angle_of(dx, dz), rate) & 4095));
     }
     /* Lunge and the two crossings, in time order within the step. */
     const int reach = w->range ? (int)w->range : ACR_GEN1_BLADE_REACH;
@@ -271,8 +269,7 @@ static void blade_step(acr_gen1_battle *b, int i, int blade, int pressed) {
         f->lunge_done = 1;
         int32_t kx = f->lunge_x, kz = f->lunge_z;
         if (!kx && !kz) fwd_vec(me->yaw, &kx, &kz);
-        it->x += kx * ACR_GEN1_BLADE_KNOCK * 64 / 4096;
-        it->z += kz * ACR_GEN1_BLADE_KNOCK * 64 / 4096;
+        acr_gen1_ac_shift(it, kx * ACR_GEN1_BLADE_KNOCK * 64 / 4096, kz * ACR_GEN1_BLADE_KNOCK * 64 / 4096);
     }
     f->swing = (uint16_t)(t1 + 1);
     if (t1 >= ACR_GEN1_BLADE_SWING_MS) f->swing = 0;
@@ -608,8 +605,8 @@ int acr_gen1_stance_ok(const acr_gen1_fighter *f) {
 
 /* Two-legged ACs crouch when told to fire a cannon on the ground (AC state
  * 34); crouched they turn at the crouch rates (legs +0x3C) and slide to a
- * stop (velocity - 1/8 a step, zero below 512, VS 0x8007E3E0); any move
- * without fire stands them up again. */
+ * stop (the sim's crouch input: velocity - 1/8 a tick, zero below 512, VS
+ * 0x8007E3E0); any move without fire stands them up again. */
 static acr_gen1_input kneel_input(acr_gen1_battle *b, acr_gen1_fighter *f, acr_gen1_input in, acr_gen1_actions a) {
     const acr_gen1_weapon *w = f->weapons ? &f->weapon[f->current] : NULL;
     const int wants = w && w->stance && !f->human_plus && f->legs == ACR_GEN1_LEGS_TWO;
@@ -623,10 +620,6 @@ static acr_gen1_input kneel_input(acr_gen1_battle *b, acr_gen1_fighter *f, acr_g
     }
     if (f->kneeling) {
         f->kneel_ms += b->step_ms;
-        f->ac.vx -= f->ac.vx / 8;
-        f->ac.vz -= f->ac.vz / 8;
-        if (f->ac.vx > -512 && f->ac.vx < 512) f->ac.vx = 0;
-        if (f->ac.vz > -512 && f->ac.vz < 512) f->ac.vz = 0;
         in.move = in.strafe = 0;
         in.boost = in.boost_tapped = 0;
         in.crouch = 1;
@@ -635,19 +628,27 @@ static acr_gen1_input kneel_input(acr_gen1_battle *b, acr_gen1_fighter *f, acr_g
 }
 
 void acr_gen1_battle_step(acr_gen1_battle *b, const acr_gen1_input in[2], const acr_gen1_actions act[2]) {
-    /* Gen 1 ticks that fall in this step. */
+    /* Gen 1 ticks that fall in this step, and how far the shown ACs are
+     * from the tick before to the latest. */
     int ticks = 1;
+    uint32_t num = 1, den = 1;
     if (b->step_rate && b->gen1_rate) {
         b->tick_phase += b->gen1_rate;
         ticks = (int)(b->tick_phase / b->step_rate);
         b->tick_phase %= b->step_rate;
+        num = b->tick_phase;
+        den = b->step_rate;
     }
     for (int i = 0; i < 2; ++i) {
         acr_gen1_fighter *f = &b->f[i];
-        if (f->ap <= 0) continue;
+        if (f->ap <= 0) {                       /* down: stays where it is */
+            const acr_gen1_input still = { 0, 0, 0, 0, 0, 0, 0 };
+            acr_gen1_ac_advance(&f->ac, f->def, still, 0, 1, 1);
+            continue;
+        }
         acr_gen1_input use = kneel_input(b, f, in[i], act[i]);
         if (f->swing) use.move = use.strafe = use.boost = use.boost_tapped = 0;   /* the swing holds the AC */
-        acr_gen1_ac_step(&f->ac, f->def, use);
+        acr_gen1_ac_advance(&f->ac, f->def, use, ticks, num, den);
     }
     for (int i = 0; i < 2; ++i) fighter_step(b, i, act[i], ticks);
     shots_step(b, ticks);

@@ -31,12 +31,15 @@ int main(void) {
     d.stats.turn_accel = 22; d.stats.turn_speed = 41; d.stats.friction = 43;
     acr_gen1_motion_from_stats(&d.stats, &d.motion);
     d.landing_steps = 20;
+    d.step_rate = 60;                       /* 60 steps a second, the game's 22 ticks */
+    d.gen1_rate = 22;
 
     acr_gen1_ac ac;
     acr_gen1_ac_spawn(&ac, &d, 0, 0, 0);
-    const acr_gen1_input boost = { 1, 0, 0, 1, 0 };
+    /* A step of walking first: from a stand the booster jumps. */
+    const acr_gen1_input walk = { 1, 0, 0, 0, 0 }, boost = { 1, 0, 0, 1, 0 };
     const DWORD t0 = GetTickCount();
-    for (int i = 0; i < 60 * 3; ++i) acr_gen1_ac_step(&ac, &d, boost);
+    for (int i = 0; i < 60 * 3; ++i) acr_gen1_ac_step(&ac, &d, i < 3 ? walk : boost);
     const DWORD t1 = GetTickCount();
 
     acr_lighting l;

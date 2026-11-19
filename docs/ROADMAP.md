@@ -14,8 +14,12 @@ weapons, damage, two-player test build (see `docs/research/`).
   scrolling) comes later.
 - **Shop economy**: the same as Master of Arena (prices, selling), so builds
   can be tried freely.
-- **Step rate**: 60 steps a second is the target; movement per step as the
-  game has it, energy, turning, shots and lock times kept per second.
+- **Step rate**: 60 steps a second is the target. The game's movement rules
+  run at its own 22 ticks a second between steps, exactly as on the PS1, and
+  the AC is drawn sliding from one tick to the next, so every step rate plays
+  at the game's pace (changed 2026-11-18: before, boosting, rising and
+  falling moved a whole Gen 1 tick's distance every step, 2.7 times the
+  game's speed at 60). Shots and lock times also count Gen 1 ticks.
 
 ## Order
 
@@ -83,6 +87,28 @@ Play-test feedback (2026-11-14), and what the AC1Recomp mapping settled
 - Missing animations (boost, blade, firing, landing) still make the feel
   hard to judge. Firing animations are now known: weapon detail +3 on the
   AC's second animation layer.
+
+## Movement and feel (2026-11-18, first priority)
+
+Done on branch `gen1-movement-feel`:
+- Movement runs on Gen 1 ticks at any step rate (see Decisions).
+- From a stand, the booster jumps even with a direction held; a ground
+  boost needs the AC already moving (recomp, VS AI chat).
+- Energy: the air (not boosting) refills at the standing rate; the refill
+  goes over a full bar for one tick, then back (recomp, battle chat).
+- The 75-a-tick limit applies in the air as well as on the ground (every
+  movement handler loads its step through the same limit).
+- The cannon stance's slide (an eighth a tick) moved into the movement
+  tick, so it no longer runs 2.7 times too fast at 60 steps a second.
+
+Still open, to check in the recomp (`gen1-movement.md`, "Still to
+measure"): landing recovery after longer falls and whether boosting just
+before touchdown shortens it; whether sideways speed survives a landing;
+the 2-3 ticks at full speed after letting go of a ground boost (may be the
+test driver's input delay); the boost hop (from a player's description);
+diagonal walking; caterpillar and four-legged refill while walking; turning
+while landing; knock-back and stagger movement (the half-size step limit
+handlers).
 
 ## Parity with the AC1Recomp mapping (2026-11-18)
 

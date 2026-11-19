@@ -303,9 +303,65 @@ Read from the code after a player's report; matches what players know.
   its true top speed, 83 a step.
 - **Boost** is player block +0x298's mask (Cross by default).
 
+## Movement pass (2026-11-18)
+
+**Ticks at any step rate.** The engine's movement (`acr_gen1_ac_tick`) is
+one Gen 1 tick of the rules above, integer for integer. At 60 steps a
+second the ticks fall between steps (22 in every 60), so the AC moves
+exactly as it would at 22 steps a second: `tests/test_gen1_sim.c` runs a
+script (walk, ground boost, slide, hop, air boost while turning, fall,
+landing, jump, rise) both ways and compares the state after every tick.
+The AC is drawn from `sx, sy, sz, syaw`, which slide from the tick before
+to the latest one; the fight reads the tick state. Before this, boosting,
+rising, gravity and the air boost ran a whole tick's worth every step, 2.7
+times the game's pace at 60.
+
+Rules added from the AC1Recomp mapping:
+
+- **The booster from a stand jumps**, direction or not; a direction and the
+  booster boost along the ground only once the AC is already moving
+  (walking, or sliding after a boost). Recomp, VS AI chat: "✕ on the first
+  step still jumps".
+- **Refill classes** (`0x80082D90`): the moving refill is for movement
+  class 0x10 (walking) and 0xB0 (ground boost); the air (0xC0) and turning
+  on the spot (2) get the standing refill. The engine used the moving
+  refill in the air.
+- **Refill overshoot**: the refill is added before the cap is checked, so
+  a full bar reads up to one refill over for a tick, then the capacity
+  (measured +210 then -57). The booster lock lifts on the tick the bar is
+  found full, after that overshoot.
+- **The 75 limit in the air**: every movement handler loads its step
+  through `0x80054124`; the air boost's measured 54 a tick rules out the
+  half-size limit there, so the air uses the same 75 as the ground (it
+  only matters for a strong booster on a light AC, or a hop carrying a
+  fast ground boost).
+- **Cannon stance slide** (`0x8007E3E0`, an eighth a tick, zero below 512)
+  is part of the tick (the `crouch` input), not the fight's step.
+
 ## Still to measure
 
 - Landing recovery after longer falls, and whether it depends on fall
-  speed, weight or the legs.
+  speed, weight or the legs. The engine's recovery curve below a 5,000
+  touchdown is a stand-in. The game's landing states (0x60 / 0x61) end in
+  the animation-finished callback `0x8008389C`, so recovery may simply be
+  the landing animation's length (animation 36).
+- Whether sideways speed survives a touchdown. "Landing (measured)" above
+  says it is dropped; the engine keeps it as a slide because that
+  measurement had none left. Test: air boost forward and let go just
+  before landing.
+- The 2-3 ticks at full speed after letting go of a ground boost: with the
+  75 limit hiding the first slowdown tick, the rest may be the test
+  driver's input delay rather than a rule.
+- The boost hop (release and re-press while sliding): from a player's
+  description, not measured.
+- Diagonal walking (forward or back with a strafe).
+- Caterpillar and four-legged ACs: the mapping gives them the moving
+  refill only for class 0xB0 with speed; whether their walking is class
+  0x10 (standing refill) or 0xB0 is not known.
+- Turning while landing (the engine doesn't), and during the jump's
+  take-off (the engine does).
+- Knock-back and stagger movement: the handlers with the half-size step
+  limit (50 / 106: `0x8007B108`, `0x8007B454`, `0x8007BC6C`,
+  `0x8007E714`).
 - The exact rounding from track units (1/4) to world units when the AC
   faces an angle (the track is rotated by the facing before stepping).

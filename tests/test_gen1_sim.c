@@ -1,4 +1,5 @@
-/* Gen 1 movement stepping, with made-up stats and tracks. */
+/* Gen 1 movement, with made-up stats and tracks. One acr_gen1_ac_step is
+ * one Gen 1 tick unless the def has a faster step rate. */
 #include <stdio.h>
 #include <string.h>
 
@@ -28,6 +29,31 @@ static acr_gen1_ac_def make_def(void) {
     return d;
 }
 
+static const acr_gen1_input k_none = { 0, 0, 0, 0, 0, 0, 0 };
+static const acr_gen1_input k_fwd = { 1, 0, 0, 0, 0, 0, 0 };
+static const acr_gen1_input k_boost = { 1, 0, 0, 1, 0, 0, 0 };
+static const acr_gen1_input k_up = { 0, 0, 0, 1, 0, 0, 0 };
+
+/* A script of inputs, one per Gen 1 tick: walk, ground boost, slide, hop,
+ * air boost with a turn, fall, land, walk back, jump and rise. */
+static acr_gen1_input script(int tick) {
+    acr_gen1_input in = k_none;
+    if (tick < 6) in = k_fwd;
+    else if (tick < 26) in = k_boost;
+    else if (tick < 28) in = k_fwd;                  /* let go: slide */
+    else if (tick < 40) { in = k_boost; in.turn = 1; }   /* hop, then air boost turning */
+    else if (tick < 90) in = k_none;                 /* fall and land */
+    else if (tick < 100) { in.move = -1; in.strafe = 1; }
+    else if (tick < 130) in = k_up;                  /* jump and rise */
+    return in;
+}
+
+static int same(const acr_gen1_ac *a, const acr_gen1_ac *b) {
+    return a->x == b->x && a->y == b->y && a->z == b->z && a->vx == b->vx && a->vy == b->vy &&
+           a->vz == b->vz && a->yaw == b->yaw && a->energy == b->energy && a->state == b->state &&
+           a->drained == b->drained && a->anim == b->anim && a->anim_frame == b->anim_frame;
+}
+
 int main(void) {
     for (int a = 0; a < 4096; a += 64) {
         const long s = acr_gen1_sin((uint16_t)a), c = acr_gen1_cos((uint16_t)a);
@@ -38,10 +64,10 @@ int main(void) {
 
     /* Walking forward at facing 0 moves +z by the track / 4: 31, 31, 37, 38. */
     acr_gen1_ac_spawn(&ac, &d, 0, 0, 0);
-    const acr_gen1_input fwd = { 1, 0, 0, 0, 0, 0, 0 };
     int32_t last = ac.z, got[4];
-    for (int i = 0; i < 4; ++i) { acr_gen1_ac_step(&ac, &d, fwd); got[i] = (ac.z - last) / 64; last = ac.z; }
+    for (int i = 0; i < 4; ++i) { acr_gen1_ac_step(&ac, &d, k_fwd); got[i] = (ac.z - last) / 64; last = ac.z; }
     EXPECT(got[0] + got[1] == 62 && got[2] + got[3] == 75);
+    EXPECT(ac.sz == ac.z);                       /* a tick every step: shown = the game's */
 
     /* Walking forward and right at facing 0 moves along the diagonal. */
     acr_gen1_ac_spawn(&ac, &d, 0, 0, 0);
@@ -49,84 +75,171 @@ int main(void) {
     for (int i = 0; i < 4; ++i) acr_gen1_ac_step(&ac, &d, diag);
     EXPECT(ac.x > 0 && ac.z > 0 && ac.x - ac.z < 4 * 64 && ac.z - ac.x < 4 * 64);
 
-    /* At 60 steps a second the walk keeps Gen 1's 22 ticks a second: one
-     * second runs 22 track frames, 21 of them moved in full (5 loops of 137
-     * plus 31) and the 22nd (31) partly; the fraction stays in 0..1. */
-    {
-        acr_gen1_ac_def d60 = make_def();
-        d60.step_rate = 60; d60.gen1_rate = 22;
-        acr_gen1_ac_spawn(&ac, &d60, 0, 0, 0);
-        int frac_ok = 1;
-        for (int i = 0; i < 60; ++i) {
-            acr_gen1_ac_step(&ac, &d60, fwd);
-            const float f = acr_gen1_walk_fraction(&ac, &d60);
-            if (f < 0.0f || f >= 1.0f) frac_ok = 0;
-        }
-        EXPECT(ac.z / 64 > 5 * 137 + 31 && ac.z / 64 < 5 * 137 + 62);
-        EXPECT(frac_ok);
-    }
-
-    /* Turning: +6 a step up to 38. */
+    /* Turning: +6 a tick up to 38. */
     acr_gen1_ac_spawn(&ac, &d, 0, 0, 0);
     const acr_gen1_input turn = { 0, 1, 0, 0, 0, 0, 0 };
     for (int i = 0; i < 10; ++i) acr_gen1_ac_step(&ac, &d, turn);
     EXPECT(ac.turn_rate == 38);
+    EXPECT(ac.yaw == 6 + 12 + 18 + 24 + 30 + 36 + 38 * 4);
+    acr_gen1_ac_step(&ac, &d, k_none);
+    EXPECT(ac.turn_rate == 0);
 
-    /* Ground boost: limited to 75 units a step on an axis. */
+    /* From a stand, a direction and the booster jump (the game boosts along
+     * the ground only once the AC is already moving). */
     acr_gen1_ac_spawn(&ac, &d, 0, 0, 0);
-    const acr_gen1_input boost = { 1, 0, 0, 1, 0, 0, 0 };
-    for (int i = 0; i < 20; ++i) { last = ac.z; acr_gen1_ac_step(&ac, &d, boost); }
-    EXPECT(ac.z - last == 75 * 64);
+    acr_gen1_ac_step(&ac, &d, k_boost);
+    EXPECT(ac.state == ACR_GEN1_CROUCH && ac.vz == 0);
+
+    /* Walking first, the same press boosts: limited to 75 a tick on an axis. */
+    acr_gen1_ac_spawn(&ac, &d, 0, 0, 0);
+    acr_gen1_ac_step(&ac, &d, k_fwd);
+    EXPECT(ac.energy == 28000);
+    for (int i = 0; i < 20; ++i) { last = ac.z; acr_gen1_ac_step(&ac, &d, k_boost); }
+    EXPECT(ac.state == ACR_GEN1_GROUND && ac.z - last == 75 * 64);
     EXPECT(ac.energy == 28000 - 20 * 200);
 
-    /* Rise: the press, 7 still steps, lift-off at 3,200, then rise acceleration. */
+    /* Rise: the press, 7 still ticks, lift-off at 3,200, then rise acceleration. */
     acr_gen1_ac_spawn(&ac, &d, 0, 0, 0);
-    const acr_gen1_input up = { 0, 0, 0, 1, 0, 0, 0 };
-    for (int i = 0; i < 9; ++i) acr_gen1_ac_step(&ac, &d, up);
+    for (int i = 0; i < 9; ++i) acr_gen1_ac_step(&ac, &d, k_up);
     EXPECT(ac.state == ACR_GEN1_AIR && ac.vy == -3200 - 64);
     /* Let go: falls back and lands, then waits. */
-    const acr_gen1_input none = { 0, 0, 0, 0, 0, 0, 0 };
     int steps = 0;
-    while (ac.state == ACR_GEN1_AIR && steps < 200) { acr_gen1_ac_step(&ac, &d, none); ++steps; }
+    while (ac.state == ACR_GEN1_AIR && steps < 200) { acr_gen1_ac_step(&ac, &d, k_none); ++steps; }
     EXPECT(ac.state == ACR_GEN1_LANDING && ac.y == 0);
-    for (int i = 0; i < 20; ++i) acr_gen1_ac_step(&ac, &d, none);
+    for (int i = 0; i < 20; ++i) acr_gen1_ac_step(&ac, &d, k_none);
     EXPECT(ac.state == ACR_GEN1_GROUND);
 
-    /* Boost hop: boost forward, let go one step, press again -> airborne at speed. */
+    /* Boost hop: boost forward, let go one tick, press again -> airborne at speed. */
     acr_gen1_ac_spawn(&ac, &d, 0, 0, 0);
-    for (int i = 0; i < 12; ++i) acr_gen1_ac_step(&ac, &d, boost);
-    const acr_gen1_input fwd_only = { 1, 0, 0, 0, 0, 0, 0 };
-    acr_gen1_ac_step(&ac, &d, fwd_only);
+    acr_gen1_ac_step(&ac, &d, k_fwd);
+    for (int i = 0; i < 12; ++i) acr_gen1_ac_step(&ac, &d, k_boost);
+    acr_gen1_ac_step(&ac, &d, k_fwd);
     EXPECT(ac.state == ACR_GEN1_GROUND && ac.vz > 0);
-    acr_gen1_ac_step(&ac, &d, boost);
+    acr_gen1_ac_step(&ac, &d, k_boost);
     EXPECT(ac.state == ACR_GEN1_AIR && ac.vy < 0 && ac.vz > 0);
+
+    /* In the air too, a move is cut to 75 a tick on an axis. */
+    acr_gen1_ac_spawn(&ac, &d, 0, 0, 0);
+    ac.state = ACR_GEN1_AIR; ac.y = -100000; ac.vz = 9000;
+    last = ac.z;
+    acr_gen1_ac_step(&ac, &d, k_none);
+    EXPECT(ac.z - last == 75 * 64);
 
     /* Energy: a quarter of the cost below the red zone; running dry locks the
      * booster until the bar is full, refilling at half speed meanwhile. */
     acr_gen1_ac_spawn(&ac, &d, 0, 0, 0);
     ac.energy = 9000;                            /* above the red zone (8000) */
     ac.state = ACR_GEN1_AIR; ac.y = -100000;
-    acr_gen1_ac_step(&ac, &d, up);
+    acr_gen1_ac_step(&ac, &d, k_up);
     EXPECT(ac.energy == 9000 - 400);
     ac.energy = 7000;
-    acr_gen1_ac_step(&ac, &d, up);
+    acr_gen1_ac_step(&ac, &d, k_up);
     EXPECT(ac.energy == 7000 - 100);
     ac.energy = 50;
-    acr_gen1_ac_step(&ac, &d, up);
+    acr_gen1_ac_step(&ac, &d, k_up);
     EXPECT(ac.energy == 0 && ac.drained);
     ac.state = ACR_GEN1_GROUND; ac.y = 0; ac.vx = ac.vy = ac.vz = 0;
-    acr_gen1_ac_step(&ac, &d, none);
+    acr_gen1_ac_step(&ac, &d, k_none);
     EXPECT(ac.energy == 100);                    /* standing refill 200, halved */
     ac.energy = 27950;
-    acr_gen1_ac_step(&ac, &d, up);               /* still locked: no rise */
-    EXPECT(ac.state == ACR_GEN1_GROUND && ac.drained == 0 && ac.energy == 28000);
+    acr_gen1_ac_step(&ac, &d, k_up);             /* still locked: no rise; goes over */
+    EXPECT(ac.state == ACR_GEN1_GROUND && ac.drained && ac.energy == 28050);
+    acr_gen1_ac_step(&ac, &d, k_none);           /* full: back to the capacity, unlocked */
+    EXPECT(ac.drained == 0 && ac.energy == 28000);
+
+    /* The refill goes over the capacity for a tick, then comes back. */
+    acr_gen1_ac_spawn(&ac, &d, 0, 0, 0);
+    ac.energy = 27950;
+    acr_gen1_ac_step(&ac, &d, k_none);
+    EXPECT(ac.energy == 28150);
+    acr_gen1_ac_step(&ac, &d, k_none);
+    EXPECT(ac.energy == 28000);
+
+    /* Falling (not boosting) refills at the standing rate; walking at the moving rate. */
+    acr_gen1_ac_spawn(&ac, &d, 0, 0, 0);
+    ac.energy = 10000; ac.state = ACR_GEN1_AIR; ac.y = -100000;
+    acr_gen1_ac_step(&ac, &d, k_none);
+    EXPECT(ac.energy == 10200);
+    acr_gen1_ac_spawn(&ac, &d, 0, 0, 0);
+    ac.energy = 10000;
+    acr_gen1_ac_step(&ac, &d, k_fwd);
+    EXPECT(ac.energy == 10100);
 
     /* A tap shorter than a step (released and pressed again between steps). */
     acr_gen1_ac_spawn(&ac, &d, 0, 0, 0);
-    for (int i = 0; i < 12; ++i) acr_gen1_ac_step(&ac, &d, boost);
+    acr_gen1_ac_step(&ac, &d, k_fwd);
+    for (int i = 0; i < 12; ++i) acr_gen1_ac_step(&ac, &d, k_boost);
     const acr_gen1_input tap = { 1, 0, 0, 1, 1, 0, 0 };
     acr_gen1_ac_step(&ac, &d, tap);
     EXPECT(ac.state == ACR_GEN1_AIR);
+
+    /* Crouched in the cannon stance: no walking, the crouch turn rates, and
+     * the slide loses an eighth a tick, stopping below 512. */
+    {
+        acr_gen1_ac_def dc = make_def();
+        dc.motion.crouch_turn_accel = 3; dc.motion.crouch_turn_max = 28;
+        acr_gen1_ac_spawn(&ac, &dc, 0, 0, 0);
+        ac.vz = 4000;
+        const acr_gen1_input kneel = { 1, 1, 0, 0, 0, 0, 1 };
+        acr_gen1_ac_step(&ac, &dc, kneel);
+        EXPECT(ac.vz == 3500 && ac.z == 3500 && ac.turn_rate == 3);
+        for (int i = 0; i < 30; ++i) acr_gen1_ac_step(&ac, &dc, kneel);
+        EXPECT(ac.vz == 0 && ac.turn_rate == 28 && ac.anim == ACR_GEN1_ANIM_IDLE);
+    }
+
+    /* 60 steps a second runs exactly the game's ticks, 22 a second: the same
+     * script gives the same state after every tick, and the shown position
+     * always lies between the tick before and the latest. */
+    {
+        acr_gen1_ac_def d60 = make_def();
+        d60.step_rate = 60; d60.gen1_rate = 22;
+        acr_gen1_ac a22, a60;
+        acr_gen1_ac_spawn(&a22, &d, 0, 0, 0);
+        acr_gen1_ac_spawn(&a60, &d60, 0, 0, 0);
+        int tick = 0, step = 0, match = 1, between = 1, ticks_in_second = 0;
+        while (tick < 140 && step < 1000) {
+            /* Steps before a tick already hold that tick's input, as a
+             * player's would. */
+            const int n = acr_gen1_ac_step(&a60, &d60, script(tick));
+            ++step;
+            if (step == 60) ticks_in_second = tick + n;
+            for (int k = 0; k < n; ++k) {
+                acr_gen1_ac_step(&a22, &d, script(tick));
+                ++tick;
+            }
+            if (n && !same(&a22, &a60)) { if (match) printf("differs at tick %d\n", tick); match = 0; }
+            const int32_t lo = a60.px < a60.x ? a60.px : a60.x, hi = a60.px < a60.x ? a60.x : a60.px;
+            if (a60.sx < lo || a60.sx > hi) between = 0;
+        }
+        EXPECT(match);
+        EXPECT(between);
+        EXPECT(ticks_in_second == 22);
+    }
+
+    /* At 60 steps a second a steady ground boost is shown moving evenly:
+     * 75 a tick is 27-28 a step. */
+    {
+        acr_gen1_ac_def d60 = make_def();
+        d60.step_rate = 60; d60.gen1_rate = 22;
+        acr_gen1_ac_spawn(&ac, &d60, 0, 0, 0);
+        for (int i = 0; i < 3; ++i) acr_gen1_ac_step(&ac, &d60, k_fwd);
+        for (int i = 0; i < 60; ++i) acr_gen1_ac_step(&ac, &d60, k_boost);
+        int even = 1;
+        for (int i = 0; i < 30; ++i) {
+            const int32_t before = ac.sz;
+            acr_gen1_ac_step(&ac, &d60, k_boost);
+            const int32_t moved = (ac.sz - before) / 64;
+            if (moved < 27 || moved > 28) even = 0;
+        }
+        EXPECT(even);
+    }
+
+    /* Moved outside the rules (a blade lunge): the shown position moves too. */
+    acr_gen1_ac_spawn(&ac, &d, 0, 0, 0);
+    acr_gen1_ac_shift(&ac, 640, -64);
+    EXPECT(ac.x == 640 && ac.px == 640 && ac.sx == 640 && ac.z == -64 && ac.sz == -64);
+    acr_gen1_ac_set_yaw(&ac, 4100);
+    EXPECT(ac.yaw == 4 && ac.pyaw == 4 && ac.syaw == 4);
 
     /* View tilt: L2 up to the limit, held there; L2+R2 back to level. */
     {

@@ -59,7 +59,7 @@ typedef struct acr_gen1_stats {
 /* What the battle engine derives at match start (VS engine 0x8008342C).
  * Velocities are in 1/64 world units per step; turning in 1/4096 turns. */
 typedef struct acr_gen1_motion {
-    uint16_t rise_accel;       /* +6 x 2, per step while rising */
+    uint16_t rise_accel;       /* +6 x 2, per tick while rising */
     uint16_t rise_max;         /* +7 x 200 */
     uint16_t air_accel;        /* +8 x 14, boosting in the air; / 4 slowing down after */
     uint16_t air_max;          /* +9 x 140 */
@@ -67,8 +67,8 @@ typedef struct acr_gen1_motion {
     uint16_t boost_max;        /* +11 x 140 */
     uint16_t turn_accel;       /* +12 x 5 / 16 */
     uint16_t turn_max;         /* +13 x 15 / 16 */
-    uint16_t friction;         /* +14, taken off each ground axis per step */
-    uint16_t axis_step_max;    /* world units per step on each ground axis; 0 = no limit */
+    uint16_t friction;         /* +14, taken off each ground axis per tick (not used in VS) */
+    uint16_t axis_step_max;    /* world units per tick on each axis; 0 = no limit */
     /* Turning while crouched in the cannon stance (VS 0x8007E3E0 with player
      * block +0x210 / +0x212): slot +7 x 5 / 32 + 1 and +8 x 15 / 32 + 1 for a
      * back weapon (hand weapons give 64 -> 11 / 31). */
@@ -77,9 +77,9 @@ typedef struct acr_gen1_motion {
 } acr_gen1_motion;
 
 /* Fixed by the engine, not by parts. */
-#define ACR_GEN1_GRAVITY        256   /* added to vertical speed per step */
+#define ACR_GEN1_GRAVITY        256   /* added to vertical speed per tick */
 #define ACR_GEN1_FALL_MAX       9600
-#define ACR_GEN1_AXIS_STEP_MAX  75    /* world units per step on each ground axis (measured);
+#define ACR_GEN1_AXIS_STEP_MAX  75    /* world units per tick on each axis (measured);
                                          acr_gen1_motion.axis_step_max starts here and a ruleset may raise it */
 
 /* Optional parts (bit n = option n, Master of Arena's option table). */

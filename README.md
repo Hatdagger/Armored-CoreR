@@ -29,7 +29,7 @@ empty arena with Gen 1 movement.
 | Part stats exported as readable files (187 parts incl. optional parts) | done |
 | Gen 1 compile (parts -> AC stats), checked against the game | done |
 | Gen 1 fitting rules (what makes an AC legal) | done |
-| Gen 1 movement: walk, strafe, turn, boost, rise, landing, energy | first version |
+| Gen 1 movement: walk, strafe, turn, boost, rise, landing, energy, at the game's own 22 ticks a second at any step rate | second version |
 | AC graphics | real models from your disc: parts on the skeleton, joint animations, your colours (PS1-style lighting) |
 | Lock-on, guns, missiles (lock cursor, volleys, flight, giving up), blade, interceptor, damage: following the AC1Recomp fork's mapping of the game code | first version |
 | Two players on one machine (split screen) | first version |
@@ -78,10 +78,11 @@ own part models (every part, FCS and options included) go to
    parts with `--legs N`, `--booster N`, `--core N`, `--arms N`, `--gen N`
    (Master of Arena part numbers, as in the part file names); `--back N`
    picks the back weapon.
-   The test build runs 60 steps a second for now (Back / T cycles 22, 30,
-   45, 60; 22 is Gen 1's own pace). Movement per step is the game's, so it
-   runs faster at higher rates; energy use and landing recovery stay the same
-   per second. X / B and Y / G cycle the booster and generator.
+   The test build runs 60 steps a second (Back / T cycles 22, 30, 45, 60).
+   At every rate the game's rules run 22 times a second, as on the PS1, so
+   walking, boosting, rising, falling, turning and energy all play at the
+   game's pace; faster rates only draw the AC more smoothly between ticks.
+   X / B and Y / G cycle the booster and generator.
 
 | Action | Controller | Keyboard |
 | --- | --- | --- |
@@ -94,7 +95,7 @@ own part models (every part, FCS and options included) go to
 | Next booster / generator / back weapon / legs | Back + X / Y / B / RB | B / G / C / L |
 | Human PLUS on/off | Back + A | H |
 | Two players, split screen | Back + LB | F2 |
-| Change speed (22, 30, 45, 60 steps a second) | Back | T |
+| Change step rate (22, 30, 45, 60 steps a second; same game pace) | Back | T |
 | Reset | Start | R |
 | Hide help | | F1 |
 

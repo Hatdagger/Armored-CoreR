@@ -68,16 +68,19 @@ static void set_anim(acr_gen1_ac *ac, uint8_t anim) {
     ac->anim = anim;
     ac->anim_frame = 0;
     ac->span_left = 0;
-    ac->walk_phase = 0xFFFF;
-    ac->tick_mx = ac->tick_mz = ac->rem_mx = ac->rem_mz = 0;
 }
 
-float acr_gen1_walk_fraction(const acr_gen1_ac *ac, const acr_gen1_ac_def *def) {
-    if (!def->step_rate || !def->gen1_rate || ac->walk_phase == 0xFFFF) return 0.0f;
-    return (float)ac->walk_phase / (float)def->step_rate;
+static int walking(const acr_gen1_ac *ac) {
+    return ac->anim != ACR_GEN1_ANIM_IDLE && ac->anim != ACR_GEN1_ANIM_JUMP;
 }
 
-/* Walking, strafing, walking back: the legs' animation moves the AC. */
+float acr_gen1_tick_fraction(const acr_gen1_ac *ac) {
+    if (!ac->show_den || ac->show_num >= ac->show_den) return 1.0f;
+    return (float)ac->show_num / (float)ac->show_den;
+}
+
+/* Walking, strafing, walking back: the legs' animation moves the AC, one
+ * animation frame a tick. */
 static void walk(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_input in,
                  int32_t *mx, int32_t *mz) {
     uint8_t start = ACR_GEN1_ANIM_IDLE, loop = ACR_GEN1_ANIM_IDLE;
@@ -89,51 +92,35 @@ static void walk(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_input in,
         set_anim(ac, def->anim[start] ? start : loop);
     const acr_gen1_root_track *t = def->anim[ac->anim];
     if (!t || ac->anim == ACR_GEN1_ANIM_IDLE) return;
-    const int scaled = def->step_rate && def->gen1_rate;
-    const int32_t rn = scaled ? def->gen1_rate : 1, rd = scaled ? def->step_rate : 1;
-    int tick = 0;
-    if (ac->walk_phase == 0xFFFF) { ac->walk_phase = 0; tick = 1; }
-    else {
-        ac->walk_phase = (uint16_t)(ac->walk_phase + rn);
-        if (ac->walk_phase >= rd) { ac->walk_phase = (uint16_t)(ac->walk_phase - rd); tick = 1; }
-    }
-    if (tick) {
-        if (ac->span_left == 0) {
-            if (ac->anim_frame >= t->length) {
-                if (ac->anim == start && def->anim[loop]) { set_anim(ac, loop); ac->walk_phase = 0; t = def->anim[loop]; }
-                else ac->anim_frame = 0;
-            }
-            int32_t d[3];
-            unsigned frames;
-            if (!acr_gen1_root_span(t, ac->anim_frame, d, &frames)) {
-                ac->anim_frame = t->length; ac->tick_mx = ac->tick_mz = 0; return;
-            }
-            /* Walking diagonally (forward or back with a strafe): the walk
-             * track turned 45 degrees toward the strafe side. The game's own
-             * diagonal walking is not measured yet. */
-            int turn = 0;
-            if (in.move && in.strafe) turn = (in.move > 0 ? in.strafe : -in.strafe) * 512;
-            int32_t wx, wz;
-            to_world((uint16_t)((ac->yaw + turn) & 4095), d[0], d[2], &wx, &wz);
-            acr_gen1_stepper_init(&ac->step[0], (int)frames, div_round(wx, 4));
-            acr_gen1_stepper_init(&ac->step[1], (int)frames, div_round(d[1], 4));
-            acr_gen1_stepper_init(&ac->step[2], (int)frames, div_round(wz, 4));
-            ac->span_left = (uint16_t)frames;
+    if (ac->span_left == 0) {
+        if (ac->anim_frame >= t->length) {
+            if (ac->anim == start && def->anim[loop]) { set_anim(ac, loop); t = def->anim[loop]; }
+            else ac->anim_frame = 0;
         }
-        ac->tick_mx = acr_gen1_stepper_next(&ac->step[0]) * 64;
-        (void)acr_gen1_stepper_next(&ac->step[1]);
-        ac->tick_mz = acr_gen1_stepper_next(&ac->step[2]) * 64;
-        ac->anim_frame++;
-        ac->span_left--;
+        int32_t d[3];
+        unsigned frames;
+        if (!acr_gen1_root_span(t, ac->anim_frame, d, &frames)) { ac->anim_frame = t->length; return; }
+        /* Walking diagonally (forward or back with a strafe): the walk
+         * track turned 45 degrees toward the strafe side. The game's own
+         * diagonal walking is not measured yet. */
+        int turn = 0;
+        if (in.move && in.strafe) turn = (in.move > 0 ? in.strafe : -in.strafe) * 512;
+        int32_t wx, wz;
+        to_world((uint16_t)((ac->yaw + turn) & 4095), d[0], d[2], &wx, &wz);
+        acr_gen1_stepper_init(&ac->step[0], (int)frames, div_round(wx, 4));
+        acr_gen1_stepper_init(&ac->step[1], (int)frames, div_round(d[1], 4));
+        acr_gen1_stepper_init(&ac->step[2], (int)frames, div_round(wz, 4));
+        ac->span_left = (uint16_t)frames;
     }
-    /* This step's share of the tick (all of it at Gen 1's pace). */
-    const int32_t sx = ac->tick_mx * rn + ac->rem_mx, sz = ac->tick_mz * rn + ac->rem_mz;
-    *mx += sx / rd; ac->rem_mx = sx % rd;
-    *mz += sz / rd; ac->rem_mz = sz % rd;
+    *mx += acr_gen1_stepper_next(&ac->step[0]) * 64;
+    (void)acr_gen1_stepper_next(&ac->step[1]);
+    *mz += acr_gen1_stepper_next(&ac->step[2]) * 64;
+    ac->anim_frame++;
+    ac->span_left--;
 }
 
 /* Jump: still frames before lift-off and the take-off speed, from the jump
- * animation's first upward key (default AC: 7 steps, 3,200). */
+ * animation's first upward key (default AC: 7 ticks, 3,200). */
 static void takeoff(const acr_gen1_ac_def *def, uint16_t *crouch, int32_t *vy) {
     *crouch = 7;
     *vy = -3200;
@@ -153,63 +140,72 @@ static void takeoff(const acr_gen1_ac_def *def, uint16_t *crouch, int32_t *vy) {
     }
 }
 
-void acr_gen1_ac_spawn(acr_gen1_ac *ac, const acr_gen1_ac_def *def, int32_t x, int32_t z, uint16_t yaw) {
-    *ac = (acr_gen1_ac){0};
-    ac->x = x;
-    ac->z = z;
-    ac->yaw = yaw;
-    ac->yaw_fine = (int32_t)yaw << 8;
-    ac->energy = def->stats.energy_capacity;
-    ac->state = ACR_GEN1_GROUND;
+/* The cannon stance's slide (VS 0x8007E3E0): an eighth off each axis a
+ * tick, nothing left below 512. */
+static void crouch_slide(int32_t *v) {
+    *v -= *v / 8;
+    if (*v > -512 && *v < 512) *v = 0;
 }
 
-void acr_gen1_ac_step(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_input in) {
+void acr_gen1_ac_spawn(acr_gen1_ac *ac, const acr_gen1_ac_def *def, int32_t x, int32_t z, uint16_t yaw) {
+    *ac = (acr_gen1_ac){0};
+    ac->x = ac->px = ac->sx = x;
+    ac->z = ac->pz = ac->sz = z;
+    ac->yaw = ac->pyaw = ac->syaw = yaw;
+    ac->energy = def->stats.energy_capacity;
+    ac->state = ACR_GEN1_GROUND;
+    ac->show_num = ac->show_den = 1;
+    /* The first step runs a tick. */
+    if (def->step_rate && def->gen1_rate && def->gen1_rate < def->step_rate)
+        ac->phase = (uint16_t)(def->step_rate - def->gen1_rate);
+}
+
+void acr_gen1_ac_tick(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_input in) {
     const acr_gen1_motion *m = &def->motion;
     const acr_gen1_stats *s = &def->stats;
+    ac->px = ac->x; ac->py = ac->y; ac->pz = ac->z;
+    ac->pyaw = ac->yaw;
 
-    /* Turning: speeds up each step to the top rate, stops at once on release.
-     * Kept per second at faster step rates (top speed x r, acceleration x r^2,
-     * r = gen1_rate / step_rate), in 1/256 units so small steps add up. */
-    const int scaled = def->step_rate && def->gen1_rate;
-    const int64_t rn = scaled ? def->gen1_rate : 1, rd = scaled ? def->step_rate : 1;
+    /* Turning: speeds up each tick to the top rate, stops at once on
+     * release (VS 0x8007E1DC). Crouched in the cannon stance it uses the
+     * weapon's crouch rates. */
     if (in.turn && ac->state != ACR_GEN1_LANDING) {
-        const uint16_t ta = in.crouch && m->crouch_turn_max ? m->crouch_turn_accel : m->turn_accel;
-        const uint16_t tm = in.crouch && m->crouch_turn_max ? m->crouch_turn_max : m->turn_max;
-        const int32_t accel = (int32_t)((int64_t)ta * 256 * rn * rn / (rd * rd));
-        const int32_t top = (int32_t)((int64_t)tm * 256 * rn / rd);
-        ac->turn_fine += in.turn * (accel ? accel : 1);
-        if (ac->turn_fine > top) ac->turn_fine = top;
-        if (ac->turn_fine < -top) ac->turn_fine = -top;
+        const int crouched = in.crouch && m->crouch_turn_max;
+        const int32_t ta = crouched ? m->crouch_turn_accel : m->turn_accel;
+        const int32_t tm = crouched ? m->crouch_turn_max : m->turn_max;
+        int32_t r = ac->turn_rate + in.turn * (ta ? ta : 1);
+        if (r > tm) r = tm;
+        if (r < -tm) r = -tm;
+        ac->turn_rate = (int16_t)r;
     } else {
-        ac->turn_fine = 0;
+        ac->turn_rate = 0;
     }
-    ac->turn_rate = (int16_t)(ac->turn_fine * rd / rn / 256);
-    ac->yaw_fine = (ac->yaw_fine + ac->turn_fine) & (4096 * 256 - 1);
-    ac->yaw = (uint16_t)(ac->yaw_fine >> 8);
+    ac->yaw = (uint16_t)((ac->yaw + ac->turn_rate) & 4095);
 
-    /* View tilt: L2 up, R2 down, both back to level (rates per Gen 1 step). */
-    if (in.look == 2) {
-        const int32_t r = (int32_t)((int64_t)ACR_GEN1_PITCH_LEVEL_RATE * 256 * rn / rd);
-        if (ac->pitch_fine > r) ac->pitch_fine -= r;
-        else if (ac->pitch_fine < -r) ac->pitch_fine += r;
-        else ac->pitch_fine = 0;
-    } else if (in.look) {
-        const int32_t lim = ACR_GEN1_PITCH_MAX * 256;
-        ac->pitch_fine += in.look * (int32_t)((int64_t)ACR_GEN1_PITCH_RATE * 256 * rn / rd);
-        if (ac->pitch_fine > lim) ac->pitch_fine = lim;
-        if (ac->pitch_fine < -lim) ac->pitch_fine = -lim;
-    }
-    ac->pitch = (int16_t)(ac->pitch_fine / 256);
-
+    /* The game reads the pad once a tick: a press is fresh when the button
+     * was up at the last tick or was let go of since. */
     const int can_boost = in.boost && !ac->drained && ac->energy > 0;
-    const int fresh_press = in.boost && (!ac->boost_was_down || in.boost_tapped);
+    const int fresh_press = in.boost && (!ac->boost_was_down || ac->boost_released || in.boost_tapped);
     ac->boost_was_down = in.boost;
+    ac->boost_released = 0;
     int32_t drain = 0, mx = 0, mz = 0, dx = 0, dz = 0;
     const int dir = stick_dir(ac->yaw, in, &dx, &dz);
-    int moving = dir;
 
     switch (ac->state) {
-    case ACR_GEN1_GROUND:
+    case ACR_GEN1_GROUND: {
+        if (in.crouch) {
+            crouch_slide(&ac->vx);
+            crouch_slide(&ac->vz);
+            if (walking(ac)) set_anim(ac, ACR_GEN1_ANIM_IDLE);
+            mx = ac->vx;
+            mz = ac->vz;
+            break;
+        }
+        /* Already moving (walking, or sliding after a boost): a direction
+         * and the booster boost along the ground. From a stand the booster
+         * jumps, with or without a direction (checked in the recomp: the
+         * first step's press still jumps). */
+        const int moving = walking(ac) || ac->vx || ac->vz;
         /* Boost hop: let go of the booster during a ground boost and press it
          * again while still sliding, and the AC jumps straight into the air,
          * keeping its speed (humanoid, reverse-joint and four-legged legs;
@@ -223,14 +219,13 @@ void acr_gen1_ac_step(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
             set_anim(ac, ACR_GEN1_ANIM_IDLE);
             mx = ac->vx;
             mz = ac->vz;
-            moving = 1;
             break;
         }
-        if (can_boost && dir) {
+        if (can_boost && dir && moving) {
             ac->vx += dx * (int32_t)m->boost_accel / 4096;
             ac->vz += dz * (int32_t)m->boost_accel / 4096;
             limit_length(&ac->vx, &ac->vz, m->boost_max);
-            ac->coast = (uint16_t)(3 * rd / rn);   /* measured: 2-3 steps at full speed */
+            ac->coast = 3;                      /* measured: 2-3 ticks at full speed */
             drain = 2;                          /* marker: ground boost (half cost) */
             set_anim(ac, ACR_GEN1_ANIM_IDLE);
         } else if (can_boost && ac->vx == 0 && ac->vz == 0) {
@@ -239,23 +234,16 @@ void acr_gen1_ac_step(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
             set_anim(ac, ACR_GEN1_ANIM_JUMP);
         } else if (ac->vx || ac->vz) {
             /* Slide: keep full speed a moment, then slow by the boost
-             * acceleration a step (per second at faster step rates). */
+             * acceleration a tick. */
             if (ac->coast) --ac->coast;
-            else slow_down(&ac->vx, &ac->vz, (uint32_t)(m->boost_accel * rn / rd));
+            else slow_down(&ac->vx, &ac->vz, m->boost_accel);
         } else {
             walk(ac, def, in, &mx, &mz);
         }
         mx += ac->vx;
         mz += ac->vz;
-        /* Ground movement is limited on each axis (measured 75 units a step). */
-        if (m->axis_step_max) {
-            const int32_t lim = (int32_t)m->axis_step_max * 64;
-            if (mx > lim) mx = lim;
-            if (mx < -lim) mx = -lim;
-            if (mz > lim) mz = lim;
-            if (mz < -lim) mz = -lim;
-        }
         break;
+    }
     case ACR_GEN1_CROUCH:
         if (ac->timer) --ac->timer;
         if (!ac->timer) ac->state = ACR_GEN1_AIR;
@@ -285,17 +273,27 @@ void acr_gen1_ac_step(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
         }
         mx = ac->vx;
         mz = ac->vz;
-        moving = 1;
         break;
     case ACR_GEN1_LANDING:
         if (ac->timer) --ac->timer;
         if (!ac->timer) ac->state = ACR_GEN1_GROUND;
-        slow_down(&ac->vx, &ac->vz, (uint32_t)(m->boost_accel * rn / rd));
+        slow_down(&ac->vx, &ac->vz, m->boost_accel);
         mx = ac->vx;
         mz = ac->vz;
         break;
     }
 
+    /* Every move is cut to 75 a tick on each axis (three quarters of the
+     * AC's width, AC object +0x28; VS 0x80054124, which all the movement
+     * handlers load their step through). The air boost measured 54 a tick,
+     * so the air uses the same three-quarter limit, not the half one. */
+    if (m->axis_step_max) {
+        const int32_t lim = (int32_t)m->axis_step_max * 64;
+        if (mx > lim) mx = lim;
+        if (mx < -lim) mx = -lim;
+        if (mz > lim) mz = lim;
+        if (mz < -lim) mz = -lim;
+    }
     ac->x += mx;
     ac->z += mz;
     if (ac->state == ACR_GEN1_AIR) {
@@ -311,35 +309,36 @@ void acr_gen1_ac_step(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
             set_anim(ac, ACR_GEN1_ANIM_IDLE);
             /* Recovery grows with the speed of the fall: none below 2,000, the
              * full measured stagger at 5,000 and above (a hop's touchdown), so
-             * feathering the booster before landing softens it. Counted in
-             * steps, so it shortens at faster step rates like movement. The
+             * feathering the booster before landing softens it. In ticks. The
              * curve below 5,000 is a stand-in until measured. */
             const int32_t fall = ac->vy_at_touchdown;
-            uint32_t steps = 0;
-            if (fall >= 5000) steps = def->landing_steps;
-            else if (fall > 2000) steps = (uint32_t)def->landing_steps * (uint32_t)(fall - 2000) / 3000u;
-            ac->timer = (uint16_t)steps;
+            uint32_t ticks = 0;
+            if (fall >= 5000) ticks = def->landing_steps;
+            else if (fall > 2000) ticks = (uint32_t)def->landing_steps * (uint32_t)(fall - 2000) / 3000u;
+            ac->timer = (uint16_t)ticks;
             if (!ac->timer) ac->state = ACR_GEN1_GROUND;
         }
     }
 
     /* Energy (VS engine 0x80082D90): boosting drains, otherwise the
      * generator refills it.
+     * - The moving refill is for an AC moving on the ground (walking,
+     *   boosting or sliding); standing, turning on the spot and the air
+     *   (not boosting) get the standing refill.
      * - Below the red zone both draining and refilling run at a quarter.
      * - A ground boost costs half.
+     * - The refill is added before the cap is checked, so a full bar goes
+     *   over by up to one refill for a tick, then back to the capacity.
      * - Running dry locks the booster; the bar then refills at half speed
-     *   and the lock lifts only when it is completely full. */
+     *   (with no quarter below the red zone) and the lock lifts only when
+     *   it is completely full. */
+    const int on_ground = ac->state == ACR_GEN1_GROUND || ac->state == ACR_GEN1_LANDING;
+    const int moving_refill = on_ground && (walking(ac) || ac->vx || ac->vz);
     int32_t cost = s->rise_drain;
-    int32_t refill = (moving || ac->vx || ac->vz) ? s->refill_moving : s->refill_standing;
-    if (def->step_rate && def->gen1_rate) {      /* same energy per second at any step rate */
-        cost = cost * def->gen1_rate / def->step_rate;
-        refill = refill * def->gen1_rate / def->step_rate;
-        if (!cost) cost = 1;
-        if (!refill) refill = 1;
-    }
+    int32_t refill = moving_refill ? s->refill_moving : s->refill_standing;
     if (ac->drained) {
-        ac->energy += refill >> 1;
         if (ac->energy >= s->energy_capacity) { ac->energy = s->energy_capacity; ac->drained = 0; }
+        else ac->energy += refill >> 1;
         return;
     }
     if (ac->energy < s->red_zone) { cost >>= 2; refill >>= 2; }
@@ -347,8 +346,70 @@ void acr_gen1_ac_step(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
         if (drain == 2) cost >>= 1;
         if (ac->energy > cost) ac->energy -= cost;
         else { ac->energy = 0; ac->drained = 1; }
+    } else if (ac->energy >= s->energy_capacity) {
+        ac->energy = s->energy_capacity;
     } else {
         ac->energy += refill;
-        if (ac->energy > s->energy_capacity) ac->energy = s->energy_capacity;
     }
+}
+
+static int32_t lerp32(int32_t a, int32_t b, uint32_t num, uint32_t den) {
+    return a + (int32_t)((int64_t)(b - a) * num / den);
+}
+
+static void show(acr_gen1_ac *ac, uint32_t num, uint32_t den) {
+    if (!den || num >= den) { num = 1; den = 1; }
+    ac->show_num = (uint16_t)num;
+    ac->show_den = (uint16_t)den;
+    ac->sx = lerp32(ac->px, ac->x, num, den);
+    ac->sy = lerp32(ac->py, ac->y, num, den);
+    ac->sz = lerp32(ac->pz, ac->z, num, den);
+    int32_t dyaw = ((int32_t)ac->yaw - (int32_t)ac->pyaw) & 4095;
+    if (dyaw >= 2048) dyaw -= 4096;
+    ac->syaw = (uint16_t)((ac->pyaw + (int32_t)((int64_t)dyaw * num / den)) & 4095);
+}
+
+void acr_gen1_ac_advance(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_input in,
+                         int ticks, uint32_t num, uint32_t den) {
+    /* View tilt: L2 up, R2 down, both back to level (rates per Gen 1 tick,
+     * moved every step so it stays smooth). */
+    const int scaled = def->step_rate && def->gen1_rate;
+    const int64_t rn = scaled ? def->gen1_rate : 1, rd = scaled ? def->step_rate : 1;
+    if (in.look == 2) {
+        const int32_t r = (int32_t)((int64_t)ACR_GEN1_PITCH_LEVEL_RATE * 256 * rn / rd);
+        if (ac->pitch_fine > r) ac->pitch_fine -= r;
+        else if (ac->pitch_fine < -r) ac->pitch_fine += r;
+        else ac->pitch_fine = 0;
+    } else if (in.look) {
+        const int32_t lim = ACR_GEN1_PITCH_MAX * 256;
+        ac->pitch_fine += in.look * (int32_t)((int64_t)ACR_GEN1_PITCH_RATE * 256 * rn / rd);
+        if (ac->pitch_fine > lim) ac->pitch_fine = lim;
+        if (ac->pitch_fine < -lim) ac->pitch_fine = -lim;
+    }
+    ac->pitch = (int16_t)(ac->pitch_fine / 256);
+
+    if (!in.boost || in.boost_tapped) ac->boost_released = 1;
+    for (int k = 0; k < ticks; ++k) acr_gen1_ac_tick(ac, def, in);
+    show(ac, num, den);
+}
+
+int acr_gen1_ac_step(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_input in) {
+    const int scaled = def->step_rate && def->gen1_rate;
+    const uint32_t rn = scaled ? def->gen1_rate : 1, rd = scaled ? def->step_rate : 1;
+    if (ac->phase >= rd) ac->phase = (uint16_t)(rn < rd ? rd - rn : 0);   /* the rate changed */
+    uint32_t p = ac->phase + rn;
+    const int ticks = (int)(p / rd);
+    p %= rd;
+    ac->phase = (uint16_t)p;
+    acr_gen1_ac_advance(ac, def, in, ticks, scaled ? p : 1, scaled ? rd : 1);
+    return ticks;
+}
+
+void acr_gen1_ac_shift(acr_gen1_ac *ac, int32_t dx, int32_t dz) {
+    ac->x += dx; ac->px += dx; ac->sx += dx;
+    ac->z += dz; ac->pz += dz; ac->sz += dz;
+}
+
+void acr_gen1_ac_set_yaw(acr_gen1_ac *ac, uint16_t yaw) {
+    ac->yaw = ac->pyaw = ac->syaw = (uint16_t)(yaw & 4095);
 }
