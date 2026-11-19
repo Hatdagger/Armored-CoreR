@@ -243,6 +243,16 @@ void acr_pose_play(const acr_skeleton *skel, const acr_anim_set *set, int anim, 
         for (uint32_t k = 0; k < fr->keys; ++k) {
             const acr_anim_key *key = &set->key[fr->first_key + k];
             if (key->node >= skel->count) continue;
+            if (f > 0) {
+                /* Later frames are steps from the frame before (record
+                 * flag bits 0-1 = 1 on the disc); checked on all 72 sets:
+                 * every walk loop comes back to its first pose. */
+                for (int i = 0; i < 3; ++i) {
+                    if (key->flags & ACR_KEY_ROT) pose->rot[key->node][i] = (int16_t)(pose->rot[key->node][i] + key->rot[i]);
+                    if (key->flags & ACR_KEY_POS) pose->pos[key->node][i] = (int16_t)(pose->pos[key->node][i] + key->pos[i]);
+                }
+                continue;
+            }
             if (key->flags & ACR_KEY_ROT) memcpy(pose->rot[key->node], key->rot, sizeof key->rot);
             else if (key->flags & ACR_KEY_ROT_ZERO) memset(pose->rot[key->node], 0, sizeof key->rot);
             if (key->flags & ACR_KEY_POS) memcpy(pose->pos[key->node], key->pos, sizeof key->pos);

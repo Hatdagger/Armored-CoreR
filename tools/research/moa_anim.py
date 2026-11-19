@@ -41,14 +41,15 @@ def joint_table(d,h):
     return order,slot,parent
 
 def state(rec,frame):
+    """Frame 0 sets values; later frames (flag bits 0-1 = 1) add steps to
+    them, and "zero" there means no change (2026-11-19)."""
     st={}
-    for f in rec['frames'][:frame+1]:
+    for i,f in enumerate(rec['frames'][:frame+1]):
         for node,fl,r,p in f:
             o=st.setdefault(node,[None,None]); rm=(fl>>2)&3; pm=(fl>>6)&3
-            if rm==3: o[0]=None
-            elif rm: o[0]=r
-            if pm==3: o[1]=None
-            elif pm: o[1]=p
+            for idx,mode,val in ((0,rm,r),(1,pm,p)):
+                if mode in (1,2): o[idx]=tuple(a+b for a,b in zip(o[idx] or (0,0,0),val)) if i else val
+                elif mode==3 and not i: o[idx]=None
     return st
 
 def rot(r):   # 4096 = full turn; M = Rx*Ry*Rz (confirmed, see the notes)

@@ -22,7 +22,7 @@ static const char k_skel[] =
 static const char k_anims[] =
     "anim 0 idle\nlast_tick 0\nframes 1\nhold\nframe 0\n  node 3 rot 0 1024 0 pos 10 -20 0\n\n"
     "anim 5\nlast_tick 5\nframes 3\nhold 2 3\nframe 0\n  node 3 rot zero pos 10 -20 0\n"
-    "frame 1\n  node 3 rot 0 0 1024\nframe 2\n  node 3 pos zero\n  node 99 rot 1 2 3\n";
+    "frame 1\n  node 3 rot 0 0 1024\nframe 2\n  node 3 rot zero pos 5 0 0\n  node 99 rot 1 2 3\n";
 
 static const char k_mtl[] =
     "# made up\nnewmtl arms\nKd 1 1 1\nmap_Kd texture.png\n\nnewmtl rgb-FF0000-semi\nKd 1.0000 0.0000 0.0000\nd 0.5\n"
@@ -101,8 +101,9 @@ int main(int argc, char **argv) {
     acr_pose pose;
     acr_pose_play(&sk, &as, 5, 3, &pose);
     CHECK(pose.rot[1][0] == 0 && pose.rot[1][1] == 0 && pose.rot[1][2] == 1024 && pose.pos[1][0] == 10);
+    /* later frames are steps; "zero" in a step frame changes nothing */
     acr_pose_play(&sk, &as, 5, 9, &pose);
-    CHECK(pose.pos[1][0] == 0 && pose.pos[1][1] == 0 && pose.rot[1][2] == 1024);
+    CHECK(pose.pos[1][0] == 15 && pose.pos[1][1] == -20 && pose.rot[1][2] == 1024);
     acr_pose_play(&sk, &as, 30, 0, &pose);                    /* missing: bind pose */
     CHECK(pose.rot[1][1] == 1024);
 

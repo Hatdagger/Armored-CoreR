@@ -67,8 +67,10 @@ void acr_pose_bind(const acr_skeleton *skel, acr_pose *pose);
 /* Frame shown `tick` ticks into an animation: each frame stays for its hold
  * time, the last one for good. */
 int  acr_anim_frame_at(const acr_anim_set *set, int anim, unsigned tick);
-/* Poses for animation `anim` at `tick`: the bind pose, then frames 0..k. A
- * missing animation leaves the bind pose. */
+/* Poses for animation `anim` at `tick`: the bind pose, then frames 0..k.
+ * Frame 0 sets values; every later frame adds its values to them (the
+ * game stores the rest of an animation as steps; "zero" there = no
+ * change). A missing animation leaves the bind pose. */
 void acr_pose_play(const acr_skeleton *skel, const acr_anim_set *set, int anim, unsigned tick, acr_pose *pose);
 
 /* Per node, the 3x4 matrix (row-major, last column = translation) that takes

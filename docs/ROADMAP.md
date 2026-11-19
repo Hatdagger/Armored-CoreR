@@ -126,6 +126,13 @@ engine's code (`gen1-models.md`, "Blending and which pose shows"):
 - The jump take-off animation now plays (its frame was stuck at 0, so a
   standing jump showed the first take-off frame until it landed).
 
+Play-test (2026-11-19): boost poses much improved, turning on the spot
+good; walking (every direction) and the blade swing looked harsh. Cause:
+the animation records store every frame after the first as steps from the
+frame before, and the engine read them as whole poses, so multi-frame
+animations (walking, blade, take-off, landing) snapped between wrong
+poses. Fixed in the pose player (no re-import needed).
+
 Next for the look: the second animation layer (firing), aiming (the arms,
 head and back weapons following the target), the kneel, the eight-way
 walk (the game has diagonal walking animations 3-6 and 16-19), and the

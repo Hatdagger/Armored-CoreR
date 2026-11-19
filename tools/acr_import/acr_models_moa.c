@@ -1072,8 +1072,9 @@ static int write_set(const char *out_dir, unsigned id, const set_info *s) {
     f = fopen(path, "wb");
     if (!f) return 0;
     fprintf(f, "# Master of Arena animation set %u, joint animations, imported from your disc.\n"
-               "# Each frame lists only the nodes that change; values are absolute.\n"
-               "# rot / pos: new value, \"zero\": back to 0, missing: keep the last one.\n"
+               "# Each frame lists only the nodes that change. Frame 0 sets values; later\n"
+               "# frames add their values as steps (\"zero\" there: no change).\n"
+               "# Frame 0: rot / pos = value, \"zero\" = 0; a node not listed keeps its value.\n"
                "# hold = ticks each frame is shown before the next (one fewer than frames).\n", id);
     int ok = 1;
     for (unsigned a = 0; ok && a < 57; ++a) {

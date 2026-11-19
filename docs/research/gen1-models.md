@@ -126,7 +126,16 @@ records: `u16` (node << 8 | flags), then data by the flags:
 | 2-3 | rotation: 1 = 3 x s16, 2 = 3 x s8 (+1 pad byte), 3 = zero, 0 = keep |
 | 6-7 | position: same coding |
 
-Values are absolute (not deltas); nodes not listed keep their last value.
+Frame 0 holds absolute values (bits 0-1 = 0); every later frame (bits
+0-1 = 1) holds **steps added to the frame before**, and "zero" there means
+no change (corrected 2026-11-19: read as absolute values before, which made
+walking and the blade swing snap between unrelated poses while the
+single-pose animations looked right). Checked on all 72 sets: each walk
+loop comes back to its first pose to within one unit (rounding), and a
+position "zero" in a step frame falls on a joint with a non-zero offset
+161 times, so it cannot mean "set to 0". Nodes not listed keep their value.
+The walk-start animations end up to ~113 units (10 degrees) from their
+loop's first pose on a few joints; the engine cuts from start to loop.
 Rotations: 4096 = a full turn, the same units for s8 and s16.
 
 **Rotation order: M = Rx · Ry · Rz** (confirmed 2026-11-14). The game's
