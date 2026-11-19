@@ -123,6 +123,20 @@ rows read back from each opponent's 36-byte AI record).
   lost AC on sale). Option parts are owned and fitted, but the fight
   doesn't use options yet (true of the whole engine).
 
+Fixes after the first play-test (2026-11-19):
+- **Four-legged and caterpillar legs move** (they stood still): their
+  walking animations carry no root motion; the game's second movement
+  handler (VS `0x80085704`) pushes them like the ground boost, by player
+  block +0x208 a tick up to +0x20A (the legs' fixed boost bytes), along the
+  facing turned by the stick (0, 45, 90, 135, 180 degrees); with no
+  direction the speed is cut to the top and slows by a quarter of +0x208
+  (as the air does, `0x80014790`, not measured on these legs). No energy
+  while walking; the booster is the ground boost as before.
+- **Both back weapons work** (only the left one was a weapon): the AC now
+  carries up to 4 (arm weapon, back left, back right, blade); a two-slot
+  unit is one weapon.
+- **AP turns red below 1,000.**
+
 ## Next, in order (agreed 2026-11-19)
 
 6. **LAN / direct-IP multiplayer**, like AC1Recomp's (delay-based lockstep

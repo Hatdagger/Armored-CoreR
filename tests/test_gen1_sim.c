@@ -315,6 +315,22 @@ int main(void) {
         for (int k = 0; k < 40; ++k) acr_gen1_ac_step(&t, &d, look);
         EXPECT(t.pitch == -ACR_GEN1_PITCH_MAX);
     }
+    {   /* Four legs / caterpillars: walking pushes like the ground boost, up
+         * to its top speed, with no energy cost, then slows when let go. */
+        acr_gen1_ac_def q = make_def();
+        q.drive_walk = 1;
+        q.anim[ACR_GEN1_ANIM_WALK] = NULL;
+        acr_gen1_ac t;
+        acr_gen1_ac_spawn(&t, &q, 0, 0, 0);
+        const int32_t e0 = t.energy;
+        acr_gen1_ac_step(&t, &q, k_fwd);
+        EXPECT(t.vz == (int32_t)q.motion.boost_accel);
+        for (int k = 0; k < 40; ++k) acr_gen1_ac_step(&t, &q, k_fwd);
+        EXPECT(t.vz == (int32_t)q.motion.boost_max && t.vx == 0);
+        EXPECT(t.energy >= e0 && t.state == ACR_GEN1_GROUND);
+        for (int k = 0; k < 200; ++k) acr_gen1_ac_step(&t, &q, k_none);
+        EXPECT(t.vz == 0);
+    }
     if (failures) { printf("%d failure(s)\n", failures); return 1; }
     printf("gen1 sim: all passed\n");
     return 0;

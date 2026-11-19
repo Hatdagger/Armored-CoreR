@@ -269,7 +269,9 @@ int demo_load(const char *import_dir, const int parts[SLOT_COUNT], demo_ac *out,
             fcs_max_locks = get_int(t, e, "max_locks", 0);
         }
         /* Weapon arms (arms 12 and up) are the AC's gun: the game's slot 0. */
-        if ((s == SLOT_HAND || s == SLOT_BACK_L || s == SLOT_BLADE || (s == SLOT_ARMS && parts[SLOT_ARMS] >= 12)) &&
+        /* Both back slots are weapons (a two-slot unit sits in both: one weapon). */
+        const int back_r_own = s == SLOT_BACK_R && !(parts[SLOT_BACK_R] == parts[SLOT_BACK_L] && parts[SLOT_BACK_L] >= 52);
+        if ((s == SLOT_HAND || s == SLOT_BACK_L || back_r_own || s == SLOT_BLADE || (s == SLOT_ARMS && parts[SLOT_ARMS] >= 12)) &&
             get_int(t, e, "attack", 0) > 0 && out->weapons < ACR_GEN1_MAX_WEAPONS) {
             acr_gen1_weapon *w = &out->weapon[out->weapons];
             memset(w, 0, sizeof *w);
@@ -288,7 +290,7 @@ int demo_load(const char *import_dir, const int parts[SLOT_COUNT], demo_ac *out,
                 const long cls = get_int(t, e, "lock_class", 4);
                 /* Kind from the weapon detail (0 gun, 1 missile, 2 cannon); old
                  * imports without it: the back weapon was taken as a missile. */
-                const long kind = get_int(t, e, "kind", s == SLOT_BACK_L ? 1 : 0);
+                const long kind = get_int(t, e, "kind", s == SLOT_BACK_L || s == SLOT_BACK_R ? 1 : 0);
                 w->kind = kind == 1 ? ACR_GEN1_MISSILE : ACR_GEN1_GUN;
                 w->ammo = (uint16_t)get_int(t, e, "ammo", 0);
                 w->range = (int32_t)get_int(t, e, "range", 6000);
@@ -345,7 +347,8 @@ int demo_load(const char *import_dir, const int parts[SLOT_COUNT], demo_ac *out,
         }
         SDL_free(t);
     }
-    /* Order as the AC carries them: hand weapon, back weapon, blade. */
+    /* Order as the AC carries them: arm weapon, back weapons (left first),
+     * blade. */
     for (int i = 0; i < out->weapons; ++i)
         for (int j = i + 1; j < out->weapons; ++j)
             if (out->weapon[j].kind < out->weapon[i].kind) {
@@ -382,6 +385,7 @@ int demo_load(const char *import_dir, const int parts[SLOT_COUNT], demo_ac *out,
     acr_gen1_motion_from_stats(&out->def.stats, &out->def.motion);
     out->def.landing_steps = 20;
     out->def.no_boost_hop = parts[SLOT_LEGS] >= 27;   /* caterpillars */
+    out->def.drive_walk = parts[SLOT_LEGS] >= 21;     /* four legs and caterpillars */
 
     out->model = pick_model(import_dir, parts);
     if (out->model < 0 || !load_tracks(import_dir, out->model, out)) {

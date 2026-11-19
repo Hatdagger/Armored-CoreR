@@ -168,11 +168,14 @@ void battle_hud_draw(const battle_hud_state *s, float hud_w, int frame) {
         int ap = s->ap < 0 ? 0 : s->ap;
         SDL_snprintf(line, sizeof line, "%d", ap);
         const int n = (int)SDL_strlen(line);
+        /* The digits turn red below 1,000 AP. */
+        const int low = ap < 1000;
+        const uint8_t ar = low ? 230 : 58, ag = low ? 48 : 214, ab = low ? 40 : 58;
         for (int i = 0; i < n; ++i) {
             const float x = 96.0f - 16.0f * (float)(n - i);
-            if (g_ready) spr(L, g_layer[0], 24 + 16 * (line[i] - '0'), 113, 16, 22, x, 23, GREEN, 255, ACR_HUD_ALPHA);
+            if (g_ready) spr(L, g_layer[0], 24 + 16 * (line[i] - '0'), 113, 16, 22, x, 23, ar, ag, ab, 255, ACR_HUD_ALPHA);
         }
-        if (!g_ready) text(L, 32, 30, line, 1, GREEN);
+        if (!g_ready) text(L, 32, 30, line, 1, ar, ag, ab);
         if (s->enemy_ap >= 0) {
             text(L, 40, 50, "ENEMY LIMIT", 0, GREEN);
             SDL_snprintf(line, sizeof line, "%d", s->enemy_ap);
