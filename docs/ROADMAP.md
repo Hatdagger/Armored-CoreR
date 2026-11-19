@@ -74,6 +74,15 @@ weapons, damage, two-player test build (see `docs/research/`).
    boundary (F8); the stages' own boxes aren't found yet. Next: those
    boxes, the other stages, stage lights.
 
+5. **Battle HUD** (first version, branch `gen1-hud`, 2026-11-19): the
+   game's own HUD pictures (RTIM 61, exported to `<import>/hud`) placed as
+   in Master of Arena (`docs/research/gen1-hud.md`): AP, energy gauge,
+   enemy AP, compass, radar, weapons by type, warning boxes, the AC's
+   name, WIN / LOSE / DRAW / TIME UP. 4:3 framing by default; F9 or
+   `--hud-wide` spreads it to a wide screen's edges. Test readouts moved
+   under F1. Needs a re-import. Still to come: the HUD code's exact
+   positions, the split-screen layout, READY / GO, REC once replays exist.
+
 ## Shortcuts
 
 - The garage and shop need part data, not models: build them in parallel.

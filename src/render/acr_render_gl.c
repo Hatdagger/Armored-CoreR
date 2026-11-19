@@ -30,6 +30,7 @@ typedef unsigned int GLbitfield;
 #define GL_LEQUAL 0x0203
 #define GL_SRC_ALPHA 0x0302
 #define GL_ONE_MINUS_SRC_ALPHA 0x0303
+#define GL_ONE 1
 #define GL_PROJECTION 0x1701
 #define GL_MODELVIEW 0x1700
 #define GL_VERTEX_ARRAY 0x8074
@@ -301,6 +302,21 @@ void acr_hud_text(float x, float y, const char *text, uint8_t r, uint8_t g, uint
         q[n++] = hv(x, y + 8, r, g, b, 255, u0, v1);
     }
     draw(GL_TRIANGLES, q, n, g_font);
+}
+
+void acr_hud_sprite(uint32_t texture, int tex_w, int tex_h, float u, float v, float tw, float th,
+                    float x, float y, float w, float h, uint8_t r, uint8_t g, uint8_t b, uint8_t a, int blend) {
+    const float u0 = tex_w > 0 ? u / (float)tex_w : 0, u1 = tex_w > 0 ? (u + tw) / (float)tex_w : 0;
+    const float v0 = tex_h > 0 ? v / (float)tex_h : 0, v1 = tex_h > 0 ? (v + th) / (float)tex_h : 0;
+    /* ADD and HALF: the texture's alpha picks the drawn texels, the colour
+     * is added (or averaged) with what is on the screen. */
+    if (blend == ACR_HUD_ADD) { a = 255; glBlendFunc(GL_SRC_ALPHA, GL_ONE); }
+    else if (blend == ACR_HUD_HALF) { a = 128; glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA); }
+    const acr_vtx q[6] = { hv(x, y, r, g, b, a, u0, v0), hv(x + w, y, r, g, b, a, u1, v0),
+                           hv(x + w, y + h, r, g, b, a, u1, v1), hv(x, y, r, g, b, a, u0, v0),
+                           hv(x + w, y + h, r, g, b, a, u1, v1), hv(x, y + h, r, g, b, a, u0, v1) };
+    draw(GL_TRIANGLES, q, 6, texture);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 }
 
 uint32_t acr_render_texture(const uint8_t *rgba, int w, int h, int nearest) {

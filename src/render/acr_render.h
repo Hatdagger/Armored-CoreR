@@ -59,6 +59,14 @@ float acr_render_hud(int x, int y, int w, int h);
 void  acr_hud_rect(float x, float y, float w, float h, uint8_t r, uint8_t g, uint8_t b, uint8_t a, int filled);
 void  acr_hud_line(float x0, float y0, float x1, float y1, uint8_t r, uint8_t g, uint8_t b, uint8_t a);
 void  acr_hud_text(float x, float y, const char *text, uint8_t r, uint8_t g, uint8_t b);
+/* Part of a texture on the HUD: texels (u, v, tw, th) of a tex_w x tex_h
+ * texture drawn into (x, y, w, h), tinted by the colour (white = as is).
+ * Blend as the PS1 does: ACR_HUD_ALPHA the texture's alpha (a = colour
+ * alpha), ACR_HUD_ADD screen + colour, ACR_HUD_HALF half screen + half
+ * colour. texture 0 = a filled box in that blend. */
+enum { ACR_HUD_ALPHA = 0, ACR_HUD_ADD = 1, ACR_HUD_HALF = 2 };
+void  acr_hud_sprite(uint32_t texture, int tex_w, int tex_h, float u, float v, float tw, float th,
+                     float x, float y, float w, float h, uint8_t r, uint8_t g, uint8_t b, uint8_t a, int blend);
 
 /* Textures: RGBA8 pixels. `nearest` 1 keeps the sharp PS1 look; 2 is that
  * up close with mipmaps further off (no shimmer in the distance). */

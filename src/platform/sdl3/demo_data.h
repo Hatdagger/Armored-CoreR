@@ -23,6 +23,8 @@ typedef struct demo_ac {
     uint8_t shell_factor, energy_factor;
     acr_gen1_weapon weapon[ACR_GEN1_MAX_WEAPONS];
     int weapons;
+    char weapon_type[ACR_GEN1_MAX_WEAPONS][24];   /* the HUD's name for it: RIFLE, SMALL MISSILE, ... */
+    int32_t radar_range;   /* head or back radar unit's range; 0 = no radar */
     int plus_applied;      /* Human PLUS energy rules applied to def.stats */
 } demo_ac;
 

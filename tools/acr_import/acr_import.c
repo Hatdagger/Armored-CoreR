@@ -4,6 +4,7 @@
 #include "acr_motion_moa.h"
 #include "acr_models_moa.h"
 #include "acr_stages_moa.h"
+#include "acr_hud_moa.h"
 
 #include <ctype.h>
 #include <errno.h>
@@ -199,6 +200,9 @@ static int import_disc(const char *disc_path, const char *out_dir, acr_import_st
         if (!make_dirs(stages_dir, 1) ||
             !acr_export_moa_stages(unpacked, stages_dir, &stats->stages, err, err_size))
             return 0;
+        char hud_dir[ACR_PATH_MAX];
+        snprintf(hud_dir, sizeof hud_dir, "%s/hud", out_dir);
+        if (!make_dirs(hud_dir, 1) || !acr_export_moa_hud(unpacked, hud_dir, err, err_size)) return 0;
     }
     return 1;
 }

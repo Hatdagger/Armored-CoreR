@@ -52,7 +52,8 @@ add_library(acr_import_lib STATIC
     tools/acr_import/acr_parts_moa.c
     tools/acr_import/acr_motion_moa.c
     tools/acr_import/acr_models_moa.c
-    tools/acr_import/acr_stages_moa.c)
+    tools/acr_import/acr_stages_moa.c
+    tools/acr_import/acr_hud_moa.c)
 target_include_directories(acr_import_lib PUBLIC tools/acr_import)
 target_link_libraries(acr_import_lib PUBLIC acr_gen1)
 if(NOT MSVC)
@@ -119,7 +120,8 @@ if(ACR_BUILD_GAME)
         GIT_SHALLOW TRUE)
     FetchContent_MakeAvailable(SDL3)
     add_executable(armored-corer WIN32 src/platform/sdl3/main.c src/platform/sdl3/demo_data.c src/platform/sdl3/demo_model.c
-                   src/platform/sdl3/demo_stage.c src/platform/sdl3/garage.c)
+                   src/platform/sdl3/demo_stage.c src/platform/sdl3/garage.c
+                   src/platform/sdl3/battle_hud.c)
     add_library(acr_render_gl STATIC src/render/acr_render_gl.c)
     target_include_directories(acr_render_gl PUBLIC src/render)
     target_link_libraries(armored-corer PRIVATE acr_core acr_gen1 acr_import_lib acr_model acr_light acr_render_gl SDL3::SDL3-static)

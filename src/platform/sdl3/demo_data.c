@@ -252,6 +252,14 @@ int demo_load(const char *import_dir, const int parts[SLOT_COUNT], demo_ac *out,
             shell += (uint32_t)get_int(t, e, "defense_shell", 0);
             energy += (uint32_t)get_int(t, e, "defense_energy", 0);
         }
+        /* Radar: the head's (fields radar / radar_range, or words 9 / 10 of
+         * `raw` in older imports) or a back radar unit's (type RADAR; range word 5). */
+        if (s == SLOT_HEAD && get_int(t, e, "radar", list_at(t, e, "raw", 9, 0)))
+            out->radar_range = SDL_max(out->radar_range, (int32_t)get_int(t, e, "radar_range", list_at(t, e, "raw", 10, 0)));
+        char ptype[32] = "";
+        get_string(t, e, "type", ptype, sizeof ptype);
+        if ((s == SLOT_BACK_L || s == SLOT_BACK_R) && (get_int(t, e, "radar", 0) || SDL_strstr(ptype, "RADAR")))
+            out->radar_range = SDL_max(out->radar_range, (int32_t)get_int(t, e, "radar_range", list_at(t, e, "raw", 5, 0)));
         if (s == SLOT_FCS) {
             for (int k = 0; k < 4; ++k) {
                 char key[16];
@@ -266,6 +274,10 @@ int demo_load(const char *import_dir, const int parts[SLOT_COUNT], demo_ac *out,
             acr_gen1_weapon *w = &out->weapon[out->weapons];
             memset(w, 0, sizeof *w);
             SDL_strlcpy(w->name, out->names[s], sizeof w->name);
+            /* The HUD names weapons by type, as the game does (weapon arms
+             * are only "ARM UNIT": those keep the part's name). */
+            SDL_strlcpy(out->weapon_type[out->weapons], ptype[0] && SDL_strcmp(ptype, "ARM UNIT") ? ptype : out->names[s],
+                        sizeof out->weapon_type[out->weapons]);
             w->attack = (uint16_t)get_int(t, e, "attack", 0);
             if (s == SLOT_BLADE) {
                 w->kind = ACR_GEN1_BLADE;
@@ -340,6 +352,10 @@ int demo_load(const char *import_dir, const int parts[SLOT_COUNT], demo_ac *out,
                 const acr_gen1_weapon tmp = out->weapon[i];
                 out->weapon[i] = out->weapon[j];
                 out->weapon[j] = tmp;
+                char tn[24];
+                SDL_memcpy(tn, out->weapon_type[i], sizeof tn);
+                SDL_memcpy(out->weapon_type[i], out->weapon_type[j], sizeof tn);
+                SDL_memcpy(out->weapon_type[j], tn, sizeof tn);
             }
     /* Apply the FCS: each weapon's lock class sets its range cap, box and lock time. */
     for (int i = 0; i < out->weapons; ++i) {

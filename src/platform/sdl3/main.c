@@ -37,6 +37,11 @@
 #include "demo_stage.h"
 #include "../../model/acr_aim.h"
 #include "garage.h"
+#include "battle_hud.h"
+
+/* HUD framing: the PS1's 4:3 layout in the middle (default) or spread to a
+ * wide screen's edges (F9 / --hud-wide). */
+static int g_hud_frame = BATTLE_HUD_FRAME_43;
 #include "acr_import.h"
 #include "../../render/acr_render.h"
 #include "../../render/acr_light.h"
@@ -425,6 +430,7 @@ static int parse_args(int argc, char **argv, const char **dir, int parts[SLOT_CO
         if (!strcmp(argv[i], "--tick") && i + 1 < argc) { g_tick_rate = atoi(argv[++i]); continue; }
         if (!strcmp(argv[i], "--credits") && i + 1 < argc) { g_new_credits = atol(argv[++i]); continue; }
         if (!strcmp(argv[i], "--test")) { g_direct_test = 1; continue; }
+        if (!strcmp(argv[i], "--hud-wide")) { g_hud_frame = BATTLE_HUD_FRAME_WIDE; continue; }
         if (!strcmp(argv[i], "--ai") && i + 1 < argc) { g_ai_mode = ai_preset_of(argv[++i]); if (!g_ai_mode) g_ai_mode = 1; continue; }
         if (!strcmp(argv[i], "--ai-file") && i + 1 < argc) { load_ai_file(argv[++i]); continue; }
         if (!strcmp(argv[i], "--ai-vs-ai")) { g_autopilot = 1; if (!g_ai_mode) g_ai_mode = 1; continue; }
@@ -632,13 +638,16 @@ int main(int argc, char **argv) {
     const SDL_WindowFlags wflags = SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY;
     SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 1);
     SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, 4);
-    SDL_Window *window = SDL_CreateWindow("Armored-CoreR test build", 1280, 720, wflags);
+    /* ACR_WINDOW=WxH: the window's size (screenshots at other shapes). */
+    int win_w = 1280, win_h = 720;
+    if (SDL_getenv("ACR_WINDOW") && SDL_sscanf(SDL_getenv("ACR_WINDOW"), "%dx%d", &win_w, &win_h) != 2) { win_w = 1280; win_h = 720; }
+    SDL_Window *window = SDL_CreateWindow("Armored-CoreR test build", win_w, win_h, wflags);
     SDL_GLContext gl = window ? SDL_GL_CreateContext(window) : NULL;
     if (!gl) {
         if (window) SDL_DestroyWindow(window);
         SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 0);
         SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, 0);
-        window = SDL_CreateWindow("Armored-CoreR test build", 1280, 720, wflags);
+        window = SDL_CreateWindow("Armored-CoreR test build", win_w, win_h, wflags);
         gl = window ? SDL_GL_CreateContext(window) : NULL;
     }
     if (!gl || !acr_render_init(gl_proc)) {
@@ -786,7 +795,7 @@ int main(int argc, char **argv) {
 
     Uint64 last = SDL_GetTicksNS();
     const Uint64 start_ns = last;
-    int running = 1, show_help = 1, back_held = 0, back_combo = 0, switch_pressed[2] = { 0, 0 }, blade_pressed[2] = { 0, 0 };
+    int running = 1, show_help = 0, back_held = 0, back_combo = 0, switch_pressed[2] = { 0, 0 }, blade_pressed[2] = { 0, 0 };
     SDL_Gamepad *pads[2] = { pad, NULL };
     {   /* a second controller, if there is one */
         int count = 0;
@@ -828,6 +837,8 @@ int main(int argc, char **argv) {
             }
             if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_F1) show_help = !show_help;
             if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_F5) g_smooth_anim = !g_smooth_anim;
+            if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && (e.key.scancode == SDL_SCANCODE_F9 || e.key.scancode == SDL_SCANCODE_9))
+                g_hud_frame = !g_hud_frame;
             if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_F3) g_landing_anim = !g_landing_anim;
             int cycle_ai = 0, toggle_autopilot = 0;
             if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_F4) cycle_ai = 1;
@@ -1336,54 +1347,54 @@ int main(int argc, char **argv) {
         /* HUD, on a 480-high grid as wide as this view's shape. */
         g_vw = acr_render_hud(vx, 0, vpw, ph);
         g_vh = 480.0f;
-        const float rc_y = two_players ? 130.0f : g_vh - 80.0f;   /* right-hand HUD column */
+        const float rc_y = two_players ? 130.0f : g_vh - 80.0f;   /* right-hand column of the test readouts */
         const acr_gen1_stats *st = &ac_data[view].def.stats;
-        const float e_frac = (float)ac.energy / (float)(st->energy_capacity ? st->energy_capacity : 1);
-        const float red = (float)st->red_zone / (float)(st->energy_capacity ? st->energy_capacity : 1);
-        acr_hud_rect(20, g_vh - 30, 300, 10, 40, 40, 40, 255, 1);
-        if (ac.drained) acr_hud_rect(20, g_vh - 30, 300 * e_frac, 10, 200, 50, 40, 255, 1);
-        else acr_hud_rect(20, g_vh - 30, 300 * e_frac, 10, 90, 220, 140, 255, 1);
-        acr_hud_line(20 + 300 * red, g_vh - 33, 20 + 300 * red, g_vh - 17, 230, 60, 50, 255);
-
-        static const char *const k_state[] = { "GROUND", "CROUCH", "AIR", "LANDING" };
-        /* Speeds per Gen 1 tick, as the recomp measures them. */
-        const int dx = (ac.x - ac.px) / 64, dz = (ac.z - ac.pz) / 64, dy = (ac.y - ac.py) / 64;
+        {
+            static int hud_tried;
+            if (!hud_tried) { hud_tried = 1; battle_hud_load(g_import_dir); }
+        }
         char line[160];
         #define TEXT(x, y, s) acr_hud_text((x), (y), (s), 220, 230, 235)
-        SDL_snprintf(line, sizeof line, "ENERGY %5d  %-7s  SPEED %3d  RISE %4d", (int)ac.energy,
-                     k_state[ac.state], (int)sqrtf((float)(dx * dx + dz * dz)), -dy);
-        TEXT(20, g_vh - 48, line);
-        /* Landing check: the landing animation's length against the pause
-         * the latest landing really had, and its touchdown speed (the recomp
-         * measured about 20 ticks after a hop that touched down at 5,000+). */
-        {
-            const acr_gen1_root_track *land = ac_data[view].def.anim[ACR_GEN1_ANIM_LAND];
-            char land_len[16];
-            if (land && land->length) SDL_snprintf(land_len, sizeof land_len, "%d TICKS", (int)land->length);
-            else SDL_snprintf(land_len, sizeof land_len, "NOT FOUND");
-            SDL_snprintf(line, sizeof line, "LANDING ANIM %s  LAST LANDING %d TICKS, FALL %d  PAUSE: %s",
-                         land_len, (int)ac.landing_pause, (int)ac.vy_at_touchdown,
-                         g_landing_anim ? "ANIMATION" : "GUESS");
-            TEXT(20, g_vh - 80, line);
+        if (show_help) {
+            /* Test readouts (F1), under the help. */
+            static const char *const k_state[] = { "GROUND", "CROUCH", "AIR", "LANDING" };
+            /* Speeds per Gen 1 tick, as the recomp measures them. */
+            const int dx = (ac.x - ac.px) / 64, dz = (ac.z - ac.pz) / 64, dy = (ac.y - ac.py) / 64;
+            acr_hud_rect(0, g_vh - 100, g_vw, 100, 0, 0, 0, 140, 1);
+            SDL_snprintf(line, sizeof line, "ENERGY %5d  %-7s  SPEED %3d  RISE %4d", (int)ac.energy,
+                         k_state[ac.state], (int)sqrtf((float)(dx * dx + dz * dz)), -dy);
+            TEXT(20, g_vh - 48, line);
+            /* Landing check: the landing animation's length against the pause
+             * the latest landing really had, and its touchdown speed (the recomp
+             * measured about 20 ticks after a hop that touched down at 5,000+). */
+            {
+                const acr_gen1_root_track *land = ac_data[view].def.anim[ACR_GEN1_ANIM_LAND];
+                char land_len[16];
+                if (land && land->length) SDL_snprintf(land_len, sizeof land_len, "%d TICKS", (int)land->length);
+                else SDL_snprintf(land_len, sizeof land_len, "NOT FOUND");
+                SDL_snprintf(line, sizeof line, "LANDING ANIM %s  LAST LANDING %d TICKS, FALL %d  PAUSE: %s",
+                             land_len, (int)ac.landing_pause, (int)ac.vy_at_touchdown,
+                             g_landing_anim ? "ANIMATION" : "GUESS");
+                TEXT(20, g_vh - 80, line);
+            }
+            SDL_snprintf(line, sizeof line, "LEGS %s  BOOSTER %s  GENERATOR %s", ac_data[view].names[SLOT_LEGS],
+                         ac_data[view].names[SLOT_BOOSTER], ac_data[view].names[SLOT_GEN]);
+            TEXT(20, g_vh - 64, line);
+            SDL_snprintf(line, sizeof line, "%d STEPS/S%s  HUD %s (F9)%s", g_tick_rate, g_tick_rate == 22 ? " (GEN 1)" : "",
+                         g_hud_frame ? "WIDE" : "4:3", battle.f[view].human_plus ? "  HUMAN PLUS" : "");
+            TEXT(20, g_vh - 32, line);
         }
-        SDL_snprintf(line, sizeof line, "LEGS %s  BOOSTER %s  GENERATOR %s", ac_data[view].names[SLOT_LEGS],
-                     ac_data[view].names[SLOT_BOOSTER], ac_data[view].names[SLOT_GEN]);
-        TEXT(20, 12, line);
-        SDL_snprintf(line, sizeof line, "%d STEPS/S%s", g_tick_rate, g_tick_rate == 22 ? " (GEN 1)" : "");
-        TEXT(g_vw - 150, rc_y + 32, line);
         /* Weapon, ammo, AP, lock box and the target's marker. */
         {
             const acr_gen1_fighter *me = &battle.f[view], *tg = &battle.f[1 - view];
             if (me->weapons) {
                 const acr_gen1_weapon *w = &me->weapon[me->current];
-                if (w->ammo) SDL_snprintf(line, sizeof line, "%-12s %4d", w->name, me->ammo[me->current]);
-                else SDL_snprintf(line, sizeof line, "%-12s", w->name);
-                TEXT(g_vw - 150, rc_y + 16, line);
                 if (w->stance && !me->human_plus) {
                     const char *hint = me->legs == ACR_GEN1_LEGS_TRACKS ? NULL
                                      : me->legs == ACR_GEN1_LEGS_FOUR ? (acr_gen1_stance_ok(me) ? NULL : "LAND TO FIRE")
                                      : !me->kneeling ? "FIRE TO KNEEL" : acr_gen1_stance_ok(me) ? "KNEELING" : "KNEELING...";
-                    if (hint) TEXT(g_vw - 150, rc_y, hint);
+                    if (hint) battle_hud_text(g_vw, g_hud_frame, 1, 312.0f - 4.0f * (float)SDL_strlen(hint), 160, hint, 0,
+                                              255, 255, 0);
                 }
                 if (w->box_w) {
                     /* The game's sight (VS 0x800576E0): the inner lock box as
@@ -1419,7 +1430,7 @@ int main(int argc, char **argv) {
                     if (seen) {
                         bx = (x0 + x1) * 0.5f; by = (y0 + y1) * 0.5f; bw = x1 - x0; bh = y1 - y0;
                         /* The sight takes the lock's colour once the target is locked. */
-                        const uint8_t cr = me->locked ? 255 : 90, cg = me->locked ? 60 : 200, cb = me->locked ? 50 : 120;
+                        const uint8_t cr = me->locked ? 255 : 64, cg = me->locked ? 60 : 144, cb = me->locked ? 50 : 56;
                         for (int c = 0; c < 8; ++c)
                             acr_hud_line(hx[c], hy[c], hx[(c + 1) & 7], hy[(c + 1) & 7], cr, cg, cb, 255);
                     }
@@ -1431,7 +1442,11 @@ int main(int argc, char **argv) {
                         acr_hud_rect(cx - 6, cyy - 6, 12, 12, 240, 220, 60, 255, 0);
                         if (me->locks) {
                             SDL_snprintf(line, sizeof line, "LOCK x%d", (int)me->locks);
-                            acr_hud_text(bx + bw * 0.5f + 6, by - bh * 0.5f, line, 255, 60, 50);
+                            float ox, oy, ux, uy;   /* the game's 4 x 5 letters, at this view's HUD scale */
+                            battle_hud_point(g_vw, g_hud_frame, 0, 0, 0, &ox, &oy);
+                            battle_hud_point(g_vw, g_hud_frame, 0, 1, 1, &ux, &uy);
+                            battle_hud_text(g_vw, g_hud_frame, 0, (bx + bw * 0.5f - ox) / (ux - ox) + 3, (by - bh * 0.5f) / uy, line, 0,
+                                            255, 60, 50);
                         }
                     }
                 }
@@ -1440,44 +1455,75 @@ int main(int argc, char **argv) {
                     to_hud(proj, viewm, v3(tx, ty + 100, tz), g_vw, &sx, &sy)) {
                     if (me->locked) {
                         acr_hud_rect(sx - 18, sy - 18, 36, 36, 255, 60, 50, 255, 0);
-                        acr_hud_text(sx - 16, sy + 22, "LOCK", 255, 60, 50);
+                        {
+                            /* The game's 6 x 7 letters, above the marker; at
+                             * this view's HUD scale. */
+                            float ox, oy, ux, uy;
+                            battle_hud_point(g_vw, g_hud_frame, 0, 0, 0, &ox, &oy);
+                            battle_hud_point(g_vw, g_hud_frame, 0, 1, 1, &ux, &uy);
+                            battle_hud_text(g_vw, g_hud_frame, 0, (sx - ox) / (ux - ox) - 12, (sy - 18) / uy - 10, "LOCK", 1,
+                                            255, 60, 50);
+                        }
                     } else {
                         acr_hud_rect(sx - 18, sy - 18, 36, 36, 240, 220, 60, 255, 0);
                     }
                 }
             }
-            if (me->human_plus) TEXT(20, g_vh - 64, "HUMAN PLUS");
-            if (me->hit_flash & 4) acr_hud_text(g_vw * 0.5f - 12, g_vh * 0.45f + 40, "HIT", 255, 90, 60);
-            /* Out of area: the warning outside the first inner box, then the loss. */
+            (void)rc_y;
+            /* The game's HUD (battle_hud.c). */
             {
-                const int out = acr_gen1_battle_out_of_area(&battle, view);
-                if (out && !round_over) acr_hud_text(g_vw * 0.5f - 40, g_vh * 0.30f, out == 2 ? "OUT OF AREA" : "AREA WARNING", 255, 80, 60);
+                battle_hud_state hs;
+                SDL_zero(hs);
+                hs.ap = me->ap;
+                hs.energy = ac.energy;
+                hs.energy_max = st->energy_capacity;
+                hs.red_zone = st->red_zone;
+                hs.drained = ac.drained;
+                hs.enemy_ap = tg->ap > 0 ? tg->ap : 0;
+                hs.heading = ac.syaw;
+                for (int k = 0; k < me->weapons && hs.weapons < BATTLE_HUD_MAX_WEAPONS; ++k) {
+                    const acr_gen1_weapon *wk = &me->weapon[k];
+                    if (wk->kind == ACR_GEN1_BLADE && me->weapons > 1) continue;   /* the blade has its own button */
+                    if (k == me->current) hs.current = hs.weapons;
+                    hs.weapon[hs.weapons].name = ac_data[view].weapon_type[k][0] ? ac_data[view].weapon_type[k] : wk->name;
+                    hs.weapon[hs.weapons].ammo = me->ammo[k];
+                    hs.weapon[hs.weapons].ammo_max = wk->ammo;
+                    ++hs.weapons;
+                }
+                hs.radar_range = ac_data[view].radar_range;
+                hs.enemy_dx = (T->sx - ac.sx) / 64;
+                hs.enemy_dz = (T->sz - ac.sz) / 64;
+                hs.enemy_on_radar = tg->ap > 0;
+                /* HIT: this AC landed one; DAMAGED: it took one. ARMOR LOW
+                 * below a quarter of its AP (threshold not read from the game
+                 * yet); CHARGING while the energy refills after running dry. */
+                if (me->hit_flash & 4) hs.messages |= BATTLE_HUD_MSG_HIT;
+                if (tg->hit_flash & 4) hs.messages |= BATTLE_HUD_MSG_DAMAGED;
+                if (acr_gen1_battle_out_of_area(&battle, view) && !round_over) hs.messages |= BATTLE_HUD_MSG_LEAVING_AREA;
+                if (me->ap > 0 && me->ap * 4 < me->ap_max) hs.messages |= BATTLE_HUD_MSG_ARMOR_LOW;
+                if (ac.drained) hs.messages |= BATTLE_HUD_MSG_CHARGING;
+                hs.recording = 0;   /* no replays yet: REC shows once fights are recorded */
+                hs.ac_name = view == 0 || !two_players ? g_hangar.ac_name : "";
+                battle_hud_draw(&hs, g_vw, g_hud_frame);
             }
             /* Round over: each player's own result in their own view. */
             if (round_over) {
                 const int won = round_result == 1 + view, draw = round_result == 3;
-                const char *res = draw ? "DRAW" : won ? "WIN" : "LOSE";
-                acr_hud_text(g_vw * 0.5f - 4.0f * (float)SDL_strlen(res), g_vh * 0.40f, res,
-                             draw ? 240 : won ? 120 : 255, draw ? 240 : won ? 230 : 80, draw ? 240 : won ? 255 : 60);
+                battle_hud_word(g_vw, g_hud_frame, draw ? BATTLE_HUD_DRAW : won ? BATTLE_HUD_WIN : BATTLE_HUD_LOSE, 70,
+                                draw ? 240 : won ? 120 : 255, draw ? 240 : won ? 230 : 80, draw ? 240 : won ? 255 : 60);
             }
-            SDL_snprintf(line, sizeof line, "AP %5d", (int)me->ap);
-            TEXT(g_vw - 150, rc_y + 48, line);
-            acr_hud_rect(g_vw - 220, 96, 200, 8, 40, 40, 40, 255, 1);
-            acr_hud_rect(g_vw - 220, 96, 200.0f * (float)tg->ap / (float)(tg->ap_max ? tg->ap_max : 1), 8,
-                         230, 70, 60, 255, 1);
-            SDL_snprintf(line, sizeof line, tg->ap > 0 ? "TARGET AP %5d" : "TARGET DESTROYED", (int)tg->ap);
-            TEXT(g_vw - 220, 108, line);
         }
         if (show_help && !two_players) {
+            acr_hud_rect(12, 22, g_vw - 24, 128, 0, 0, 0, 160, 1);
             TEXT(20, 28, "MOVE: STICK/DPAD UP-DOWN  TURN: LEFT-RIGHT");
             TEXT(20, 40, "STRAFE: LB/RB  BOOST: A (NO DIRECTION = RISE)  LOOK UP/DOWN: LT/RT, BOTH = LEVEL (PGUP/PGDN)");
             TEXT(20, 52, "FIRE: X (F)  SWITCH WEAPON: Y (TAB)  BLADE: B (V)");
             if (g_direct_test) {
                 TEXT(20, 64, "BACK+X/Y/B/RB (B/G/C/L): BOOSTER/GENERATOR/BACK WEAPON/LEGS");
-                TEXT(20, 76, "START/R: RESET  F1: HIDE HELP  F5: ANIM SMOOTH/STEPPED  ESC: QUIT  (KEYS 1-8 = F1-F8)");
+                TEXT(20, 76, "START/R: RESET  F1: HIDE HELP  F5: ANIM SMOOTH/STEPPED  F9: HUD 4:3/WIDE  ESC: QUIT");
             } else {
                 TEXT(20, 64, "BACK+START (ESC): BACK TO THE GARAGE");
-                TEXT(20, 76, "START/R: RESET  F1: HIDE HELP  (KEYS 1-8 WORK AS F1-F8)");
+                TEXT(20, 76, "START/R: RESET  F1: HIDE HELP  F9: HUD 4:3/WIDE  (KEYS 1-9 = F1-F9)");
             }
             TEXT(20, 88, "BACK+A (H): HUMAN PLUS  BACK (T): STEP RATE");
             TEXT(20, 100, "BACK+LB (F2): TWO PLAYERS  BACK+R3 (F3): LANDING PAUSE GUESS/ANIMATION");
@@ -1494,21 +1540,25 @@ int main(int argc, char **argv) {
             if (two_players) acr_hud_rect(full_w / 2.0f - 1, 0, 2, 480, 0, 0, 0, 255, 1);
             char clock_text[16];
             SDL_snprintf(clock_text, sizeof clock_text, "%d:%02d", (int)(round_ms / 60000), (int)(round_ms / 1000 % 60));
-            acr_hud_text(full_w / 2.0f - 16, 464, clock_text, 240, 240, 240);   /* between the energy bars */
+            /* Under the compass (one view) or at the top of the split line. */
+            battle_hud_text(full_w, g_hud_frame, 0, 160.0f - 3.0f * (float)SDL_strlen(clock_text), two_players ? 4 : 33,
+                            clock_text, 1, 58, 214, 58);
         }
         if (!two_players && g_ai_mode) {
             char who[64];
             SDL_snprintf(who, sizeof who, "%sOPPONENT: AI %s", g_autopilot ? "AI VS AI  " : "",
                          g_ai_mode == AI_FROM_FILE ? "FROM FILE" : acr_gen1_ai_preset_name(g_ai_mode));
-            acr_hud_text(full_w / 2.0f - 90, 448, who, 255, 200, 120);
+            battle_hud_text(full_w, g_hud_frame, 0, 160.0f - 2.0f * (float)SDL_strlen(who), 42, who, 0, 255, 200, 120);
         }
         if (round_over) {
             /* The result itself is in each player's view; here, how it ended. */
-            const char *why = round_ms <= 0 && (two_players || g_ai_mode) ? "TIME UP" :
-                              (acr_gen1_battle_out_of_area(&battle, 0) == 2 || acr_gen1_battle_out_of_area(&battle, 1) == 2)
+            const int time_up = round_ms <= 0 && (two_players || g_ai_mode);
+            const char *why = (acr_gen1_battle_out_of_area(&battle, 0) == 2 || acr_gen1_battle_out_of_area(&battle, 1) == 2)
                                   ? "OUT OF AREA" : "KNOCKED OUT";
-            acr_hud_text(full_w / 2.0f - 4.0f * (float)SDL_strlen(why), 270, why, 255, 230, 120);
-            acr_hud_text(full_w / 2.0f - 56, 284, "START TO RESET", 255, 230, 120);
+            if (time_up) battle_hud_word(full_w, g_hud_frame, BATTLE_HUD_TIME_UP, 140, 255, 230, 120);
+            else battle_hud_text(full_w, g_hud_frame, 0, 160.0f - 3.0f * (float)SDL_strlen(why), 140, why, 1, 255, 230, 120);
+            battle_hud_text(full_w, g_hud_frame, 0, 160.0f - 2.0f * 14.0f, 152 + (time_up ? 54 : 0), "START TO RESET", 0,
+                            255, 230, 120);
         }
         #undef TEXT
     present:;
