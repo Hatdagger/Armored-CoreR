@@ -160,9 +160,12 @@ y = -game y). Open them in Blender to look around.
   open test floor), drawn from the textured models (an import from before
   the textures falls back to the flat green ones). Lit by a fixed light
   until the stage lights are read.
-- The arch pillars inside the dome have no collision polygons of their
-  own in chunk 7 (only the dome shell and floor do): ACs pass through
-  them, as in the data; to check in the game.
+- The arch feet on the four diagonals are solid (user: in the game they
+  can't be passed through): chunk 7's model 0 has them as leaning walls
+  from the floor to about 2,500 up, inner face about 6,350 from the
+  middle; a walk out along a diagonal stops at 6,228. Higher up, the
+  arches have no polygons of their own (the user isn't sure about the
+  game); the dome shell is the next thing a flying AC meets.
 - Tests: `tests/test_gen1_stage.c` (a made-up stage; with
   `ACR_STAGE_DIR=<import>/stages` also Green Silo: the starts stand at
   -662, a walk out stops at the dome, a rise stops at the roof, and two

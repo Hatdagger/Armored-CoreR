@@ -216,6 +216,17 @@ int main(void) {
             for (int t = 0; t < 300; ++t) acr_gen1_ac_step(&ac, &def, fwd);
             printf("green silo: walking out stops at x %d, y %d\n", ac.x / 64, ac.y / 64);
             EXPECT(ac.x / 64 > -6800 && ac.x / 64 < -6000 && ac.state != ACR_GEN1_AIR);
+            /* The arch feet on the diagonals are solid (user, 2026-11-19): a
+             * walk out along one stops at the foot, short of the dome wall. */
+            {
+                acr_gen1_ac_spawn(&ac, &def, 0, 0, 512);          /* toward +x +z */
+                ac.y = ac.py = ac.sy = -662 * 64;
+                for (int t = 0; t < 300; ++t) acr_gen1_ac_step(&ac, &def, fwd);
+                const int64_t x = ac.x / 64, z = ac.z / 64;
+                printf("green silo: walking along a diagonal stops at %d, %d (radius %d)\n", (int)x, (int)z,
+                       (int)sqrt_i(x * x + z * z));
+                EXPECT(sqrt_i(x * x + z * z) < 6300);   /* the foot's inner face is at about 6,350 */
+            }
             /* Rising hits the roof (6,750 up). */
             const acr_gen1_input up = { 0, 0, 0, 1, 0, 0, 0 };
             acr_gen1_ac_spawn(&ac, &def, 0, 0, 0);
