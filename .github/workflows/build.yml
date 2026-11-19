@@ -47,6 +47,7 @@ jobs:
             done
           done
           cp README.md out/
+          if [ "$RUNNER_OS" = "Windows" ]; then cp tools/netplay/*.bat out/; fi
 
       - uses: actions/upload-artifact@v4
         with:

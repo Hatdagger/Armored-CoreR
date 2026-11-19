@@ -139,8 +139,13 @@ Fixes after the first play-test (2026-11-19):
 
 ## Next, in order (agreed 2026-11-19)
 
-6. **LAN / direct-IP multiplayer**, like AC1Recomp's (delay-based lockstep
-   with recomp-net; plan in the 2026-11-19 handover).
+6. **Netplay** (branch `gen1-netplay`, started 2026-11-19; `docs/NETPLAY.md`).
+   Priority (user, 2026-11-19): rollback first, for 1v1 and co-op where
+   precision matters; then delay-based lockstep for LAN; then a
+   host-runs-the-game model for more players. First version: 1v1 rollback
+   over LAN / direct IP from the command line (`--host`, `--join`), data
+   check, desync check, fake lag for testing. Next: in-game host / join
+   screen with LAN discovery, co-op against the AI.
 7. **Arena**: finish step 4 (the stages' own area boxes, the other stages,
    stage lights, rankings, opponents and rewards).
 8. **UI**: the game's menus and garage screens to Master of Arena's design

@@ -117,6 +117,10 @@ own part models (every part, FCS and options included) go to
 | Reset | Start | R |
 | Hide help | | F1 |
 
+Netplay (1v1 over the network, with rollback): `host-match.bat` on one
+PC, `join-match.bat` on the other (or `--host` / `--join ADDRESS`). Both
+PCs need the same disc imported. Details: `docs/NETPLAY.md`.
+
 Two players: player 2 uses the second controller (or the only one, leaving
 player 1 the keyboard). Both fly the same build; the match ends when one
 AC's AP reaches 0, and Start starts the next.
