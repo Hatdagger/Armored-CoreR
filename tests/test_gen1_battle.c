@@ -327,6 +327,34 @@ int main(void) {
     b.f[1].ap = 0;
     EXPECT(acr_gen1_battle_result(&b, 0) == 3);
 
+    /* Camera swing (VS 0x8008774C): toward half the target's angle at 20 a
+     * tick while it is in the sight, 3/4 at 64 while a missile flies at it,
+     * back to 0 otherwise. */
+    {
+        static acr_gen1_battle cb;
+        setup(&cb, 3000);
+        cb.f[0].last_missile = cb.f[1].last_missile = -1;
+        cb.f[0].weapon[0] = rifle();
+        cb.f[0].weapons = 1;
+        cb.f[0].ammo[0] = 200;
+        acr_gen1_ac_set_yaw(&cb.f[0].ac, 60);              /* target 60 to the left (bearing -60) */
+        acr_gen1_actions none_act[2] = { { 0, 0, 0 }, { 0, 0, 0 } };
+        acr_gen1_battle_step(&cb, none, none_act);
+        EXPECT(cb.f[0].cam_yaw == -20 && cb.f[0].cam_yaw_prev == 0);
+        for (int t = 0; t < 5; ++t) acr_gen1_battle_step(&cb, none, none_act);
+        EXPECT(cb.f[0].cam_yaw == -30 && cb.f[0].cam_pitch == 0);
+        cb.f[1].ap = 0;                                    /* gone: back to 0 */
+        acr_gen1_battle_step(&cb, none, none_act);
+        EXPECT(cb.f[0].cam_yaw == -10);
+        cb.f[1].ap = 8384;
+        cb.shot[5].active = 1; cb.shot[5].missile = 1; cb.shot[5].owner = 0;
+        cb.shot[5].y = -100000 * 64; cb.shot[5].flight.life = 1000;
+        cb.f[0].last_missile = 5;
+        acr_gen1_ac_set_yaw(&cb.f[0].ac, 2048 + 600);      /* facing away: not in the sight */
+        acr_gen1_battle_step(&cb, none, none_act);
+        EXPECT(cb.f[0].cam_yaw == 54);                     /* toward 3/4 of 1448, 64 a tick */
+    }
+
     if (failures) { printf("%d failure(s)\n", failures); return 1; }
     printf("gen1 battle: all passed (first hit after %d steps)\n", steps);
     return 0;

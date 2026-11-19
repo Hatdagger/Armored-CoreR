@@ -109,6 +109,13 @@ typedef struct acr_gen1_fighter {
     uint8_t  intercept_burst;                  /* AC +0x118: ticks left in a burst */
     int16_t  intercept_shot;                   /* the missile the burst is aimed at, -1 none */
     uint16_t hit_flash;                        /* ticks of the "HIT" blink (player block +0x24C) */
+    /* Camera swing (presentation; camera record +0x2C / +0x2E, VS
+     * 0x8008774C): the chase camera's pitch and yaw offsets from the view
+     * tilt and the facing, turned each tick toward the target (see
+     * acr_gen1_camera_angles). prev = the tick before, for drawing between
+     * ticks. */
+    int16_t  cam_pitch, cam_yaw, cam_pitch_prev, cam_yaw_prev;
+    int16_t  last_missile;                     /* shot index of the latest missile launched (+0x1C) */
 } acr_gen1_fighter;
 
 typedef struct acr_gen1_shot {
@@ -212,6 +219,20 @@ int acr_gen1_in_lock_box(const acr_gen1_battle *b, int i, const acr_gen1_weapon 
  * angle off the facing (+ = to the right) while in the box, else 0.
  * Straight-firing weapons (rockets) follow the tilt only. */
 int acr_gen1_aim(const acr_gen1_battle *b, int i, int16_t aim[3]);
+
+/* The chase camera's swing (VS 0x8008774C, once a tick): its pitch / yaw
+ * offsets turn toward
+ * - 3/4 of the target's angle from the view, 64 a tick, while the latest
+ *   missile launched at it is still flying (player block +0x1C);
+ * - else 1/2 of it, 20 a tick, while the target is in the selected
+ *   weapon's sight (lock record +0x16 bit 1: inside the outer lock box);
+ * - else back to 0, 20 a tick.
+ * The camera then looks along facing + yaw offset, at view tilt + pitch
+ * offset (clamped to +-800), so it swings toward the target and the FCS
+ * box, which stays on the AC's facing, drifts off the screen's centre
+ * (VS chase camera 0x800878FC, HUD sight 0x800576E0). Run by the battle;
+ * angles in 4096 a turn, pitch + = up, yaw + = right. */
+#define ACR_GEN1_CAM_PITCH_MAX 800
 
 /* How a round stands (VS main loop end checks): 0 still fighting, 1 or 2 that
  * player won, 3 a draw. Knock-out: the one standing wins, both down is a

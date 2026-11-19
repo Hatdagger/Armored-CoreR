@@ -257,18 +257,19 @@ void acr_gen1_ac_tick(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
             ac->vy += ACR_GEN1_GRAVITY;
             if (ac->vy > ACR_GEN1_FALL_MAX) ac->vy = ACR_GEN1_FALL_MAX;
         }
-        if (can_boost && dir) {
-            /* Faster than the air boost allows (e.g. carried over from a
-             * ground boost): ease down to it instead of adding more. */
-            const uint64_t len2 = (uint64_t)((int64_t)ac->vx * ac->vx) + (uint64_t)((int64_t)ac->vz * ac->vz);
-            if (len2 > (uint64_t)m->air_max * m->air_max) {
-                slow_down(&ac->vx, &ac->vz, m->air_accel / 4);
-            } else {
-                ac->vx += dx * (int32_t)m->air_accel / 4096;
-                ac->vz += dz * (int32_t)m->air_accel / 4096;
-                limit_length(&ac->vx, &ac->vz, m->air_max);
-            }
+        /* Steering in the air (VS air handler 0x8007FBAC, direction states
+         * 0x41-0x48 from the pad, 0x80085400): any direction held, booster
+         * or not, pushes the AC that way by the air acceleration and the
+         * speed is then cut to the air top speed. The booster only decides
+         * rising or falling. With no direction (or only turning) the speed
+         * is first cut to the air top speed, then slows by a quarter of the
+         * air acceleration (0x80014790). */
+        if (dir) {
+            ac->vx += dx * (int32_t)m->air_accel / 4096;
+            ac->vz += dz * (int32_t)m->air_accel / 4096;
+            limit_length(&ac->vx, &ac->vz, m->air_max);
         } else {
+            limit_length(&ac->vx, &ac->vz, m->air_max);
             slow_down(&ac->vx, &ac->vz, m->air_accel / 4);
         }
         mx = ac->vx;

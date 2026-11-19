@@ -138,6 +138,12 @@ waist or back units on the target over the animation, eased as the game
 does (`gen1-models.md`, "Aiming"). Weapon arms count as the AC's gun in
 the test build. Needs a re-import (the aim tables are new in the export).
 
+Feel fixes (branch `gen1-feel-air-camera`, 2026-11-19), from the VS
+engine's code: steering in the air with or without the booster
+(`gen1-movement.md`, "Steering in the air"), and the camera swinging
+toward the target with the FCS box drifting on screen (`gen1-models.md`,
+"Camera swing and the FCS box").
+
 Next for the look: the second animation layer (firing), aiming (the arms,
 head and back weapons following the target), the kneel, the eight-way
 walk (the game has diagonal walking animations 3-6 and 16-19), and the

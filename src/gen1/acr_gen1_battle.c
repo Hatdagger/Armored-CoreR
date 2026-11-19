@@ -301,6 +301,7 @@ static void launch_missile(acr_gen1_battle *b, int i, int wi, int32_t side) {
     acr_gen1_shot *s = free_shot(b);
     if (!s) return;
     const acr_gen1_ac *me = &f->ac, *it = &b->f[1 - i].ac;
+    f->last_missile = (int16_t)(s - b->shot);
     s->active = 1;
     s->missile = 1;
     s->owner = (uint8_t)i;
@@ -487,8 +488,42 @@ static void intercept_tick(acr_gen1_battle *b, int i) {
 
 /* ---- per fighter ---- */
 
+/* The chase camera's swing, one tick (VS 0x8008774C; see the header). */
+static void camera_tick(acr_gen1_battle *b, int i) {
+    acr_gen1_fighter *f = &b->f[i];
+    const acr_gen1_fighter *t = &b->f[1 - i];
+    f->cam_pitch_prev = f->cam_pitch;
+    f->cam_yaw_prev = f->cam_yaw;
+    int32_t to_pitch = 0, to_yaw = 0, step = 20;
+    if (t->ap > 0 && f->ap > 0 && f->weapons && f->current < f->weapons) {
+        const acr_gen1_weapon *w = &f->weapon[f->current];
+        const acr_gen1_ac *me = &f->ac, *it = &t->ac;
+        const int16_t lm = f->last_missile;
+        const int missile_out = lm >= 0 && lm < ACR_GEN1_MAX_SHOTS && b->shot[lm].active &&
+                                b->shot[lm].missile && b->shot[lm].owner == i;
+        const int seen = w->kind != ACR_GEN1_BLADE && w->box_w && acr_gen1_in_lock_box(b, i, w);
+        if (missile_out || seen) {
+            uint16_t yaw;
+            int16_t pitch;
+            dir_of((it->x - me->x) / 64, (it->y - me->y) / 64, (it->z - me->z) / 64, &yaw, &pitch);
+            const int32_t ry = wrap((int32_t)yaw - me->yaw), rp = wrap((int32_t)pitch - me->pitch);
+            if (missile_out) {           /* v - (v >> 2), as the game rounds */
+                to_pitch = rp - (rp >> 2);
+                to_yaw = ry - (ry >> 2);
+                step = 64;
+            } else {
+                to_pitch = rp >> 1;
+                to_yaw = ry >> 1;
+            }
+        }
+    }
+    f->cam_pitch = (int16_t)turn_toward(f->cam_pitch, to_pitch, step);
+    f->cam_yaw = (int16_t)turn_toward(f->cam_yaw, to_yaw, step);
+}
+
 static void fighter_tick(acr_gen1_battle *b, int i, int fire) {
     acr_gen1_fighter *f = &b->f[i];
+    camera_tick(b, i);
     if (f->hit_flash) --f->hit_flash;
     if (f->def) intercept_tick(b, i);
     if (f->ap <= 0 || !f->weapons) return;

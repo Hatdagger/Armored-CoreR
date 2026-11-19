@@ -394,3 +394,36 @@ Not done: the second layer (firing poses, table `b`, AC +0x6D), the
 state check that skips aiming (AC +0x45 = 0x20 / 0x21; the engine skips
 it during a blade swing), the game's lock angles (lock record +0x18 /
 +0x1A; the engine aims at the target's position).
+
+## Camera swing and the FCS box (2026-11-19)
+
+Play-test: the camera's focus felt off; the FCS doesn't tilt and sway as
+in Master of Arena. From the VS engine:
+
+- **Camera angles** (camera record +0x2C pitch, +0x2E yaw; `0x8008774C`,
+  once a tick, unless `0x80097EAC` bit 0x2000): they turn
+  (`0x800136E0`) toward
+  - 3/4 of the target's angle from the view (lock record +0x18 / +0x1A,
+    v - (v >> 2)), **64 a tick**, while the latest missile launched at the
+    target is still flying (player block +0x1C, cleared when it dies,
+    `0x80081934`);
+  - else 1/2 of it (v >> 1), **20 a tick**, while the selected weapon's
+    sight sees the target (lock record +0x16 bit 1, set by the sight sweep
+    `0x80078230` with the outer lock box);
+  - else 0 (the default at `0x8003EA48`), 20 a tick.
+- **Chase camera** (`0x800878FC`): pitch = view tilt (+0x218) + camera
+  pitch, clamped to +-800; yaw = facing + camera yaw - 2048. The eye sits
+  half the camera distance (650 / 2) out along it, 40 higher; the look-at
+  point 650 / 8 the other way, from a follow point 186 up the AC
+  (`0x80087B90`: AC y - height + height / 8). Each tick the eye moves a
+  quarter of the way to its spot (+0x0E = 2) and the look-at point half.
+- **The FCS box** (HUD sight `0x800576E0`) is not a fixed screen box: it is
+  a frame 16,384 out along the AC's facing (and view tilt), drawn through
+  the camera. So when the camera trails a turn, or swings toward the
+  target, the box drifts off the screen's centre and the target and box
+  meet part way.
+
+Engine: `acr_gen1_fighter.cam_pitch / cam_yaw` (battle, per tick), the PC
+shell's camera and lock box. The box size is unchanged (it uses
+`ACR_GEN1_BOX_UNITS`); the sight's own corner sizes (slot +28 / +30, the
+inner box, x 4 sine) are not brought over yet.

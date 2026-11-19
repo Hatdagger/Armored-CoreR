@@ -664,7 +664,7 @@ int main(int argc, char **argv) {
             acr_gen1_fighter *f_ = &battle.f[i_];                                         \
             demo_ac *d_ = &ac_data[i_];                                                   \
             memset(f_, 0, sizeof *f_);                                                    \
-            f_->intercept_shot = -1; f_->swing_target = -1;                               \
+            f_->intercept_shot = -1; f_->swing_target = -1; f_->last_missile = -1;        \
             /* Human PLUS at full (level 9): energy rules of VS 0x80083560. */            \
             if (i_ == 0 && human_plus && !d_->plus_applied) {                             \
                 acr_gen1_human_plus_energy(&d_->def.stats, 9); d_->plus_applied = 1;      \
@@ -1014,8 +1014,19 @@ int main(int argc, char **argv) {
              * eye sits opposite, 328 out and 7.5 degrees above level when
              * level (stretching to ~365 looking down), kept 100 above the
              * floor (measured at the up limit: 93 behind, 103 up). */
-            const float th = ((float)prev.pitch + (float)(ac.pitch - prev.pitch) * a) * (6.2831853f / 4096.0f);
-            const float fx = sinf(yaw), fz = cosf(yaw), pivot = 186.0f;
+            /* The camera's swing toward the target (acr_gen1_camera: VS
+             * 0x8008774C), between ticks; the chase camera clamps the
+             * pitch to +-800. */
+            const acr_gen1_fighter *cf = &battle.f[view];
+            const float ct = acr_gen1_tick_fraction(&ac);
+            const float cam_p = cf->cam_pitch_prev + (cf->cam_pitch - cf->cam_pitch_prev) * ct,
+                        cam_y = cf->cam_yaw_prev + (cf->cam_yaw - cf->cam_yaw_prev) * ct;
+            float th_units = (float)prev.pitch + (float)(ac.pitch - prev.pitch) * a + cam_p;
+            if (th_units > ACR_GEN1_CAM_PITCH_MAX) th_units = ACR_GEN1_CAM_PITCH_MAX;
+            if (th_units < -ACR_GEN1_CAM_PITCH_MAX) th_units = -ACR_GEN1_CAM_PITCH_MAX;
+            const float th = th_units * (6.2831853f / 4096.0f);
+            const float cyaw = yaw + cam_y * (6.2831853f / 4096.0f);
+            const float fx = sinf(cyaw), fz = cosf(cyaw), pivot = 186.0f;
             const float lo = 82.0f * cosf(th), lu = pivot + 82.0f * sinf(th);
             const float phi = 0.1309f - th, down = th < 0 ? -th / 1.1519f : 0.0f;
             float eb = (328.0f + 37.0f * down) * cosf(phi), eu = (328.0f + 37.0f * down) * sinf(phi);
@@ -1025,26 +1036,30 @@ int main(int argc, char **argv) {
              * docs/mapping/stat-block.md), so it trails a fast AC and swings
              * round on turns. Kept per second at any frame rate; snaps on a
              * jump (reset, respawn). */
-            static float cam_eye[2][3];
+            static float cam_eye[2][3], cam_look[2][3];
             static int cam_ok[2];
             static Uint64 cam_ns[2];
             float eye[3] = { px - fx * eb, py + pivot + eu, pz - fz * eb };
+            float look[3] = { px + fx * lo, py + lu, pz + fz * lo };
             {
                 const Uint64 now_ns = SDL_GetTicksNS();
                 const float dt = cam_ok[view] ? (float)(now_ns - cam_ns[view]) / 1e9f : 0.0f;
                 cam_ns[view] = now_ns;
                 const float ex = eye[0] - cam_eye[view][0], ey = eye[1] - cam_eye[view][1], ez = eye[2] - cam_eye[view][2];
                 if (!cam_ok[view] || ex * ex + ey * ey + ez * ez > 2000.0f * 2000.0f || dt > 0.5f) {
-                    cam_eye[view][0] = eye[0]; cam_eye[view][1] = eye[1]; cam_eye[view][2] = eye[2];
+                    for (int c = 0; c < 3; ++c) { cam_eye[view][c] = eye[c]; cam_look[view][c] = look[c]; }
                     cam_ok[view] = 1;
                 } else {
-                    const float k = 1.0f - powf(0.75f, 22.0f * dt);
+                    /* The eye moves a quarter of the way a tick (camera
+                     * +0x0E = 2) and the look-at point half (VS 0x80087B90). */
+                    const float k = 1.0f - powf(0.75f, 22.0f * dt), kl = 1.0f - powf(0.5f, 22.0f * dt);
                     cam_eye[view][0] += ex * k; cam_eye[view][1] += ey * k; cam_eye[view][2] += ez * k;
+                    for (int c = 0; c < 3; ++c) cam_look[view][c] += (look[c] - cam_look[view][c]) * kl;
                 }
                 if (cam_eye[view][1] < 100.0f) cam_eye[view][1] = 100.0f;
-                eye[0] = cam_eye[view][0]; eye[1] = cam_eye[view][1]; eye[2] = cam_eye[view][2];
+                for (int c = 0; c < 3; ++c) { eye[c] = cam_eye[view][c]; look[c] = cam_look[view][c]; }
             }
-            const float fwd[3] = { px + fx * lo - eye[0], py + lu - eye[1], pz + fz * lo - eye[2] };
+            const float fwd[3] = { look[0] - eye[0], look[1] - eye[1], look[2] - eye[2] };
             const float up[3] = { 0, 1, 0 };
             acr_mat_look(viewm, eye, fwd, up);
             for (int k = 0; k < 4; ++k) viewm[4 * k] = -viewm[4 * k];
@@ -1160,21 +1175,33 @@ int main(int argc, char **argv) {
                 }
                 if (w->box_w) {
                     /* The box covers the angles that lock (ACR_GEN1_BOX_UNITS),
-                     * through this view's projection. */
+                     * through this view's projection. Like the game's sight
+                     * (VS 0x800576E0) it is a frame far out along the AC's
+                     * facing and view tilt, seen through the camera: when the
+                     * camera trails or swings toward the target, the box
+                     * drifts off the screen's centre. */
                     const float bw = proj[0] * w->box_w / (float)ACR_GEN1_BOX_UNITS * g_vw * 0.5f,
                                 bh = proj[5] * w->box_h / (float)ACR_GEN1_BOX_UNITS * g_vh * 0.5f;
+                    float bx = g_vw * 0.5f, by = g_vh * 0.45f;
+                    {
+                        const float pt = ((float)prev.pitch + (float)(ac.pitch - prev.pitch) * a) * (6.2831853f / 4096.0f);
+                        const float far = 16384.0f;
+                        float hx, hy;
+                        if (to_hud(proj, viewm, v3(px + sinf(yaw) * cosf(pt) * far, py + 186.0f + sinf(pt) * far,
+                                                   pz + cosf(yaw) * cosf(pt) * far), g_vw, &hx, &hy)) { bx = hx; by = hy; }
+                    }
                     /* The FCS box takes the lock's colour once the target is locked. */
-                    if (me->locked) acr_hud_rect(g_vw * 0.5f - bw * 0.5f, g_vh * 0.45f - bh * 0.5f, bw, bh, 255, 60, 50, 255, 0);
-                    else acr_hud_rect(g_vw * 0.5f - bw * 0.5f, g_vh * 0.45f - bh * 0.5f, bw, bh, 90, 200, 120, 255, 0);
+                    if (me->locked) acr_hud_rect(bx - bw * 0.5f, by - bh * 0.5f, bw, bh, 255, 60, 50, 255, 0);
+                    else acr_hud_rect(bx - bw * 0.5f, by - bh * 0.5f, bw, bh, 90, 200, 120, 255, 0);
                     if (w->kind == ACR_GEN1_MISSILE) {
                         /* The missile lock cursor (player block +0x20 / +0x22) and the locks held. */
                         const float cy = tanf(me->cursor_yaw * (6.2831853f / 4096.0f)),
                                     cp = tanf(me->cursor_pitch * (6.2831853f / 4096.0f));
-                        const float cx = g_vw * 0.5f + cy * proj[0] * g_vw * 0.5f, cyy = g_vh * 0.45f - cp * proj[5] * g_vh * 0.5f;
+                        const float cx = bx + cy * proj[0] * g_vw * 0.5f, cyy = by - cp * proj[5] * g_vh * 0.5f;
                         acr_hud_rect(cx - 6, cyy - 6, 12, 12, 240, 220, 60, 255, 0);
                         if (me->locks) {
                             SDL_snprintf(line, sizeof line, "LOCK x%d", (int)me->locks);
-                            acr_hud_text(g_vw * 0.5f + bw * 0.5f + 6, g_vh * 0.45f - bh * 0.5f, line, 255, 60, 50);
+                            acr_hud_text(bx + bw * 0.5f + 6, by - bh * 0.5f, line, 255, 60, 50);
                         }
                     }
                 }

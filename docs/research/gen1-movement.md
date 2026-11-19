@@ -363,6 +363,29 @@ engine's landing code, not measured in play.
   as the measured wait before lift-off; 7 on caterpillar and four-legged
   sets, 8-10 on others.
 
+## Steering in the air, from the disc (2026-11-19)
+
+Play-test: "in the game while in the air you can still move the AC around
+to a smaller degree without booster input". Read from the VS engine:
+
+- The pad picks the air state (`0x80085400`): any direction (forward,
+  back, strafe, or a diagonal) gives states 0x41-0x48 **whether or not the
+  booster is held**; turning alone 0x49 / 0x4A; the booster alone 0x40;
+  nothing 0x4B.
+- The air handler (`0x8007FBAC`) first does the vertical part: booster
+  held (and not locked) rises by +0x200 to the rise top speed, otherwise
+  gravity 256 a tick up to 9,600. Then, for a direction state, it adds the
+  **air acceleration** (+0x204, stat +8 x 14) along facing + the
+  direction's angle and cuts the speed to the **air top speed** (+0x206)
+  by scaling. Turning alone or no input: `0x80014790` cuts the speed to the
+  air top speed, then slows it by a quarter of the air acceleration.
+- So the booster only decides up or down; sideways control is the same
+  with or without it. Falling gives less time to use it, which is why it
+  feels smaller. Engine: `acr_gen1_ac_tick`, `ACR_GEN1_AIR`.
+- Side effect, also from the code: speed carried into the air (a hop out
+  of a ground boost) is cut to the air top speed on the first air tick.
+  The engine used to ease it down instead.
+
 ## Still to measure
 
 - Landing recovery after longer falls, and whether it depends on fall

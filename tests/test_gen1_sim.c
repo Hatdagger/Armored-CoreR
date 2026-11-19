@@ -150,12 +150,35 @@ int main(void) {
     acr_gen1_ac_step(&ac, &d, k_boost);
     EXPECT(ac.state == ACR_GEN1_AIR && ac.vy < 0 && ac.vz > 0);
 
-    /* In the air too, a move is cut to 75 a tick on an axis. */
-    acr_gen1_ac_spawn(&ac, &d, 0, 0, 0);
-    ac.state = ACR_GEN1_AIR; ac.y = -100000; ac.vz = 9000;
-    last = ac.z;
-    acr_gen1_ac_step(&ac, &d, k_none);
-    EXPECT(ac.z - last == 75 * 64);
+    /* In the air too, a move is cut to 75 a tick on an axis (an AC whose
+     * air top speed is over 75 a tick: strong booster, light AC). */
+    {
+        acr_gen1_ac_def fast = d;
+        fast.motion.air_max = 9000;
+        acr_gen1_ac_spawn(&ac, &fast, 0, 0, 0);
+        ac.state = ACR_GEN1_AIR; ac.y = -100000; ac.vz = 9000;
+        last = ac.z;
+        acr_gen1_ac_step(&ac, &fast, k_none);
+        EXPECT(ac.z - last == 75 * 64);
+    }
+
+    /* Steering in the air without the booster (VS 0x8007FBAC): a direction
+     * pushes by the air acceleration while falling; the speed is cut to the
+     * air top speed; with no direction it is cut, then slows by a quarter. */
+    {
+        acr_gen1_ac_spawn(&ac, &d, 0, 0, 0);
+        ac.state = ACR_GEN1_AIR; ac.y = -100000 * 64;
+        acr_gen1_ac_step(&ac, &d, k_fwd);
+        EXPECT(ac.state == ACR_GEN1_AIR && ac.vz == (int32_t)d.motion.air_accel && ac.vy == ACR_GEN1_GRAVITY);
+        for (int i = 0; i < 30; ++i) acr_gen1_ac_step(&ac, &d, k_fwd);
+        EXPECT(ac.vz == (int32_t)d.motion.air_max);
+        ac.vz = 9000;
+        acr_gen1_ac_step(&ac, &d, k_fwd);
+        EXPECT(ac.vz == (int32_t)d.motion.air_max);
+        ac.vz = 9000;
+        acr_gen1_ac_step(&ac, &d, k_none);
+        EXPECT(ac.vz == (int32_t)d.motion.air_max - (int32_t)d.motion.air_accel / 4);
+    }
 
     /* Energy: a quarter of the cost below the red zone; running dry locks the
      * booster until the bar is full, refilling at half speed meanwhile. */
