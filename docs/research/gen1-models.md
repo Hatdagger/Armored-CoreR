@@ -256,6 +256,18 @@ is under "Blending and which pose shows" below.
   cross-fade on animation changes (AC +0x7A, 4.12 a frame). See the fork's
   `renderer.md`, "ACs (VS)".
 
+## Parts in another set's skeleton (2026-11-19)
+
+Each exported piece's vertices are moved by its node's bind position in
+the set it was exported from (`joint` in part.toml); other sets can place
+that node elsewhere. Drawing adds back node position + joint (model
+space: y and z negated), as AC1Recomp's launcher does (`moa_ac_view.c`).
+Measured on the user's disc with the starting head and booster: weapon-arm
+sets (31-39, 63-71) put the hips (legs piece 0) 480-530 units higher (they
+hang it under a root joint), so the hips floated above the head; 57 of the
+72 sets had some piece off (boosters 44 / -47, arms 10-70, the caterpillar
+core 20). Weapon arms also draw no hand weapon.
+
 ## Blending and which pose shows (2026-11-19)
 
 Read from the VS engine (FDAT 209, loaded at `0x80050DD8`) in a static

@@ -18,7 +18,9 @@ static int part_index(int kind, const int parts[SLOT_COUNT]) {
     case ACR_PART_HEAD: return parts[SLOT_HEAD];
     case ACR_PART_ARMS: return parts[SLOT_ARMS];
     case ACR_PART_LEGS: return parts[SLOT_LEGS];
-    case ACR_PART_HAND: return parts[SLOT_HAND] == 255 ? 0 : parts[SLOT_HAND];   /* 0: the empty hand */
+    case ACR_PART_HAND:                      /* weapon arms (12 and up) have no hand */
+        if (parts[SLOT_ARMS] >= 12) return -1;
+        return parts[SLOT_HAND] == 255 ? 0 : parts[SLOT_HAND];   /* 0: the empty hand */
     case ACR_PART_BACK_LEFT: return parts[SLOT_BACK_L] == 255 ? -1 : parts[SLOT_BACK_L];
     case ACR_PART_BACK_RIGHT: return parts[SLOT_BACK_R] == 255 ? -1 : parts[SLOT_BACK_R];
     case ACR_PART_BOOSTER: return parts[SLOT_BOOSTER] == 255 ? -1 : parts[SLOT_BOOSTER];
@@ -65,6 +67,22 @@ static int load_part(const char *models, int kind, int index, const uint8_t colo
     const char *v = SDL_strstr(toml, "\npieces");
     int pieces = 0;
     if (v) { v = SDL_strchr(v, '='); pieces = v ? SDL_atoi(v + 1) : 0; }
+    {
+        int k = 0;
+        for (const char *b = SDL_strstr(toml, "[[piece]]"); b && k < DEMO_MAX_PIECES; ++k) {
+            const char *next = SDL_strstr(b + 9, "[[piece]]");
+            const char *j = SDL_strstr(b, "\njoint");
+            if (j && (!next || j < next) && (j = SDL_strchr(j, '[')) && (!next || j < next)) {
+                char *q = (char *)j + 1;
+                for (int c = 0; c < 3; ++c) {
+                    p->joint[k][c] = (int)SDL_strtol(q, &q, 10);
+                    while (*q == ',' || *q == ' ') ++q;
+                }
+                p->has_joint[k] = 1;
+            }
+            b = next;
+        }
+    }
     SDL_free(toml);
     if (pieces <= 0) return 0;
     if (pieces > DEMO_MAX_PIECES) pieces = DEMO_MAX_PIECES;
@@ -147,6 +165,19 @@ void demo_model_draw_pose(const demo_model *m, const acr_pose *pose, float x, fl
         if (!p->present || node->draw_piece >= p->pieces) continue;
         const acr_mesh *mesh = &p->piece[node->draw_piece];
         const float *M = mat[i];
+        /* The pose matrices take off this set's bind position for the node,
+         * but the piece's vertices were moved by its bind position in the set
+         * it was exported from. They differ where the skeletons differ:
+         * weapon-arm sets hang the hips (legs piece 0) under a root joint, so
+         * parts came out in the wrong place. Put the difference back (model
+         * space: y and z negated). From AC1Recomp's launcher (moa_ac_view.c). */
+        float d[3] = { 0, 0, 0 };
+        if (p->has_joint[node->draw_piece]) {
+            const int *jt = p->joint[node->draw_piece];
+            d[0] = (float)(node->pos[0] + jt[0]);
+            d[1] = -(float)(node->pos[1] + jt[1]);
+            d[2] = -(float)(node->pos[2] + jt[2]);
+        }
         for (int t = 0; t < mesh->tri_count && n < MAX_MODEL_TRIS; ++t) {
             const acr_material *mt = &p->mtl.m[mesh->material[t]];
             int group = ACR_PART_KINDS;
@@ -162,7 +193,9 @@ void demo_model_draw_pose(const demo_model *m, const acr_pose *pose, float x, fl
             const int semi = mt->semi && group == ACR_PART_KINDS;
             g_group[n] = (uint8_t)(group | (semi ? 0x80 : 0));
             for (int j = 0; j < 3; ++j) {
-                const acr_mesh_vertex *v = &mesh->v[t * 3 + j];
+                acr_mesh_vertex sv = mesh->v[t * 3 + j];
+                sv.p[0] += d[0]; sv.p[1] += d[1]; sv.p[2] += d[2];
+                const acr_mesh_vertex *v = &sv;
                 /* model space has the AC's right hand at -x; the engine's world
                  * has the right at +x (see the camera in main.c) */
                 const float lx = -(M[0] * v->p[0] + M[1] * v->p[1] + M[2] * v->p[2] + M[3]) * scale;

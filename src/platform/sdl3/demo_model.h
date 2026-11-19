@@ -18,6 +18,10 @@ typedef struct demo_part_model {
     acr_mtl mtl;
     int pieces;
     acr_mesh piece[DEMO_MAX_PIECES];
+    /* Each piece's joint: the bind position (game space) the export moved
+     * its vertices by, in the animation set it was exported from. */
+    int has_joint[DEMO_MAX_PIECES];
+    int joint[DEMO_MAX_PIECES][3];
     uint32_t texture;                 /* this part's own texture.png, 0 = none */
 } demo_part_model;
 
