@@ -1505,7 +1505,7 @@ int main(int argc, char **argv) {
             const acr_gen1_fighter *cf = &battle.f[view];
             const float ct = acr_gen1_tick_fraction(&ac);
             const float cam_p = cf->cam_pitch_prev + (cf->cam_pitch - cf->cam_pitch_prev) * ct,
-                        cam_y = cf->cam_yaw_prev + (cf->cam_yaw - cf->cam_yaw_prev) * ct;
+                        cam_y = cf->cam_yaw_prev + (float)(((cf->cam_yaw - cf->cam_yaw_prev + 2048) & 4095) - 2048) * ct;
             float th_units = (float)prev.pitch + (float)(ac.pitch - prev.pitch) * a + cam_p;
             if (th_units > ACR_GEN1_CAM_PITCH_MAX) th_units = ACR_GEN1_CAM_PITCH_MAX;
             if (th_units < -ACR_GEN1_CAM_PITCH_MAX) th_units = -ACR_GEN1_CAM_PITCH_MAX;
@@ -1597,6 +1597,11 @@ int main(int argc, char **argv) {
             if (g_muzzle[k].ok)
                 for (int c = 0; c < 3; ++c) fk->muzzle[c] = (int16_t)g_muzzle[k].p[c];
             g_in[k].crouch = battle.f[k].kneeling;   /* the cannon stance keeps its own pose */
+            if (battle.f[k].modern) {                /* modern: the stick as the AC took it */
+                g_in[k].move = battle.f[k].used.move;
+                g_in[k].strafe = battle.f[k].used.strafe;
+                g_in[k].turn = battle.f[k].used.turn;
+            }
         }
         draw_ac(view, &ac, px, py, pz, yaw, crouch);
         const float tx = (tprev.sx + (T->sx - tprev.sx) * a) / 64.0f, ty = -(tprev.sy + (T->sy - tprev.sy) * a) / 64.0f,

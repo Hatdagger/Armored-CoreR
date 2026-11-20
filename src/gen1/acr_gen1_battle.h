@@ -132,7 +132,12 @@ typedef struct acr_gen1_fighter {
     int16_t  last_missile;                     /* shot index of the latest missile launched (+0x1C) */
     /* Modern controls (SP-MODERN fitted; see ACR_GEN1_MODERN_* below) */
     uint8_t  modern;
-    uint8_t  hard_lock;                        /* on: the AC turns and tilts toward the target */
+    uint8_t  hard_lock;                        /* on: the camera stays on the target (any distance) */
+    uint16_t look_yaw;                         /* modern: the free camera's heading (world); the AC
+                                                  turns toward it at its own turn rate */
+    uint8_t  look_init;
+    acr_gen1_input used;                       /* the input the AC last moved by (camera-relative
+                                                  stick turned to the AC's own), for the poses */
     uint16_t sight_yaw;                        /* where the FCS sight points (modern: lags the facing) */
     int16_t  sight_pitch;
     uint16_t hist_yaw[4];                      /* facing / tilt over the last ticks, newest first */
@@ -192,11 +197,16 @@ typedef struct acr_gen1_shot {
 #define ACR_GEN1_MODERN_STEER_PCT        115
 #define ACR_GEN1_MODERN_RECOVER_HIT_MS   100
 #define ACR_GEN1_MODERN_RECOVER_MISS_MS  300
-/* Hard lock only switches on with the target within this distance (world
- * units), whatever the FCS; once on it holds out to the FCS's own range.
- * So a long-range FCS (QX-9009, RATOR) has to close in to lock, then can
- * pull back out. */
-#define ACR_GEN1_MODERN_HARD_LOCK_START  5000
+/* The free camera (third-person): the right stick spins the camera at
+ * CAM_RATE; the left stick moves relative to the camera; the AC turns to
+ * face the camera's heading at its own legs' turn rate, so its FCS sight
+ * still turns no faster than in AC1. Hard lock (R3) keeps the camera on
+ * the target at LOCK_CAM_RATE wherever it is (no aiming: the AC still has
+ * to turn and the FCS still has to lock). HARD_LOCK_START: hard lock only
+ * switches on within this distance (0 = any distance). */
+#define ACR_GEN1_MODERN_CAM_RATE         93    /* facing units a Gen 1 tick: ~180 degrees a second */
+#define ACR_GEN1_MODERN_LOCK_CAM_RATE    186   /* ~360 degrees a second */
+#define ACR_GEN1_MODERN_HARD_LOCK_START  0
 #define ACR_GEN1_MODERN_ROCKET_BOX       240   /* the default FCS's gun box ... */
 #define ACR_GEN1_MODERN_ROCKET_BOX_PCT   20    /* ... at 20 %, never drawn */
 #define ACR_GEN1_MODERN_ROCKET_ROF_PCT   300   /* refire wait with hard lock on: a third of the rate */

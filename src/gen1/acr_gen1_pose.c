@@ -51,7 +51,8 @@ int acr_gen1_pose_shown(const acr_gen1_ac *ac, acr_gen1_input in, int swinging, 
     if (in.crouch) return ac->anim;
     if (ac->vx || ac->vz) {
         const int d = stick(in);
-        if (in.boost && d != D_NONE && !ac->drained) return k_boost[d];
+        /* Boosting (or the modern boost toggle) with a direction: that way's pose. */
+        if ((in.boost || in.cruise) && d != D_NONE && !ac->drained) return k_boost[d];
         return k_boost[opposite(travel(ac))];
     }
     if (ac->anim == ACR_GEN1_ANIM_IDLE && ac->turn_rate) return ACR_GEN1_SHOW_TURN;

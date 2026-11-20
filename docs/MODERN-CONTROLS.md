@@ -15,15 +15,15 @@ speed, weapons and weapon switching stay exactly as in AC1.
 
 | Control | Does |
 |---|---|
-| Left stick | move and strafe |
-| Right stick | turn and tilt the view |
+| Left stick | move, relative to the camera |
+| Right stick | spin the camera (the AC turns to follow); tilt the view |
 | Cross | jump; with the boost toggle on, hold to rise (never a ground boost) |
 | L1 | boost toggle on / off: the only ground boost |
 | Square | quick boost |
 | R2 | fire the selected weapon |
 | L2 | blade |
 | Triangle | switch weapon (as AC1: one weapon selected at a time) |
-| R3 | hard lock on / off |
+| R3 | hard lock on / off: the camera stays on the target |
 | D-pad down | view back to level |
 
 ## Rules
@@ -44,19 +44,19 @@ speed, weapons and weapon switching stay exactly as in AC1.
 
 - **Sight lag.** A target that crosses quickly slips out of the sight and the
   lock breaks, even though it stays on screen.
-- **Hard lock.** While the target is in the current weapon's sight (the
-  smaller, lagging one), the AC turns and tilts toward it at its normal rates
-  whenever the pilot isn't turning or tilting. It turns off when the target
-  leaves the sight; press R3 again to turn it back on.
-- **Rockets with hard lock.** They work with it (sight: the default FCS's gun
-  box at 20 %, out to the rocket's range, never drawn), but get no
-  leading: they fly straight at where the target is now. While hard lock is on
-  their refire wait is 3x normal (`ACR_GEN1_MODERN_ROCKET_ROF_PCT`), a third
-  of the damage per second. Aimed by hand they fire at the normal rate.
-- **Hard lock range.** Hard lock can only be switched on with the target within
-  5,000, whatever the FCS (`ACR_GEN1_MODERN_HARD_LOCK_START`). Once on it holds
-  out to the FCS's own range, so a long-range FCS (QX-9009, RATOR) has to close
-  in to lock, then can pull back out.
+- **Free camera.** The right stick spins the camera at about 180 degrees a
+  second (`ACR_GEN1_MODERN_CAM_RATE`), and the AC turns in place to face
+  where the camera looks, at its own legs' turn speed. The left stick moves
+  relative to the camera. So the camera turns freely, but the FCS sight
+  (which follows the AC's facing) still turns no faster than the legs allow.
+- **Hard lock.** Keeps the camera on the target wherever it is, at any
+  distance (`ACR_GEN1_MODERN_HARD_LOCK_START`, 0 = no limit). It does no
+  aiming: the AC still has to turn round at its own rate and the FCS still
+  has to lock as usual. It stays on until R3 is pressed again or the target
+  is down.
+- **Rockets with hard lock.** While hard lock is on their refire wait is 3x
+  normal (`ACR_GEN1_MODERN_ROCKET_ROF_PCT`), a third of the damage per
+  second. With it off they fire at the normal rate.
 - **Boost toggle (L1).** A modern pilot's only ground boost; counts as one
   (slide, coast and stage rules). Walking pace comes from each AC's own walk
   animation, so heavy legs cruise slower. Left on while standing, it keeps
