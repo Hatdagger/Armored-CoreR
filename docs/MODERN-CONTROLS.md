@@ -57,7 +57,9 @@ speed, weapons and weapon switching stay exactly as in AC1.
   half-speed refill), but no quick boost and no energy weapons until the bar
   is full again. The blade already needs energy for everyone.
 
-**Human PLUS** (when it comes): a modern pilot gets only its no-kneel benefit
+**Human PLUS** (when it comes as the player's option part): the one exception
+to "nothing else fits". It can be equipped together with SP-MODERN, and
+equipping SP-MODERN leaves it on. A modern pilot gets only its no-kneel benefit
 (cannons fire without the stance). Its energy rules, and any Human PLUS
 benefit added later, don't apply (`acr_gen1_human_plus_level`).
 
