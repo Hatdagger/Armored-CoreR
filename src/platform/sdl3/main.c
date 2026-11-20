@@ -1701,7 +1701,9 @@ int main(int argc, char **argv) {
                         if (hy[c] > y1) y1 = hy[c];
                     }
                     float bx = g_vw * 0.5f, by = g_vh * 0.45f, bw = 0, bh = 0;
-                    if (seen) {
+                    /* Modern controls: the sight is not drawn, so the pilot can't
+                     * judge how close a shot is (only LOCK shows). */
+                    if (seen && !me->modern) {
                         bx = (x0 + x1) * 0.5f; by = (y0 + y1) * 0.5f; bw = x1 - x0; bh = y1 - y0;
                         /* The sight takes the lock's colour once the target is locked. */
                         const uint8_t cr = me->locked ? 255 : 64, cg = me->locked ? 60 : 144, cb = me->locked ? 50 : 56;
@@ -1713,7 +1715,7 @@ int main(int argc, char **argv) {
                         const float cy = tanf(me->cursor_yaw * (6.2831853f / 4096.0f)),
                                     cp = tanf(me->cursor_pitch * (6.2831853f / 4096.0f));
                         const float cx = bx + cy * proj[0] * g_vw * 0.5f, cyy = by - cp * proj[5] * g_vh * 0.5f;
-                        acr_hud_rect(cx - 6, cyy - 6, 12, 12, 240, 220, 60, 255, 0);
+                        if (!me->modern) acr_hud_rect(cx - 6, cyy - 6, 12, 12, 240, 220, 60, 255, 0);
                         if (me->locks) {
                             SDL_snprintf(line, sizeof line, "LOCK x%d", (int)me->locks);
                             float ox, oy, ux, uy;   /* the game's 4 x 5 letters, at this view's HUD scale */
@@ -1738,7 +1740,7 @@ int main(int argc, char **argv) {
                             battle_hud_text(g_vw, g_hud_frame, 0, (sx - ox) / (ux - ox) - 12, (sy - 18) / uy - 10, "LOCK", 1,
                                             255, 60, 50);
                         }
-                    } else {
+                    } else if (!me->modern) {   /* in the sight, not locked: hidden for modern pilots */
                         acr_hud_rect(sx - 18, sy - 18, 36, 36, 240, 220, 60, 255, 0);
                     }
                 }
