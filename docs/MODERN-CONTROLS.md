@@ -47,9 +47,12 @@ speed, weapons and weapon switching stay exactly as in AC1.
 - **Hard lock.** While the target is in the current weapon's sight (the
   smaller, lagging one), the AC turns and tilts toward it at its normal rates
   whenever the pilot isn't turning or tilting. It turns off when the target
-  leaves the sight; press R3 again to turn it back on. With rockets (no-lock
-  weapons) selected it is off and can't be turned on, so rockets stay aimed by
-  hand as in the original.
+  leaves the sight; press R3 again to turn it back on.
+- **Rockets with hard lock.** They work with it (sight: the default FCS's gun
+  box, shrunk like any modern sight, out to the rocket's range), but get no
+  leading: they fly straight at where the target is now. While hard lock is on
+  their refire wait is 3x normal (`ACR_GEN1_MODERN_ROCKET_ROF_PCT`), a third
+  of the damage per second. Aimed by hand they fire at the normal rate.
 - **Hard lock range.** Hard lock can only be switched on with the target within
   5,000, whatever the FCS (`ACR_GEN1_MODERN_HARD_LOCK_START`). Once on it holds
   out to the FCS's own range, so a long-range FCS (QX-9009, RATOR) has to close

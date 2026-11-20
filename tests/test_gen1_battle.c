@@ -440,14 +440,18 @@ int main(void) {
             const int32_t y = mb.f[0].ac.yaw >= 2048 ? (int32_t)mb.f[0].ac.yaw - 4096 : mb.f[0].ac.yaw;
             EXPECT(mb.f[0].hard_lock && y < 60 && y > -60);
         }
-        mb.f[0].weapon[0].straight = 1;                           /* rockets: hard lock off */
-        acr_gen1_battle_step(&mb, none, na);
-        EXPECT(!mb.f[0].hard_lock);
-        na[0].hard_lock = 1;
-        acr_gen1_battle_step(&mb, none, na);
-        na[0].hard_lock = 0;
-        EXPECT(!mb.f[0].hard_lock);                               /* and won't come on */
-        mb.f[0].weapon[0].straight = 0;
+        /* Rockets keep hard lock, but fire at a third of the rate with it on. */
+        mb.f[0].weapon[0].straight = 1; mb.f[0].weapon[0].box_w = mb.f[0].weapon[0].box_h = 0;
+        mb.f[0].cooldown = mb.f[0].hold_left = 0;
+        acr_gen1_actions shoot[2] = { { 1 }, { 0 } };
+        acr_gen1_battle_step(&mb, none, shoot);
+        EXPECT(mb.f[0].hard_lock && mb.f[0].cooldown == 5 * ACR_GEN1_MODERN_ROCKET_ROF_PCT / 100);
+        mb.f[0].hard_lock = 0;
+        mb.f[0].cooldown = mb.f[0].hold_left = 0;
+        acr_gen1_battle_step(&mb, none, shoot);
+        EXPECT(mb.f[0].cooldown == 5);                            /* aimed by hand: the normal rate */
+        mb.f[0].weapon[0] = rifle();
+        mb.f[0].cooldown = mb.f[0].hold_left = 0;
         na[0].hard_lock = 1;
         acr_gen1_battle_step(&mb, none, na);
         na[0].hard_lock = 0;
