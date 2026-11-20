@@ -8,7 +8,7 @@
  * controls. So your own AC answers at once, and the other one is corrected
  * a few frames later if the guess was wrong.
  *
- * - Controls go out as a 2-byte pad per step, each packet repeating every
+ * - Controls go out as a 3-byte pad per step, each packet repeating every
  *   step the other side hasn't confirmed yet, so a lost packet costs
  *   nothing but a little time.
  * - Optional input delay (both sides must use the same): fewer corrections,
@@ -35,10 +35,10 @@
 #define ACR_RB_MAX_DELAY   8
 #define ACR_RB_HASH_EVERY  60    /* steps between desync checks (1 s at 60) */
 #define ACR_RB_HASHES      16
-#define ACR_RB_PACKET_MAX  160
+#define ACR_RB_PACKET_MAX  176
 #define ACR_RB_PADS_MAX    48    /* pads in one packet */
 
-typedef uint16_t acr_rb_pad;
+typedef uint32_t acr_rb_pad;   /* 17 bits used, sent as 3 bytes */
 
 /* A pad: everything a player's controller does in one step. */
 acr_rb_pad acr_rb_pack(const acr_gen1_input *in, const acr_gen1_actions *act);

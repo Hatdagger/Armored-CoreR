@@ -154,6 +154,11 @@ garage_command garage_input(garage_ui *ui, garage_data *d, garage_action a) {
         const int s = k_rows[ui->slot], index = list[ui->list];
         acr_gen1_result r;
         uint32_t removed = 0;
+        if (s < 0 && index == (int)ACR_GEN1_OPTION_MODERN_BIT && !d->have_pad &&
+            !((d->hangar->options >> index) & 1u)) {
+            say(ui, "MODERN CONTROLS NEED A TWIN-STICK CONTROLLER.");
+            return GC_NONE;
+        }
         if (s < 0) r = acr_gen1_garage_option(d->hangar, d->cat, (unsigned)index,
                                                !((d->hangar->options >> index) & 1u));
         else r = acr_gen1_garage_fit(d->hangar, d->cat, (acr_gen1_slot)s, (unsigned)index, &removed);
@@ -230,6 +235,13 @@ static void part_info(const garage_data *d, int cat, int index, float x, float y
     SDL_snprintf(line, sizeof line, "PRICE     %8u", (unsigned)p->price);
     acr_hud_text(x, y + 12, line, WHITE);
     if (cat == ACR_GEN1_CAT_OPTION) {
+        if (index == (int)ACR_GEN1_OPTION_MODERN_BIT) {
+            acr_hud_text(x, y + 24, "SLOTS          ALL", WHITE);
+            acr_hud_text(x, y + 36, "MODERN CONTROLS:", DIM);
+            acr_hud_text(x, y + 48, "TWIN STICKS, HARD LOCK", DIM);
+            acr_hud_text(x, y + 60, "WEAKER FCS AND BLADE", DIM);
+            return;
+        }
         SDL_snprintf(line, sizeof line, "SLOTS     %8u", p->slots);
         acr_hud_text(x, y + 24, line, WHITE);
         return;

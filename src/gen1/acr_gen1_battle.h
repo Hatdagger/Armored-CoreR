@@ -130,6 +130,15 @@ typedef struct acr_gen1_fighter {
      * ticks. */
     int16_t  cam_pitch, cam_yaw, cam_pitch_prev, cam_yaw_prev;
     int16_t  last_missile;                     /* shot index of the latest missile launched (+0x1C) */
+    /* Modern controls (SP-MODERN fitted; see ACR_GEN1_MODERN_* below) */
+    uint8_t  modern;
+    uint8_t  hard_lock;                        /* on: the AC turns and tilts toward the target */
+    uint16_t sight_yaw;                        /* where the FCS sight points (modern: lags the facing) */
+    int16_t  sight_pitch;
+    uint16_t hist_yaw[4];                      /* facing / tilt over the last ticks, newest first */
+    int16_t  hist_pitch[4];
+    uint8_t  hist_n;
+    uint16_t recover_ms;                       /* modern blade: recovery left after a swing */
 } acr_gen1_fighter;
 
 typedef struct acr_gen1_shot {
@@ -146,6 +155,40 @@ typedef struct acr_gen1_shot {
     acr_gen1_flight flight;
 } acr_gen1_shot;
 
+/* ---- Modern controls (the SP-MODERN option) ----
+ * Twin sticks give free movement; the price is paid in aim, so a skilled
+ * pilot on the original controls stays competitive. Everything else (the
+ * AC's turn speed, weapons, switching) is the original's.
+ * - FCS: the lock boxes are BOX_PCT of the FCS's own (inner and outer);
+ *   locked gun shots aim only LEAD_PCT of the way to the predicted point;
+ *   missile locks take MISSILE_PCT of the ticks. The FCS sight does not sit
+ *   on the facing: it follows where the facing was SIGHT_LAG ticks ago, and
+ *   turns no faster than the AC's own top turn rate (tilt: the L2 / R2
+ *   rate). A target crossing quickly slips out of the sight (the lock
+ *   breaks) while staying on screen.
+ * - Blade: easier to land, dearer to miss. Lunge steering at STEER_PCT of
+ *   the turn rate (the blade ignores the weaker sight), each swing costs
+ *   BLADE_EN_PCT of the charge drain, and after the swing the AC stands
+ *   still for RECOVER_HIT_MS after a hit or RECOVER_MISS_MS after a miss
+ *   (no moving, firing or swinging).
+ * - Hard lock (a toggle): while the target is in the current weapon's
+ *   (lagging, smaller) sight, the AC turns and tilts toward it at its normal
+ *   rates whenever the pilot isn't turning / tilting. It drops when the
+ *   target leaves the sight and needs a fresh press.
+ * Stand-in values to tune in play (mirror matches, modern vs original). */
+#define ACR_GEN1_MODERN_BOX_PCT          80
+#define ACR_GEN1_MODERN_LEAD_PCT         60
+#define ACR_GEN1_MODERN_SIGHT_LAG        2     /* ticks, ~0.1 s; at most 3 */
+#define ACR_GEN1_MODERN_MISSILE_PCT      140
+#define ACR_GEN1_MODERN_BLADE_EN_PCT     125
+#define ACR_GEN1_MODERN_STEER_PCT        115
+#define ACR_GEN1_MODERN_RECOVER_HIT_MS   100
+#define ACR_GEN1_MODERN_RECOVER_MISS_MS  300
+
+typedef struct acr_gen1_modern_tuning {
+    uint16_t box_pct, lead_pct, sight_lag, missile_pct, blade_en_pct, steer_pct, recover_hit_ms, recover_miss_ms;
+} acr_gen1_modern_tuning;
+
 typedef struct acr_gen1_battle {
     acr_gen1_fighter f[2];
     acr_gen1_shot shot[ACR_GEN1_MAX_SHOTS];
@@ -156,12 +199,14 @@ typedef struct acr_gen1_battle {
     uint32_t tick_phase;                       /* counts toward the next tick, in gen1_rate units */
     uint32_t rng;                              /* the battle's own random numbers (0 = default seed) */
     const acr_gen1_stage *stage;               /* the arena (NULL = open floor): stops shots */
+    acr_gen1_modern_tuning modern;             /* 0 fields = the defaults below */
 } acr_gen1_battle;
 
 typedef struct acr_gen1_actions {
     uint8_t fire;            /* held: the selected gun or missile */
     uint8_t next_weapon;     /* pressed this step: cycles guns and missiles (not the blade) */
     uint8_t blade;           /* pressed this step: the blade has its own button, as in the game */
+    uint8_t hard_lock;       /* pressed this step: hard lock on / off (modern controls only) */
 } acr_gen1_actions;
 
 /* The game draws an AC at a quarter of its model's units (VS model draw

@@ -315,6 +315,49 @@ int main(void) {
         for (int k = 0; k < 40; ++k) acr_gen1_ac_step(&t, &d, look);
         EXPECT(t.pitch == -ACR_GEN1_PITCH_MAX);
     }
+    /* Modern controls: the boost toggle is a ground boost at 20 % of the top
+     * speed and of the cost; the quick boost is the full top speed, briefly. */
+    {
+        const acr_gen1_ac_def d = make_def();
+        acr_gen1_ac c, g;
+        acr_gen1_ac_spawn(&c, &d, 0, 0, 0);
+        acr_gen1_ac_spawn(&g, &d, 0, 0, 0);
+        acr_gen1_input walk = k_fwd, cruise = k_fwd, boost = k_boost;
+        cruise.cruise = 1;
+        for (int k = 0; k < 6; ++k) { acr_gen1_ac_step(&c, &d, walk); acr_gen1_ac_step(&g, &d, walk); }
+        const int32_t e0 = c.energy;
+        for (int k = 0; k < 40; ++k) { acr_gen1_ac_step(&c, &d, cruise); acr_gen1_ac_step(&g, &d, boost); }
+        const int64_t vc = (int64_t)c.vx * c.vx + (int64_t)c.vz * c.vz, vg = (int64_t)g.vx * g.vx + (int64_t)g.vz * g.vz;
+        const int64_t top = (int64_t)d.motion.boost_max * ACR_GEN1_CRUISE_PCT / 100;
+        EXPECT(c.state == ACR_GEN1_GROUND && vc <= top * top + 2 && vc >= (top - 2) * (top - 2));
+        EXPECT(g.state == ACR_GEN1_GROUND && vg > vc * 16);
+        EXPECT(c.energy < e0 && e0 - c.energy < (28000 - g.energy));   /* drains, much less than a full boost */
+        EXPECT(e0 - c.energy == 40 * ((d.stats.rise_drain >> 1) * ACR_GEN1_CRUISE_PCT / 100));
+        /* Standing still the toggle never jumps. */
+        acr_gen1_ac s;
+        acr_gen1_ac_spawn(&s, &d, 0, 0, 0);
+        acr_gen1_input stand = k_none;
+        stand.cruise = 1;
+        for (int k = 0; k < 10; ++k) acr_gen1_ac_step(&s, &d, stand);
+        EXPECT(s.state == ACR_GEN1_GROUND && s.vx == 0 && s.vz == 0);
+        /* Quick boost from a stand: the ground top speed at once, a few
+         * ticks, then a slide; not again until the cool-down ends. */
+        acr_gen1_ac q;
+        acr_gen1_ac_spawn(&q, &d, 0, 0, 0);
+        acr_gen1_input qb = k_fwd;
+        qb.quick = 1;
+        acr_gen1_ac_step(&q, &d, qb);
+        const int64_t v1 = (int64_t)q.vx * q.vx + (int64_t)q.vz * q.vz, bm = d.motion.boost_max;
+        EXPECT(q.state == ACR_GEN1_GROUND && v1 >= (bm - 2) * (bm - 2) && v1 <= bm * bm + 2);
+        EXPECT(q.quick_ticks == ACR_GEN1_QUICK_TICKS - 1 && q.quick_cool == ACR_GEN1_QUICK_COOL);
+        for (int k = 0; k < ACR_GEN1_QUICK_TICKS; ++k) acr_gen1_ac_step(&q, &d, k_fwd);
+        EXPECT(q.quick_ticks == 0);
+        acr_gen1_ac_step(&q, &d, qb);                              /* still cooling down */
+        EXPECT(q.quick_ticks == 0);
+        acr_gen1_ac_spawn(&q, &d, 0, 0, 0);
+        acr_gen1_ac_step(&q, &d, (acr_gen1_input){ .quick = 1 });  /* no direction: nothing */
+        EXPECT(q.vx == 0 && q.vz == 0 && q.quick_cool == 0);
+    }
     if (failures) { printf("%d failure(s)\n", failures); return 1; }
     printf("gen1 sim: all passed\n");
     return 0;

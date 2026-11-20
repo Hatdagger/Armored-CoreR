@@ -320,6 +320,32 @@ void acr_gen1_ac_tick(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
     int32_t drain = 0, mx = 0, mz = 0, dx = 0, dz = 0;
     const int dir = stick_dir(ac->yaw, in, &dx, &dz);
 
+    /* Modern controls: the quick boost (see ACR_GEN1_QUICK_TICKS). */
+    if (ac->quick_cool) --ac->quick_cool;
+    const int quick_press = ac->quick_pending;
+    ac->quick_pending = 0;
+    if (quick_press && dir && !ac->quick_cool && !ac->drained && ac->energy > 0 && !in.crouch &&
+        (ac->state == ACR_GEN1_GROUND || ac->state == ACR_GEN1_AIR)) {
+        const int32_t top = ac->state == ACR_GEN1_AIR ? m->air_max : m->boost_max;
+        ac->vx = (int32_t)((int64_t)dx * top / 4096);
+        ac->vz = (int32_t)((int64_t)dz * top / 4096);
+        ac->quick_ticks = ACR_GEN1_QUICK_TICKS;
+        ac->quick_cool = ACR_GEN1_QUICK_COOL;
+        if (ac->state == ACR_GEN1_GROUND) set_anim(ac, ACR_GEN1_ANIM_IDLE);
+    }
+    if (ac->quick_ticks && (ac->state == ACR_GEN1_GROUND || ac->state == ACR_GEN1_AIR)) {
+        --ac->quick_ticks;
+        drain = 2;                              /* a ground boost's cost */
+        if (ac->state == ACR_GEN1_GROUND) {
+            ac->coast = 3;
+            mx = ac->vx;
+            mz = ac->vz;
+            goto moved;
+        }
+    } else {
+        ac->quick_ticks = 0;
+    }
+
     switch (ac->state) {
     case ACR_GEN1_GROUND: {
         if (in.crouch) {
@@ -350,7 +376,17 @@ void acr_gen1_ac_tick(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
             mz = ac->vz;
             break;
         }
-        if (can_boost && dir && moving) {
+        /* Modern controls: the boost toggle, a slow ground boost. */
+        const int cruising = in.cruise && !in.boost && !ac->drained && ac->energy > 0 && dir && moving;
+        if (cruising) {
+            const int32_t top = (int32_t)m->boost_max * ACR_GEN1_CRUISE_PCT / 100;
+            ac->vx += dx * (int32_t)m->boost_accel / 4096;
+            ac->vz += dz * (int32_t)m->boost_accel / 4096;
+            limit_length(&ac->vx, &ac->vz, top);
+            ac->coast = 3;
+            drain = 3;                          /* marker: cruise (a ground boost at CRUISE_PCT) */
+            set_anim(ac, ACR_GEN1_ANIM_IDLE);
+        } else if (can_boost && dir && moving) {
             ac->vx += dx * (int32_t)m->boost_accel / 4096;
             ac->vz += dz * (int32_t)m->boost_accel / 4096;
             limit_length(&ac->vx, &ac->vz, m->boost_max);
@@ -378,6 +414,13 @@ void acr_gen1_ac_tick(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
         if (!ac->timer) ac->state = ACR_GEN1_AIR;
         break;
     case ACR_GEN1_AIR:
+        if (ac->quick_ticks) {                  /* quick boost: keeps its line, no rise */
+            ac->vy += ACR_GEN1_GRAVITY;
+            if (ac->vy > ACR_GEN1_FALL_MAX) ac->vy = ACR_GEN1_FALL_MAX;
+            mx = ac->vx;
+            mz = ac->vz;
+            break;
+        }
         if (can_boost) {
             ac->vy -= m->rise_accel;
             if (ac->vy < -(int32_t)m->rise_max) ac->vy = -(int32_t)m->rise_max;
@@ -413,6 +456,7 @@ void acr_gen1_ac_tick(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
         break;
     }
 
+moved:
     /* Every move is cut to 75 a tick on each axis (three quarters of the
      * AC's width, AC object +0x28; VS 0x80054124, which all the movement
      * handlers load their step through). The air boost measured 54 a tick,
@@ -429,7 +473,7 @@ void acr_gen1_ac_tick(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
      * drawing plays it from this and turns to the air poses when it ends. */
     if (ac->anim == ACR_GEN1_ANIM_JUMP && ac->anim_frame < UINT16_MAX) ++ac->anim_frame;
     if (def->stage && def->stage->areas) {
-        game_stage_tick(ac, def, mx, mz, drain == 2);
+        game_stage_tick(ac, def, mx, mz, drain >= 2);
     } else {
         ac->x += mx;
         ac->z += mz;
@@ -478,7 +522,8 @@ void acr_gen1_ac_tick(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
     }
     if (ac->energy < s->red_zone) { cost >>= 2; refill >>= 2; }
     if (drain) {
-        if (drain == 2) cost >>= 1;
+        if (drain >= 2) cost >>= 1;
+        if (drain == 3) cost = cost * ACR_GEN1_CRUISE_PCT / 100;
         if (ac->energy > cost) ac->energy -= cost;
         else { ac->energy = 0; ac->drained = 1; }
     } else if (ac->energy >= s->energy_capacity) {
@@ -524,6 +569,7 @@ void acr_gen1_ac_advance(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_i
     ac->pitch = (int16_t)(ac->pitch_fine / 256);
 
     if (!in.boost || in.boost_tapped) ac->boost_released = 1;
+    if (in.quick) ac->quick_pending = 1;          /* a press between ticks still counts */
     for (int k = 0; k < ticks; ++k) acr_gen1_ac_tick(ac, def, in);
     show(ac, num, den);
 }

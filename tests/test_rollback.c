@@ -199,6 +199,14 @@ int main(void) {
         EXPECT(oa.fire && oa.next_weapon && oa.blade);
         acr_rb_unpack(acr_rb_held(acr_rb_pack(&in, &act)), &o, &oa);
         EXPECT(o.boost && !o.boost_tapped && oa.fire && !oa.next_weapon && !oa.blade);
+        /* Modern controls: the toggle is held, quick boost and hard lock are presses. */
+        acr_gen1_input mi = { 0 };
+        acr_gen1_actions ma = { 0 };
+        mi.cruise = 1; mi.quick = 1; ma.hard_lock = 1;
+        acr_rb_unpack(acr_rb_pack(&mi, &ma), &o, &oa);
+        EXPECT(o.cruise && o.quick && oa.hard_lock);
+        acr_rb_unpack(acr_rb_held(acr_rb_pack(&mi, &ma)), &o, &oa);
+        EXPECT(o.cruise && !o.quick && !oa.hard_lock);
     }
 
     /* A snapshot replays exactly: copy the match, run on, go back, run the

@@ -26,7 +26,7 @@ typedef int sock_t;
 #  define close_sock close
 #endif
 
-#define VERSION 1
+#define VERSION 2   /* 2: options travel with the parts */
 enum { H_HELLO = 1, H_WELCOME = 2, H_REFUSE = 3, H_READY = 4, H_PING = 5, H_PONG = 6 };
 enum { R_DATA = 1, R_VERSION = 2, R_BUSY = 3, R_STAGE = 4 };
 
