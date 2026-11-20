@@ -135,8 +135,9 @@ Fixes after the first play-test (2026-11-19):
 - **Caterpillars** (user): no jump and no ground boost. The booster lifts
   them straight into the rising boost, from a stand or on the move, without
   the take-off kick the other legs start their arc with.
-- **Empty weapons** can't be picked; one that runs dry gives way to the
-  next with ammo; the last one left stays selected at 0 (user).
+- **Empty weapons** (user): no automatic swap; an empty weapon stays
+  selected until the pilot switches away, then can't be picked again. With
+  one weapon, or the last one empty, the pilot is stuck with it.
 - **Both back weapons work** (only the left one was a weapon): the AC now
   carries up to 4 (arm weapon, back left, back right, blade); a two-slot
   unit is one weapon.

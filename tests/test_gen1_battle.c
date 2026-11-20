@@ -248,8 +248,8 @@ int main(void) {
         const acr_gen1_actions cycle[2] = { { 0, 1, 0 }, { 0, 0, 0 } };
         acr_gen1_battle_step(&bb, none, cycle);
         EXPECT(me->current == 0);                       /* only the gun to cycle to */
-        /* Empty weapons: skipped by the switch, and one that runs dry gives
-         * way to the next with ammo; the last one left stays at 0. */
+        /* Empty weapons: skipped by the switch; one that runs dry stays
+         * selected until the pilot switches; with nothing left it stays. */
         {
             static acr_gen1_battle eb;
             setup(&eb, 3000);
@@ -263,9 +263,12 @@ int main(void) {
             EXPECT(ef->current == 2);                   /* the empty missile is skipped */
             ef->ammo[2] = 0;
             acr_gen1_battle_step(&eb, none, still);
-            EXPECT(ef->current == 0);                   /* ran dry: on to the rifle */
+            EXPECT(ef->current == 2);                   /* ran dry: no automatic swap */
+            acr_gen1_battle_step(&eb, none, sw);
+            EXPECT(ef->current == 0);                   /* switched away to the rifle */
+            acr_gen1_battle_step(&eb, none, sw);
+            EXPECT(ef->current == 0);                   /* the empty ones can't be picked again */
             ef->ammo[0] = 0;
-            acr_gen1_battle_step(&eb, none, still);
             acr_gen1_battle_step(&eb, none, sw);
             EXPECT(ef->current == 0);                   /* nothing left: it stays */
         }

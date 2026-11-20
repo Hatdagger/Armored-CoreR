@@ -597,15 +597,11 @@ static void fighter_step(acr_gen1_battle *b, int i, acr_gen1_actions a, int tick
         else ++cycled;
     }
     if (f->weapon[f->current].kind == ACR_GEN1_BLADE && cycled) a.next_weapon = 1;
-    /* A weapon that has just run dry gives way to the next with ammo; the
-     * last one left stays selected at 0 (user, 2026-11-19). */
-    {
-        const acr_gen1_weapon *wc = &f->weapon[f->current];
-        if (wc->kind != ACR_GEN1_BLADE && wc->ammo && !f->ammo[f->current]) a.next_weapon = 1;
-    }
     if (a.next_weapon && cycled && !f->volley_ticks) {
-        /* The next weapon that still has ammo (user, 2026-11-19: empty
-         * weapons can't be picked); none left: stay. */
+        /* The next weapon that still has ammo (user, 2026-11-19): an empty
+         * one stays selected until the pilot switches away (no automatic
+         * swap), and can't be picked again; with nothing else left the
+         * switch does nothing. */
         uint8_t next = f->current;
         for (int k = 1; k <= f->weapons; ++k) {
             const uint8_t c = (uint8_t)((f->current + k) % f->weapons);
