@@ -5,26 +5,38 @@
 /* A knock-out (or leaving the area) settles 12 Gen 1 ticks after it. */
 #define SETTLE_MS (12 * 1000 / 22)
 
+/* Fresh pilots for a round: seeded from the rules and the round number. */
+static void start_ai(acr_gen1_match *m, const acr_gen1_match_rules *r) {
+    for (int k = 0; k < ACR_GEN1_MAX_FIGHTERS; ++k) {
+        if (!(r->ai_mask >> k & 1)) { memset(&m->ai[k], 0, sizeof m->ai[k]); continue; }
+        acr_gen1_ai_init(&m->ai[k], &r->ai[k], r->ai_seed + 0x1234u + (uint32_t)k * 977u + (uint32_t)m->round * 7919u);
+    }
+}
+
 void acr_gen1_match_init(acr_gen1_match *m, const acr_gen1_battle *start, const acr_gen1_match_rules *r) {
     memset(m, 0, sizeof *m);
     m->b = *start;
     m->round_ms = r->round_ms;
     m->round = 1;
+    acr_gen1_battle_retarget(&m->b);
+    start_ai(m, r);
 }
 
 static void next_round(acr_gen1_match *m, const acr_gen1_battle *start, const acr_gen1_match_rules *r) {
     m->b = *start;
+    acr_gen1_battle_retarget(&m->b);
     m->round_ms = r->round_ms;
     m->ko_ms = m->over_ms = 0;
     m->round_over = m->result = m->time_up = 0;
     if (m->round < 255) ++m->round;
+    start_ai(m, r);
 }
 
 /* The open floor's square walls (the shown position too, so drawing stops there). */
 static void floor_walls(acr_gen1_match *m, int32_t half) {
     if (m->b.stage || half <= 0) return;
     const int32_t lim = half * 64;
-    for (int k = 0; k < 2; ++k) {
+    for (int k = 0; k < acr_gen1_battle_fighters(&m->b); ++k) {
         acr_gen1_ac *q = &m->b.f[k].ac;
         int32_t *const xs[3] = { &q->x, &q->px, &q->sx }, *const zs[3] = { &q->z, &q->pz, &q->sz };
         for (int c = 0; c < 3; ++c) {
@@ -37,8 +49,9 @@ static void floor_walls(acr_gen1_match *m, int32_t half) {
 }
 
 void acr_gen1_match_step(acr_gen1_match *m, const acr_gen1_battle *start, const acr_gen1_match_rules *r,
-                         const acr_gen1_input in[2], const acr_gen1_actions act[2]) {
+                         const acr_gen1_input in[], const acr_gen1_actions act[]) {
     const int32_t step = m->b.step_ms;
+    const int n = acr_gen1_battle_fighters(&m->b);
     ++m->frame;
     if (m->round_over) {
         /* Controls let go: the ACs drop to the ground where they are. */
@@ -47,8 +60,8 @@ void acr_gen1_match_step(acr_gen1_match *m, const acr_gen1_battle *start, const 
             next_round(m, start, r);
             return;
         }
-        static const acr_gen1_input no_in[2] = { { 0 } };
-        static const acr_gen1_actions no_act[2] = { { 0 } };
+        static const acr_gen1_input no_in[ACR_GEN1_MAX_FIGHTERS] = { { 0 } };
+        static const acr_gen1_actions no_act[ACR_GEN1_MAX_FIGHTERS] = { { 0 } };
         acr_gen1_battle_step(&m->b, no_in, no_act);
         floor_walls(m, r->arena_half);
         return;
@@ -67,7 +80,17 @@ void acr_gen1_match_step(acr_gen1_match *m, const acr_gen1_battle *start, const 
         if (res == 1 || res == 2) if (m->wins[res - 1] < 255) ++m->wins[res - 1];
         return;
     }
-    acr_gen1_battle_step(&m->b, in, act);
+    /* Players' controls, and the computer pilots' for their ACs. */
+    acr_gen1_input use_in[ACR_GEN1_MAX_FIGHTERS];
+    acr_gen1_actions use_act[ACR_GEN1_MAX_FIGHTERS];
+    memset(use_in, 0, sizeof use_in);
+    memset(use_act, 0, sizeof use_act);
+    const int32_t half = r->ai_half ? r->ai_half : r->arena_half;
+    for (int k = 0; k < n; ++k) {
+        if (r->ai_mask >> k & 1) acr_gen1_ai_step(&m->ai[k], &m->b, k, half, &use_in[k], &use_act[k]);
+        else if (k < 2 || !r->ai_mask) { use_in[k] = in[k]; use_act[k] = act[k]; }
+    }
+    acr_gen1_battle_step(&m->b, use_in, use_act);
     floor_walls(m, r->arena_half);
 }
 
@@ -85,7 +108,8 @@ uint32_t acr_gen1_match_hash(const acr_gen1_match *m) {
     H(m->round_over); H(m->result); H(m->time_up); H(m->round); H(m->wins[0]); H(m->wins[1]);
     const acr_gen1_battle *b = &m->b;
     H(b->rng); H(b->tick_phase);
-    for (int i = 0; i < 2; ++i) {
+    H(b->count); H(b->targeted);
+    for (int i = 0; i < acr_gen1_battle_fighters(b); ++i) {
         const acr_gen1_fighter *f = &b->f[i];
         const acr_gen1_ac *a = &f->ac;
         H(a->x); H(a->y); H(a->z); H(a->vx); H(a->vy); H(a->vz);
@@ -104,14 +128,18 @@ uint32_t acr_gen1_match_hash(const acr_gen1_match *m) {
         H(f->swing); H(f->swing_hits); H(f->lunge_done); H(f->swing_target); H(f->lunge_x); H(f->lunge_z);
         H(f->kneeling); H(f->human_plus); H(f->kneel_ms);
         H(f->intercept_burst); H(f->intercept_shot); H(f->hit_flash); H(f->last_missile);
-        H(f->cam_pitch); H(f->cam_yaw);
+        H(f->cam_pitch); H(f->cam_yaw); H(f->team); H(f->target);
+        const acr_gen1_ai *ai = &m->ai[i];
+        H(ai->rng); H(ai->think_ms); H(ai->move); H(ai->strafe); H(ai->strafe_ms); H(ai->boost);
+        H(ai->boost_ms); H(ai->hop); H(ai->fire); H(ai->want_locks); H(ai->want_weapon); H(ai->switch_ms);
+        H(ai->blade_ms); H(ai->plant_ms); H(ai->aim_error); H(ai->last_ap); H(ai->hurt_ms); H(ai->prev_boost);
     }
     for (int k = 0; k < ACR_GEN1_MAX_SHOTS; ++k) {
         const acr_gen1_shot *s = &b->shot[k];
         if (!s->active) continue;
         H(k); H(s->owner); H(s->weapon); H(s->missile); H(s->flags);
         H(s->x); H(s->y); H(s->z); H(s->vx); H(s->vy); H(s->vz);
-        H(s->travelled); H(s->yaw); H(s->pitch); H(s->age); H(s->ignition); H(s->split);
+        H(s->travelled); H(s->yaw); H(s->pitch); H(s->age); H(s->ignition); H(s->split); H(s->target);
     }
 #undef H
     return h;

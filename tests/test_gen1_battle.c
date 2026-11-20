@@ -404,6 +404,96 @@ int main(void) {
         EXPECT(cb.f[0].cam_yaw == 54);                     /* toward 3/4 of 1448, 64 a tick */
     }
 
+    /* Four ACs in two teams (co-op): targets are enemies only, shots and
+     * blades hit teammates too, the round goes by team. */
+    {
+        static const acr_gen1_input none4[ACR_GEN1_MAX_FIGHTERS];
+        static const acr_gen1_actions none_act4[ACR_GEN1_MAX_FIGHTERS];
+        static acr_gen1_battle q;
+        /* 0 and 1 (team 0) face +z; enemies 2 and 3 (team 1) face them. */
+        const int32_t pos[4][2] = { { 0, 0 }, { 0, 1200 }, { 0, 3000 }, { 3000, 3000 } };
+        #define SETUP4() do { \
+            memset(&q, 0, sizeof q); q.step_ms = 45; q.count = 4; \
+            for (int i = 0; i < 4; ++i) { \
+                acr_gen1_fighter *fi = &q.f[i]; \
+                fi->def = &def; fi->intercept_shot = -1; fi->swing_target = -1; fi->last_missile = -1; \
+                acr_gen1_ac_spawn(&fi->ac, &def, pos[i][0] * 64, pos[i][1] * 64, i < 2 ? 0 : 2048); \
+                fi->ap = fi->ap_max = 8384; fi->shell_factor = 27; fi->energy_factor = 32; \
+                fi->team = (uint8_t)(i >= 2); \
+                fi->weapon[0] = rifle(); fi->weapon[1] = small_missile(); fi->weapon[2] = blade(); \
+                fi->weapons = 3; for (int k = 0; k < 3; ++k) fi->ammo[k] = fi->weapon[k].ammo; \
+            } \
+            acr_gen1_battle_retarget(&q); \
+        } while (0)
+        SETUP4();
+        EXPECT(acr_gen1_battle_fighters(&q) == 4);
+        EXPECT(acr_gen1_battle_team(&q, 1) == 0 && acr_gen1_battle_team(&q, 3) == 1);
+        /* 0 looks past its teammate (in the box) at enemy 2. */
+        EXPECT(acr_gen1_battle_target(&q, 0) == 2);
+        EXPECT(acr_gen1_battle_target(&q, 1) == 2);
+        EXPECT(acr_gen1_battle_target(&q, 2) == 1);           /* the nearest in its box */
+        for (int i = 0; i < 4; ++i) EXPECT(acr_gen1_battle_team(&q, acr_gen1_battle_target(&q, i)) != acr_gen1_battle_team(&q, i));
+        /* Friendly fire: 0's rifle shots run into teammate 1, standing in the way. */
+        acr_gen1_actions fire4[ACR_GEN1_MAX_FIGHTERS] = { { 0 } };
+        fire4[0].fire = 1;
+        for (int t = 0; t < 40; ++t) acr_gen1_battle_step(&q, none4, fire4);
+        EXPECT(q.f[1].ap < q.f[1].ap_max);
+        EXPECT(q.f[2].ap == q.f[2].ap_max);
+        EXPECT(q.f[0].hit_flash == 0);                       /* no "HIT" for hitting a friend */
+        /* Teammate out of the way: the shots reach the enemy. */
+        SETUP4();
+        acr_gen1_ac_spawn(&q.f[1].ac, &def, -3000 * 64, 0, 0);
+        for (int t = 0; t < 40; ++t) acr_gen1_battle_step(&q, none4, fire4);
+        EXPECT(q.f[2].ap < q.f[2].ap_max);
+        EXPECT(acr_gen1_battle_target(&q, 0) == 2);
+        /* Missiles: launched at the target, they keep it. */
+        SETUP4();
+        acr_gen1_ac_spawn(&q.f[1].ac, &def, -3000 * 64, 0, 0);
+        acr_gen1_actions next4[ACR_GEN1_MAX_FIGHTERS] = { { 0 } };
+        next4[0].next_weapon = 1;
+        acr_gen1_battle_step(&q, none4, next4);
+        EXPECT(q.f[0].current == 1);
+        int launched = 0, ok_target = 1;
+        for (int t = 0; t < 200; ++t) {
+            acr_gen1_battle_step(&q, none4, fire4);
+            for (int k = 0; k < ACR_GEN1_MAX_SHOTS; ++k)
+                if (q.shot[k].active && q.shot[k].missile && q.shot[k].owner == 0) { ++launched; if (q.shot[k].target != 2) ok_target = 0; }
+        }
+        EXPECT(launched > 0 && ok_target);
+        /* The blade seeks the enemy, not the teammate just ahead, but hits the teammate in its arc. */
+        SETUP4();
+        acr_gen1_ac_spawn(&q.f[1].ac, &def, 0, 300 * 64, 0);
+        acr_gen1_ac_spawn(&q.f[2].ac, &def, 0, 2000 * 64, 2048);
+        acr_gen1_actions slash4[ACR_GEN1_MAX_FIGHTERS] = { { 0 } };
+        slash4[0].blade = 1;
+        acr_gen1_battle_step(&q, none4, slash4);
+        EXPECT(q.f[0].swing_target == 2);
+        for (int t = 0; t < 40; ++t) acr_gen1_battle_step(&q, none4, none_act4);
+        EXPECT(q.f[1].ap < q.f[1].ap_max);
+        /* Teams: the round goes on while one of a team stands. */
+        SETUP4();
+        EXPECT(acr_gen1_battle_result(&q, 0) == 0);
+        q.f[2].ap = 0;
+        EXPECT(acr_gen1_battle_result(&q, 0) == 0);
+        acr_gen1_battle_retarget(&q);
+        EXPECT(acr_gen1_battle_target(&q, 0) == 3 && acr_gen1_battle_target(&q, 1) == 3);
+        q.f[3].ap = 0;
+        EXPECT(acr_gen1_battle_result(&q, 0) == 1);
+        SETUP4();
+        q.f[0].ap = 0;
+        EXPECT(acr_gen1_battle_result(&q, 0) == 0);
+        q.f[2].ap = 100;                                      /* time up: 8384 vs 8484 */
+        EXPECT(acr_gen1_battle_result(&q, 1) == 2);
+        /* Three ACs: two against one. */
+        SETUP4();
+        q.count = 3;
+        acr_gen1_battle_retarget(&q);
+        EXPECT(acr_gen1_battle_target(&q, 0) == 2 && acr_gen1_battle_target(&q, 2) == 1);
+        q.f[2].ap = 0;
+        EXPECT(acr_gen1_battle_result(&q, 0) == 1);
+        #undef SETUP4
+    }
+
     if (failures) { printf("%d failure(s)\n", failures); return 1; }
     printf("gen1 battle: all passed (first hit after %d steps)\n", steps);
     return 0;
