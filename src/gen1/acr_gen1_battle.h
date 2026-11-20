@@ -144,6 +144,7 @@ typedef struct acr_gen1_fighter {
     int16_t  hist_pitch[4];
     uint8_t  hist_n;
     uint16_t recover_ms;                       /* modern blade: recovery left after a swing */
+    uint16_t bloom;                            /* modern: extra shot spread built up by firing */
 } acr_gen1_fighter;
 
 typedef struct acr_gen1_shot {
@@ -207,10 +208,20 @@ typedef struct acr_gen1_shot {
 #define ACR_GEN1_MODERN_ROCKET_BOX_PCT   20    /* ... at 20 %, never drawn */
 #define ACR_GEN1_MODERN_ROCKET_ROF_PCT   300   /* modern rockets' refire wait: a third of the rate */
 #define ACR_GEN1_MODERN_ROCKET_SPEED_PCT 60    /* modern rockets fly at 60 % speed (same range) */
+/* Shot spread and bloom (modern guns and rockets, locked or not): each shot
+ * goes off by a random angle up to SPREAD + the bloom either side (half that
+ * up / down). Every shot adds BLOOM_SHOT to the bloom, up to BLOOM_MAX, and it
+ * falls by BLOOM_DECAY a tick, so rapid fire (machine guns) spreads wide and
+ * slow guns stay near SPREAD. Facing units, 4096 a turn. */
+#define ACR_GEN1_MODERN_SPREAD           8     /* ~0.7 degrees */
+#define ACR_GEN1_MODERN_BLOOM_SHOT       10
+#define ACR_GEN1_MODERN_BLOOM_MAX        56    /* ~5 degrees more */
+#define ACR_GEN1_MODERN_BLOOM_DECAY      2
 
 typedef struct acr_gen1_modern_tuning {
     uint16_t box_pct, lead_pct, sight_lag, missile_pct, blade_en_pct, steer_pct, recover_hit_ms, recover_miss_ms;
     uint16_t hard_lock_start, rocket_rof_pct, rocket_box_pct, rocket_speed_pct;
+    uint16_t spread, bloom_shot, bloom_max, bloom_decay;
 } acr_gen1_modern_tuning;
 
 typedef struct acr_gen1_battle {

@@ -602,6 +602,10 @@ static void fighter_tick(acr_gen1_battle *b, int i, int fire) {
     sight_tick(b, i);
     camera_tick(b, i);
     if (f->hit_flash) --f->hit_flash;
+    if (f->bloom) {                                     /* modern: the bloom settles */
+        const unsigned d = MT(b, bloom_decay, BLOOM_DECAY);
+        f->bloom = (uint16_t)(f->bloom > d ? f->bloom - d : 0);
+    }
     if (f->def) intercept_tick(b, i);
     if (f->ap <= 0 || !f->weapons) return;
     const acr_gen1_weapon *w = &f->weapon[f->current];
@@ -704,10 +708,23 @@ static void fighter_step(acr_gen1_battle *b, int i, acr_gen1_actions a, int tick
         ay = -acr_gen1_sin(p);
     }
     const int n = w->shots ? w->shots : 1;
+    /* Modern: spread and bloom (ACR_GEN1_MODERN_SPREAD). */
+    uint16_t aim_yaw = 0;
+    int16_t aim_pitch = 0;
+    const int32_t cone = f->modern ? (int32_t)MT(b, spread, SPREAD) + f->bloom : 0;
+    if (cone) dir_of(ax, ay, az, &aim_yaw, &aim_pitch);
     for (int s = 0; s < n; ++s) {
         if (w->ammo && !f->ammo[f->current]) break;
+        if (cone) {
+            const int32_t oy = rnd(b) % (2 * cone + 1) - cone, op = (rnd(b) % (cone + 1)) - cone / 2;
+            vec_of((uint16_t)((aim_yaw + oy) & 4095), (int16_t)(aim_pitch + op), &ax, &ay, &az);
+        }
         spawn_shot(b, i, f->current, n == 1 ? 0 : (s * 2 - (n - 1)) * 20, ax, ay, az);
         if (w->ammo) --f->ammo[f->current];
+    }
+    if (f->modern) {
+        const unsigned mx = MT(b, bloom_max, BLOOM_MAX);
+        f->bloom = (uint16_t)(f->bloom + MT(b, bloom_shot, BLOOM_SHOT) > mx ? mx : f->bloom + MT(b, bloom_shot, BLOOM_SHOT));
     }
     f->cooldown = w->interval;
     if (f->modern && w->straight)                    /* modern rockets: far slower to refire */

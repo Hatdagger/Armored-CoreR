@@ -33,6 +33,8 @@ speed, weapons and weapon switching stay exactly as in AC1.
 | FCS lock boxes (inner and outer) | 30 % of the FCS's (aiming is automatic) | `ACR_GEN1_MODERN_BOX_PCT` |
 | Locked shots lead the target | 60 % of the way | `ACR_GEN1_MODERN_LEAD_PCT` |
 | FCS sight follows the facing | no faster than the AC's legs turn (no extra delay) | `ACR_GEN1_MODERN_SIGHT_LAG` (0) |
+| Shot spread | up to ~0.7 degrees either side (half that up / down), plus the bloom | `ACR_GEN1_MODERN_SPREAD` |
+| Bloom | +10 a shot (4096 a turn), up to ~5 degrees more; falls 2 a tick | `ACR_GEN1_MODERN_BLOOM_*` |
 | Missile lock time | 140 % | `ACR_GEN1_MODERN_MISSILE_PCT` |
 | Blade energy per swing | 125 % | `ACR_GEN1_MODERN_BLADE_EN_PCT` |
 | Blade lunge steering | 115 % of the turn rate (ignores the weaker sight) | `ACR_GEN1_MODERN_STEER_PCT` |
@@ -72,6 +74,10 @@ speed, weapons and weapon switching stay exactly as in AC1.
   (`ACR_GEN1_MODERN_ROCKET_ROF_PCT`, 300 % wait) and fly at 60 % of their
   speed with the same range (`ACR_GEN1_MODERN_ROCKET_SPEED_PCT`), with or
   without hard lock.
+- **Spread and bloom.** Every modern shot (guns and rockets, locked or not)
+  goes off by a random angle. Each shot widens the spread and it settles
+  when the trigger is let go, so machine guns spray after a few shots while
+  slow guns like rifles stay tight.
 - **Boost toggle (L1).** A modern pilot's only ground boost; counts as one
   (slide, coast and stage rules). Walking pace comes from each AC's own walk
   animation, so heavy legs cruise slower. Left on while standing, it keeps

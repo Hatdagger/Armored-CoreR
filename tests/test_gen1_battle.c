@@ -520,6 +520,33 @@ int main(void) {
         mb.f[0].cooldown = mb.f[0].hold_left = 0;
         acr_gen1_battle_step(&mb, none, shoot);
         EXPECT(mb.f[0].cooldown == 5 * ACR_GEN1_MODERN_ROCKET_ROF_PCT / 100);   /* without hard lock too */
+        /* Spread and bloom: rapid fire spreads the shots, then settles; the
+         * original controls get none. */
+        {
+            mb.f[0].weapon[0] = rifle(); mb.f[0].weapon[0].interval = 1; mb.f[0].weapon[0].hold = 0; mb.f[0].ammo[0] = 200;
+            mb.f[0].hard_lock = 0; mb.f[0].bloom = 0; mb.f[0].cooldown = mb.f[0].hold_left = 0;
+            acr_gen1_ac_set_yaw(&mb.f[0].ac, 0); mb.f[0].look_yaw = 0;
+            acr_gen1_actions mg[2] = { { 1 }, { 0 } };
+            int32_t lo = 4096, hi = -4096;
+            for (int k = 0; k < 40; ++k) {
+                for (int q = 0; q < ACR_GEN1_MAX_SHOTS; ++q) mb.shot[q].active = 0;
+                acr_gen1_battle_step(&mb, none, mg);
+                for (int q = 0; q < ACR_GEN1_MAX_SHOTS; ++q)
+                    if (mb.shot[q].active && mb.shot[q].owner == 0) {
+                        const int32_t sx = mb.shot[q].vx;
+                        if (sx < lo) lo = sx;
+                        if (sx > hi) hi = sx;
+                    }
+            }
+            EXPECT(mb.f[0].bloom == ACR_GEN1_MODERN_BLOOM_MAX);
+            EXPECT(hi > 0 && lo < 0);                                   /* shots go both ways off the line */
+            for (int k = 0; k < 60; ++k) acr_gen1_battle_step(&mb, none, na);
+            EXPECT(mb.f[0].bloom == 0);
+            mb.f[0].modern = 0;
+            for (int k = 0; k < 10; ++k) acr_gen1_battle_step(&mb, none, mg);
+            EXPECT(mb.f[0].bloom == 0);
+            mb.f[0].modern = 1;
+        }
         mb.f[0].weapon[0] = rifle();
         /* Any distance, and it holds when the target moves far off. */
         mb.f[1].ac.z = mb.f[1].ac.pz = mb.f[1].ac.sz = 20000 * 64;
