@@ -894,7 +894,9 @@ int main(int argc, char **argv) {
             memset(f_, 0, sizeof *f_);                                                    \
             f_->intercept_shot = -1; f_->swing_target = -1; f_->last_missile = -1;        \
             /* Human PLUS at full (level 9): energy rules of VS 0x80083560. */            \
-            if (i_ == 0 && human_plus && !d_->plus_applied) {                             \
+            /* With SP-MODERN only the no-kneel benefit applies (level 0 here). */         \
+            if (i_ == 0 && human_plus && !d_->plus_applied &&                             \
+                acr_gen1_human_plus_level(9, g_options[0])) {                             \
                 acr_gen1_human_plus_energy(&d_->def.stats, 9); d_->plus_applied = 1;      \
             }                                                                             \
             f_->def = &d_->def;                                                           \

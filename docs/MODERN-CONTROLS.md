@@ -1,7 +1,8 @@
 # Modern controls (SP-MODERN)
 
 An optional part, not on the disc. It takes every option slot of the core
-(so nothing else can be fitted with it) and fits any core. Every save owns
+and fits any core. Equipping it unequips every other optional part, and
+while it is fitted no other optional part can go on. Every save owns
 one from the start, and the shop sells it for 0 C. Fitting it needs a
 twin-stick controller; with it fitted the keyboard does nothing for that
 pilot.
@@ -48,6 +49,10 @@ speed, weapons and weapon switching stay exactly as in AC1.
 - **Boost toggle.** Counts as a ground boost (slide, coast and stage rules).
   It never jumps or rises, and does nothing in the air.
 - **Quick boost.** Never faster than the AC's normal boost.
+
+**Human PLUS** (when it comes): a modern pilot gets only its no-kneel benefit
+(cannons fire without the stance). Its energy rules, and any Human PLUS
+benefit added later, don't apply (`acr_gen1_human_plus_level`).
 
 The FCS and blade values can be changed per match (`acr_gen1_battle.modern`;
 0 = the default above), ready for a tuning page. Tune them with mirror

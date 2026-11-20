@@ -109,6 +109,14 @@ void acr_gen1_compile(const acr_gen1_build *b, acr_gen1_stats *out);
  * halved, both refills doubled, each refill then capped at the new rise
  * drain. Lower levels change nothing here. */
 void acr_gen1_human_plus_energy(acr_gen1_stats *s, unsigned level);
+
+/* Human PLUS with SP-MODERN fitted: only its no-kneel benefit (cannons fire
+ * without the stance, acr_gen1_fighter.human_plus). Its energy rules, and
+ * any Human PLUS benefit added later, don't apply: this gives the level to
+ * use for them (0 = none). */
+static inline unsigned acr_gen1_human_plus_level(unsigned level, uint16_t option_mask) {
+    return (option_mask & ACR_GEN1_OPTION_MODERN) ? 0u : level;
+}
 void acr_gen1_motion_from_stats(const acr_gen1_stats *s, acr_gen1_motion *out);
 
 #endif
