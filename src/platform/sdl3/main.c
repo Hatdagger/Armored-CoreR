@@ -1689,7 +1689,7 @@ int main(int argc, char **argv) {
                                    : me->hard_lock ? "HARD LOCK" : NULL;
                     if (mh) battle_hud_text(g_vw, g_hud_frame, 1, 312.0f - 4.0f * (float)SDL_strlen(mh), 172, mh, 0, 255, 160, 60);
                 }
-                if (w->box_w) {
+                if (w->box_w && (!me->modern || me->hard_lock)) {   /* modern: only with hard lock */
                     /* The game's sight (VS 0x800576E0): the inner lock box as
                      * an octagon, half-sizes sin(angle) and corners cut by 512,
                      * on a frame 16,384 out along the AC's facing and view tilt,

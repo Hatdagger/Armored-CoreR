@@ -150,6 +150,7 @@ static uint32_t sight_angles(const acr_gen1_battle *b, int i, int32_t *dyaw, int
 /* Inside a lock box (angles either side, 4096 a turn) and the range? */
 static int in_box_pct(const acr_gen1_battle *b, int i, int32_t range, uint16_t box_w, uint16_t box_h, unsigned pct);
 static int in_box(const acr_gen1_battle *b, int i, int32_t range, uint16_t box_w, uint16_t box_h) {
+    if (b->f[i].modern && !b->f[i].hard_lock) return 0;      /* modern: no FCS without hard lock */
     return in_box_pct(b, i, range, box_w, box_h, b->f[i].modern ? MT(b, box_pct, BOX_PCT) : 100u);
 }
 static int in_box_pct(const acr_gen1_battle *b, int i, int32_t range, uint16_t box_w, uint16_t box_h, unsigned pct) {

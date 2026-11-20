@@ -416,6 +416,7 @@ void acr_gen1_ac_tick(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
             int32_t vy;
             uint16_t crouch;
             takeoff(def, &crouch, &vy);
+            if (in.modern) vy = vy * ACR_GEN1_MODERN_JUMP_PCT / 100;
             ac->vy = vy;
             ac->state = ACR_GEN1_AIR;
             set_anim(ac, ACR_GEN1_ANIM_IDLE);
@@ -447,6 +448,7 @@ void acr_gen1_ac_tick(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
             set_anim(ac, ACR_GEN1_ANIM_IDLE);
         } else if (can_jump && ac->vx == 0 && ac->vz == 0) {
             takeoff(def, &ac->timer, &ac->vy);
+            if (in.modern) ac->vy = ac->vy * ACR_GEN1_MODERN_JUMP_PCT / 100;
             ac->state = ACR_GEN1_CROUCH;
             set_anim(ac, ACR_GEN1_ANIM_JUMP);
         } else if (ac->vx || ac->vz) {
@@ -477,8 +479,9 @@ void acr_gen1_ac_tick(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
             break;
         }
         if (can_rise) {
-            ac->vy -= m->rise_accel;
-            if (ac->vy < -(int32_t)m->rise_max) ac->vy = -(int32_t)m->rise_max;
+            const int32_t pct = in.modern ? ACR_GEN1_MODERN_RISE_PCT : 100;
+            ac->vy -= (int32_t)m->rise_accel * pct / 100;
+            if (ac->vy < -(int32_t)m->rise_max * pct / 100) ac->vy = -(int32_t)m->rise_max * pct / 100;
             drain = 1;                          /* marker: rising / air boost */
         } else {
             ac->vy += ACR_GEN1_GRAVITY;
@@ -579,6 +582,7 @@ moved:
     if (ac->energy < s->red_zone) { cost >>= 2; refill >>= 2; }
     if (drain) {
         if (drain >= 2) cost >>= 1;
+        else if (drain == 1 && in.modern) cost = cost * ACR_GEN1_MODERN_RISE_EN_PCT / 100;
         if (drain == 3 || drain == 5) cost = cost * ACR_GEN1_CRUISE_DRAIN_PCT / 100;
         if (ac->energy > cost) ac->energy -= cost;
         else { ac->energy = 0; ac->drained = 1; }

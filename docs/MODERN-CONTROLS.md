@@ -51,9 +51,11 @@ speed, weapons and weapon switching stay exactly as in AC1.
   (which follows the AC's facing) still turns no faster than the legs allow.
 - **Hard lock.** Keeps the camera on the target wherever it is, at any
   distance (`ACR_GEN1_MODERN_HARD_LOCK_START`, 0 = no limit). It does no
-  aiming: the AC still has to turn round at its own rate and the FCS still
-  has to lock as usual. It stays on until R3 is pressed again or the target
-  is down.
+  aiming: the AC still has to turn round at its own rate. It stays on until
+  R3 is pressed again or the target is down.
+- **FCS only with hard lock.** Without hard lock there is no FCS: no sight on
+  screen, no gun lock, no missile lock; shots go where the AC faces. With it
+  on the sight comes up and locks work as above.
 - **Rockets with hard lock.** While hard lock is on their refire wait is 3x
   normal (`ACR_GEN1_MODERN_ROCKET_ROF_PCT`), a third of the damage per
   second. With it off they fire at the normal rate.
@@ -61,6 +63,9 @@ speed, weapons and weapon switching stay exactly as in AC1.
   (slide, coast and stage rules). Walking pace comes from each AC's own walk
   animation, so heavy legs cruise slower. Left on while standing, it keeps
   draining at the same rate.
+- **Weaker jump and rise.** The jump's take-off is 50 % (`ACR_GEN1_MODERN_JUMP_PCT`);
+  rising has 60 % of the lift, acceleration and top speed
+  (`ACR_GEN1_MODERN_RISE_PCT`), and costs 125 % energy (`ACR_GEN1_MODERN_RISE_EN_PCT`).
 - **Cross.** Never boosts along the ground. Toggle off: a plain jump from the
   legs (no rise, no energy, works even when dry), or a hop while sliding.
   Toggle on: jump and hold to rise as normal. Caterpillars don't jump, so for

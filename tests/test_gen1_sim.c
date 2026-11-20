@@ -382,6 +382,25 @@ int main(void) {
             dj.energy = 0; dj.drained = 1;
             for (int k = 0; k < 12; ++k) acr_gen1_ac_step(&dj, &d, jump);
             EXPECT(dj.state == ACR_GEN1_AIR || dj.y < 0);
+            /* Weaker than the original: half the take-off, 60 % lift, 125 % cost. */
+            {
+                acr_gen1_ac o, n;
+                acr_gen1_ac_spawn(&o, &d, 0, 0, 0);
+                acr_gen1_ac_spawn(&n, &d, 0, 0, 0);
+                while (o.state != ACR_GEN1_AIR) { acr_gen1_ac_step(&o, &d, k_boost); acr_gen1_ac_step(&n, &d, rise); }
+                EXPECT(n.state == ACR_GEN1_AIR);
+                const int32_t eo = o.energy, en = n.energy;
+                for (int k = 0; k < 10; ++k) { acr_gen1_ac_step(&o, &d, k_boost); acr_gen1_ac_step(&n, &d, rise); }
+                EXPECT(en - n.energy == 10 * (d.stats.rise_drain * ACR_GEN1_MODERN_RISE_EN_PCT / 100));
+                EXPECT(eo - o.energy == 10 * d.stats.rise_drain);
+                EXPECT(n.y > o.y);                                   /* lower */
+                acr_gen1_ac jo, jn;                                  /* the take-off */
+                acr_gen1_ac_spawn(&jo, &d, 0, 0, 0);
+                acr_gen1_ac_spawn(&jn, &d, 0, 0, 0);
+                acr_gen1_ac_step(&jo, &d, k_boost);
+                acr_gen1_ac_step(&jn, &d, jump);
+                EXPECT(jn.vy == jo.vy * ACR_GEN1_MODERN_JUMP_PCT / 100);
+            }
             /* Caterpillars rise with the toggle off too. */
             acr_gen1_ac_def t = d;
             t.no_boost_hop = 1;

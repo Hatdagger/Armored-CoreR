@@ -80,6 +80,9 @@ typedef struct acr_gen1_input {
 #define ACR_GEN1_CRUISE_PCT       150   /* of walking pace: two legs and reverse joints */
 #define ACR_GEN1_CRUISE_HEAVY_PCT 135   /* four legs and caterpillars */
 #define ACR_GEN1_CRUISE_DRAIN_PCT 20    /* of a ground boost's cost */
+#define ACR_GEN1_MODERN_JUMP_PCT  50    /* SP-MODERN: the jump's take-off speed */
+#define ACR_GEN1_MODERN_RISE_PCT  60    /* SP-MODERN: the rise's lift (acceleration and top speed) */
+#define ACR_GEN1_MODERN_RISE_EN_PCT 125 /* SP-MODERN: the rise's energy cost */
 #define ACR_GEN1_WALK_PACE        34    /* world units a tick when the AC has no walk track (measured 31-38) */
 #define ACR_GEN1_QUICK_TICKS     4      /* ~0.18 s */
 #define ACR_GEN1_QUICK_CHAIN     3

@@ -421,10 +421,16 @@ int main(void) {
         /* Facing it: in the sight. A sudden turn away leaves the sight behind for a moment. */
         acr_gen1_ac_set_yaw(&mb.f[0].ac, 0); mb.f[0].look_yaw = 0;
         for (int t = 0; t < 10; ++t) acr_gen1_battle_step(&mb, none, na);
-        EXPECT(mb.f[0].sight_yaw == 0 && acr_gen1_in_lock_box(&mb, 0, &mb.f[0].weapon[0]));
+        EXPECT(mb.f[0].sight_yaw == 0 && !acr_gen1_in_lock_box(&mb, 0, &mb.f[0].weapon[0]));   /* no FCS without hard lock */
+        mb.f[0].hard_lock = 1;
+        EXPECT(acr_gen1_in_lock_box(&mb, 0, &mb.f[0].weapon[0]));
+        mb.f[0].hard_lock = 0;
         acr_gen1_ac_set_yaw(&mb.f[0].ac, 600); mb.f[0].look_yaw = 600;
         acr_gen1_battle_step(&mb, none, na);
-        EXPECT(mb.f[0].sight_yaw == 0 && acr_gen1_in_lock_box(&mb, 0, &mb.f[0].weapon[0]));   /* the target still in it */                          /* still where the facing was */
+        EXPECT(mb.f[0].sight_yaw == 0 && !acr_gen1_in_lock_box(&mb, 0, &mb.f[0].weapon[0]));   /* no FCS without hard lock */
+        mb.f[0].hard_lock = 1;
+        EXPECT(acr_gen1_in_lock_box(&mb, 0, &mb.f[0].weapon[0]));
+        mb.f[0].hard_lock = 0;   /* the target still in it */                          /* still where the facing was */
         for (int t = 0; t < 40; ++t) acr_gen1_battle_step(&mb, none, na);
         EXPECT(mb.f[0].sight_yaw == 600);
         /* The free camera: the right stick spins it; the AC follows at its own turn rate. */
@@ -497,6 +503,7 @@ int main(void) {
             ml[k].f[0].last_missile = ml[k].f[1].last_missile = -1;
             ml[k].f[0].weapons = 1; ml[k].f[0].weapon[0] = small_missile(); ml[k].f[0].ammo[0] = 40;
             ml[k].f[0].modern = (uint8_t)k;
+            ml[k].f[0].hard_lock = (uint8_t)k;                  /* modern: the FCS only with hard lock */
             for (int t = 0; t < 200 && ml[k].f[0].locks < 2; ++t) { acr_gen1_battle_step(&ml[k], none, na); ++took[k]; }
         }
         EXPECT(ml[0].f[0].locks == 2 && ml[1].f[0].locks == 2 && took[1] > took[0] * 13 / 10);
