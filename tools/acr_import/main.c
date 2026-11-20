@@ -71,6 +71,8 @@ int main(int argc, char **argv) {
                    (unsigned)stats.model_parts, (unsigned)stats.model_sets, out_dir);
         if (stats.stages)
             printf("Wrote %u arena stages in %s/stages.\n", (unsigned)stats.stages, out_dir);
+        if (stats.opponents)
+            printf("Wrote %u arena opponents in %s/arena.\n", (unsigned)stats.opponents, out_dir);
         if (stats.archives_skipped)
             printf("Left %u .T files as they are: their tables did not check out.\n",
                    (unsigned)stats.archives_skipped);

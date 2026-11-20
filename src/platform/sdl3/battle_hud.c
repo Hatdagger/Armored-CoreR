@@ -168,11 +168,14 @@ void battle_hud_draw(const battle_hud_state *s, float hud_w, int frame) {
         int ap = s->ap < 0 ? 0 : s->ap;
         SDL_snprintf(line, sizeof line, "%d", ap);
         const int n = (int)SDL_strlen(line);
+        /* The digits turn red below 1,000 AP. */
+        const int low = ap < 1000;
+        const uint8_t ar = low ? 230 : 58, ag = low ? 48 : 214, ab = low ? 40 : 58;
         for (int i = 0; i < n; ++i) {
             const float x = 96.0f - 16.0f * (float)(n - i);
-            if (g_ready) spr(L, g_layer[0], 24 + 16 * (line[i] - '0'), 113, 16, 22, x, 23, GREEN, 255, ACR_HUD_ALPHA);
+            if (g_ready) spr(L, g_layer[0], 24 + 16 * (line[i] - '0'), 113, 16, 22, x, 23, ar, ag, ab, 255, ACR_HUD_ALPHA);
         }
-        if (!g_ready) text(L, 32, 30, line, 1, GREEN);
+        if (!g_ready) text(L, 32, 30, line, 1, ar, ag, ab);
         if (s->enemy_ap >= 0) {
             text(L, 40, 50, "ENEMY LIMIT", 0, GREEN);
             SDL_snprintf(line, sizeof line, "%d", s->enemy_ap);
@@ -252,13 +255,16 @@ void battle_hud_draw(const battle_hud_state *s, float hud_w, int frame) {
     }
 
     /* Weapons: the selected one in yellow with its ammo, the others in
-     * green underneath, right-aligned under the radar. */
+     * green underneath, right-aligned under the radar. A weapon out of
+     * ammo shows its name and count in red. */
     if (s->weapons > 0 && s->current < s->weapons) {
         const battle_hud_weapon *w = &s->weapon[s->current];
-        text_r(R, 312, 112, w->name ? w->name : "", 1, 255, 255, 0);
+        const int empty = w->ammo_max > 0 && w->ammo <= 0;
+        const uint8_t cr = 255, cg = empty ? 48 : 255, cb = empty ? 40 : 0;
+        text_r(R, 312, 112, w->name ? w->name : "", 1, cr, cg, cb);
         if (w->ammo_max > 0) {
             SDL_snprintf(line, sizeof line, "%3d/%4d", w->ammo, w->ammo_max);
-            text_r(R, 312, 120, line, 1, 255, 255, 0);
+            text_r(R, 312, 120, line, 1, cr, cg, cb);
         }
         float y = 130;
         for (int i = 0; i < s->weapons; ++i) {
@@ -266,7 +272,8 @@ void battle_hud_draw(const battle_hud_state *s, float hud_w, int frame) {
             const battle_hud_weapon *o = &s->weapon[i];
             if (o->ammo_max > 0) SDL_snprintf(line, sizeof line, "%s %5d", o->name ? o->name : "", o->ammo);
             else SDL_snprintf(line, sizeof line, "%s", o->name ? o->name : "");
-            text_r(R, 311, y, line, 0, GREEN);
+            if (o->ammo_max > 0 && o->ammo <= 0) text_r(R, 311, y, line, 0, 230, 48, 40);
+            else text_r(R, 311, y, line, 0, GREEN);
             y += 7;
         }
     }

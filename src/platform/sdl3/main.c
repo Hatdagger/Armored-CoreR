@@ -50,6 +50,8 @@
 #include "demo_stage.h"
 #include "../../model/acr_aim.h"
 #include "garage.h"
+#include "rogue.h"
+#include "controls.h"
 #include "battle_hud.h"
 #include "fx.h"
 #include "sfx.h"
@@ -118,12 +120,13 @@ static acr_gen1_input read_input(SDL_Gamepad *pad, int keyboard) {
         if (ly > dead || SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_DPAD_DOWN)) in.move = -1;
         if (lx < -dead || SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_DPAD_LEFT)) in.turn = -1;
         if (lx > dead || SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_DPAD_RIGHT)) in.turn = 1;
-        if (SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER) || rx < -dead) in.strafe = -1;
-        if (SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER) || rx > dead) in.strafe = 1;
-        if (SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_SOUTH)) in.boost = 1;
-        /* L2 / R2 tilt the view up / down; both together: back to level. */
-        const int lt = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFT_TRIGGER) > 8000;
-        const int rt = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) > 8000;
+        /* The buttons as mapped on the CONTROLS page (controls.c). */
+        if (controls_held(pad, CT_STRAFE_L) || rx < -dead) in.strafe = -1;
+        if (controls_held(pad, CT_STRAFE_R) || rx > dead) in.strafe = 1;
+        if (controls_held(pad, CT_BOOST)) in.boost = 1;
+        /* Tilt the view up / down (L2 / R2 as standard); both together: back to level. */
+        const int lt = controls_held(pad, CT_LOOK_UP);
+        const int rt = controls_held(pad, CT_LOOK_DOWN);
         if (lt || rt) in.look = (int8_t)(lt && rt ? 2 : lt - rt);
     }
     return in;
@@ -230,11 +233,21 @@ static struct { int ok; float p[3]; } g_muzzle[ACR_GEN1_MAX_FIGHTERS];
 static int16_t g_aim[ACR_GEN1_MAX_FIGHTERS][3];
 static struct { acr_aim_state st; Uint64 last_ns; int ok; } g_aiming[ACR_GEN1_MAX_FIGHTERS];
 
+/* Rogue Arena paints both ACs (the run's colours, the opponent's own). */
+static int g_paint_on[ACR_GEN1_MAX_FIGHTERS];
+static uint8_t g_paint[ACR_GEN1_MAX_FIGHTERS][4][3], g_model_paint[ACR_GEN1_MAX_FIGHTERS][4][3];
+static int g_model_paint_on[ACR_GEN1_MAX_FIGHTERS];
+
 static void refresh_model(int who, const char *dir, const int parts[SLOT_COUNT], int set) {
-    if (g_model_set[who] == set && !memcmp(g_model_parts[who], parts, sizeof g_model_parts[who])) return;
+    if (g_model_set[who] == set && !memcmp(g_model_parts[who], parts, sizeof g_model_parts[who]) &&
+        g_model_paint_on[who] == g_paint_on[who] && (!g_paint_on[who] || !memcmp(g_model_paint[who], g_paint[who], sizeof g_paint[who])))
+        return;
     g_aiming[who].ok = 0;
     demo_model_free(&g_model[who]);
-    demo_model_load(dir, set, parts, who >= 2 ? k_colours_ai : who ? k_colours_p2 : NULL, &g_model[who]);
+    g_model_paint_on[who] = g_paint_on[who];
+    memcpy(g_model_paint[who], g_paint[who], sizeof g_paint[who]);
+    demo_model_load(dir, set, parts, g_paint_on[who] ? (const uint8_t (*)[3])g_paint[who]
+                                     : who >= 2 ? k_colours_ai : who ? k_colours_p2 : NULL, &g_model[who]);
     memcpy(g_model_parts[who], parts, sizeof g_model_parts[who]);
     g_model_set[who] = set;
 }
@@ -420,7 +433,21 @@ static int next_part(const char *dir, int parts[SLOT_COUNT], int slot, demo_ac *
  * the test build keeps its own number for the file: F4 used to stick on
  * the still target.) */
 #define AI_FROM_FILE 100
+#define AI_ROGUE 101                     /* the Rogue Arena opponent's own pilot */
+
+/* The screen the game is on. 2-5 are the network screens (net_menu.c,
+ * net_brief_ui.c): 2 the NETWORK menu, 3 a match's status, 4 its end,
+ * 5 the mission-briefing editor. */
+#define MODE_GARAGE     0
+#define MODE_FIGHT      1
+#define MODE_NET_FIRST  2
+#define MODE_NET_LAST   5
+#define MODE_ROGUE      10
+#define MODE_CONTROLS   11
 static int g_ai_mode = 0;
+static acr_gen1_ai_profile g_rogue_prof;
+static int g_plus2 = 0;                  /* the opponent's Human PLUS level (Rogue Arena) */
+static int g_rogue_fight = 0;            /* a Rogue Arena fight is on */
 static acr_gen1_ai g_ai[ACR_GEN1_MAX_FIGHTERS];
 static unsigned g_ai_round = 0;
 static int g_autopilot = 0;              /* player 1 flown by the AI too (AI against AI) */
@@ -438,6 +465,7 @@ static int ai_preset_of(const char *s) {
 static acr_gen1_ai_profile ai_profile(int mode) {
     acr_gen1_ai_profile p;
     if (mode == AI_FROM_FILE && g_ai_file_ok) return g_ai_file_prof;
+    if (mode == AI_ROGUE) return g_rogue_prof;
     acr_gen1_ai_preset(&p, mode > 0 && mode < ACR_GEN1_AI_PRESETS ? mode : ACR_GEN1_AI_BALANCED);
     return p;
 }
@@ -692,8 +720,8 @@ static int import_disc(SDL_Window *r, const char *disc, const char *dir, char *e
     return 1;
 }
 
-/* Testing aid: ACR_KEYS="ok,down,ok,..." feeds the garage and the network
- * screen one action a frame; "wait" lets half a second pass. */
+/* Testing aid: ACR_KEYS="ok,down,ok,..." feeds the menus (garage, network,
+ * Rogue Arena) one action a frame; "wait" lets half a second pass. */
 static garage_action script_action(void) {
     static const char *script;
     static int script_read;
@@ -834,10 +862,15 @@ int main(int argc, char **argv) {
         for (int c = 0; c < ACR_GEN1_CAT_COUNT; ++c)
             for (int i = 0; i < ACR_GEN1_PART_MAX; ++i) g_catalog.part[c][i].for_sale = 0;
     hangar_open(parts);
-    int mode = g_direct_test ? 1 : 0;   /* 0 garage, 1 test arena */
+    rogue_init(dir, &g_catalog, g_part_names);
+    controls_load();
+    controls_ui cui;
+    controls_open(&cui);
+    int mode = g_direct_test ? 1 : 0;   /* MODE_GARAGE, MODE_FIGHT, the network screens, MODE_ROGUE, MODE_CONTROLS */
     garage_ui gui;
     garage_init(&gui);
-    garage_data gdata = { &g_hangar, &g_catalog, g_part_names };
+    const garage_data gdata_main = { &g_hangar, &g_catalog, g_part_names };
+    garage_data gdata = gdata_main;
     if (!g_direct_test) {
         int fitted[SLOT_COUNT];
         hangar_parts(fitted);
@@ -920,8 +953,9 @@ int main(int argc, char **argv) {
             memset(f_, 0, sizeof *f_);                                                    \
             f_->intercept_shot = -1; f_->swing_target = -1; f_->last_missile = -1;        \
             /* Human PLUS at full (level 9): energy rules of VS 0x80083560. */            \
-            if (i_ == 0 && human_plus && !d_->plus_applied) {                             \
-                acr_gen1_human_plus_energy(&d_->def.stats, 9); d_->plus_applied = 1;      \
+            if ((i_ == 0 ? human_plus : g_plus2) && !d_->plus_applied) {                 \
+                acr_gen1_human_plus_energy(&d_->def.stats, i_ == 0 ? 9 : g_plus2);        \
+                d_->plus_applied = 1;                                                     \
             }                                                                             \
             f_->def = &d_->def;                                                           \
             f_->ap = f_->ap_max = d_->ap;                                                 \
@@ -935,7 +969,7 @@ int main(int argc, char **argv) {
             f_->current = 0;                                                              \
             f_->legs = (uint8_t)(pp[i_][SLOT_LEGS] >= 27 ? ACR_GEN1_LEGS_TRACKS            \
                        : pp[i_][SLOT_LEGS] >= 21 ? ACR_GEN1_LEGS_FOUR : ACR_GEN1_LEGS_TWO); \
-            f_->human_plus = (uint8_t)(i_ == 0 && human_plus); f_->kneeling = 0;          \
+            f_->human_plus = (uint8_t)(i_ == 0 ? human_plus : i_ == 1 && g_plus2 > 0); f_->kneeling = 0; \
             f_->team = (uint8_t)(i_ >= 2);   /* co-op: players 0, 1 against the AI ACs */ \
             f_->target = -1;                                                              \
         }                                                                                 \
@@ -984,6 +1018,8 @@ int main(int argc, char **argv) {
 
     Uint64 last = SDL_GetTicksNS();
     const Uint64 start_ns = last;
+    Uint64 give_up_until = 0;              /* Rogue Arena: a second Esc before this gives up */
+    Uint64 rogue_over_at = 0;              /* Rogue Arena: when the round ended */
     int running = 1, show_help = 0, back_held = 0, back_combo = 0, switch_pressed[2] = { 0, 0 }, blade_pressed[2] = { 0, 0 },
         target_pressed[2] = { 0, 0 };   /* switch target: Back/Select tap, X */
     SDL_Gamepad *pads[2] = { pad, NULL };
@@ -997,7 +1033,8 @@ int main(int argc, char **argv) {
     while (running) {
         SDL_Event e;
         garage_command gcmd = GC_NONE;
-        int to_garage = 0;
+        int to_garage = 0, rogue_done = 0, rogue_give_up = 0;
+        rogue_command rcmd = RC_NONE;
         garage_action net_action = GA_NONE;   /* the network screens' input this frame */
         int net_action_keys = 0;
         int net_copy = 0, net_paste = 0;      /* copy / paste a briefing code this frame */
@@ -1012,7 +1049,56 @@ int main(int argc, char **argv) {
             if (e.type == SDL_EVENT_GAMEPAD_REMOVED)
                 for (int k = 0; k < 2; ++k)
                     if (pads[k] && SDL_GetGamepadID(pads[k]) == e.gdevice.which) { SDL_CloseGamepad(pads[k]); pads[k] = NULL; }
-            if (mode >= 2) {   /* the network screens */
+            if (mode == MODE_CONTROLS) {   /* the CONTROLS page: a button to map, or the menu */
+                if (controls_capture(&cui, &e)) continue;
+                garage_action ga = GA_NONE;
+                if (e.type == SDL_EVENT_KEY_DOWN) ga = key_action(e.key.scancode);
+                if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) ga = button_action(e.gbutton.button);
+                if (controls_input(&cui, ga)) { mode = 0; gui.screen = 0; }
+                continue;
+            }
+            if (mode == MODE_ROGUE) {   /* Rogue Arena's screens take all other input */
+                garage_action ga = GA_NONE;
+                if (e.type == SDL_EVENT_KEY_DOWN) ga = key_action(e.key.scancode);
+                if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) ga = button_action(e.gbutton.button);
+                const rogue_command rc = rogue_input(ga);
+                if (rc != RC_NONE) rcmd = rc;
+                continue;
+            }
+            if (mode == 1 && g_rogue_fight) {
+                /* A Rogue Arena fight: no test keys. Esc (twice) or Back +
+                 * Start gives up, which counts as a loss; after the round,
+                 * Enter / A goes on. */
+                const int esc = e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_ESCAPE;
+                const int pad_quit = e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && back_held && e.gbutton.button == SDL_GAMEPAD_BUTTON_START;
+                if (esc || pad_quit) {
+                    if (round_over) rogue_done = 1;
+                    else if (SDL_GetTicks() < give_up_until) rogue_give_up = 1;
+                    else give_up_until = SDL_GetTicks() + 2000;
+                    if (pad_quit) back_combo = 1;
+                    continue;
+                }
+                if (round_over && ((e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_RETURN) ||
+                                   (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && e.gbutton.button == SDL_GAMEPAD_BUTTON_SOUTH))) {
+                    rogue_done = 1;
+                    continue;
+                }
+                if (e.type == SDL_EVENT_KEY_DOWN) {
+                    const SDL_Scancode k = e.key.scancode;
+                    const int test_key = (k >= SDL_SCANCODE_F2 && k <= SDL_SCANCODE_F8 && k != SDL_SCANCODE_F5) ||
+                                         (k >= SDL_SCANCODE_2 && k <= SDL_SCANCODE_8 && k != SDL_SCANCODE_5) ||
+                                         k == SDL_SCANCODE_R || k == SDL_SCANCODE_B || k == SDL_SCANCODE_G || k == SDL_SCANCODE_C ||
+                                         k == SDL_SCANCODE_L || k == SDL_SCANCODE_H || k == SDL_SCANCODE_T;
+                    if (test_key) continue;
+                }
+                if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) {
+                    const int b = e.gbutton.button;
+                    if (b == SDL_GAMEPAD_BUTTON_BACK) { back_held = 1; back_combo = 1; continue; }
+                    if (back_held || b == SDL_GAMEPAD_BUTTON_START) continue;
+                }
+                if (e.type == SDL_EVENT_GAMEPAD_BUTTON_UP && e.gbutton.button == SDL_GAMEPAD_BUTTON_BACK) { back_held = 0; continue; }
+            }
+            if (mode >= MODE_NET_FIRST && mode <= MODE_NET_LAST) {   /* the network screens */
                 garage_action ga = GA_NONE;
                 int from_keys = 0;
                 if (mode == 2 && e.type == SDL_EVENT_TEXT_INPUT) net_menu_text(&nmenu, e.text.text);
@@ -1077,8 +1163,8 @@ int main(int argc, char **argv) {
                 if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_TAB) switch_pressed[0] = 1;
                 if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_V) blade_pressed[0] = 1;
                 if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_X) target_pressed[0] = 1;
-                if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && e.gbutton.button == SDL_GAMEPAD_BUTTON_NORTH) switch_pressed[0] = 1;
-                if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && e.gbutton.button == SDL_GAMEPAD_BUTTON_EAST) blade_pressed[0] = 1;
+                if (controls_pressed(&e, CT_SWITCH)) switch_pressed[0] = 1;
+                if (controls_pressed(&e, CT_BLADE)) blade_pressed[0] = 1;
                 /* Back/Select: a tap switches target; Back + Start leaves. */
                 if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && e.gbutton.button == SDL_GAMEPAD_BUTTON_BACK) { back_held = 1; back_combo = 0; }
                 if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && e.gbutton.button == SDL_GAMEPAD_BUTTON_START && back_held) {
@@ -1173,6 +1259,13 @@ int main(int argc, char **argv) {
             int toggle_two = 0;
             if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_F2) toggle_two = 1;
             int cycle_rate = 0, cycle_slot = -1, toggle_plus = 0, cycle_who = 0;
+            /* The blade and the weapon switch, as mapped (CONTROLS page);
+             * a trigger can be one too. Which player's controller? */
+            if (!back_held && (controls_pressed(&e, CT_BLADE) || controls_pressed(&e, CT_SWITCH))) {
+                const int who = !two_players ? 0 : pads[1] ? (player_of(pads, controls_event_pad(&e), 0) == 1) : 1;
+                if (controls_pressed(&e, CT_BLADE)) blade_pressed[who] = 1;
+                if (controls_pressed(&e, CT_SWITCH)) switch_pressed[who] = 1;
+            }
             if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) {
                 const int btn = e.gbutton.button;
                 cycle_who = !two_players ? 0 : pads[1] ? (player_of(pads, e.gbutton.which, 0) == 1) : 1;
@@ -1184,15 +1277,7 @@ int main(int argc, char **argv) {
                 if (btn == SDL_GAMEPAD_BUTTON_SOUTH && back_held) { toggle_plus = 1; back_combo = 1; }
                 if (btn == SDL_GAMEPAD_BUTTON_LEFT_SHOULDER && back_held) { toggle_two = 1; back_combo = 1; }
                 if (btn == SDL_GAMEPAD_BUTTON_RIGHT_STICK && back_held) { g_landing_anim = !g_landing_anim; back_combo = 1; }
-                if (btn == SDL_GAMEPAD_BUTTON_EAST && !back_held) {   /* the blade: circle / B */
-                    const int who = !two_players ? 0 : pads[1] ? (player_of(pads, e.gbutton.which, 0) == 1) : 1;
-                    blade_pressed[who] = 1;
-                }
-                if (btn == SDL_GAMEPAD_BUTTON_NORTH && !back_held) {
-                    /* which player's controller? */
-                    const int who = !two_players ? 0 : pads[1] ? (player_of(pads, e.gbutton.which, 0) == 1) : 1;
-                    switch_pressed[who] = 1;
-                }
+                (void)btn;
                 if (btn == SDL_GAMEPAD_BUTTON_START && back_held && !g_direct_test) { to_garage = 1; back_combo = 1; }
                 else if (btn == SDL_GAMEPAD_BUTTON_START) { SETUP_FIGHTERS(); prevs[0] = *P; prevs[1] = *T; }
             }
@@ -1262,6 +1347,103 @@ int main(int argc, char **argv) {
             prevs[0] = *P; prevs[1] = *T;
         }
         if (to_garage) { mode = 0; gui.screen = 0; }
+        /* ---- Rogue Arena (rogue.c): its screens, its fights ---- */
+        #define LOAD_PLAYER_BUILD(src_parts) do {                                                \
+            int lpb_[SLOT_COUNT];                                                                \
+            memcpy(lpb_, (src_parts), sizeof lpb_);                                              \
+            if (demo_load(dir, lpb_, &ac_data[0], err, sizeof err)) memcpy(parts, lpb_, sizeof lpb_); \
+        } while (0)
+        if (mode == 1 && g_rogue_fight) {
+            if (round_over && !rogue_over_at) rogue_over_at = SDL_GetTicks();
+            if (round_over && SDL_GetTicks() - rogue_over_at > 4000) rogue_done = 1;
+            if (rogue_give_up || rogue_done) {
+                rogue_fight_over(rogue_give_up || !round_over ? 2 : round_result);
+                g_rogue_fight = 0;
+                g_ai_mode = 0; g_autopilot = 0; g_plus2 = 0; human_plus = 0;
+                g_paint_on[0] = g_paint_on[1] = 0;
+                rogue_over_at = 0;
+                mode = MODE_ROGUE;
+            }
+        }
+        if (mode == MODE_ROGUE) {
+            garage_action d = pad_direction(pads[0], SDL_GetTicks());
+            if (d == GA_NONE) d = script_action();
+            if (d != GA_NONE) { const rogue_command c = rogue_input(d); if (c != RC_NONE) rcmd = c; }
+            if (rcmd == RC_LEAVE) {            /* back to the main garage and its AC */
+                mode = 0; gui.screen = 0; gui.rogue = 0; gdata = gdata_main;
+                int f_[SLOT_COUNT];
+                hangar_parts(f_);
+                LOAD_PLAYER_BUILD(f_);
+                g_paint_on[0] = 0;
+            }
+            if (rcmd == RC_GARAGE) {           /* the run's garage: assembly only */
+                mode = 0; gui.screen = 0; gui.menu = 0; gui.rogue = 1; gdata = rogue_garage_data();
+                int f_[SLOT_COUNT];
+                if (rogue_player_ac(f_, g_paint[0])) { g_paint_on[0] = 1; LOAD_PLAYER_BUILD(f_); }
+            }
+            if (rcmd == RC_FIGHT || rogue_vs_due()) {
+                /* The run's AC against the next opponent, flown by its own
+                 * pilot (its AI sliders and Human PLUS), on the stage picked
+                 * at the hub; two minutes, as in the arena. */
+                const rogue_fight *rf = rogue_fight_info();
+                LOAD_PLAYER_BUILD(rf->parts[0]);
+                memcpy(parts2, rf->parts[1], sizeof parts2);
+                demo_load(dir, parts2, &ac_data[1], err, sizeof err);
+                for (int k = 0; k < 2; ++k) { g_paint_on[k] = 1; memcpy(g_paint[k], rf->colours[k], sizeof g_paint[k]); }
+                g_rogue_prof = rf->ai;
+                g_ai_mode = AI_ROGUE; g_autopilot = 0; two_players = 0;
+                human_plus = rf->plus[0] > 0; g_plus2 = rf->plus[1];
+                if (!(g_stage.ok && g_stage_id == rf->stage)) {
+                    demo_stage tmp;
+                    if (demo_stage_load(dir, rf->stage, &tmp)) {
+                        if (g_stage.ok) demo_stage_free(&g_stage);
+                        g_stage = tmp;
+                        g_stage_id = rf->stage;
+                    }
+                }
+                g_stage_on = g_stage.ok && g_stage_id == rf->stage;
+                def->stage = def2->stage = battle.stage = g_stage_on ? &g_stage.collision : NULL;
+                set_rate(&clock, def, g_tick_rate);
+                set_rate(&clock, def2, g_tick_rate);
+                SETUP_FIGHTERS();
+                prevs[0] = *P; prevs[1] = *T;
+                last = SDL_GetTicksNS();
+                g_rogue_fight = 1;
+                rogue_over_at = give_up_until = 0;
+                mode = 1;
+            }
+        }
+        if (mode == MODE_CONTROLS) {
+            if (!cui.waiting) {
+                garage_action d = pad_direction(pads[0], SDL_GetTicks());
+                if (d == GA_NONE) d = script_action();
+                if (controls_input(&cui, d)) { mode = 0; gui.screen = 0; }
+            }
+        }
+        if (mode == MODE_CONTROLS) {
+            static Uint64 controls_last_ms;
+            const Uint64 now_ms = SDL_GetTicks();
+            const int elapsed = controls_last_ms ? (int)(now_ms - controls_last_ms) : 0;
+            controls_last_ms = now_ms;
+            int pw = 0, ph = 0;
+            SDL_GetWindowSizeInPixels(window, &pw, &ph);
+            if (pw < 1 || ph < 1) { SDL_Delay(10); continue; }
+            acr_render_begin(pw, ph, 18, 22, 28);
+            controls_draw(&cui, acr_render_hud(0, 0, pw, ph), elapsed);
+            goto present;
+        }
+        if (mode == MODE_ROGUE) {
+            static Uint64 rogue_last_ms;
+            const Uint64 now_ms = SDL_GetTicks();
+            const int elapsed = rogue_last_ms ? (int)(now_ms - rogue_last_ms) : 0;
+            rogue_last_ms = now_ms;
+            int pw = 0, ph = 0;
+            SDL_GetWindowSizeInPixels(window, &pw, &ph);
+            if (pw < 1 || ph < 1) { SDL_Delay(10); continue; }
+            acr_render_begin(pw, ph, 8, 10, 14);
+            rogue_draw(acr_render_hud(0, 0, pw, ph), elapsed);
+            goto present;
+        }
         if (mode == 0) {
             garage_action dir_action = pad_direction(pads[0], SDL_GetTicks());
             if (dir_action == GA_NONE) dir_action = script_action();
@@ -1269,6 +1451,17 @@ int main(int argc, char **argv) {
                 const garage_command c = garage_input(&gui, &gdata, dir_action);
                 if (c != GC_NONE) gcmd = c;
             }
+            if (gui.rogue) {                   /* the Rogue Arena run's garage */
+                if (gcmd == GC_CHANGED) {
+                    int f_[SLOT_COUNT];
+                    rogue_player_ac(f_, g_paint[0]);
+                    LOAD_PLAYER_BUILD(f_);
+                }
+                if (gcmd == GC_QUIT) { rogue_garage_done(); gui.rogue = 0; gdata = gdata_main; mode = MODE_ROGUE; }
+                gcmd = GC_NONE;
+            }
+            if (gcmd == GC_ROGUE) { rogue_open(g_hangar.pilot_name, g_hangar.ac_name); mode = MODE_ROGUE; }
+            if (gcmd == GC_CONTROLS) { controls_open(&cui); mode = MODE_CONTROLS; }
             if (gcmd == GC_QUIT) running = 0;
             if (gcmd == GC_NETWORK) {
                 mode = 2;
@@ -1297,7 +1490,7 @@ int main(int argc, char **argv) {
                 last = SDL_GetTicksNS();
             }
         }
-        if (mode >= 2) {
+        if (mode >= MODE_NET_FIRST && mode <= MODE_NET_LAST) {
             const Uint64 now_ms = SDL_GetTicks();
             static Uint64 net_last_ms;
             const int elapsed = net_last_ms ? (int)(now_ms - net_last_ms) : 0;
@@ -1549,9 +1742,9 @@ int main(int argc, char **argv) {
         const bool *keys = SDL_GetKeyboardState(NULL);
         acr_gen1_actions act[2] = { { 0 }, { 0 } };
         act[0].fire = (uint8_t)(hold_fire || keys[SDL_SCANCODE_F] || keys[SDL_SCANCODE_LCTRL] ||
-                                (ctl[0] && !back_held && SDL_GetGamepadButton(ctl[0], SDL_GAMEPAD_BUTTON_WEST)));
+                                (ctl[0] && !back_held && controls_held(ctl[0], CT_FIRE)));
         if (two_players)
-            act[1].fire = (uint8_t)(ctl[1] && !back_held && SDL_GetGamepadButton(ctl[1], SDL_GAMEPAD_BUTTON_WEST));
+            act[1].fire = (uint8_t)(ctl[1] && !back_held && controls_held(ctl[1], CT_FIRE));
 
         /* A quick release of the booster between two steps still counts. */
         static int boost_released[2];
@@ -1710,14 +1903,14 @@ int main(int argc, char **argv) {
         {   /* weapon effects: once a frame, watching the fight from outside */
             static int fx_tried;
             if (!fx_tried) { fx_tried = 1; fx_load(g_import_dir); }
-            for (int k = 0; k < 2; ++k) fx_set_weapons(k, (const char (*)[24])ac_data[k].weapon_type, ac_data[k].weapons);
+            for (int k = 0; k < nf; ++k) fx_set_weapons(k, (const char (*)[24])ac_data[k].weapon_type, ac_data[k].weapons);
             fx_update(&battle, SDL_GetTicksNS());
         }
         {   /* fight sounds: the same, heard from your own AC (player 1 on a shared screen) */
             static int sfx_tried;
             if (!sfx_tried) { sfx_tried = 1; sfx_open(g_import_dir); }
             const int ear = g_net ? net_info.local : 0;
-            for (int k = 0; k < 2; ++k) sfx_set_weapons(k, (const char (*)[24])ac_data[k].weapon_type, ac_data[k].weapons);
+            for (int k = 0; k < nf; ++k) sfx_set_weapons(k, (const char (*)[24])ac_data[k].weapon_type, ac_data[k].weapons);
             sfx_listen sl;
             SDL_zero(sl);
             sl.view = ear;
@@ -2123,10 +2316,13 @@ int main(int argc, char **argv) {
         }
         if (!two_players && g_ai_mode) {
             char who[64];
-            SDL_snprintf(who, sizeof who, "%sOPPONENT: AI %s", g_autopilot ? "AI VS AI  " : "",
-                         g_ai_mode == AI_FROM_FILE ? "FROM FILE" : acr_gen1_ai_preset_name(g_ai_mode));
+            if (g_rogue_fight) SDL_snprintf(who, sizeof who, "%s", rogue_fight_info()->name[1]);
+            else SDL_snprintf(who, sizeof who, "%sOPPONENT: AI %s", g_autopilot ? "AI VS AI  " : "",
+                              g_ai_mode == AI_FROM_FILE ? "FROM FILE" : acr_gen1_ai_preset_name(g_ai_mode));
             battle_hud_text(full_w, g_hud_frame, 0, 160.0f - 2.0f * (float)SDL_strlen(who), 42, who, 0, 255, 200, 120);
         }
+        if (g_rogue_fight && !round_over && SDL_GetTicks() < give_up_until)
+            battle_hud_text(full_w, g_hud_frame, 0, 160.0f - 2.0f * 29.0f, 180, "ESC AGAIN: GIVE UP (A LOSS)", 0, 255, 90, 70);
         if (round_over) {
             /* The result itself is in each player's view; here, how it ended. */
             const int time_up = round_ms <= 0 && (two_players || g_ai_mode);
@@ -2139,7 +2335,7 @@ int main(int argc, char **argv) {
                 char next[48];
                 if (g_net) SDL_snprintf(next, sizeof next, "ROUND %d  %d - %d", (int)net_rb.cur.round, (int)net_rb.cur.wins[0],
                                         (int)net_rb.cur.wins[1]);
-                else SDL_snprintf(next, sizeof next, "START TO RESET");
+                else SDL_snprintf(next, sizeof next, g_rogue_fight ? "ENTER TO GO ON" : "START TO RESET");
                 battle_hud_text(full_w, g_hud_frame, 0, 160.0f - 2.0f * (float)SDL_strlen(next), 152 + (time_up ? 54 : 0), next, 0,
                                 255, 230, 120);
             }

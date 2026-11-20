@@ -78,7 +78,7 @@ typedef struct acr_gen1_weapon {
 enum { ACR_GEN1_LEGS_TWO, ACR_GEN1_LEGS_FOUR, ACR_GEN1_LEGS_TRACKS };
 #define ACR_GEN1_KNEEL_MS 400   /* time to crouch before a cannon fires (stand-in) */
 
-#define ACR_GEN1_MAX_WEAPONS 3
+#define ACR_GEN1_MAX_WEAPONS 4   /* arm weapon, back left, back right, blade */
 #define ACR_GEN1_MAX_SHOTS   128
 #define ACR_GEN1_MAX_LOCKS   6     /* locks on one target (lock slot +0x26) */
 #define ACR_GEN1_MAX_FIGHTERS 4

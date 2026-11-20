@@ -177,11 +177,11 @@ static void hold(int key, int n, int on, float vol, float pan) {
 
 /* ---- watching the fight ---- */
 
-static const char (*g_types[2])[24];
-static int g_type_count[2];
+static const char (*g_types[ACR_GEN1_MAX_FIGHTERS])[24];
+static int g_type_count[ACR_GEN1_MAX_FIGHTERS];
 
 void sfx_set_weapons(int fighter, const char (*types)[24], int count) {
-    if (fighter < 0 || fighter > 1) return;
+    if (fighter < 0 || fighter >= ACR_GEN1_MAX_FIGHTERS) return;
     g_types[fighter] = types;
     g_type_count[fighter] = count;
 }
@@ -190,7 +190,7 @@ static int has(const char *s, const char *word) { return s && SDL_strstr(s, word
 
 /* A shot's firing sound and whether it ends in a blast, by weapon type. */
 static int fire_sound(int owner, int slot, int energy, int missile, int *blast) {
-    const char *t = owner >= 0 && owner < 2 && g_types[owner] && slot < g_type_count[owner] ? g_types[owner][slot] : NULL;
+    const char *t = owner >= 0 && owner < ACR_GEN1_MAX_FIGHTERS && g_types[owner] && slot < g_type_count[owner] ? g_types[owner][slot] : NULL;
     *blast = missile || has(t, "ROCKET") || has(t, "BAZOOKA") || has(t, "GRENADE");
     if (missile) return S_MISSILE;
     if (has(t, "PULSE") || has(t, "PLASMA")) return S_PULSE;
@@ -204,7 +204,7 @@ static struct { uint8_t on, blast; int32_t travelled; uint16_t age; float p[3]; 
 static struct {
     int32_t ap;
     uint8_t boosting, boost_down, state, locked, locks, swinging, red, drained;
-} g_was[2];
+} g_was[ACR_GEN1_MAX_FIGHTERS];
 static int g_was_ok;
 static float g_next_perimeter, g_next_ap_low, g_next_drained;
 static uint64_t g_last_ns;
@@ -246,7 +246,7 @@ void sfx_update(const acr_gen1_battle *b, const sfx_listen *l, uint64_t now_ns) 
     g_last_ns = now_ns;
     g_clock_ms += dt;
     if (!g_ok) return;
-    const int me = l->view >= 0 && l->view < 2 ? l->view : 0;
+    const int me = l->view >= 0 && l->view < ACR_GEN1_MAX_FIGHTERS ? l->view : 0;
     ac_pos(b, me, g_ear);
     g_ear_yaw = (float)b->f[me].ac.syaw * (6.2831853f / 4096.0f);
 
@@ -262,7 +262,7 @@ void sfx_update(const acr_gen1_battle *b, const sfx_listen *l, uint64_t now_ns) 
         if (!s->active) continue;
         const float p[3] = { (float)s->x / 64.0f, -(float)s->y / 64.0f, (float)s->z / 64.0f };
         if (!g_seen[k].on) {
-            const int owner = s->owner < 2 ? s->owner : 0;
+            const int owner = s->owner < ACR_GEN1_MAX_FIGHTERS ? s->owner : 0;
             const acr_gen1_fighter *o = &b->f[owner];
             const int energy = s->weapon < o->weapons && o->weapon[s->weapon].energy;
             int blast = 0;
@@ -278,7 +278,7 @@ void sfx_update(const acr_gen1_battle *b, const sfx_listen *l, uint64_t now_ns) 
         SDL_memcpy(g_seen[k].p, p, sizeof p);
     }
 
-    for (int k = 0; k < 2; ++k) {
+    for (int k = 0; k < acr_gen1_battle_fighters(b); ++k) {
         const acr_gen1_fighter *f = &b->f[k];
         const acr_gen1_ac *ac = &f->ac;
         float p[3];

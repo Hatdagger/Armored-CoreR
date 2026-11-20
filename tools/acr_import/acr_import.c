@@ -6,6 +6,7 @@
 #include "acr_stages_moa.h"
 #include "acr_hud_moa.h"
 #include "acr_sfx_moa.h"
+#include "acr_arena_moa.h"
 
 #include <ctype.h>
 #include <errno.h>
@@ -210,6 +211,9 @@ static int import_disc(const char *disc_path, const char *out_dir, acr_import_st
         char sfx_dir[ACR_PATH_MAX];
         snprintf(sfx_dir, sizeof sfx_dir, "%s/sfx", out_dir);
         if (!make_dirs(sfx_dir, 1) || !acr_export_moa_sfx(unpacked, sfx_dir, err, err_size)) return 0;
+        char arena_dir[ACR_PATH_MAX];
+        snprintf(arena_dir, sizeof arena_dir, "%s/arena", out_dir);
+        if (!acr_export_moa_arena(menu, unpacked, arena_dir, &stats->opponents, err, err_size)) return 0;
     }
     return 1;
 }

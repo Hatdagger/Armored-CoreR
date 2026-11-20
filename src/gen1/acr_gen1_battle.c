@@ -710,9 +710,23 @@ static void fighter_step(acr_gen1_battle *b, int i, acr_gen1_actions a, int tick
     }
     if (f->weapon[f->current].kind == ACR_GEN1_BLADE && cycled) a.next_weapon = 1;
     if (a.next_weapon && cycled && !f->volley_ticks) {
-        do f->current = (uint8_t)((f->current + 1) % f->weapons);
-        while (f->weapon[f->current].kind == ACR_GEN1_BLADE);
-        drop_locks(f);
+        /* The next weapon that still has ammo (user, 2026-11-19): an empty
+         * one stays selected until the pilot switches away (no automatic
+         * swap), and can't be picked again; with nothing else left the
+         * switch does nothing. */
+        uint8_t next = f->current;
+        for (int k = 1; k <= f->weapons; ++k) {
+            const uint8_t c = (uint8_t)((f->current + k) % f->weapons);
+            const acr_gen1_weapon *wc = &f->weapon[c];
+            if (wc->kind == ACR_GEN1_BLADE || (wc->ammo && !f->ammo[c])) continue;
+            next = c;
+            break;
+        }
+        if (f->weapon[next].kind == ACR_GEN1_BLADE)       /* only the blade was current */
+            for (int k = 0; k < f->weapons; ++k) if (f->weapon[k].kind != ACR_GEN1_BLADE) { next = (uint8_t)k; break; }
+        const int changed = next != f->current;
+        f->current = next;
+        if (changed) drop_locks(f);
     }
     for (int t = 0; t < ticks; ++t) fighter_tick(b, i, a.fire);
     blade_step(b, i, blade, a.blade);

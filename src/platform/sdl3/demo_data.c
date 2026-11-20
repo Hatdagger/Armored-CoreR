@@ -269,7 +269,9 @@ int demo_load(const char *import_dir, const int parts[SLOT_COUNT], demo_ac *out,
             fcs_max_locks = get_int(t, e, "max_locks", 0);
         }
         /* Weapon arms (arms 12 and up) are the AC's gun: the game's slot 0. */
-        if ((s == SLOT_HAND || s == SLOT_BACK_L || s == SLOT_BLADE || (s == SLOT_ARMS && parts[SLOT_ARMS] >= 12)) &&
+        /* Both back slots are weapons (a two-slot unit sits in both: one weapon). */
+        const int back_r_own = s == SLOT_BACK_R && !(parts[SLOT_BACK_R] == parts[SLOT_BACK_L] && parts[SLOT_BACK_L] >= 52);
+        if ((s == SLOT_HAND || s == SLOT_BACK_L || back_r_own || s == SLOT_BLADE || (s == SLOT_ARMS && parts[SLOT_ARMS] >= 12)) &&
             get_int(t, e, "attack", 0) > 0 && out->weapons < ACR_GEN1_MAX_WEAPONS) {
             acr_gen1_weapon *w = &out->weapon[out->weapons];
             memset(w, 0, sizeof *w);
@@ -288,7 +290,7 @@ int demo_load(const char *import_dir, const int parts[SLOT_COUNT], demo_ac *out,
                 const long cls = get_int(t, e, "lock_class", 4);
                 /* Kind from the weapon detail (0 gun, 1 missile, 2 cannon); old
                  * imports without it: the back weapon was taken as a missile. */
-                const long kind = get_int(t, e, "kind", s == SLOT_BACK_L ? 1 : 0);
+                const long kind = get_int(t, e, "kind", s == SLOT_BACK_L || s == SLOT_BACK_R ? 1 : 0);
                 w->kind = kind == 1 ? ACR_GEN1_MISSILE : ACR_GEN1_GUN;
                 w->ammo = (uint16_t)get_int(t, e, "ammo", 0);
                 w->range = (int32_t)get_int(t, e, "range", 6000);
@@ -345,7 +347,8 @@ int demo_load(const char *import_dir, const int parts[SLOT_COUNT], demo_ac *out,
         }
         SDL_free(t);
     }
-    /* Order as the AC carries them: hand weapon, back weapon, blade. */
+    /* Order as the AC carries them: arm weapon, back weapons (left first),
+     * blade. */
     for (int i = 0; i < out->weapons; ++i)
         for (int j = i + 1; j < out->weapons; ++j)
             if (out->weapon[j].kind < out->weapon[i].kind) {
@@ -382,6 +385,8 @@ int demo_load(const char *import_dir, const int parts[SLOT_COUNT], demo_ac *out,
     acr_gen1_motion_from_stats(&out->def.stats, &out->def.motion);
     out->def.landing_steps = 20;
     out->def.no_boost_hop = parts[SLOT_LEGS] >= 27;   /* caterpillars */
+    out->def.drive_walk = parts[SLOT_LEGS] >= 21;     /* four legs and caterpillars */
+    out->def.no_jump = parts[SLOT_LEGS] >= 27;        /* caterpillars: rise without a jump */
 
     out->model = pick_model(import_dir, parts);
     if (out->model < 0 || !load_tracks(import_dir, out->model, out)) {
@@ -398,6 +403,7 @@ typedef struct catalog_walk {
     acr_gen1_catalog *cat;
     char (*names)[ACR_GEN1_PART_MAX][24];
     int category, depth;
+    acr_gen1_rogue_parts *info;   /* Rogue Arena's part info, when wanted */
 } catalog_walk;
 
 static const char *const k_cat_folder[ACR_GEN1_CAT_COUNT] = {
@@ -431,6 +437,17 @@ static void catalog_file(catalog_walk *w, const char *path) {
         p->for_sale = 1;   /* the shop's stock is not decoded yet: everything is for sale */
         p->price = (uint32_t)get_int(t, e, "price", 0);
         if (w->names) SDL_strlcpy(w->names[w->category][index], name, sizeof w->names[0][0]);
+        if (w->info) {
+            const long atk = get_int(t, e, "attack", 0);
+            w->info->attack[w->category][index] = (uint16_t)(atk > 0 && atk < 65536 ? atk : 0);
+            uint8_t fl = 0;
+            if (w->category == ACR_GEN1_CAT_BACK) {
+                if (SDL_strstr(path, "radar")) fl |= ACR_GEN1_ROGUE_RADAR;
+                if (SDL_strstr(name, "P77-ST")) fl |= ACR_GEN1_ROGUE_STEALTH;
+                if (get_int(t, e, "stance", 0)) fl |= ACR_GEN1_ROGUE_STANCE;
+            }
+            w->info->flags[w->category][index] = fl;
+        }
     }
     SDL_free(t);
 }
@@ -459,9 +476,103 @@ int demo_catalog(const char *import_dir, acr_gen1_catalog *cat, char names[ACR_G
     for (int c = 0; c < ACR_GEN1_CAT_COUNT; ++c) {
         char dir[1024];
         SDL_snprintf(dir, sizeof dir, "%s/parts/%s", import_dir, k_cat_folder[c]);
-        catalog_walk w = { cat, names, c, 0 };
+        catalog_walk w = { cat, names, c, 0, NULL };
         SDL_EnumerateDirectory(dir, catalog_cb, &w);
     }
     for (int i = 0; i < ACR_GEN1_PART_MAX; ++i) found += cat->part[ACR_GEN1_CAT_CORE][i].present;
     return found > 0;
+}
+
+/* ---- Rogue Arena ---- */
+
+int demo_rogue_parts(const char *import_dir, acr_gen1_rogue_parts *info) {
+    static acr_gen1_catalog scratch;
+    memset(info, 0, sizeof *info);
+    memset(&scratch, 0, sizeof scratch);
+    for (int c = 0; c < ACR_GEN1_CAT_COUNT; ++c) {
+        char dir[1024];
+        SDL_snprintf(dir, sizeof dir, "%s/parts/%s", import_dir, k_cat_folder[c]);
+        catalog_walk w = { &scratch, NULL, c, 0, info };
+        SDL_EnumerateDirectory(dir, catalog_cb, &w);
+    }
+    return 1;
+}
+
+typedef struct roster_walk {
+    acr_gen1_rogue_foe *out;
+    int max, n, depth;
+    char (*names)[ACR_GEN1_PART_MAX][24];
+} roster_walk;
+
+static void roster_file(roster_walk *w, const char *path) {
+    char *t = load_text(path);
+    if (!t) return;
+    const char *e = t + strlen(t);
+    if (w->n < w->max && find_key(t, e, "pilot") && find_key(t, e, "core")) {
+        acr_gen1_rogue_foe *f = &w->out[w->n];
+        memset(f, 0, sizeof *f);
+        f->arena = (uint8_t)get_int(t, e, "arena", 0);
+        f->rank = (uint8_t)get_int(t, e, "rank", 0);
+        f->entries = (uint8_t)get_int(t, e, "entries", 0);
+        static const char *const k_key[SLOT_COUNT] = {
+            "core", "booster", "head", "arms", "blade", "hand", "back_l", "back_r", "generator", "fcs", "legs" };
+        for (int s = 0; s < SLOT_COUNT; ++s) {
+            const long v = get_int(t, e, k_key[s], 255);
+            f->parts[s] = (uint8_t)(v >= 0 && v < ACR_GEN1_PART_MAX ? v : ACR_GEN1_NO_PART);
+        }
+        f->options = (uint16_t)get_int(t, e, "options", 0);
+        for (int k = 0; k < 12; ++k) {
+            const long c = list_at(t, e, "colours", k, 32);
+            f->colours[k / 3][k % 3] = (uint8_t)(c >= 0 && c <= 63 ? c : 32);
+        }
+        get_string(t, e, "pilot", f->pilot, sizeof f->pilot);
+        get_string(t, e, "ac", f->ac, sizeof f->ac);
+        /* The AI editor's rows, as acr-import read them from its record. */
+        acr_gen1_ai_profile *p = &f->ai;
+        acr_gen1_ai_preset(p, ACR_GEN1_AI_BALANCED);
+        p->preset = ACR_GEN1_AI_CUSTOM;
+        static const char *const k_ai[ACR_GEN1_AI_SLIDERS] = { "shoot", "blade_use", "lock", "avoid", "fly", "range" };
+        for (int k = 0; k < ACR_GEN1_AI_SLIDERS; ++k) {
+            const long v = get_int(t, e, k_ai[k], 50);
+            p->slider[k] = (uint8_t)(v < 0 ? 0 : v > 100 ? 100 : v);
+        }
+        const long rebel = get_int(t, e, "rebel", 0);
+        p->rebel = (uint8_t)(rebel < 0 ? 0 : rebel > 9 ? 9 : rebel);
+        const uint8_t hand = f->parts[SLOT_HAND];
+        f->karasawa = (uint8_t)(w->names && hand < ACR_GEN1_PART_MAX && SDL_strstr(w->names[ACR_GEN1_CAT_HAND][hand], "KARASAWA") != NULL);
+        if (f->rank && f->entries && f->parts[SLOT_CORE] != ACR_GEN1_NO_PART) ++w->n;
+    }
+    SDL_free(t);
+}
+
+static SDL_EnumerationResult SDLCALL roster_cb(void *user, const char *dirname, const char *fname) {
+    roster_walk *w = user;
+    char path[1400];
+    const size_t n = strlen(dirname);
+    const int has_sep = n && (dirname[n - 1] == '/' || dirname[n - 1] == '\\');
+    SDL_snprintf(path, sizeof path, "%s%s%s", dirname, has_sep ? "" : "/", fname);
+    SDL_PathInfo info;
+    if (!SDL_GetPathInfo(path, &info)) return SDL_ENUM_CONTINUE;
+    if (info.type == SDL_PATHTYPE_DIRECTORY) {
+        if (w->depth < 1) { ++w->depth; SDL_EnumerateDirectory(path, roster_cb, w); --w->depth; }
+    } else if (w->depth == 1 && SDL_strstr(fname, ".toml")) {
+        roster_file(w, path);
+    }
+    return SDL_ENUM_CONTINUE;
+}
+
+int demo_rogue_roster(const char *import_dir, acr_gen1_rogue_foe *out, int max,
+                      char names[ACR_GEN1_CAT_COUNT][ACR_GEN1_PART_MAX][24]) {
+    char dir[1024];
+    SDL_snprintf(dir, sizeof dir, "%s/arena", import_dir);
+    roster_walk w = { out, max, 0, 0, names };
+    SDL_EnumerateDirectory(dir, roster_cb, &w);
+    /* A steady order whatever the file system lists first. */
+    for (int i = 1; i < w.n; ++i) {
+        const acr_gen1_rogue_foe x = out[i];
+        int k = i - 1;
+        while (k >= 0 && (out[k].arena > x.arena || (out[k].arena == x.arena && out[k].rank > x.rank))) { out[k + 1] = out[k]; --k; }
+        out[k + 1] = x;
+    }
+    return w.n;
 }

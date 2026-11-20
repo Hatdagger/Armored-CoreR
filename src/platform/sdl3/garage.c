@@ -8,8 +8,19 @@
 
 /* ---- text (one table, so it can be translated later) ---- */
 
-static const char *const k_menu[] = { "ASSEMBLY", "PARTS SHOP", "AC TEST", "NETWORK", "EXIT" };
-#define MENU_ITEMS 5
+/* The main menu. In a Rogue Arena run the garage is assembly only: parts
+ * come from the prize screen, so no shop and no AC TEST. */
+enum { M_ASSEMBLY, M_SHOP, M_TEST, M_NETWORK, M_ROGUE, M_CONTROLS, M_EXIT };
+static const char *const k_menu[] = { "ASSEMBLY", "PARTS SHOP", "AC TEST", "NETWORK", "ROGUE ARENA", "CONTROLS", "EXIT" };
+static const int k_menu_main[] = { M_ASSEMBLY, M_SHOP, M_TEST, M_NETWORK, M_ROGUE, M_CONTROLS, M_EXIT };
+static const int k_menu_rogue[] = { M_ASSEMBLY, M_EXIT };
+static int menu_items(const garage_ui *ui, const int **ids) {
+    *ids = ui->rogue ? k_menu_rogue : k_menu_main;
+    return ui->rogue ? 2 : 7;
+}
+static const char *menu_name(const garage_ui *ui, int id) {
+    return ui->rogue && id == M_EXIT ? "BACK TO THE ARENA" : k_menu[id];
+}
 
 /* Assembly rows in Master of Arena's order; -1 is the optional parts row. */
 static const int k_rows[] = {
@@ -108,16 +119,22 @@ garage_command garage_input(garage_ui *ui, garage_data *d, garage_action a) {
     int list[LIST_MAX];
     if (a == GA_NONE) return GC_NONE;
     if (ui->screen == 0) {
-        if (a == GA_UP) ui->menu = (ui->menu + MENU_ITEMS - 1) % MENU_ITEMS;
-        if (a == GA_DOWN) ui->menu = (ui->menu + 1) % MENU_ITEMS;
-        if (a == GA_CANCEL) ui->menu = MENU_ITEMS - 1;
+        const int *ids;
+        const int items = menu_items(ui, &ids);
+        if (ui->menu >= items) ui->menu = 0;
+        if (a == GA_UP) ui->menu = (ui->menu + items - 1) % items;
+        if (a == GA_DOWN) ui->menu = (ui->menu + 1) % items;
+        if (a == GA_CANCEL) ui->menu = items - 1;
         if (a != GA_OK) return GC_NONE;
-        if (ui->menu == 0) { ui->screen = 1; ui->list_open = 0; }
-        if (ui->menu == 1) { ui->screen = 2; ui->confirm = 0; ui->shop = ui->shop_top = 0; }
-        if (ui->menu == 2 || ui->menu == 3) {
+        const int id = ids[ui->menu];
+        if (id == M_ASSEMBLY) { ui->screen = 1; ui->list_open = 0; }
+        if (id == M_SHOP) { ui->screen = 2; ui->confirm = 0; ui->shop = ui->shop_top = 0; }
+        if (id == M_ROGUE) return GC_ROGUE;
+        if (id == M_CONTROLS) return GC_CONTROLS;
+        if (id == M_TEST || id == M_NETWORK) {
             acr_gen1_fit_numbers n;
             const unsigned fail = acr_gen1_garage_check(d->hangar, d->cat, &n);
-            if (!fail) return ui->menu == 2 ? GC_TEST : GC_NETWORK;
+            if (!fail) return id == M_TEST ? GC_TEST : GC_NETWORK;
             say(ui, fail & ACR_GEN1_FAIL_MISSING_PART ? "AC EQUIPMENT INCOMPLETE." :
                     fail & ACR_GEN1_FAIL_NO_BOOSTER ? "THESE LEGS NEED A BOOSTER." :
                     fail & ACR_GEN1_FAIL_ENERGY ? "ENERGY OUTPUT TOO LOW." :
@@ -125,7 +142,7 @@ garage_command garage_input(garage_ui *ui, garage_data *d, garage_action a) {
                     fail & ACR_GEN1_FAIL_WEIGHT ? "TOO HEAVY FOR THESE LEGS." :
                     "TOO MANY OPTIONAL PARTS FOR THIS CORE.");
         }
-        if (ui->menu == 4) return GC_QUIT;
+        if (id == M_EXIT) return GC_QUIT;
         return GC_NONE;
     }
 
@@ -283,7 +300,8 @@ void garage_draw(garage_ui *ui, const garage_data *d, float hud_w, int elapsed_m
     const float lx = 16, rx = hud_w - PANEL_W - 16;
     static const char *const k_title[] = { "GARAGE", "ASSEMBLY", "PARTS SHOP" };
     acr_hud_text(lx, 12, k_title[ui->screen], HILITE);
-    SDL_snprintf(line, sizeof line, "CREDITS %10ld", (long)d->hangar->credits);
+    if (ui->rogue) SDL_snprintf(line, sizeof line, "BALANCE %6ld P", (long)d->hangar->credits);
+    else SDL_snprintf(line, sizeof line, "CREDITS %10ld", (long)d->hangar->credits);
     if (d->hangar->credits < 0) acr_hud_text(rx + 60, 12, line, BAD); else acr_hud_text(rx + 60, 12, line, WHITE);
 
     panel(lx, 34, PANEL_W, 400);
@@ -291,9 +309,11 @@ void garage_draw(garage_ui *ui, const garage_data *d, float hud_w, int elapsed_m
     int list[LIST_MAX];
 
     if (ui->screen == 0) {
-        for (int i = 0; i < MENU_ITEMS; ++i) {
-            if (i == ui->menu) { acr_hud_rect(lx + 4, 48 + i * 22 - 3, PANEL_W - 8, 14, 60, 70, 40, 255, 1); acr_hud_text(lx + 12, 48 + i * 22, k_menu[i], HILITE); }
-            else acr_hud_text(lx + 12, 48 + i * 22, k_menu[i], WHITE);
+        const int *ids;
+        const int items = menu_items(ui, &ids);
+        for (int i = 0; i < items; ++i) {
+            if (i == ui->menu) { acr_hud_rect(lx + 4, 48 + i * 22 - 3, PANEL_W - 8, 14, 60, 70, 40, 255, 1); acr_hud_text(lx + 12, 48 + i * 22, menu_name(ui, ids[i]), HILITE); }
+            else acr_hud_text(lx + 12, 48 + i * 22, menu_name(ui, ids[i]), WHITE);
         }
         totals(d, rx + 10, 46);
     } else if (ui->screen == 1) {
