@@ -25,6 +25,7 @@ void acr_gen1_hangar_new(acr_gen1_hangar *h, const uint8_t start[ACR_GEN1_SLOT_C
         if (start[s] < ACR_GEN1_PART_MAX) ++h->owned[acr_gen1_slot_category((acr_gen1_slot)s)][start[s]];
     }
     h->options = start_options;
+    h->owned[ACR_GEN1_CAT_OPTION][ACR_GEN1_OPTION_MODERN_BIT] = 1;   /* the choice is there from the start */
     for (unsigned b = 0; b < ACR_GEN1_OPTION_MAX; ++b)
         if (start_options & (1u << b)) ++h->owned[ACR_GEN1_CAT_OPTION][b];
 }
@@ -137,6 +138,7 @@ void acr_gen1_garage_build(const acr_gen1_hangar *h, const acr_gen1_catalog *c, 
     for (unsigned b = 0; b < ACR_GEN1_OPTION_MAX; ++b) {
         const acr_gen1_catalog_part *o = find(c, ACR_GEN1_CAT_OPTION, b);
         out->option_cost[b] = o ? o->slots : 0;
+        if (b == ACR_GEN1_OPTION_MODERN_BIT && o) out->option_cost[b] = out->core_option_slots;   /* all of them */
     }
     out->parts.option_mask = h->options;
 }
@@ -176,13 +178,15 @@ acr_gen1_result acr_gen1_garage_fit(acr_gen1_hangar *h, const acr_gen1_catalog *
      *   the first owned booster. */
     if (slot == ACR_GEN1_SLOT_CORE && t.options) {
         const acr_gen1_catalog_part *core = find(c, ACR_GEN1_CAT_CORE, index);
+        if (!core) t.options = 0;
         unsigned used = 0;
         int full = 0;
         for (unsigned bit = 0; bit < ACR_GEN1_OPTION_MAX; ++bit) {
             const uint16_t m = (uint16_t)(1u << bit);
             if (!(t.options & m)) continue;
             const acr_gen1_catalog_part *o = find(c, ACR_GEN1_CAT_OPTION, bit);
-            if (!full && core && used + (o ? o->slots : 0) <= core->slots) { used += o ? o->slots : 0; continue; }
+            const unsigned cost = !o ? 0u : bit == ACR_GEN1_OPTION_MODERN_BIT ? core->slots : o->slots;
+            if (!full && core && used + cost <= core->slots) { used += cost; continue; }
             full = 1;
             t.options &= (uint16_t)~m;
         }
@@ -210,14 +214,25 @@ acr_gen1_result acr_gen1_garage_option(acr_gen1_hangar *h, const acr_gen1_catalo
     if (!o) return ACR_GEN1_NOT_IN_SHOP;
     if (h->options & m) return ACR_GEN1_ALREADY_FITTED;
     if (!acr_gen1_spare_copies(h, ACR_GEN1_CAT_OPTION, bit)) return ACR_GEN1_NONE_SPARE;
+    if (bit == ACR_GEN1_OPTION_MODERN_BIT) { h->options = (uint16_t)m; return ACR_GEN1_OK; }   /* the others come off */
     acr_gen1_fit_build b;
     acr_gen1_garage_build(h, c, &b);
     unsigned used = 0;
     for (unsigned i = 0; i < ACR_GEN1_OPTION_MAX; ++i)
         if (h->options & (1u << i)) used += b.option_cost[i];
-    if (used + o->slots > b.core_option_slots) return ACR_GEN1_NO_OPTION_SLOTS;
+    if (used + b.option_cost[bit] > b.core_option_slots) return ACR_GEN1_NO_OPTION_SLOTS;
     h->options |= m;
     return ACR_GEN1_OK;
+}
+
+void acr_gen1_catalog_add_own_parts(acr_gen1_catalog *c, char name[24]) {
+    acr_gen1_catalog_part *p = &c->part[ACR_GEN1_CAT_OPTION][ACR_GEN1_OPTION_MODERN_BIT];
+    memset(p, 0, sizeof *p);
+    p->present = 1;
+    p->for_sale = 1;
+    p->price = 0;
+    p->slots = 0;          /* shown as ALL: it takes every slot of the core (garage_build) */
+    if (name) { memset(name, 0, 24); memcpy(name, "SP-MODERN", 9); }
 }
 
 /* ---------------- save file ---------------- */

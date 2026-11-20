@@ -222,8 +222,42 @@ static void test_test_kit(void) {
     EXPECT(acr_gen1_shop_buy(&h, &shop_closed, ACR_GEN1_CAT_LEGS, 27) == ACR_GEN1_NOT_IN_SHOP);
 }
 
+/* SP-MODERN: owned from a new game, takes every option slot, fits any core. */
+static void test_modern(void) {
+    acr_gen1_catalog_add_own_parts(&g_cat, NULL);
+    acr_gen1_hangar h;
+    acr_gen1_hangar_new(&h, k_start, 0, 0);
+    const unsigned m = ACR_GEN1_OPTION_MODERN_BIT;
+    EXPECT(h.owned[ACR_GEN1_CAT_OPTION][m] == 1 && !(h.options & ACR_GEN1_OPTION_MODERN));
+    h.owned[ACR_GEN1_CAT_OPTION][0] = 1;
+    EXPECT(acr_gen1_garage_option(&h, &g_cat, 0, 1) == ACR_GEN1_OK);          /* 1 of core 0's 2 slots */
+    EXPECT(acr_gen1_garage_option(&h, &g_cat, m, 1) == ACR_GEN1_OK);          /* takes option 0 off */
+    EXPECT(h.options == ACR_GEN1_OPTION_MODERN);
+    EXPECT(acr_gen1_human_plus_level(9, h.options) == 0 && acr_gen1_human_plus_level(9, 1) == 9);
+    EXPECT(acr_gen1_garage_option(&h, &g_cat, 0, 1) == ACR_GEN1_NO_OPTION_SLOTS);
+    acr_gen1_fit_numbers n;
+    EXPECT(!(acr_gen1_garage_check(&h, &g_cat, &n) & ACR_GEN1_FAIL_OPTION_SLOTS) && n.option_slots_used == 2);
+    /* A core with more slots: still all of them, and still alone. */
+    h.owned[ACR_GEN1_CAT_CORE][1] = 1;
+    EXPECT(acr_gen1_garage_fit(&h, &g_cat, ACR_GEN1_SLOT_CORE, 1, NULL) == ACR_GEN1_OK);
+    EXPECT(h.options & ACR_GEN1_OPTION_MODERN);
+    EXPECT(acr_gen1_garage_option(&h, &g_cat, 0, 1) == ACR_GEN1_NO_OPTION_SLOTS);
+    /* A core without slots takes it too. */
+    h.owned[ACR_GEN1_CAT_CORE][2] = 1;
+    EXPECT(acr_gen1_garage_fit(&h, &g_cat, ACR_GEN1_SLOT_CORE, 2, NULL) == ACR_GEN1_OK);
+    EXPECT(h.options & ACR_GEN1_OPTION_MODERN);
+    EXPECT(!(acr_gen1_garage_check(&h, &g_cat, &n) & ACR_GEN1_FAIL_OPTION_SLOTS));
+    /* It saves and loads like any option. */
+    char text[4096];
+    acr_gen1_save_write(&h, text, sizeof text);
+    acr_gen1_hangar r;
+    EXPECT(acr_gen1_save_read(&r, text) && (r.options & ACR_GEN1_OPTION_MODERN) && r.owned[ACR_GEN1_CAT_OPTION][m] == 1);
+    memset(&g_cat.part[ACR_GEN1_CAT_OPTION][m], 0, sizeof g_cat.part[0][0]);
+}
+
 int main(void) {
     make_catalog();
+    test_modern();
     test_new_and_shop();
     test_fit();
     test_save();

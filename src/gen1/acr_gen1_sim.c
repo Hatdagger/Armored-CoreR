@@ -276,6 +276,41 @@ static void game_stage_tick(acr_gen1_ac *ac, const acr_gen1_ac_def *def, int32_t
     if (!boosting) { ac->vx = 0; ac->vz = 0; }
 }
 
+int32_t acr_gen1_walk_pace(const acr_gen1_ac_def *def) {
+    const acr_gen1_root_track *t = def->anim[ACR_GEN1_ANIM_WALK];
+    if (t && t->count && t->keys[t->count - 1].frame) {
+        const acr_gen1_root_key *k = &t->keys[t->count - 1];
+        const int32_t z = k->z < 0 ? -k->z : k->z;          /* model units: a quarter of world units */
+        return (int32_t)((int64_t)z * 64 / 4 / k->frame);
+    }
+    return ACR_GEN1_WALK_PACE * 64;
+}
+
+int32_t acr_gen1_cruise_top(const acr_gen1_ac_def *def) {
+    /* Four legs and caterpillars already walk at the ground boost's top
+     * speed (drive_walk), so the toggle can't go faster than walking. */
+    if (def->drive_walk) return def->motion.boost_max;
+    int32_t top = acr_gen1_walk_pace(def) * (def->cruise_pct ? def->cruise_pct : ACR_GEN1_CRUISE_PCT) / 100;
+    if (top > (int32_t)def->motion.boost_max) top = def->motion.boost_max;
+    return top;
+}
+
+int32_t acr_gen1_quick_cost(const acr_gen1_ac_def *def, int air) {
+    const acr_gen1_motion *m = &def->motion;
+    const int32_t accel = air ? m->air_accel : m->boost_accel, top = air ? m->air_max : m->boost_max;
+    const int64_t dist = (int64_t)top * ACR_GEN1_QUICK_TICKS;
+    int64_t covered = 0, v = 0;
+    int32_t ticks = 0;
+    if (accel <= 0 || top <= 0) ticks = ACR_GEN1_QUICK_TICKS;
+    while (covered < dist && ticks < 1000) {    /* a normal boost from a stand */
+        v += accel;
+        if (v > top) v = top;
+        covered += v;
+        ++ticks;
+    }
+    return ticks * (int32_t)(def->stats.rise_drain >> 1);
+}
+
 void acr_gen1_ac_spawn(acr_gen1_ac *ac, const acr_gen1_ac_def *def, int32_t x, int32_t z, uint16_t yaw) {
     *ac = (acr_gen1_ac){0};
     ac->x = ac->px = ac->sx = x;
@@ -314,11 +349,56 @@ void acr_gen1_ac_tick(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
     /* The game reads the pad once a tick: a press is fresh when the button
      * was up at the last tick or was let go of since. */
     const int can_boost = in.boost && !ac->drained && ac->energy > 0;
+    /* SP-MODERN: the booster rises only with the toggle on (caterpillars
+     * always), never boosts along the ground, and jumps whatever the bar. */
+    const int tracks = def->no_boost_hop;
+    const int can_rise = can_boost && (!in.modern || in.cruise || tracks);
+    const int ground_boost = can_boost && !in.modern;
+    const int can_jump = in.modern && !tracks ? in.boost : can_rise;
     const int fresh_press = in.boost && (!ac->boost_was_down || ac->boost_released || in.boost_tapped);
     ac->boost_was_down = in.boost;
     ac->boost_released = 0;
     int32_t drain = 0, mx = 0, mz = 0, dx = 0, dz = 0;
     const int dir = stick_dir(ac->yaw, in, &dx, &dz);
+
+    /* Modern controls: the quick boost (see ACR_GEN1_QUICK_TICKS). */
+    if (ac->quick_cool) --ac->quick_cool;
+    if (!ac->quick_ticks && ac->quick_chain && ++ac->quick_gap > ACR_GEN1_QUICK_CHAIN_GAP) {
+        ac->quick_chain = 0;                    /* too long: the chain starts over */
+        ac->quick_gap = 0;
+    }
+    const int quick_press = ac->quick_pending;
+    ac->quick_pending = (uint8_t)(quick_press && ac->quick_ticks);   /* pressed mid-burst: waits for its end */
+    if (quick_press && !ac->quick_ticks && dir && !ac->quick_cool && !ac->drained && ac->energy > 0 && !in.crouch &&
+        (ac->state == ACR_GEN1_GROUND || ac->state == ACR_GEN1_AIR)) {
+        const int air = ac->state == ACR_GEN1_AIR;
+        const int32_t top = air ? m->air_max : m->boost_max;
+        const int32_t cost = acr_gen1_quick_cost(def, air);
+        if (ac->energy > cost) ac->energy -= cost;
+        else { ac->energy = 0; ac->drained = 1; }
+        ac->vx = (int32_t)((int64_t)dx * top / 4096);
+        ac->vz = (int32_t)((int64_t)dz * top / 4096);
+        ac->quick_ticks = ACR_GEN1_QUICK_TICKS;
+        ac->quick_gap = 0;
+        if (++ac->quick_chain >= ACR_GEN1_QUICK_CHAIN) { ac->quick_chain = 0; ac->quick_cool = ACR_GEN1_QUICK_COOL; }
+        if (!air) set_anim(ac, ACR_GEN1_ANIM_IDLE);
+    }
+    /* The boost toggle on in the air slows the fall (not while rising). */
+    const int toggle_on = in.modern && in.cruise && !ac->drained && ac->energy > 0;
+    const int32_t gravity = toggle_on ? ACR_GEN1_GRAVITY * ACR_GEN1_CRUISE_AIR_FALL_PCT / 100 : ACR_GEN1_GRAVITY;
+    const int32_t fall_max = toggle_on ? ACR_GEN1_FALL_MAX * ACR_GEN1_CRUISE_AIR_FALL_PCT / 100 : ACR_GEN1_FALL_MAX;
+    if (ac->quick_ticks && (ac->state == ACR_GEN1_GROUND || ac->state == ACR_GEN1_AIR)) {
+        --ac->quick_ticks;
+        drain = 4;                              /* paid at the press: no cost, no refill */
+        if (ac->state == ACR_GEN1_GROUND) {
+            ac->coast = 3;
+            mx = ac->vx;
+            mz = ac->vz;
+            goto moved;
+        }
+    } else {
+        ac->quick_ticks = 0;
+    }
 
     switch (ac->state) {
     case ACR_GEN1_GROUND: {
@@ -342,9 +422,17 @@ void acr_gen1_ac_tick(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
         /* Caterpillars (user, 2026-11-19): no ground boost and no jump. The
          * booster lifts them straight into the rising boost, from a stand
          * or on the move, without the take-off kick the other legs start
-         * their arc with; they keep their speed across the ground. */
-        if (can_boost && def->no_jump) {
-            ac->vy = -(int32_t)m->rise_accel;          /* the first tick of the rise, from rest */
+         * their arc with; they keep their speed across the ground. With
+         * SP-MODERN the same, at the modern rise's lift (and any other
+         * no_boost_hop legs lift off this way while moving). */
+        if ((def->no_jump && can_rise) || (in.modern && tracks && can_jump && moving)) {
+            if (!ac->vx && !ac->vz && dir && in.modern) {   /* from a walk: walking pace */
+                const int32_t pace = acr_gen1_walk_pace(def);
+                ac->vx = (int32_t)((int64_t)dx * pace / 4096);
+                ac->vz = (int32_t)((int64_t)dz * pace / 4096);
+            }
+            ac->vy = -(int32_t)m->rise_accel * (in.modern ? ACR_GEN1_MODERN_RISE_PCT : 100) / 100;   /* the rise's first tick */
+            if (ac->vy >= 0) ac->vy = -1;
             drain = 1;                                 /* marker: rising */
             ac->state = ACR_GEN1_AIR;
             set_anim(ac, ACR_GEN1_ANIM_IDLE);
@@ -352,10 +440,11 @@ void acr_gen1_ac_tick(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
             mz = ac->vz;
             break;
         }
-        if (can_boost && fresh_press && (ac->vx || ac->vz) && !def->no_boost_hop && !(def->drive_walk && dir)) {
+        if (can_jump && fresh_press && (ac->vx || ac->vz) && !def->no_boost_hop && !(def->drive_walk && dir && !in.modern)) {
             int32_t vy;
             uint16_t crouch;
             takeoff(def, &crouch, &vy);
+            if (in.modern) vy = vy * ACR_GEN1_MODERN_JUMP_PCT / 100;
             ac->vy = vy;
             ac->state = ACR_GEN1_AIR;
             set_anim(ac, ACR_GEN1_ANIM_IDLE);
@@ -372,7 +461,11 @@ void acr_gen1_ac_tick(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
          * a quarter of the acceleration (0x80014790, as in the air). The
          * booster from a stand still jumps; boosting while moving is the
          * ground boost, which uses the same two numbers. */
-        if (def->drive_walk && !can_boost) {
+        /* Modern controls: the boost toggle, a slow ground boost. */
+        const int cruising = in.cruise && !in.boost && !ac->drained && ac->energy > 0 && dir && moving;
+        /* SP-MODERN on these legs: they walk the same way unless the toggle
+         * is cruising or cross jumps from a stand. */
+        if (def->drive_walk && !ground_boost && !cruising && !(in.modern && can_jump && !ac->vx && !ac->vz)) {
             uint8_t loop = ACR_GEN1_ANIM_IDLE;
             if (dir) {
                 ac->vx += dx * (int32_t)m->boost_accel / 4096;
@@ -391,15 +484,29 @@ void acr_gen1_ac_tick(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
             mz = ac->vz;
             break;
         }
-        if (can_boost && dir && moving) {
+        if (cruising) {
+            const int32_t top = acr_gen1_cruise_top(def);
+            if (!ac->vx && !ac->vz) {               /* from a walk: starts at walking pace */
+                const int32_t pace = acr_gen1_walk_pace(def);
+                ac->vx = (int32_t)((int64_t)dx * pace / 4096);
+                ac->vz = (int32_t)((int64_t)dz * pace / 4096);
+            }
+            ac->vx += dx * (int32_t)m->boost_accel / 4096;
+            ac->vz += dz * (int32_t)m->boost_accel / 4096;
+            limit_length(&ac->vx, &ac->vz, top);
+            ac->coast = 3;
+            drain = 3;                          /* marker: cruise (a ground boost at CRUISE_PCT) */
+            set_anim(ac, ACR_GEN1_ANIM_IDLE);
+        } else if (ground_boost && dir && moving) {
             ac->vx += dx * (int32_t)m->boost_accel / 4096;
             ac->vz += dz * (int32_t)m->boost_accel / 4096;
             limit_length(&ac->vx, &ac->vz, m->boost_max);
             ac->coast = 3;                      /* measured: 2-3 ticks at full speed */
             drain = 2;                          /* marker: ground boost (half cost) */
             set_anim(ac, ACR_GEN1_ANIM_IDLE);
-        } else if (can_boost && ac->vx == 0 && ac->vz == 0) {
+        } else if (can_jump && ac->vx == 0 && ac->vz == 0) {
             takeoff(def, &ac->timer, &ac->vy);
+            if (in.modern) ac->vy = ac->vy * ACR_GEN1_MODERN_JUMP_PCT / 100;
             ac->state = ACR_GEN1_CROUCH;
             set_anim(ac, ACR_GEN1_ANIM_JUMP);
         } else if (ac->vx || ac->vz) {
@@ -419,13 +526,21 @@ void acr_gen1_ac_tick(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
         if (!ac->timer) ac->state = ACR_GEN1_AIR;
         break;
     case ACR_GEN1_AIR:
-        if (can_boost) {
-            ac->vy -= m->rise_accel;
-            if (ac->vy < -(int32_t)m->rise_max) ac->vy = -(int32_t)m->rise_max;
+        if (ac->quick_ticks) {                  /* quick boost: keeps its line, no rise */
+            ac->vy += gravity;
+            if (ac->vy > fall_max) ac->vy = fall_max;
+            mx = ac->vx;
+            mz = ac->vz;
+            break;
+        }
+        if (can_rise) {
+            const int32_t pct = in.modern ? ACR_GEN1_MODERN_RISE_PCT : 100;
+            ac->vy -= (int32_t)m->rise_accel * pct / 100;
+            if (ac->vy < -(int32_t)m->rise_max * pct / 100) ac->vy = -(int32_t)m->rise_max * pct / 100;
             drain = 1;                          /* marker: rising / air boost */
         } else {
-            ac->vy += ACR_GEN1_GRAVITY;
-            if (ac->vy > ACR_GEN1_FALL_MAX) ac->vy = ACR_GEN1_FALL_MAX;
+            ac->vy += gravity;
+            if (ac->vy > fall_max) ac->vy = fall_max;
         }
         /* Steering in the air (VS air handler 0x8007FBAC, direction states
          * 0x41-0x48 from the pad, 0x80085400): any direction held, booster
@@ -453,7 +568,13 @@ void acr_gen1_ac_tick(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
         mz = ac->vz;
         break;
     }
+    /* SP-MODERN: the boost toggle left on always drains, never refills:
+     * on the ground (standing, crouching for a jump, landing) at its own
+     * rate, in the air (falling or drifting, not rising) at 110 % of it. */
+    if (!drain && toggle_on)
+        drain = ac->state == ACR_GEN1_AIR ? 6 : 5;   /* marker: the toggle's drain, not moving on it */
 
+moved:
     /* Every move is cut to 75 a tick on each axis (three quarters of the
      * AC's width, AC object +0x28; VS 0x80054124, which all the movement
      * handlers load their step through). The air boost measured 54 a tick,
@@ -470,7 +591,7 @@ void acr_gen1_ac_tick(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
      * drawing plays it from this and turns to the air poses when it ends. */
     if (ac->anim == ACR_GEN1_ANIM_JUMP && ac->anim_frame < UINT16_MAX) ++ac->anim_frame;
     if (def->stage && def->stage->areas) {
-        game_stage_tick(ac, def, mx, mz, drain == 2);
+        game_stage_tick(ac, def, mx, mz, drain == 2 || drain == 3);
     } else {
         ac->x += mx;
         ac->z += mz;
@@ -512,6 +633,7 @@ void acr_gen1_ac_tick(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
     const int moving_refill = on_ground && (walking(ac) || ac->vx || ac->vz);
     int32_t cost = s->rise_drain;
     int32_t refill = moving_refill ? s->refill_moving : s->refill_standing;
+    if (drain == 4) return;                     /* quick boost burst: paid at the press */
     if (ac->drained) {
         if (ac->energy >= s->energy_capacity) { ac->energy = s->energy_capacity; ac->drained = 0; }
         else ac->energy += refill >> 1;
@@ -519,7 +641,10 @@ void acr_gen1_ac_tick(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
     }
     if (ac->energy < s->red_zone) { cost >>= 2; refill >>= 2; }
     if (drain) {
-        if (drain == 2) cost >>= 1;
+        if (drain >= 2) cost >>= 1;
+        else if (drain == 1 && in.modern) cost = cost * ACR_GEN1_MODERN_RISE_EN_PCT / 100;
+        if (drain == 3 || drain == 5 || drain == 6) cost = cost * ACR_GEN1_CRUISE_DRAIN_PCT / 100;
+        if (drain == 6) cost = cost * ACR_GEN1_CRUISE_AIR_DRAIN_PCT / 100;
         if (ac->energy > cost) ac->energy -= cost;
         else { ac->energy = 0; ac->drained = 1; }
     } else if (ac->energy >= s->energy_capacity) {
@@ -565,6 +690,7 @@ void acr_gen1_ac_advance(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_i
     ac->pitch = (int16_t)(ac->pitch_fine / 256);
 
     if (!in.boost || in.boost_tapped) ac->boost_released = 1;
+    if (in.quick) ac->quick_pending = 1;          /* a press between ticks still counts */
     for (int k = 0; k < ticks; ++k) acr_gen1_ac_tick(ac, def, in);
     show(ac, num, den);
 }

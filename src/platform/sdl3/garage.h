@@ -47,6 +47,7 @@ typedef struct garage_data {
     acr_gen1_hangar *hangar;
     const acr_gen1_catalog *cat;
     char (*names)[ACR_GEN1_PART_MAX][24];
+    int have_pad;          /* a controller is connected (SP-MODERN needs one) */
 } garage_data;
 
 void garage_init(garage_ui *ui);

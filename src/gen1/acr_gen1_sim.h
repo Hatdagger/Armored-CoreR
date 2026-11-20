@@ -41,7 +41,59 @@ typedef struct acr_gen1_input {
     int8_t  look;     /* +1 tilt the view up (L2), -1 down (R2), 2 both: back to level */
     uint8_t crouch;   /* crouched in the cannon stance (VS 0x8007E3E0): crouch turn rates,
                          sliding to a stop, no walking or boosting */
+    /* Modern controls only (SP-MODERN; always 0 with the original pad): */
+    uint8_t cruise;   /* the boost toggle is on: the only ground boost, faster than walking
+                         (ACR_GEN1_CRUISE_PCT); also lets the booster rise */
+    uint8_t quick;    /* quick boost pressed this step */
+    uint8_t modern;   /* SP-MODERN is fitted (set by the battle, never sent): the booster
+                         never boosts along the ground; it jumps, and rises only with the
+                         toggle on (caterpillars: it always rises) */
 } acr_gen1_input;
+
+/* Modern controls' boosts (stand-ins, to tune in play):
+ * - cruise: the toggled boost (L1), modern pilots' only ground boost. On the
+ *   ground with a direction held it is a ground boost (coast, slide and the
+ *   stage's "boosting" rules included) with a top speed of CRUISE_PCT of
+ *   the AC's walking pace (CRUISE_HEAVY_PCT for four legs and caterpillars,
+ *   def->cruise_pct; the walk animation's distance per tick; never above
+ *   the ground boost's top speed) and CRUISE_DRAIN_PCT of a ground boost's
+ *   cost. It starts at walking pace and cuts out when the AC runs dry (the
+ *   platform also switches the toggle off then). Left on, it always
+ *   drains, whatever the AC is doing: on the ground (standing, crouching
+ *   for a jump, landing) at that rate, in the air (not rising) at
+ *   CRUISE_AIR_DRAIN_PCT of it, and there it slows the fall
+ *   (CRUISE_AIR_FALL_PCT of gravity and of the top fall speed).
+ * - the booster (cross) with SP-MODERN: never a ground boost. Toggle off:
+ *   a plain jump (the legs' take-off, no rise, no energy, as when drained),
+ *   and a hop when pressed while sliding. Toggle on: jump and rise as
+ *   normal. Caterpillars don't jump: their booster lifts off and rises
+ *   either way.
+ * - quick boost: a press with a direction held sets the AC's speed that way
+ *   to its own top speed (ground boost top speed on the ground, air top
+ *   speed in the air) for QUICK_TICKS ticks, then it slides as after any
+ *   boost. Never faster than the AC's normal boost. It costs, at the press,
+ *   all the energy a normal boost (from a stand, same accel and top speed,
+ *   a ground boost's cost a tick) would use to cover the same distance;
+ *   nothing drains or refills during the burst. Up to QUICK_CHAIN in a row
+ *   (each pressed within QUICK_CHAIN_GAP ticks of the last burst's end;
+ *   a press during a burst waits for its end), then QUICK_COOL ticks from
+ *   the last press before the next.
+ * - running dry (the booster lock, acr_gen1_ac.drained): no toggle and no
+ *   quick boost until the bar is full again. */
+#define ACR_GEN1_CRUISE_PCT       150   /* of walking pace: two legs and reverse joints */
+#define ACR_GEN1_CRUISE_HEAVY_PCT 135   /* four legs and caterpillars */
+#define ACR_GEN1_CRUISE_DRAIN_PCT 20    /* of a ground boost's cost */
+#define ACR_GEN1_CRUISE_AIR_DRAIN_PCT 110 /* in the air: of the toggle's ground drain */
+#define ACR_GEN1_CRUISE_AIR_FALL_PCT  90  /* in the air: gravity and top fall speed */
+#define ACR_GEN1_MODERN_JUMP_PCT  50    /* SP-MODERN: the jump's take-off speed */
+#define ACR_GEN1_MODERN_RISE_PCT  60    /* SP-MODERN: the rise's lift (acceleration and top speed) */
+#define ACR_GEN1_MODERN_RISE_EN_PCT 125 /* SP-MODERN: the rise's energy cost */
+#define ACR_GEN1_WALK_PACE        34    /* world units a tick when the AC has no walk track (measured 31-38) */
+#define ACR_GEN1_QUICK_TICKS     4      /* ~0.18 s */
+#define ACR_GEN1_QUICK_CHAIN     3
+#define ACR_GEN1_QUICK_CHAIN_GAP 8      /* ~0.36 s */
+#define ACR_GEN1_QUICK_COOL      16     /* ~0.7 s from the chain's last press */
+
 
 /* View tilt, measured in the recomp (VS): L2 / R2 tilt the aim up / down
  * by up to ~66 degrees at ~80 degrees a second and it stays where it is let
@@ -67,6 +119,7 @@ typedef struct acr_gen1_ac_def {
                                  straight into the rising boost without a take-off kick */
     uint8_t  drive_walk;      /* four-legged and caterpillar legs: walking pushes the AC like
                                  the ground boost (VS 0x80085704), no root motion */
+    uint8_t  cruise_pct;      /* the boost toggle's top speed, % of walking pace (0 = CRUISE_PCT) */
     /* Test: every landing lasts the landing animation's length (animation
      * 36's track), whatever the fall, as it would if the game's landing
      * state simply ends with its animation (0x8008389C). 0 = the stand-in
@@ -76,6 +129,14 @@ typedef struct acr_gen1_ac_def {
      * AC, its walls stop it (acr_gen1_stage.h; step heights are stand-ins). */
     const acr_gen1_stage *stage;
 } acr_gen1_ac_def;
+
+/* Walking pace (1/64 world units a tick) from the walk animation, and the
+ * boost toggle's top speed. */
+int32_t acr_gen1_walk_pace(const acr_gen1_ac_def *def);
+int32_t acr_gen1_cruise_top(const acr_gen1_ac_def *def);
+
+/* Energy a quick boost costs on the ground (air = 0) or in the air (1). */
+int32_t acr_gen1_quick_cost(const acr_gen1_ac_def *def, int air);
 
 /* Arena stand-ins until the game's own rules are read: an AC walks up a
  * step this high, follows a floor dropping away by this much (slopes)
@@ -98,6 +159,11 @@ typedef struct acr_gen1_ac {
     uint8_t  drained;          /* ran out: no boosting until the bar is full again */
     uint8_t  boost_was_down;   /* booster button at the latest tick, to see a fresh press */
     uint8_t  boost_released;   /* let go of since the latest tick (a tap between ticks) */
+    uint8_t  quick_ticks;      /* modern quick boost: ticks of burst left */
+    uint8_t  quick_cool;       /* ticks until the next quick boost */
+    uint8_t  quick_pending;    /* a quick boost pressed since the latest tick */
+    uint8_t  quick_chain;      /* quick boosts in the current chain */
+    uint8_t  quick_gap;        /* ticks since the chain's last burst ended */
     uint8_t  state;
     uint16_t timer;
     int32_t  vy_at_touchdown;  /* fall speed at the latest touchdown */

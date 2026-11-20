@@ -100,7 +100,7 @@ static SDL_Gamepad *open_first_gamepad(void) {
 
 static acr_gen1_input read_input(SDL_Gamepad *pad, int keyboard) {
     const bool *k = SDL_GetKeyboardState(NULL);
-    acr_gen1_input in = { 0, 0, 0, 0, 0, 0, 0 };
+    acr_gen1_input in = { 0 };
     if (keyboard) {
     in.move = (int8_t)((k[SDL_SCANCODE_W] || k[SDL_SCANCODE_UP]) - (k[SDL_SCANCODE_S] || k[SDL_SCANCODE_DOWN]));
     in.turn = (int8_t)((k[SDL_SCANCODE_D] || k[SDL_SCANCODE_RIGHT]) - (k[SDL_SCANCODE_A] || k[SDL_SCANCODE_LEFT]));
@@ -129,6 +129,33 @@ static acr_gen1_input read_input(SDL_Gamepad *pad, int keyboard) {
         const int rt = controls_held(pad, CT_LOOK_DOWN);
         if (lt || rt) in.look = (int8_t)(lt && rt ? 2 : lt - rt);
     }
+    return in;
+}
+
+/* Modern controls (the SP-MODERN option): a twin-stick controller is
+ * required, laid out after Armored Core VI's Type A, with Gen 1's weapons
+ * (one selected at a time, switched with triangle):
+ *   left stick   move and strafe        right stick  turn and tilt the view
+ *   cross        jump; hold to rise while the boost toggle is on
+ *   L1           boost toggle (the only ground boost) square  quick boost
+ *   R2           fire the selected weapon            L2      blade
+ *   triangle     switch weapon                       R3      hard lock
+ *   d-pad down   view back to level
+ * The keyboard does nothing for a modern pilot. Presses (circle, square,
+ * R3, L2) come from the events / modern_poll, not from here. */
+static acr_gen1_input read_modern(SDL_Gamepad *pad, int cruise) {
+    acr_gen1_input in = { 0 };
+    if (!pad) return in;
+    const int dead = 12000;
+    const int lx = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTX), ly = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTY);
+    const int rx = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_RIGHTX), ry = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_RIGHTY);
+    in.move = (int8_t)(ly < -dead ? 1 : ly > dead ? -1 : 0);
+    in.strafe = (int8_t)(lx < -dead ? -1 : lx > dead ? 1 : 0);
+    in.turn = (int8_t)(rx < -dead ? -1 : rx > dead ? 1 : 0);
+    in.look = (int8_t)(ry < -dead ? 1 : ry > dead ? -1 : 0);
+    if (SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_DPAD_DOWN)) in.look = 2;
+    in.boost = (uint8_t)SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_SOUTH);
+    in.cruise = (uint8_t)(cruise != 0);
     return in;
 }
 
@@ -529,6 +556,11 @@ static int parse_args(int argc, char **argv, const char **dir, int parts[SLOT_CO
  * credits instead. */
 static const int k_test_kit = 1;
 static acr_gen1_hangar g_hangar;
+/* Each player's optional parts (bit n = option n): player 1's from the
+ * garage, player 2's a copy of them offline (the same build), each
+ * player's own online. */
+static uint16_t g_options[2];
+static int modern_of(int who) { return (g_options[who] & ACR_GEN1_OPTION_MODERN) != 0; }
 static const char *g_import_dir = "";
 /* The arena: Green Silo (stage 27) when the import has it; F7 cycles Green
  * Silo, Ocean Platform (39) and the open test floor. ACR_STAGE=NN picks
@@ -838,6 +870,7 @@ static net_link *net_open(const char *dir, const char *join, int online, int sta
     ns.join = join;
     ns.import_dir = dir;
     for (int i = 0; i < SLOT_COUNT; ++i) ns.parts[i] = parts[i];
+    ns.parts[SLOT_COUNT] = g_part_args ? 0 : g_hangar.options;   /* the option parts (SP-MODERN) */
     ns.ac_name = g_hangar.ac_name;
     ns.stage = stage;
     ns.delay = delay < 0 ? 0 : delay > ACR_RB_MAX_DELAY ? ACR_RB_MAX_DELAY : delay;
@@ -945,10 +978,15 @@ int main(int argc, char **argv) {
         if (g_stage_id > 0 && demo_stage_load(dir, g_stage_id, &g_stage)) g_stage_on = 1;
     }
     demo_catalog(dir, &g_catalog, g_part_names);
+    acr_gen1_catalog_add_own_parts(&g_catalog, g_part_names[ACR_GEN1_CAT_OPTION][ACR_GEN1_OPTION_MODERN_BIT]);
     if (k_test_kit)
         for (int c = 0; c < ACR_GEN1_CAT_COUNT; ++c)
             for (int i = 0; i < ACR_GEN1_PART_MAX; ++i) g_catalog.part[c][i].for_sale = 0;
     hangar_open(parts);
+    /* SP-MODERN is there from the start, older saves included. */
+    if (!g_hangar.owned[ACR_GEN1_CAT_OPTION][ACR_GEN1_OPTION_MODERN_BIT])
+        g_hangar.owned[ACR_GEN1_CAT_OPTION][ACR_GEN1_OPTION_MODERN_BIT] = 1;
+    g_options[0] = g_options[1] = g_part_args ? 0 : g_hangar.options;
     acr_import_refresh(dir);          /* older imports: the menu sounds, the emblems */
     sfx_open(dir);                    /* the menus' clicks too */
     rogue_init(dir, &g_catalog, g_part_names);
@@ -959,7 +997,7 @@ int main(int argc, char **argv) {
     int mode = g_direct_test ? 1 : 0;   /* MODE_GARAGE, MODE_FIGHT, the network screens, MODE_ROGUE, MODE_CONTROLS */
     garage_ui gui;
     garage_init(&gui);
-    const garage_data gdata_main = { &g_hangar, &g_catalog, g_part_names };
+    const garage_data gdata_main = { &g_hangar, &g_catalog, g_part_names, 0 };
     garage_data gdata = gdata_main;
     if (!g_direct_test) {
         int fitted[SLOT_COUNT];
@@ -984,7 +1022,7 @@ int main(int argc, char **argv) {
     static char brief_msg[200];
     static Uint64 brief_msg_until;
     static char brief_join[64];
-    _Static_assert(SLOT_COUNT == NET_PARTS, "the network sends every part slot");
+    _Static_assert(SLOT_COUNT + 1 == NET_PARTS, "the network sends every part slot and the options");
     net_menu_init(&nmenu);
     if (g_net_cmd == 2 && g_net_brief) {
         acr_brief b;
@@ -1043,7 +1081,9 @@ int main(int argc, char **argv) {
             memset(f_, 0, sizeof *f_);                                                    \
             f_->intercept_shot = -1; f_->swing_target = -1; f_->last_missile = -1;        \
             /* Human PLUS at full (level 9): energy rules of VS 0x80083560. */            \
-            if ((i_ == 0 ? human_plus : g_plus2) && !d_->plus_applied) {                 \
+            /* With SP-MODERN only the no-kneel benefit applies (level 0 here). */         \
+            if ((i_ == 0 ? human_plus : g_plus2) && !d_->plus_applied &&                  \
+                acr_gen1_human_plus_level(i_ == 0 ? 9 : (unsigned)g_plus2, i_ == 0 ? g_options[0] : 0)) { \
                 acr_gen1_human_plus_energy(&d_->def.stats, i_ == 0 ? 9 : g_plus2);        \
                 d_->plus_applied = 1;                                                     \
             }                                                                             \
@@ -1062,6 +1102,11 @@ int main(int argc, char **argv) {
             f_->human_plus = (uint8_t)(i_ == 0 ? human_plus : i_ == 1 && g_plus2 > 0); f_->kneeling = 0; \
             f_->team = (uint8_t)(i_ >= 2);   /* co-op: players 0, 1 against the AI ACs */ \
             f_->target = -1;                                                              \
+            /* SP-MODERN: pilots only (the AI flies the original controls). */           \
+            f_->modern = (uint8_t)(i_ < 2 && !(i_ == 0 && g_autopilot) &&                 \
+                                   !(i_ == 1 && g_ai_mode && !g_net && !two_players) && modern_of(i_)); \
+            d_->def.cruise_pct = (uint8_t)(f_->legs == ACR_GEN1_LEGS_TWO ? ACR_GEN1_CRUISE_PCT \
+                                           : ACR_GEN1_CRUISE_HEAVY_PCT);                    \
         }                                                                                 \
         battle.targeted = 0;                                                              \
         if (battle.count > 2) coop_spawn(&battle);                                        \
@@ -1112,6 +1157,8 @@ int main(int argc, char **argv) {
     Uint64 rogue_over_at = 0;              /* Rogue Arena: when the round ended */
     int running = 1, show_help = 0, back_held = 0, back_combo = 0, switch_pressed[2] = { 0, 0 }, blade_pressed[2] = { 0, 0 },
         target_pressed[2] = { 0, 0 };   /* switch target: Back/Select tap, X */
+    /* Modern controls, per player slot here (0 = this PC's player online). */
+    int cruise_on[2] = { 0, 0 }, quick_pressed[2] = { 0, 0 }, lock_pressed[2] = { 0, 0 }, l2_was[2] = { 0, 0 };
     SDL_Gamepad *pads[2] = { pad, NULL };
     {   /* a second controller, if there is one */
         int count = 0;
@@ -1121,6 +1168,10 @@ int main(int argc, char **argv) {
         SDL_free(ids);
     }
     while (running) {
+        if (!g_net) {      /* offline: player 2 is built like player 1 */
+            g_options[0] = g_part_args ? 0 : g_hangar.options;
+            g_options[1] = g_options[0];
+        }
         SDL_Event e;
         garage_command gcmd = GC_NONE;
         int to_garage = 0, rogue_done = 0, rogue_give_up = 0;
@@ -1253,8 +1304,17 @@ int main(int argc, char **argv) {
                 if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_TAB) switch_pressed[0] = 1;
                 if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_V) blade_pressed[0] = 1;
                 if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_X) target_pressed[0] = 1;
-                if (controls_pressed(&e, CT_SWITCH)) switch_pressed[0] = 1;
-                if (controls_pressed(&e, CT_BLADE)) blade_pressed[0] = 1;
+                if (modern_of(net_info.local)) {          /* SP-MODERN: its own fixed layout */
+                    if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && !back_held) {
+                        if (e.gbutton.button == SDL_GAMEPAD_BUTTON_NORTH) switch_pressed[0] = 1;
+                        if (e.gbutton.button == SDL_GAMEPAD_BUTTON_LEFT_SHOULDER) cruise_on[0] = !cruise_on[0];
+                        if (e.gbutton.button == SDL_GAMEPAD_BUTTON_WEST) quick_pressed[0] = 1;
+                        if (e.gbutton.button == SDL_GAMEPAD_BUTTON_RIGHT_STICK) lock_pressed[0] = 1;
+                    }
+                } else {
+                    if (controls_pressed(&e, CT_SWITCH)) switch_pressed[0] = 1;
+                    if (controls_pressed(&e, CT_BLADE)) blade_pressed[0] = 1;
+                }
                 /* Back/Select: a tap switches target; Back + Start leaves. */
                 if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && e.gbutton.button == SDL_GAMEPAD_BUTTON_BACK) { back_held = 1; back_combo = 0; }
                 if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && e.gbutton.button == SDL_GAMEPAD_BUTTON_START && back_held) {
@@ -1353,8 +1413,10 @@ int main(int argc, char **argv) {
              * a trigger can be one too. Which player's controller? */
             if (!back_held && (controls_pressed(&e, CT_BLADE) || controls_pressed(&e, CT_SWITCH))) {
                 const int who = !two_players ? 0 : pads[1] ? (player_of(pads, controls_event_pad(&e), 0) == 1) : 1;
-                if (controls_pressed(&e, CT_BLADE)) blade_pressed[who] = 1;
-                if (controls_pressed(&e, CT_SWITCH)) switch_pressed[who] = 1;
+                if (!modern_of(who)) {             /* SP-MODERN keeps its own layout */
+                    if (controls_pressed(&e, CT_BLADE)) blade_pressed[who] = 1;
+                    if (controls_pressed(&e, CT_SWITCH)) switch_pressed[who] = 1;
+                }
             }
             if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) {
                 const int btn = e.gbutton.button;
@@ -1367,7 +1429,13 @@ int main(int argc, char **argv) {
                 if (btn == SDL_GAMEPAD_BUTTON_SOUTH && back_held) { toggle_plus = 1; back_combo = 1; }
                 if (btn == SDL_GAMEPAD_BUTTON_LEFT_SHOULDER && back_held) { toggle_two = 1; back_combo = 1; }
                 if (btn == SDL_GAMEPAD_BUTTON_RIGHT_STICK && back_held) { g_landing_anim = !g_landing_anim; back_combo = 1; }
-                (void)btn;
+                const int pad_who = !two_players ? 0 : pads[1] ? (player_of(pads, e.gbutton.which, 0) == 1) : 1;
+                if (modern_of(pad_who) && !back_held) {   /* SP-MODERN: its own fixed layout */
+                    if (btn == SDL_GAMEPAD_BUTTON_LEFT_SHOULDER) cruise_on[pad_who] = !cruise_on[pad_who];   /* boost toggle */
+                    if (btn == SDL_GAMEPAD_BUTTON_WEST) quick_pressed[pad_who] = 1;                  /* quick boost */
+                    if (btn == SDL_GAMEPAD_BUTTON_RIGHT_STICK) lock_pressed[pad_who] = 1;            /* hard lock */
+                    if (btn == SDL_GAMEPAD_BUTTON_NORTH) switch_pressed[pad_who] = 1;                /* switch weapon */
+                }
                 if (btn == SDL_GAMEPAD_BUTTON_START && back_held && !g_direct_test) { to_garage = 1; back_combo = 1; }
                 else if (btn == SDL_GAMEPAD_BUTTON_START) { SETUP_FIGHTERS(); prevs[0] = *P; prevs[1] = *T; }
             }
@@ -1437,6 +1505,7 @@ int main(int argc, char **argv) {
             prevs[0] = *P; prevs[1] = *T;
         }
         if (to_garage) { mode = 0; gui.screen = 0; }
+        gdata.have_pad = pads[0] != NULL || pads[1] != NULL;
         /* ---- Rogue Arena (rogue.c): its screens, its fights ---- */
         #define LOAD_PLAYER_BUILD(src_parts) do {                                                \
             int lpb_[SLOT_COUNT];                                                                \
@@ -1709,6 +1778,8 @@ int main(int argc, char **argv) {
                         SDL_Log("netplay: match started, you are player %d (%s vs %s), stage %d, input delay %d",
                                 net_info.local + 1, net_info.name[0], net_info.name[1], net_info.stage, net_info.delay);
                         for (int i = 0; i < SLOT_COUNT; ++i) { parts[i] = net_info.parts[0][i]; parts2[i] = net_info.parts[1][i]; }
+                        g_options[0] = (uint16_t)net_info.parts[0][SLOT_COUNT];
+                        g_options[1] = (uint16_t)net_info.parts[1][SLOT_COUNT];
                         demo_load(dir, parts, &ac_data[0], err, sizeof err);
                         demo_load(dir, parts2, &ac_data[1], err, sizeof err);
                         /* Co-op: the computer ACs fly copies of the players'
@@ -1828,8 +1899,21 @@ int main(int argc, char **argv) {
             else { ctl[1] = pads[0]; ctl[0] = NULL; }
         }
         acr_gen1_input in2[2];
-        in2[0] = read_input(ctl[0], 1);
-        in2[1] = two_players ? read_input(ctl[1], 0) : (acr_gen1_input){ 0, 0, 0, 0, 0, 0, 0 };
+        /* Online this PC's player is slot 0 here, whichever player it is. */
+        const int mod[2] = { g_net ? modern_of(net_info.local) : modern_of(0), !g_net && modern_of(1) };
+        in2[0] = mod[0] ? read_modern(ctl[0], cruise_on[0]) : read_input(ctl[0], 1);
+        in2[1] = !two_players ? (acr_gen1_input){ 0 } : mod[1] ? read_modern(ctl[1], cruise_on[1]) : read_input(ctl[1], 0);
+        for (int k = 0; k < 2; ++k) {
+            if (!mod[k]) { cruise_on[k] = 0; quick_pressed[k] = lock_pressed[k] = 0; continue; }
+            /* Running dry switches the boost toggle off (press circle again after). */
+            if (battle.f[g_net ? net_info.local : k].ac.drained) cruise_on[k] = 0;
+            in2[k].cruise = (uint8_t)cruise_on[k];
+            in2[k].quick = (uint8_t)quick_pressed[k];
+            /* L2: the blade, on the press. */
+            const int l2 = ctl[k] && SDL_GetGamepadAxis(ctl[k], SDL_GAMEPAD_AXIS_LEFT_TRIGGER) > 8000;
+            if (l2 && !l2_was[k] && !back_held) blade_pressed[k] = 1;
+            l2_was[k] = l2;
+        }
         /* Testing aid: ACR_HOLD="move,turn,strafe,boost[,fire[,blade_ms[,look]]]" holds those
          * inputs (and presses the blade once, blade_ms after start);
          * ACR_SHOT=file.bmp ACR_SHOT_MS=2000 saves a picture and quits. */
@@ -1847,10 +1931,12 @@ int main(int argc, char **argv) {
         }
         const bool *keys = SDL_GetKeyboardState(NULL);
         acr_gen1_actions act[2] = { { 0 }, { 0 } };
-        act[0].fire = (uint8_t)(hold_fire || keys[SDL_SCANCODE_F] || keys[SDL_SCANCODE_LCTRL] ||
-                                (ctl[0] && !back_held && controls_held(ctl[0], CT_FIRE)));
+        act[0].fire = (uint8_t)(hold_fire || (!mod[0] && (keys[SDL_SCANCODE_F] || keys[SDL_SCANCODE_LCTRL])) ||
+                                (ctl[0] && !back_held && (mod[0] ? SDL_GetGamepadAxis(ctl[0], SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) > 8000
+                                                                 : controls_held(ctl[0], CT_FIRE))));
         if (two_players)
-            act[1].fire = (uint8_t)(ctl[1] && !back_held && controls_held(ctl[1], CT_FIRE));
+            act[1].fire = (uint8_t)(ctl[1] && !back_held && (mod[1] ? SDL_GetGamepadAxis(ctl[1], SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) > 8000
+                                                                    : controls_held(ctl[1], CT_FIRE)));
 
         /* A quick release of the booster between two steps still counts. */
         static int boost_released[2];
@@ -1890,13 +1976,15 @@ int main(int argc, char **argv) {
                 a.next_weapon = (uint8_t)switch_pressed[0];
                 a.blade = (uint8_t)blade_pressed[0];
                 a.switch_target = (uint8_t)target_pressed[0];
+                a.hard_lock = (uint8_t)lock_pressed[0];
+                in2[0].quick = (uint8_t)quick_pressed[0];
                 if (!acr_rb_tick(&net_rb, acr_rb_pack(&in2[0], &a))) {   /* waiting for them */
                     if (!net_wait_since) net_wait_since = now_ms;
                     break;
                 }
                 net_wait_since = 0;
                 ++ran;
-                switch_pressed[0] = blade_pressed[0] = target_pressed[0] = 0;
+                switch_pressed[0] = blade_pressed[0] = target_pressed[0] = lock_pressed[0] = quick_pressed[0] = 0;
                 in2[0].boost_tapped = 0;
                 boost_released[0] = !in2[0].boost;
             }
@@ -1956,6 +2044,8 @@ int main(int argc, char **argv) {
                 act[k].next_weapon = (uint8_t)switch_pressed[k]; switch_pressed[k] = 0;
                 act[k].blade = (uint8_t)blade_pressed[k]; blade_pressed[k] = 0;
                 act[k].switch_target = (uint8_t)target_pressed[k]; target_pressed[k] = 0;
+                act[k].hard_lock = (uint8_t)lock_pressed[k]; lock_pressed[k] = 0;
+                in2[k].quick = (uint8_t)quick_pressed[k]; quick_pressed[k] = 0;
             }
             /* The computer pilot presses its buttons like a pad, each step. */
             for (int k = 0; k < 2; ++k) {
@@ -2073,7 +2163,7 @@ int main(int argc, char **argv) {
             const acr_gen1_fighter *cf = &battle.f[view];
             const float ct = acr_gen1_tick_fraction(&ac);
             const float cam_p = cf->cam_pitch_prev + (cf->cam_pitch - cf->cam_pitch_prev) * ct,
-                        cam_y = cf->cam_yaw_prev + (cf->cam_yaw - cf->cam_yaw_prev) * ct;
+                        cam_y = cf->cam_yaw_prev + (float)(((cf->cam_yaw - cf->cam_yaw_prev + 2048) & 4095) - 2048) * ct;
             float th_units = (float)prev.pitch + (float)(ac.pitch - prev.pitch) * a + cam_p;
             if (th_units > ACR_GEN1_CAM_PITCH_MAX) th_units = ACR_GEN1_CAM_PITCH_MAX;
             if (th_units < -ACR_GEN1_CAM_PITCH_MAX) th_units = -ACR_GEN1_CAM_PITCH_MAX;
@@ -2165,6 +2255,11 @@ int main(int argc, char **argv) {
             if (g_muzzle[k].ok)
                 for (int c = 0; c < 3; ++c) fk->muzzle[c] = (int16_t)g_muzzle[k].p[c];
             g_in[k].crouch = battle.f[k].kneeling;   /* the cannon stance keeps its own pose */
+            if (battle.f[k].modern) {                /* modern: the stick as the AC took it */
+                g_in[k].move = battle.f[k].used.move;
+                g_in[k].strafe = battle.f[k].used.strafe;
+                g_in[k].turn = battle.f[k].used.turn;
+            }
         }
         draw_ac(view, &ac, px, py, pz, yaw, crouch);
         const float tx = (tprev.sx + (T->sx - tprev.sx) * a) / 64.0f, ty = -(tprev.sy + (T->sy - tprev.sy) * a) / 64.0f,
@@ -2256,7 +2351,12 @@ int main(int argc, char **argv) {
                     if (hint) battle_hud_text(g_vw, g_hud_frame, 1, 312.0f - 4.0f * (float)SDL_strlen(hint), 160, hint, 0,
                                               255, 255, 0);
                 }
-                if (w->box_w) {
+                if (me->modern) {
+                    const char *mh = !ctl[g_net ? 0 : view] ? "CONNECT A TWIN-STICK CONTROLLER"
+                                   : me->hard_lock ? "HARD LOCK" : NULL;
+                    if (mh) battle_hud_text(g_vw, g_hud_frame, 1, 312.0f - 4.0f * (float)SDL_strlen(mh), 172, mh, 0, 255, 160, 60);
+                }
+                if (w->box_w && (!me->modern || me->hard_lock)) {   /* modern: only with hard lock */
                     /* The game's sight (VS 0x800576E0): the inner lock box as
                      * an octagon, half-sizes sin(angle) and corners cut by 512,
                      * on a frame 16,384 out along the AC's facing and view tilt,
@@ -2264,13 +2364,20 @@ int main(int argc, char **argv) {
                      * toward the target, the sight drifts off the screen's
                      * centre. Locks are judged on the target's middle, so an AC
                      * whose body pokes out of the sight can stay locked. */
-                    const float pt = ((float)prev.pitch + (float)(ac.pitch - prev.pitch) * a) * (6.2831853f / 4096.0f);
+                    float pt = ((float)prev.pitch + (float)(ac.pitch - prev.pitch) * a) * (6.2831853f / 4096.0f);
+                    float syaw = yaw;
+                    float box_scale = 1.0f;
+                    if (me->modern && me->hist_n) {   /* modern controls: the smaller sight, lagging the facing */
+                        syaw = (float)me->sight_yaw * (6.2831853f / 4096.0f);
+                        pt = (float)me->sight_pitch * (6.2831853f / 4096.0f);
+                        box_scale = (float)(battle.modern.box_pct ? battle.modern.box_pct : ACR_GEN1_MODERN_BOX_PCT) / 100.0f;
+                    }
                     const float D = (float)ACR_GEN1_SIGHT_DEPTH, cut = (float)ACR_GEN1_SIGHT_CORNER;
-                    const float sw = sinf((float)(w->inner_w ? w->inner_w : w->box_w) * (6.2831853f / 4096.0f)) * D,
-                                sh = sinf((float)(w->inner_h ? w->inner_h : w->box_h) * (6.2831853f / 4096.0f)) * D;
-                    const vec3 fw = v3(sinf(yaw) * cosf(pt), sinf(pt), cosf(yaw) * cosf(pt)),
-                               up = v3(-sinf(yaw) * sinf(pt), cosf(pt), -cosf(yaw) * sinf(pt)),
-                               rt = v3(cosf(yaw), 0, -sinf(yaw));
+                    const float sw = sinf((float)(w->inner_w ? w->inner_w : w->box_w) * box_scale * (6.2831853f / 4096.0f)) * D,
+                                sh = sinf((float)(w->inner_h ? w->inner_h : w->box_h) * box_scale * (6.2831853f / 4096.0f)) * D;
+                    const vec3 fw = v3(sinf(syaw) * cosf(pt), sinf(pt), cosf(syaw) * cosf(pt)),
+                               up = v3(-sinf(syaw) * sinf(pt), cosf(pt), -cosf(syaw) * sinf(pt)),
+                               rt = v3(cosf(syaw), 0, -sinf(syaw));
                     const vec3 o = v3(px, py + 186.0f, pz);
                     const float oct[8][2] = { { -sw + cut, sh }, { sw - cut, sh }, { sw, sh - cut }, { sw, -sh + cut },
                                               { sw - cut, -sh }, { -sw + cut, -sh }, { -sw, -sh + cut }, { -sw, sh - cut } };

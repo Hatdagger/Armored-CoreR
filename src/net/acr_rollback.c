@@ -3,10 +3,11 @@
 #include <string.h>
 
 #define NONE 0xFFFFFFFFu
-#define EDGE_BITS ((1u << 9) | (1u << 12) | (1u << 13) | (1u << 14))
+#define EDGE_BITS ((1u << 9) | (1u << 12) | (1u << 13) | (1u << 15) | (1u << 16) | (1u << 17))
+#define PAD_BYTES 3
 
 enum { PKT_INPUT = 1, PKT_BYE = 2 };
-#define VERSION 1
+#define VERSION 2   /* 2: 3-byte pads (modern controls) */
 #define HEADER 28
 
 /* ---------------- pads ---------------- */
@@ -19,7 +20,8 @@ acr_rb_pad acr_rb_pack(const acr_gen1_input *in, const acr_gen1_actions *act) {
     unsigned p = tri(in->move) | tri(in->turn) << 2 | tri(in->strafe) << 4 | look << 6 |
                  (in->boost ? 1u : 0u) << 8 | (in->boost_tapped ? 1u : 0u) << 9 | (in->crouch ? 1u : 0u) << 10 |
                  (act->fire ? 1u : 0u) << 11 | (act->next_weapon ? 1u : 0u) << 12 | (act->blade ? 1u : 0u) << 13 |
-                 (act->switch_target ? 1u : 0u) << 14;
+                 (in->cruise ? 1u : 0u) << 14 | (in->quick ? 1u : 0u) << 15 | (act->hard_lock ? 1u : 0u) << 16 |
+                 (act->switch_target ? 1u : 0u) << 17;
     return (acr_rb_pad)p;
 }
 
@@ -36,7 +38,10 @@ void acr_rb_unpack(acr_rb_pad p, acr_gen1_input *in, acr_gen1_actions *act) {
     act->fire = (uint8_t)(p >> 11 & 1u);
     act->next_weapon = (uint8_t)(p >> 12 & 1u);
     act->blade = (uint8_t)(p >> 13 & 1u);
-    act->switch_target = (uint8_t)(p >> 14 & 1u);
+    in->cruise = (uint8_t)(p >> 14 & 1u);
+    in->quick = (uint8_t)(p >> 15 & 1u);
+    act->hard_lock = (uint8_t)(p >> 16 & 1u);
+    act->switch_target = (uint8_t)(p >> 17 & 1u);
 }
 
 acr_rb_pad acr_rb_held(acr_rb_pad p) { return (acr_rb_pad)(p & ~EDGE_BITS); }
@@ -184,7 +189,7 @@ int acr_rb_write(acr_rb *rb, uint8_t *buf, int cap) {
     uint32_t first = rb->remote_ack;
     if (first + ACR_RB_PADS_MAX < rb->local_next) first = rb->local_next - ACR_RB_PADS_MAX;
     const uint32_t count = rb->local_next > first ? rb->local_next - first : 0;
-    if (cap < HEADER + (int)count * 2) return 0;
+    if (cap < HEADER + (int)count * PAD_BYTES) return 0;
     header(buf, PKT_INPUT);
     put32(buf + 6, rb->frame);
     put32(buf + 10, rb->remote_next);
@@ -198,10 +203,11 @@ int acr_rb_write(acr_rb *rb, uint8_t *buf, int cap) {
     buf[27] = (uint8_t)count;
     for (uint32_t k = 0; k < count; ++k) {
         const acr_rb_pad p = rb->pad[rb->local][(first + k) % ACR_RB_RING];
-        buf[HEADER + k * 2] = (uint8_t)p;
-        buf[HEADER + k * 2 + 1] = (uint8_t)(p >> 8);
+        buf[HEADER + k * PAD_BYTES] = (uint8_t)p;
+        buf[HEADER + k * PAD_BYTES + 1] = (uint8_t)(p >> 8);
+        buf[HEADER + k * PAD_BYTES + 2] = (uint8_t)(p >> 16);
     }
-    return HEADER + (int)count * 2;
+    return HEADER + (int)count * PAD_BYTES;
 }
 
 int acr_rb_read(acr_rb *rb, const uint8_t *buf, int len) {
@@ -212,7 +218,7 @@ int acr_rb_read(acr_rb *rb, const uint8_t *buf, int len) {
     if (buf[5] == PKT_BYE) return 2;
     if (buf[5] != PKT_INPUT) { ++rb->packets_bad; return 0; }
     const uint32_t count = buf[27];
-    if (len < HEADER + (int)count * 2 || count > ACR_RB_PADS_MAX) { ++rb->packets_bad; return 0; }
+    if (len < HEADER + (int)count * PAD_BYTES || count > ACR_RB_PADS_MAX) { ++rb->packets_bad; return 0; }
     ++rb->packets_in;
     const uint32_t their_frame = get32(buf + 6), ack = get32(buf + 10);
     const int32_t adv = (int8_t)buf[14];
@@ -242,7 +248,8 @@ int acr_rb_read(acr_rb *rb, const uint8_t *buf, int len) {
         const uint32_t f = first + k;
         if (f < rb->remote_next || has_pad(rb, them, f)) continue;
         if (f >= rb->remote_next + ACR_RB_RING - 1) break;
-        const acr_rb_pad p = (acr_rb_pad)(buf[HEADER + k * 2] | buf[HEADER + k * 2 + 1] << 8);
+        const acr_rb_pad p = (acr_rb_pad)buf[HEADER + k * PAD_BYTES] | (acr_rb_pad)buf[HEADER + k * PAD_BYTES + 1] << 8 |
+                             (acr_rb_pad)buf[HEADER + k * PAD_BYTES + 2] << 16;
         set_pad(rb, them, f, p);
         if (f < rb->frame && rb->used[f % ACR_RB_RING] != p && (rb->rollback_from == NONE || f < rb->rollback_from))
             rb->rollback_from = f;

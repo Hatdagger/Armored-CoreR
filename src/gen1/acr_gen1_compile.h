@@ -96,6 +96,12 @@ typedef struct acr_gen1_motion {
 #define ACR_GEN1_OPTION_ENERGY_AMP     0x0400u /* SP-E+ */
 #define ACR_GEN1_OPTION_ENERGY_REDUCE  0x0800u /* SP-DEtq */
 #define ACR_GEN1_OPTION_BALANCER_RE    0x1000u /* SP-ABS_Re: legs stability +1600 */
+/* Not on the disc: Armored-CoreR's own option. Modern controls (twin
+ * sticks, hard lock, boost toggle, quick boost) for a weaker FCS and blade
+ * rules (acr_gen1_battle.h). It takes every option slot the core has, so
+ * nothing else can be fitted with it, and it fits any core. */
+#define ACR_GEN1_OPTION_MODERN_BIT     13u
+#define ACR_GEN1_OPTION_MODERN         0x2000u /* SP-MODERN */
 
 void acr_gen1_compile(const acr_gen1_build *b, acr_gen1_stats *out);
 
@@ -103,6 +109,14 @@ void acr_gen1_compile(const acr_gen1_build *b, acr_gen1_stats *out);
  * halved, both refills doubled, each refill then capped at the new rise
  * drain. Lower levels change nothing here. */
 void acr_gen1_human_plus_energy(acr_gen1_stats *s, unsigned level);
+
+/* Human PLUS with SP-MODERN fitted: only its no-kneel benefit (cannons fire
+ * without the stance, acr_gen1_fighter.human_plus). Its energy rules, and
+ * any Human PLUS benefit added later, don't apply: this gives the level to
+ * use for them (0 = none). */
+static inline unsigned acr_gen1_human_plus_level(unsigned level, uint16_t option_mask) {
+    return (option_mask & ACR_GEN1_OPTION_MODERN) ? 0u : level;
+}
 void acr_gen1_motion_from_stats(const acr_gen1_stats *s, acr_gen1_motion *out);
 
 #endif
