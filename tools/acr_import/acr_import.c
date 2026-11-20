@@ -203,6 +203,9 @@ static int import_disc(const char *disc_path, const char *out_dir, acr_import_st
         char hud_dir[ACR_PATH_MAX];
         snprintf(hud_dir, sizeof hud_dir, "%s/hud", out_dir);
         if (!make_dirs(hud_dir, 1) || !acr_export_moa_hud(unpacked, hud_dir, err, err_size)) return 0;
+        char fx_dir[ACR_PATH_MAX];
+        snprintf(fx_dir, sizeof fx_dir, "%s/fx", out_dir);
+        if (!make_dirs(fx_dir, 1) || !acr_export_moa_fx(unpacked, fx_dir, err, err_size)) return 0;
     }
     return 1;
 }
