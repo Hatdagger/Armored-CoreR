@@ -331,6 +331,17 @@ int main(void) {
         for (int k = 0; k < 200; ++k) acr_gen1_ac_step(&t, &q, k_none);
         EXPECT(t.vz == 0);
     }
+    {   /* Caterpillars never leave the ground: the booster alone does
+         * nothing, with a direction it is the ground boost. */
+        acr_gen1_ac_def c = make_def();
+        c.drive_walk = c.no_jump = c.no_boost_hop = 1;
+        acr_gen1_ac t;
+        acr_gen1_ac_spawn(&t, &c, 0, 0, 0);
+        for (int k = 0; k < 30; ++k) acr_gen1_ac_step(&t, &c, k_up);
+        EXPECT(t.state == ACR_GEN1_GROUND && t.y == 0 && t.vz == 0);
+        for (int k = 0; k < 30; ++k) acr_gen1_ac_step(&t, &c, k_boost);
+        EXPECT(t.state == ACR_GEN1_GROUND && t.y == 0 && t.vz > 0 && t.energy < c.stats.energy_capacity);
+    }
     if (failures) { printf("%d failure(s)\n", failures); return 1; }
     printf("gen1 sim: all passed\n");
     return 0;

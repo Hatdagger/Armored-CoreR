@@ -132,6 +132,9 @@ Fixes after the first play-test (2026-11-19):
   direction the speed is cut to the top and slows by a quarter of +0x208
   (as the air does, `0x80014790`, not measured on these legs). No energy
   while walking; the booster is the ground boost as before.
+- **Caterpillars can't jump** (user): the booster alone does nothing, with
+  a direction it is the ground boost even from a stand; off a ledge they
+  only fall.
 - **Both back weapons work** (only the left one was a weapon): the AC now
   carries up to 4 (arm weapon, back left, back right, blade); a two-slot
   unit is one weapon.
