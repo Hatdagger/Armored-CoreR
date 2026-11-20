@@ -176,7 +176,9 @@ typedef struct acr_gen1_shot {
  * - Hard lock (a toggle): while the target is in the current weapon's
  *   (lagging, smaller) sight, the AC turns and tilts toward it at its normal
  *   rates whenever the pilot isn't turning / tilting. It drops when the
- *   target leaves the sight and needs a fresh press.
+ *   target leaves the sight and needs a fresh press. With a no-lock weapon
+ *   (rockets) selected it is off and can't be turned on: they stay aimed by
+ *   hand, as in the original.
  * Stand-in values to tune in play (mirror matches, modern vs original). */
 #define ACR_GEN1_MODERN_BOX_PCT          30    /* aiming is automatic: a much smaller sight */
 #define ACR_GEN1_MODERN_LEAD_PCT         60

@@ -47,7 +47,9 @@ speed, weapons and weapon switching stay exactly as in AC1.
 - **Hard lock.** While the target is in the current weapon's sight (the
   smaller, lagging one), the AC turns and tilts toward it at its normal rates
   whenever the pilot isn't turning or tilting. It turns off when the target
-  leaves the sight; press R3 again to turn it back on.
+  leaves the sight; press R3 again to turn it back on. With rockets (no-lock
+  weapons) selected it is off and can't be turned on, so rockets stay aimed by
+  hand as in the original.
 - **Boost toggle.** Counts as a ground boost (slide, coast and stage rules).
   Walking pace comes from each AC's own walk animation, so heavy legs cruise
   slower. It never jumps or rises, and does nothing in the air.
