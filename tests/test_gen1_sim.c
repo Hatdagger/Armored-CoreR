@@ -328,11 +328,12 @@ int main(void) {
         const int32_t e0 = c.energy;
         for (int k = 0; k < 40; ++k) { acr_gen1_ac_step(&c, &d, cruise); acr_gen1_ac_step(&g, &d, boost); }
         const int64_t vc = (int64_t)c.vx * c.vx + (int64_t)c.vz * c.vz, vg = (int64_t)g.vx * g.vx + (int64_t)g.vz * g.vz;
-        const int64_t top = (int64_t)d.motion.boost_max * ACR_GEN1_CRUISE_PCT / 100;
+        const int64_t top = acr_gen1_cruise_top(&d), pace = acr_gen1_walk_pace(&d);
+        EXPECT(pace == 548 * 64 / 4 / 4 && top > pace && top < pace * 3 / 2);   /* a little faster than walking */
         EXPECT(c.state == ACR_GEN1_GROUND && vc <= top * top + 2 && vc >= (top - 2) * (top - 2));
-        EXPECT(g.state == ACR_GEN1_GROUND && vg > vc * 16);
+        EXPECT(g.state == ACR_GEN1_GROUND && vg > vc * 3);
         EXPECT(c.energy < e0 && e0 - c.energy < (28000 - g.energy));   /* drains, much less than a full boost */
-        EXPECT(e0 - c.energy == 40 * ((d.stats.rise_drain >> 1) * ACR_GEN1_CRUISE_PCT / 100));
+        EXPECT(e0 - c.energy == 40 * ((d.stats.rise_drain >> 1) * ACR_GEN1_CRUISE_DRAIN_PCT / 100));
         /* Standing still the toggle never jumps. */
         acr_gen1_ac s;
         acr_gen1_ac_spawn(&s, &d, 0, 0, 0);
@@ -365,7 +366,7 @@ int main(void) {
         for (int k = 0; k < ACR_GEN1_QUICK_TICKS; ++k) acr_gen1_ac_step(&q, &d, k_fwd);
         acr_gen1_ac_step(&q, &d, qb);                              /* fourth: cooling down */
         EXPECT(q.quick_ticks == 0);
-        /* Run dry: no quick boost, but the toggle still moves the AC. */
+        /* Run dry: no quick boost, and the toggle cuts out. */
         acr_gen1_ac_spawn(&q, &d, 0, 0, 0);
         for (int k = 0; k < 6; ++k) acr_gen1_ac_step(&q, &d, k_fwd);
         q.energy = 0; q.drained = 1;
@@ -374,10 +375,7 @@ int main(void) {
         acr_gen1_input dry = k_fwd;
         dry.cruise = 1;
         for (int k = 0; k < 30; ++k) acr_gen1_ac_step(&q, &d, dry);
-        {
-            const int64_t vq = (int64_t)q.vx * q.vx + (int64_t)q.vz * q.vz;
-            EXPECT(q.drained && vq >= (top - 2) * (top - 2) && q.energy > 0);   /* cruising, still recharging */
-        }
+        EXPECT(q.drained && q.vx == 0 && q.vz == 0 && q.energy > 0);     /* walking again, recharging */
         acr_gen1_ac_spawn(&q, &d, 0, 0, 0);
         acr_gen1_ac_step(&q, &d, (acr_gen1_input){ .quick = 1 });  /* no direction: nothing */
         EXPECT(q.vx == 0 && q.vz == 0 && q.quick_cool == 0);

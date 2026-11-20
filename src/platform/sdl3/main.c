@@ -1254,6 +1254,9 @@ int main(int argc, char **argv) {
         in2[1] = !two_players ? (acr_gen1_input){ 0 } : mod[1] ? read_modern(ctl[1], cruise_on[1]) : read_input(ctl[1], 0);
         for (int k = 0; k < 2; ++k) {
             if (!mod[k]) { cruise_on[k] = 0; quick_pressed[k] = lock_pressed[k] = 0; continue; }
+            /* Running dry switches the boost toggle off (press circle again after). */
+            if (battle.f[g_net ? net_info.local : k].ac.drained) cruise_on[k] = 0;
+            in2[k].cruise = (uint8_t)cruise_on[k];
             in2[k].quick = (uint8_t)quick_pressed[k];
             /* L2: the blade, on the press. */
             const int l2 = ctl[k] && SDL_GetGamepadAxis(ctl[k], SDL_GAMEPAD_AXIS_LEFT_TRIGGER) > 8000;

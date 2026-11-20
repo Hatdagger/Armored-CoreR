@@ -30,14 +30,14 @@ speed, weapons and weapon switching stay exactly as in AC1.
 
 | What | Value (stand-in) | Where |
 |---|---|---|
-| FCS lock boxes (inner and outer) | 80 % of the FCS's | `ACR_GEN1_MODERN_BOX_PCT` |
+| FCS lock boxes (inner and outer) | 30 % of the FCS's (aiming is automatic) | `ACR_GEN1_MODERN_BOX_PCT` |
 | Locked shots lead the target | 60 % of the way | `ACR_GEN1_MODERN_LEAD_PCT` |
 | FCS sight follows the facing | 2 ticks late (~0.1 s), no faster than the AC turns | `ACR_GEN1_MODERN_SIGHT_LAG` |
 | Missile lock time | 140 % | `ACR_GEN1_MODERN_MISSILE_PCT` |
 | Blade energy per swing | 125 % | `ACR_GEN1_MODERN_BLADE_EN_PCT` |
 | Blade lunge steering | 115 % of the turn rate (ignores the weaker sight) | `ACR_GEN1_MODERN_STEER_PCT` |
 | Standing still after a swing | 100 ms after a hit, 300 ms after a miss | `ACR_GEN1_MODERN_RECOVER_*` |
-| Boost toggle | ground boost at 20 % of the top speed and of the cost | `ACR_GEN1_CRUISE_PCT` |
+| Boost toggle | ground boost at 125 % of the AC's walking pace, 20 % of a ground boost's cost | `ACR_GEN1_CRUISE_PCT`, `_DRAIN_PCT` |
 | Quick boost | the AC's own top boost speed for 4 ticks (~0.18 s) in the stick's direction | `ACR_GEN1_QUICK_TICKS` |
 | Quick boost cost | at the press: what a normal boost from a stand would use to cover the same distance | `acr_gen1_quick_cost` |
 | Chain boost | up to 3 quick boosts in a row, each within 8 ticks (~0.36 s) of the last ending; then 16 ticks (~0.7 s) cool-down | `ACR_GEN1_QUICK_CHAIN*`, `_COOL` |
@@ -49,13 +49,13 @@ speed, weapons and weapon switching stay exactly as in AC1.
   whenever the pilot isn't turning or tilting. It turns off when the target
   leaves the sight; press R3 again to turn it back on.
 - **Boost toggle.** Counts as a ground boost (slide, coast and stage rules).
-  It never jumps or rises, and does nothing in the air.
+  Walking pace comes from each AC's own walk animation, so heavy legs cruise
+  slower. It never jumps or rises, and does nothing in the air.
 - **Quick boost.** Pick a direction with the left stick and press square: the AC
   thrusts that way. Never faster than the AC's normal boost. Nothing drains or
   refills during the burst. A press during a burst waits for it to end.
-- **Running dry.** The boost toggle still works (its cost comes out of the
-  half-speed refill), but no quick boost and no energy weapons until the bar
-  is full again. The blade already needs energy for everyone.
+- **Running dry.** The boost toggle cuts out and switches off, and there is no
+  quick boost and no energy weapons until the bar is full again. The blade already needs energy for everyone.
 
 **Human PLUS** (when it comes as the player's option part): the one exception
 to "nothing else fits". It can be equipped together with SP-MODERN, and

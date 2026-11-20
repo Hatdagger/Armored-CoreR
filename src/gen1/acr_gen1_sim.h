@@ -42,16 +42,19 @@ typedef struct acr_gen1_input {
     uint8_t crouch;   /* crouched in the cannon stance (VS 0x8007E3E0): crouch turn rates,
                          sliding to a stop, no walking or boosting */
     /* Modern controls only (SP-MODERN; always 0 with the original pad): */
-    uint8_t cruise;   /* the boost toggle is on: a ground boost at ACR_GEN1_CRUISE_PCT of
-                         the top speed and of the drain (never jumps or rises) */
+    uint8_t cruise;   /* the boost toggle is on: a slow ground boost, a little faster than
+                         walking (ACR_GEN1_CRUISE_PCT); never jumps or rises */
     uint8_t quick;    /* quick boost pressed this step */
 } acr_gen1_input;
 
 /* Modern controls' boosts (stand-ins, to tune in play):
  * - cruise: the toggled boost. On the ground with a direction held it is a
  *   ground boost (coast, slide and the stage's "boosting" rules included)
- *   but its top speed and its energy cost are CRUISE_PCT of a full ground
- *   boost. It does nothing in the air.
+ *   with a top speed of CRUISE_PCT of the AC's walking pace (its walk
+ *   animation's distance per tick; never above the ground boost's top
+ *   speed) and CRUISE_DRAIN_PCT of a ground boost's cost. It starts at
+ *   walking pace, does nothing in the air and cuts out when the AC runs
+ *   dry (the platform also switches the toggle off then).
  * - quick boost: a press with a direction held sets the AC's speed that way
  *   to its own top speed (ground boost top speed on the ground, air top
  *   speed in the air) for QUICK_TICKS ticks, then it slides as after any
@@ -62,10 +65,11 @@ typedef struct acr_gen1_input {
  *   (each pressed within QUICK_CHAIN_GAP ticks of the last burst's end;
  *   a press during a burst waits for its end), then QUICK_COOL ticks from
  *   the last press before the next.
- * - running dry (the booster lock, acr_gen1_ac.drained): the toggle still
- *   works (its cost comes out of the half-speed refill), the quick boost
- *   doesn't until the bar is full again. */
-#define ACR_GEN1_CRUISE_PCT      20
+ * - running dry (the booster lock, acr_gen1_ac.drained): no toggle and no
+ *   quick boost until the bar is full again. */
+#define ACR_GEN1_CRUISE_PCT       125   /* of walking pace */
+#define ACR_GEN1_CRUISE_DRAIN_PCT 20    /* of a ground boost's cost */
+#define ACR_GEN1_WALK_PACE        34    /* world units a tick when the AC has no walk track (measured 31-38) */
 #define ACR_GEN1_QUICK_TICKS     4      /* ~0.18 s */
 #define ACR_GEN1_QUICK_CHAIN     3
 #define ACR_GEN1_QUICK_CHAIN_GAP 8      /* ~0.36 s */
@@ -101,6 +105,11 @@ typedef struct acr_gen1_ac_def {
      * AC, its walls stop it (acr_gen1_stage.h; step heights are stand-ins). */
     const acr_gen1_stage *stage;
 } acr_gen1_ac_def;
+
+/* Walking pace (1/64 world units a tick) from the walk animation, and the
+ * boost toggle's top speed. */
+int32_t acr_gen1_walk_pace(const acr_gen1_ac_def *def);
+int32_t acr_gen1_cruise_top(const acr_gen1_ac_def *def);
 
 /* Energy a quick boost costs on the ground (air = 0) or in the air (1). */
 int32_t acr_gen1_quick_cost(const acr_gen1_ac_def *def, int air);
