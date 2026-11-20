@@ -50,12 +50,10 @@ speed, weapons and weapon switching stay exactly as in AC1.
   leaves the sight; press R3 again to turn it back on. With rockets (no-lock
   weapons) selected it is off and can't be turned on, so rockets stay aimed by
   hand as in the original.
-- **Long-range FCS** (class 0 range 10,000 or more: QX-9009 and RATOR on the
-  disc). Hard lock can only be switched on within the furthest range a normal
-  FCS reaches for that weapon's lock class (worked out from the imported FCS
-  parts: 7,400 / 10,500 / 11,800 / 10,000 on the disc). Once on it holds out to
-  the long-range FCS's own range. A sniper has to close in to lock, then can
-  pull back out.
+- **Hard lock range.** Hard lock can only be switched on with the target within
+  5,000, whatever the FCS (`ACR_GEN1_MODERN_HARD_LOCK_START`). Once on it holds
+  out to the FCS's own range, so a long-range FCS (QX-9009, RATOR) has to close
+  in to lock, then can pull back out.
 - **Boost toggle.** Counts as a ground boost (slide, coast and stage rules).
   Walking pace comes from each AC's own walk animation, so heavy legs cruise
   slower. It never jumps or rises, and does nothing in the air.

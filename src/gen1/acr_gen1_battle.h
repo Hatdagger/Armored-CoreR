@@ -55,8 +55,6 @@ typedef struct acr_gen1_weapon {
     uint8_t  aim_y;
     uint8_t  mount;         /* ACR_GEN1_MOUNT_*: which part the shots leave from */
     int32_t  lock_range;    /* FCS class range: how far the sight looks (0 = range) */
-    int32_t  hard_lock_range; /* modern controls: hard lock only starts this close (0 = the sight's
-                               * range); once on it holds to the full sight range */
     /* Missiles */
     uint16_t inner_w, inner_h;  /* FCS inner box (angles): where a lock can start; guns hold one only here */
     uint8_t  lock_value;    /* FCS class value. Missiles: the cursor moves value x 3 / 16 a tick;
@@ -182,14 +180,6 @@ typedef struct acr_gen1_shot {
  *   (rockets) selected it is off and can't be turned on: they stay aimed by
  *   hand, as in the original.
  * Stand-in values to tune in play (mirror matches, modern vs original). */
-/* Long-range FCS (class 0 range at or above this: QX-9009, RATOR on the
- * Master of Arena disc): a modern pilot's hard lock only starts within the
- * furthest range a normal FCS reaches for that lock class (the platform
- * works it out from the import's FCS parts into hard_lock_range), but once
- * on it holds out to the long-range FCS's own range. So a sniper has to
- * close in to lock, then can pull back out. */
-#define ACR_GEN1_LONG_FCS_RANGE 10000
-
 #define ACR_GEN1_MODERN_BOX_PCT          30    /* aiming is automatic: a much smaller sight */
 #define ACR_GEN1_MODERN_LEAD_PCT         60
 #define ACR_GEN1_MODERN_SIGHT_LAG        2     /* ticks, ~0.1 s; at most 3 */
@@ -198,9 +188,15 @@ typedef struct acr_gen1_shot {
 #define ACR_GEN1_MODERN_STEER_PCT        115
 #define ACR_GEN1_MODERN_RECOVER_HIT_MS   100
 #define ACR_GEN1_MODERN_RECOVER_MISS_MS  300
+/* Hard lock only switches on with the target within this distance (world
+ * units), whatever the FCS; once on it holds out to the FCS's own range.
+ * So a long-range FCS (QX-9009, RATOR) has to close in to lock, then can
+ * pull back out. */
+#define ACR_GEN1_MODERN_HARD_LOCK_START  5000
 
 typedef struct acr_gen1_modern_tuning {
     uint16_t box_pct, lead_pct, sight_lag, missile_pct, blade_en_pct, steer_pct, recover_hit_ms, recover_miss_ms;
+    uint16_t hard_lock_start;
 } acr_gen1_modern_tuning;
 
 typedef struct acr_gen1_battle {
