@@ -108,7 +108,9 @@ acr_gen1_result acr_gen1_garage_fit(acr_gen1_hangar *h, const acr_gen1_catalog *
 
 /* Fits or removes option `bit`. Fitting needs a spare copy and free core
  * slots; SP-MODERN takes every other option off instead (it uses all the
- * slots), and while it is fitted no other option fits. */
+ * slots), and while it is fitted no other option fits. Exception to come:
+ * the player's Human PLUS option part (not added yet) goes on with
+ * SP-MODERN and stays on when SP-MODERN is fitted (docs/MODERN-CONTROLS.md). */
 acr_gen1_result acr_gen1_garage_option(acr_gen1_hangar *h, const acr_gen1_catalog *c,
                                        unsigned bit, int on);
 
