@@ -231,13 +231,21 @@ void battle_hud_draw(const battle_hud_state *s, float hud_w, int frame) {
         box(R, fx1, fy0, 1, fy1 - fy0, 100, 255, 170, 220, ACR_HUD_ALPHA);
         if (g_ready) spr(R, g_layer[0], 160, 16, 48, 48, 260, 56, 64, 120, 24, 255, ACR_HUD_ADD);
         else box(R, 260, 56, 48, 48, 64, 120, 24, 255, ACR_HUD_ADD);
+        /* Forward is up: forward (sin, cos), right (cos, -sin). */
+        const float a = (float)s->heading * (6.2831853f / 4096.0f);
+        const float sn = SDL_sinf(a), cs = SDL_cosf(a);
+        const float k = 23.0f / (float)s->radar_range;
+        for (int i = 0; i < s->others && i < BATTLE_HUD_MAX_OTHERS; ++i) {   /* co-op: the others first */
+            const float fwd = (float)s->other[i].dx * sn + (float)s->other[i].dz * cs;
+            const float rgt = (float)s->other[i].dx * cs - (float)s->other[i].dz * sn;
+            const float bx = rgt * k, by = -fwd * k;
+            if (bx * bx + by * by > 23.0f * 23.0f) continue;
+            if (s->other[i].ally) box(R, 284 + bx - 1, 80 + by - 1, 2, 2, 90, 230, 255, 255, ACR_HUD_ALPHA);
+            else box(R, 284 + bx - 1, 80 + by - 1, 2, 2, 255, 140, 60, 255, ACR_HUD_ALPHA);
+        }
         if (s->enemy_on_radar) {
-            /* Forward is up: forward (sin, cos), right (cos, -sin). */
-            const float a = (float)s->heading * (6.2831853f / 4096.0f);
-            const float sn = SDL_sinf(a), cs = SDL_cosf(a);
             const float fwd = (float)s->enemy_dx * sn + (float)s->enemy_dz * cs;
             const float rgt = (float)s->enemy_dx * cs - (float)s->enemy_dz * sn;
-            const float k = 23.0f / (float)s->radar_range;
             const float bx = rgt * k, by = -fwd * k;
             if (bx * bx + by * by <= 23.0f * 23.0f) box(R, 284 + bx - 1, 80 + by - 1, 2, 2, 255, 60, 50, 255, ACR_HUD_ALPHA);
         }

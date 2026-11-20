@@ -90,6 +90,7 @@ void acr_gen1_match_step(acr_gen1_match *m, const acr_gen1_battle *start, const 
         if (r->ai_mask >> k & 1) acr_gen1_ai_step(&m->ai[k], &m->b, k, half, &use_in[k], &use_act[k]);
         else if (k < 2 || !r->ai_mask) { use_in[k] = in[k]; use_act[k] = act[k]; }
     }
+    memcpy(m->shown_in, use_in, sizeof m->shown_in);
     acr_gen1_battle_step(&m->b, use_in, use_act);
     floor_walls(m, r->arena_half);
 }

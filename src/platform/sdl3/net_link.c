@@ -26,7 +26,7 @@ typedef int sock_t;
 #  define close_sock close
 #endif
 
-#define VERSION 1
+#define VERSION 2   /* 2: co-op (mode and AI in WELCOME and the beacon) */
 enum { H_HELLO = 1, H_WELCOME = 2, H_REFUSE = 3, H_READY = 4, H_PING = 5, H_PONG = 6 };
 enum { R_DATA = 1, R_VERSION = 2, R_BUSY = 3, R_STAGE = 4 };
 
@@ -46,7 +46,7 @@ struct net_link {
     uint32_t data_hash;
     int parts[NET_PARTS];
     char name[NET_NAME + 1];
-    int stage, delay, port_shown;
+    int stage, delay, port_shown, coop_ai, ai_preset;
     char join[256];
     uint64_t start_ms, last_send_ms, last_rx_ms, last_ping_ms, last_beacon_ms;
     int got_match;               /* guest: the host's match packets have started */
@@ -158,6 +158,8 @@ net_link *net_link_open(const net_setup *s, char *err, int err_size) {
     SDL_strlcpy(l->name, s->ac_name ? s->ac_name : "", sizeof l->name);
     l->stage = s->stage;
     l->delay = s->delay;
+    l->coop_ai = s->coop_ai < 0 ? 0 : s->coop_ai > 2 ? 2 : s->coop_ai;
+    l->ai_preset = s->ai_preset;
     l->port_shown = s->port;
     l->lag_ms = s->lag_ms; l->jitter_ms = s->jitter_ms; l->loss_pct = s->loss_pct;
     l->rng = (uint32_t)SDL_GetTicksNS() | 1u;
@@ -258,6 +260,8 @@ static void send_welcome(net_link *l, uint64_t now_ms) {
     put32(b + n, l->info.seed); n += 4;
     put32(b + n, l->info.stage ? net_stage_check(l->import_dir, l->info.stage) : 0); n += 4;
     for (int p = 0; p < 2; ++p) { memcpy(b + n, l->info.name[p], NET_NAME); n += NET_NAME; }
+    b[n++] = (uint8_t)l->info.coop_ai;
+    b[n++] = (uint8_t)l->info.ai_preset;
     send_to(l, &l->peer, b, n, now_ms);
 }
 
@@ -304,6 +308,8 @@ int net_link_connect(net_link *l, uint64_t now_ms, net_match_info *info, char *s
             SDL_strlcpy(l->info.name[0], l->name, sizeof l->info.name[0]);
             l->info.stage = l->stage;
             l->info.delay = l->delay;
+            l->info.coop_ai = l->coop_ai;
+            l->info.ai_preset = l->ai_preset;
             l->info.seed = (uint32_t)(SDL_GetTicksNS() * 2654435761u) | 1u;
         }
     }
@@ -363,7 +369,7 @@ int net_link_connect(net_link *l, uint64_t now_ms, net_match_info *info, char *s
             if (type == H_REFUSE) {
                 SDL_snprintf(l->error, sizeof l->error, "%s", refusal(len > 6 ? b[6] : 0));
                 l->state = NET_FAILED;
-            } else if (type == H_WELCOME && len >= 6 + 4 + NET_PARTS * 4 + 2 + 8 + NET_NAME * 2) {
+            } else if (type == H_WELCOME && len >= 6 + 4 + NET_PARTS * 4 + 2 + 8 + NET_NAME * 2 + 2) {
                 int n = 6;
                 if (get32(b + n) != l->data_hash) {
                     SDL_snprintf(l->error, sizeof l->error, "%s", refusal(R_DATA));
@@ -378,6 +384,8 @@ int net_link_connect(net_link *l, uint64_t now_ms, net_match_info *info, char *s
                 l->info.seed = get32(b + n); n += 4;
                 const uint32_t stage_hash = get32(b + n); n += 4;
                 for (int p = 0; p < 2; ++p) { memcpy(l->info.name[p], b + n, NET_NAME); l->info.name[p][NET_NAME] = 0; n += NET_NAME; }
+                l->info.coop_ai = b[n] > 2 ? 2 : b[n]; ++n;
+                l->info.ai_preset = b[n++];
                 l->info.local = 1;
                 if (l->info.stage && net_stage_check(l->import_dir, l->info.stage) != stage_hash) {
                     send_simple(l, &l->peer, H_REFUSE, R_STAGE, now_ms);
@@ -410,6 +418,7 @@ int net_link_connect(net_link *l, uint64_t now_ms, net_match_info *info, char *s
             bb[n++] = (uint8_t)l->stage;
             memcpy(bb + n, l->name, NET_NAME); n += NET_NAME;
             put32(bb + n, l->info.seed); n += 4;      /* tells copies of the same beacon apart from other hosts */
+            bb[n++] = (uint8_t)l->coop_ai;
             static const net_addr everyone = { { 255, 255, 255, 255 }, NET_BEACON_PORT },
                                   here = { { 127, 0, 0, 1 }, NET_BEACON_PORT };
             raw_send(l, &everyone, bb, n);
@@ -578,6 +587,7 @@ int net_finder_poll(net_finder *f, uint64_t now_ms, net_found *out, int max) {
         if (here || !g->this_pc) SDL_strlcpy(g->addr, addr, sizeof g->addr);
         g->same_data = get32(b + 7) == f->data_hash;
         g->stage = b[11];
+        g->coop_ai = len >= 12 + NET_NAME + 5 ? b[16 + NET_NAME] : 0;
         memcpy(g->name, b + 12, NET_NAME);
         g->name[NET_NAME] = 0;
         g->seen_ms = now_ms;

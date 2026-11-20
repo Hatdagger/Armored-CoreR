@@ -4,7 +4,8 @@
  * Handshake (packets start "ACRH"):
  *   guest -> host  HELLO    data check, guest's parts, AC name
  *   host  -> guest WELCOME  data check, both players' parts, stage, input
- *                           delay, random seed, AC names
+ *                           delay, random seed, AC names, mode (VS, or
+ *                           co-op against 1 or 2 AI ACs) and the AI's style
  *                  REFUSE   with a reason (other game data, version, full)
  *   guest -> host  READY    stage loaded and its data matches
  * Each side repeats its packet until it hears the next one, so lost packets
@@ -37,6 +38,8 @@ typedef struct net_setup {
     const char *ac_name;
     int stage;                    /* host: the stage (0 = the open test floor) */
     int delay;                    /* host: input delay in steps */
+    int coop_ai;                  /* host: 0 VS (1v1); 1 or 2: co-op against that many AI ACs */
+    int ai_preset;                /* host: the AI's style (ACR_GEN1_AI_*) */
     int lag_ms, jitter_ms, loss_pct;   /* testing: fake bad connection on what we send */
 } net_setup;
 
@@ -44,6 +47,7 @@ typedef struct net_match_info {
     int parts[2][NET_PARTS];      /* player 1's (host) and player 2's builds */
     char name[2][NET_NAME + 1];
     int stage, delay;
+    int coop_ai, ai_preset;       /* see net_setup */
     uint32_t seed;
     int local;                    /* our player: 0 or 1 */
 } net_match_info;
@@ -80,6 +84,7 @@ typedef struct net_found {
     char addr[64];            /* "192.168.1.20:7777", ready for --join */
     char name[NET_NAME + 1];  /* the host's AC */
     int stage;
+    int coop_ai;              /* the host's mode: 0 VS, else co-op against that many AI */
     int same_data;            /* its game data matches ours */
     int this_pc;              /* the host is another copy on this PC */
     uint32_t id;

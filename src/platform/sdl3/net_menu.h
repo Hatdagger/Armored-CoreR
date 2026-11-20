@@ -18,6 +18,8 @@ typedef struct net_menu {
     int stage_pick;                  /* index into the stage list */
     int stage_ok[NET_MENU_STAGES];   /* that stage is in this import */
     int delay;                       /* input delay to host with */
+    int coop_ai;                     /* mode: 0 VS (1v1), 1 or 2: co-op against that many AI ACs */
+    int ai_preset;                   /* co-op: the AI's style (ACR_GEN1_AI_BALANCED ...) */
     char address[64];                /* join by address */
     int picker;                      /* address picker: which key */
     net_found found[NET_MENU_FOUND];

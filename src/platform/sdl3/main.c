@@ -65,6 +65,7 @@ static const char *g_net_join;            /* the host's address */
 static int g_net_delay = 1;               /* input delay in steps (host decides) */
 static int g_net_lag, g_net_jitter, g_net_loss;   /* testing: fake bad connection */
 static int g_net_stage = -1;              /* host: --stage N (-1: ACR_STAGE or Green Silo) */
+static int g_net_coop;                    /* host: --coop N, co-op against N AI ACs (0 = VS) */
 static int g_part_args;                   /* parts were given on the command line */
 #include "acr_import.h"
 #include "../../render/acr_render.h"
@@ -203,24 +204,26 @@ static void add_ac(vec3 p, float yaw, float crouch, int enemy) {
 
 /* Each player's model, reloaded when their build changes. Player 2 gets
  * its own colours (made-up numbers, 0..63 per channel) so the two differ. */
-static demo_model g_model[2];
-static int g_model_parts[2][SLOT_COUNT], g_model_set[2] = { -1, -1 };
+static demo_model g_model[ACR_GEN1_MAX_FIGHTERS];
+static int g_model_parts[ACR_GEN1_MAX_FIGHTERS][SLOT_COUNT], g_model_set[ACR_GEN1_MAX_FIGHTERS] = { -1, -1, -1, -1 };
 static const uint8_t k_colours_p2[4][3] = { { 46, 12, 10 }, { 18, 18, 20 }, { 52, 44, 16 }, { 10, 10, 12 } };
+/* Co-op's computer ACs (fighters 2 and 3): dark grey and red, made-up too. */
+static const uint8_t k_colours_ai[4][3] = { { 22, 22, 24 }, { 40, 8, 8 }, { 34, 34, 36 }, { 8, 8, 10 } };
 
 /* Aiming (acr_aim.h): each player's aim table and angles, set from the
  * battle before drawing, and the eased joints. */
-static int g_aim_table[2] = { -1, -1 };
+static int g_aim_table[ACR_GEN1_MAX_FIGHTERS] = { -1, -1, -1, -1 };
 /* Where each AC's current weapon fires from, as drawn (see draw_aimed). */
-static unsigned g_muzzle_parts[2];
-static struct { int ok; float p[3]; } g_muzzle[2];
-static int16_t g_aim[2][3];
-static struct { acr_aim_state st; Uint64 last_ns; int ok; } g_aiming[2];
+static unsigned g_muzzle_parts[ACR_GEN1_MAX_FIGHTERS];
+static struct { int ok; float p[3]; } g_muzzle[ACR_GEN1_MAX_FIGHTERS];
+static int16_t g_aim[ACR_GEN1_MAX_FIGHTERS][3];
+static struct { acr_aim_state st; Uint64 last_ns; int ok; } g_aiming[ACR_GEN1_MAX_FIGHTERS];
 
 static void refresh_model(int who, const char *dir, const int parts[SLOT_COUNT], int set) {
     if (g_model_set[who] == set && !memcmp(g_model_parts[who], parts, sizeof g_model_parts[who])) return;
     g_aiming[who].ok = 0;
     demo_model_free(&g_model[who]);
-    demo_model_load(dir, set, parts, who ? k_colours_p2 : NULL, &g_model[who]);
+    demo_model_load(dir, set, parts, who >= 2 ? k_colours_ai : who ? k_colours_p2 : NULL, &g_model[who]);
     memcpy(g_model_parts[who], parts, sizeof g_model_parts[who]);
     g_model_set[who] = set;
 }
@@ -232,9 +235,9 @@ static void refresh_model(int who, const char *dir, const int parts[SLOT_COUNT],
  * swing). Shown at the game's 22 ticks a second from when each began.
  * Firing has no body animation of its own (it uses a second layer, not
  * drawn yet). */
-static int g_swinging[2];                    /* set from the battle before drawing */
-static acr_gen1_input g_in[2];               /* each player's latest input, for the poses */
-static struct { int shown; Uint64 since; } g_pose[2];
+static int g_swinging[ACR_GEN1_MAX_FIGHTERS];      /* set from the battle before drawing */
+static acr_gen1_input g_in[ACR_GEN1_MAX_FIGHTERS];   /* each AC's latest input, for the poses */
+static struct { int shown; Uint64 since; } g_pose[ACR_GEN1_MAX_FIGHTERS];
 
 /* A pose this animation set lacks: the nearest one it has. */
 static int pose_or_fallback(const demo_model *m, int want) {
@@ -283,7 +286,7 @@ static int shown_anim(int who, const acr_gen1_ac *ac, const demo_model *m, float
  * Only what is drawn changes; the sim, root motion and hits keep the game's
  * ticks. F5 toggles. */
 static int g_smooth_anim = 1;
-static struct { int anim, ok; acr_pose drawn, from; Uint64 fade_ns; uint16_t fade_step; } g_blend[2];
+static struct { int anim, ok; acr_pose drawn, from; Uint64 fade_ns; uint16_t fade_step; } g_blend[ACR_GEN1_MAX_FIGHTERS];
 
 /* The aim over the animation (arms, waist, back units on the target), eased
  * at the game's 1/8 a tick, then the model. */
@@ -407,7 +410,7 @@ static int next_part(const char *dir, int parts[SLOT_COUNT], int slot, demo_ac *
  * the still target.) */
 #define AI_FROM_FILE 100
 static int g_ai_mode = 0;
-static acr_gen1_ai g_ai[2];
+static acr_gen1_ai g_ai[ACR_GEN1_MAX_FIGHTERS];
 static unsigned g_ai_round = 0;
 static int g_autopilot = 0;              /* player 1 flown by the AI too (AI against AI) */
 static acr_gen1_ai_profile g_ai_file_prof;
@@ -465,6 +468,7 @@ static int parse_args(int argc, char **argv, const char **dir, int parts[SLOT_CO
         }
         if (!strcmp(argv[i], "--join") && i + 1 < argc) { g_net_cmd = 2; g_net_join = argv[++i]; g_direct_test = 1; continue; }
         if (!strcmp(argv[i], "--net-delay") && i + 1 < argc) { g_net_delay = atoi(argv[++i]); continue; }
+        if (!strcmp(argv[i], "--coop") && i + 1 < argc) { g_net_coop = atoi(argv[++i]); continue; }
         if (!strcmp(argv[i], "--net-lag") && i + 1 < argc) { g_net_lag = atoi(argv[++i]); continue; }
         if (!strcmp(argv[i], "--net-jitter") && i + 1 < argc) { g_net_jitter = atoi(argv[++i]); continue; }
         if (!strcmp(argv[i], "--net-loss") && i + 1 < argc) { g_net_loss = atoi(argv[++i]); continue; }
@@ -494,6 +498,28 @@ static void stage_spawn(acr_gen1_ac *ac, const acr_gen1_ac_def *def, int k) {
     const int32_t *st = g_stage.start[k];
     acr_gen1_ac_spawn(ac, def, st[0] * 64, st[2] * 64, (uint16_t)(st[3] & 4095));
     ac->y = ac->py = ac->sy = st[1] * 64;
+}
+
+/* Co-op starts: each team at its side's start (the stage's starts 0 and
+ * 1, or the open floor's), teammates 500 either side of it. */
+static void coop_spawn(acr_gen1_battle *b) {
+    const int n = acr_gen1_battle_fighters(b);
+    for (int team = 0; team < 2; ++team) {
+        int32_t x, y = 0, z;
+        uint16_t yaw;
+        if (g_stage_on) { const int32_t *st = g_stage.start[team]; x = st[0]; y = st[1]; z = st[2]; yaw = (uint16_t)(st[3] & 4095); }
+        else { x = 0; z = team ? 2500 : -2500; yaw = team ? 2048 : 0; }
+        int members[ACR_GEN1_MAX_FIGHTERS], m = 0;
+        for (int i = 0; i < n; ++i) if (acr_gen1_battle_team(b, i) == team) members[m++] = i;
+        for (int k = 0; k < m; ++k) {
+            const int32_t side = m == 1 ? 0 : k ? 500 : -500;     /* along the start's right: (cos, -sin) */
+            const int32_t dx = (int32_t)((int64_t)side * acr_gen1_cos(yaw) / 4096),
+                          dz = (int32_t)((int64_t)-side * acr_gen1_sin(yaw) / 4096);
+            acr_gen1_fighter *f = &b->f[members[k]];
+            acr_gen1_ac_spawn(&f->ac, f->def, (x + dx) * 64, (z + dz) * 64, yaw);
+            f->ac.y = f->ac.py = f->ac.sy = y * 64;
+        }
+    }
 }
 static acr_gen1_catalog g_catalog;
 static char g_part_names[ACR_GEN1_CAT_COUNT][ACR_GEN1_PART_MAX][24];
@@ -672,8 +698,8 @@ static garage_action script_action(void) {
 
 /* Opens the network link to host (join == NULL) or join a match with this
  * player's build. NULL with the reason in err. */
-static net_link *net_open(const char *dir, const char *join, int stage, int delay, const int parts[SLOT_COUNT],
-                          char *err, int err_size) {
+static net_link *net_open(const char *dir, const char *join, int stage, int delay, int coop_ai, int ai_preset,
+                          const int parts[SLOT_COUNT], char *err, int err_size) {
     if (stage > 0 && !net_stage_check(dir, stage)) stage = 0;   /* not in this import: the open floor */
     net_setup ns;
     SDL_zero(ns);
@@ -685,6 +711,8 @@ static net_link *net_open(const char *dir, const char *join, int stage, int dela
     ns.ac_name = g_hangar.ac_name;
     ns.stage = stage;
     ns.delay = delay < 0 ? 0 : delay > ACR_RB_MAX_DELAY ? ACR_RB_MAX_DELAY : delay;
+    ns.coop_ai = coop_ai;
+    ns.ai_preset = ai_preset > 0 && ai_preset < ACR_GEN1_AI_PRESETS ? ai_preset : ACR_GEN1_AI_BALANCED;
     ns.lag_ms = g_net_lag;
     ns.jitter_ms = g_net_jitter;
     ns.loss_pct = g_net_loss;
@@ -738,7 +766,8 @@ int main(int argc, char **argv) {
 
     /* A disc given on the command line (or dropped on the program) is
      * imported next to the program first. */
-    static demo_ac ac_data[2];   /* each player's build; large, so off the stack */
+    static demo_ac ac_data[ACR_GEN1_MAX_FIGHTERS];   /* each AC's build; large, so off the stack */
+    static int parts_ai[2][SLOT_COUNT];             /* co-op: the computer ACs' builds (fighters 2, 3) */
     int parts2[SLOT_COUNT];
     char err[1024] = "";
     if (is_disc(dir)) {
@@ -813,13 +842,15 @@ int main(int argc, char **argv) {
         memcpy(own, parts, sizeof own);
         if (!g_part_args) hangar_parts(own);
         const int stage = g_net_stage >= 0 ? g_net_stage : g_stage_id > 0 ? g_stage_id : 27;
-        net = net_open(dir, g_net_cmd == 2 ? g_net_join : NULL, stage, g_net_delay, own, net_status, sizeof net_status);
+        net = net_open(dir, g_net_cmd == 2 ? g_net_join : NULL, stage, g_net_delay, g_net_coop,
+                       g_ai_mode > 0 && g_ai_mode < ACR_GEN1_AI_PRESETS ? g_ai_mode : ACR_GEN1_AI_BALANCED, own,
+                       net_status, sizeof net_status);
         mode = net ? 3 : 4;
     }
     /* Player 2 starts with the same build; each player can change theirs. */
     memcpy(parts2, parts, sizeof parts2);
     demo_load(dir, parts2, &ac_data[1], err, sizeof err);
-    int *const pp[2] = { parts, parts2 };
+    int *const pp[ACR_GEN1_MAX_FIGHTERS] = { parts, parts2, parts_ai[0], parts_ai[1] };
     acr_gen1_ac_def *def = &ac_data[0].def;
     acr_gen1_ac_def *def2 = &ac_data[1].def;
 
@@ -833,7 +864,7 @@ int main(int argc, char **argv) {
     acr_gen1_ac *const P = &battle.f[0].ac;
     acr_gen1_ac *const T = &battle.f[1].ac;
     #define SETUP_FIGHTERS() do {                                                         \
-        for (int i_ = 0; i_ < 2; ++i_) {                                                  \
+        for (int i_ = 0; i_ < acr_gen1_battle_fighters(&battle); ++i_) {                  \
             acr_gen1_fighter *f_ = &battle.f[i_];                                         \
             demo_ac *d_ = &ac_data[i_];                                                   \
             memset(f_, 0, sizeof *f_);                                                    \
@@ -855,12 +886,17 @@ int main(int argc, char **argv) {
             f_->legs = (uint8_t)(pp[i_][SLOT_LEGS] >= 27 ? ACR_GEN1_LEGS_TRACKS            \
                        : pp[i_][SLOT_LEGS] >= 21 ? ACR_GEN1_LEGS_FOUR : ACR_GEN1_LEGS_TWO); \
             f_->human_plus = (uint8_t)(i_ == 0 && human_plus); f_->kneeling = 0;          \
+            f_->team = (uint8_t)(i_ >= 2);   /* co-op: players 0, 1 against the AI ACs */ \
+            f_->target = -1;                                                              \
         }                                                                                 \
-        if (g_stage_on) { stage_spawn(P, def, 0); stage_spawn(T, def2, 1); }               \
+        battle.targeted = 0;                                                              \
+        if (battle.count > 2) coop_spawn(&battle);                                        \
+        else if (g_stage_on) { stage_spawn(P, def, 0); stage_spawn(T, def2, 1); }         \
         else {                                                                            \
             acr_gen1_ac_spawn(P, def, 0, -2500 * 64, 0);                                  \
             acr_gen1_ac_spawn(T, def2, target_side() * 64, (target_dist() - 2500) * 64, 2048); \
         }                                                                                 \
+        acr_gen1_battle_retarget(&battle);                                                \
         memset(battle.shot, 0, sizeof battle.shot);                                       \
         round_ms = ROUND_MS; round_over = 0; round_result = 0; ko_ms = 0;                 \
         for (int i_ = 0; i_ < 2; ++i_) {                                                  \
@@ -881,7 +917,7 @@ int main(int argc, char **argv) {
     int net_skip_cool = 0, net_lost = 0;
     unsigned net_skips = 0;
     Uint64 net_wait_since = 0;                /* when the match started waiting for the other player */
-    acr_gen1_ac prevs[2] = { *P, *T };
+    acr_gen1_ac prevs[ACR_GEN1_MAX_FIGHTERS] = { *P, *T, *P, *T };
     /* After a part change: new stats and weapons, same place in the arena. */
     #define REFRESH_FIGHTERS() do {                                                      \
         const acr_gen1_ac keep_p_ = *P, keep_t_ = *T;                                     \
@@ -1137,6 +1173,7 @@ int main(int argc, char **argv) {
             net_link_close(net);
             net = NULL;
             g_net = 0;
+            battle.count = 0;                           /* back to the 1v1 test arena */
             two_players = SDL_getenv("ACR_TWO") != NULL;
             hangar_parts(parts);
             demo_load(dir, parts, &ac_data[0], err, sizeof err);
@@ -1200,8 +1237,8 @@ int main(int argc, char **argv) {
                     int own[SLOT_COUNT];
                     hangar_parts(own);
                     net_status[0] = 0;
-                    net = net_open(dir, c == NM_JOIN ? join_to : NULL, net_menu_stage(&nmenu), nmenu.delay, own,
-                                   net_status, sizeof net_status);
+                    net = net_open(dir, c == NM_JOIN ? join_to : NULL, net_menu_stage(&nmenu), nmenu.delay,
+                                   nmenu.coop_ai, nmenu.ai_preset, own, net_status, sizeof net_status);
                     mode = net ? 3 : 4;
                 }
             } else if (mode == 3) {
@@ -1227,6 +1264,16 @@ int main(int argc, char **argv) {
                         for (int i = 0; i < SLOT_COUNT; ++i) { parts[i] = net_info.parts[0][i]; parts2[i] = net_info.parts[1][i]; }
                         demo_load(dir, parts, &ac_data[0], err, sizeof err);
                         demo_load(dir, parts2, &ac_data[1], err, sizeof err);
+                        /* Co-op: the computer ACs fly copies of the players'
+                         * builds (the first P1's, the second P2's), so both PCs
+                         * have them already. */
+                        const int coop = net_info.coop_ai > 0;
+                        battle.count = (uint8_t)(coop ? 2 + net_info.coop_ai : 0);
+                        for (int k = 0; k < net_info.coop_ai && k < 2; ++k) {
+                            memcpy(parts_ai[k], k ? parts2 : parts, sizeof parts_ai[k]);
+                            demo_load(dir, parts_ai[k], &ac_data[2 + k], err, sizeof err);
+                        }
+                        if (coop) SDL_Log("netplay: co-op against %d AI (%s)", net_info.coop_ai, acr_gen1_ai_preset_name(net_info.ai_preset));
                         if (net_info.stage > 0 && !(g_stage.ok && g_stage_id == net_info.stage)) {
                             demo_stage tmp;
                             if (demo_stage_load(dir, net_info.stage, &tmp)) {
@@ -1242,21 +1289,35 @@ int main(int argc, char **argv) {
                         human_plus = 0;
                         two_players = 1;
                         g_net = 1;
-                        set_rate(&clock, def, g_tick_rate);
-                        set_rate(&clock, def2, g_tick_rate);
-                        /* Everything the fight reads is fixed before the first snapshot. */
-                        def->stage = def2->stage = battle.stage = g_stage_on ? &g_stage.collision : NULL;
-                        def->landing_from_anim = def2->landing_from_anim = (uint8_t)g_landing_anim;
+                        for (int k = 0; k < acr_gen1_battle_fighters(&battle); ++k) {
+                            set_rate(&clock, &ac_data[k].def, g_tick_rate);
+                            /* Everything the fight reads is fixed before the first snapshot. */
+                            ac_data[k].def.stage = g_stage_on ? &g_stage.collision : NULL;
+                            ac_data[k].def.landing_from_anim = (uint8_t)g_landing_anim;
+                        }
+                        battle.stage = g_stage_on ? &g_stage.collision : NULL;
                         battle.step_ms = (uint16_t)(1000 / g_tick_rate);
                         battle.step_rate = def->step_rate;
                         battle.gen1_rate = def->gen1_rate;
                         SETUP_FIGHTERS();
                         net_start = battle;
                         net_start.rng = net_info.seed;
-                        const acr_gen1_match_rules rules = { ROUND_MS, 5000, g_stage_on ? 0 : ARENA };
+                        acr_gen1_match_rules rules;
+                        SDL_zero(rules);
+                        rules.round_ms = ROUND_MS;
+                        rules.next_round_ms = 5000;
+                        rules.arena_half = g_stage_on ? 0 : ARENA;
+                        if (coop) {
+                            rules.ai_half = g_stage_on ? g_stage.half : ARENA;
+                            rules.ai_seed = net_info.seed;
+                            for (int k = 2; k < battle.count; ++k) {
+                                rules.ai_mask |= (uint8_t)(1u << k);
+                                acr_gen1_ai_preset(&rules.ai[k], net_info.ai_preset);
+                            }
+                        }
                         acr_rb_init(&net_rb, net_info.local, net_info.delay, &net_start, &rules);
                         battle = net_rb.cur.b;
-                        prevs[0] = *P; prevs[1] = *T;
+                        for (int k = 0; k < ACR_GEN1_MAX_FIGHTERS; ++k) prevs[k] = battle.f[k].ac;
                         net_skip_cool = 0; net_lost = 0; net_skips = 0; net_wait_since = 0;
                         switch_pressed[0] = switch_pressed[1] = blade_pressed[0] = blade_pressed[1] = 0;
                         net_finder_close(finder);
@@ -1362,7 +1423,8 @@ int main(int argc, char **argv) {
             /* Nothing heard for 10 s: shown as lost, but the match goes on if they come back. */
             net_lost = net_lost == 2 ? 2 : net_link_quiet_ms(net, now_ms) > 10000;
             const int me = net_info.local;
-            const acr_gen1_ac before[2] = { battle.f[0].ac, battle.f[1].ac };
+            acr_gen1_ac before[ACR_GEN1_MAX_FIGHTERS];
+            for (int k = 0; k < ACR_GEN1_MAX_FIGHTERS; ++k) before[k] = battle.f[k].ac;
             int ran = 0;
             for (uint32_t i = 0; i < ticks && !net_lost; ++i) {
                 /* The PC that runs ahead skips a step now and then. */
@@ -1388,7 +1450,7 @@ int main(int argc, char **argv) {
             }
             net_link_pump(net, now_ms);
             battle = net_rb.cur.b;
-            if (ran) { prevs[0] = before[0]; prevs[1] = before[1]; }
+            if (ran) for (int k = 0; k < ACR_GEN1_MAX_FIGHTERS; ++k) prevs[k] = before[k];
             round_ms = net_rb.cur.round_ms;
             round_over = net_rb.cur.round_over;
             round_result = net_rb.cur.result;
@@ -1397,6 +1459,7 @@ int main(int argc, char **argv) {
                 acr_gen1_actions unused;
                 acr_rb_unpack(net_rb.pad[me][f % ACR_RB_RING], &g_in[me], &unused);
                 acr_rb_unpack(net_rb.used[f % ACR_RB_RING], &g_in[1 - me], &unused);
+                for (int k = 2; k < acr_gen1_battle_fighters(&battle); ++k) g_in[k] = net_rb.cur.shown_in[k];
             }
         } else
         for (uint32_t i = 0; i < ticks; ++i) {
@@ -1482,14 +1545,18 @@ int main(int argc, char **argv) {
         acr_render_begin(pw, ph, 18, 22, 28);
         refresh_model(0, dir, parts, ac_data[0].model);
         refresh_model(1, dir, parts2, ac_data[1].model);
+        for (int k = 2; k < acr_gen1_battle_fighters(&battle); ++k) refresh_model(k, dir, parts_ai[k - 2], ac_data[k].model);
+        const int nf = acr_gen1_battle_fighters(&battle);
         const int views = two_players && !g_net ? 2 : 1;
         for (int vi = 0; vi < views; ++vi) {
         const int view = g_net ? net_info.local : vi;   /* online: your own player, full screen */
         const int vx = vi * pw / views, vpw = (vi + 1) * pw / views - vx;
         const acr_gen1_ac ac = battle.f[view].ac;
         const acr_gen1_ac prev = prevs[view];
-        const acr_gen1_ac *const T = &battle.f[1 - view].ac;
-        const acr_gen1_ac tprev = prevs[1 - view];
+        /* The AC this view's pilot is aimed at (its target; the other AC in 1v1). */
+        const int tgi = acr_gen1_battle_target(&battle, view) >= 0 ? acr_gen1_battle_target(&battle, view) : 1 - view;
+        const acr_gen1_ac *const T = &battle.f[tgi].ac;
+        const acr_gen1_ac tprev = prevs[tgi];
         /* Interpolate the shown ACs (already between Gen 1 ticks) between
          * the last two steps. */
         const float a = (float)acr_clock_alpha(&clock) / (float)ACR_FX_ONE;
@@ -1605,7 +1672,7 @@ int main(int argc, char **argv) {
         if (ac.state == ACR_GEN1_LANDING) crouch = 70;
         if (battle.f[view].kneeling) crouch = 150;
         flush_scene();
-        for (int k = 0; k < 2; ++k) {
+        for (int k = 0; k < nf; ++k) {
             g_swinging[k] = battle.f[k].swing != 0;
             g_aim_table[k] = acr_gen1_aim(&battle, k, g_aim[k]);
             /* The muzzle drawn last frame feeds the battle's shots and lock. */
@@ -1623,11 +1690,20 @@ int main(int argc, char **argv) {
         draw_ac(view, &ac, px, py, pz, yaw, crouch);
         const float tx = (tprev.sx + (T->sx - tprev.sx) * a) / 64.0f, ty = -(tprev.sy + (T->sy - tprev.sy) * a) / 64.0f,
                     tz = (tprev.sz + (T->sz - tprev.sz) * a) / 64.0f;
-        int tdyaw = (int)T->syaw - (int)tprev.syaw;
-        if (tdyaw > 2048) tdyaw -= 4096;
-        if (tdyaw < -2048) tdyaw += 4096;
-        if (battle.f[1 - view].ap > 0)
-            draw_ac(1 - view, T, tx, ty, tz, ((float)tprev.syaw + tdyaw * a) * (6.2831853f / 4096.0f), 0);
+        /* Every other AC still standing, between the last two steps. */
+        float ox[ACR_GEN1_MAX_FIGHTERS], oy[ACR_GEN1_MAX_FIGHTERS], oz[ACR_GEN1_MAX_FIGHTERS];
+        for (int j = 0; j < nf; ++j) {
+            const acr_gen1_ac *o = &battle.f[j].ac, op = prevs[j];
+            ox[j] = (op.sx + (o->sx - op.sx) * a) / 64.0f;
+            oy[j] = -(op.sy + (o->sy - op.sy) * a) / 64.0f;
+            oz[j] = (op.sz + (o->sz - op.sz) * a) / 64.0f;
+            if (j == view || battle.f[j].ap <= 0) continue;
+            int odyaw = (int)o->syaw - (int)op.syaw;
+            if (odyaw > 2048) odyaw -= 4096;
+            if (odyaw < -2048) odyaw += 4096;
+            draw_ac(j, o, ox[j], oy[j], oz[j], ((float)op.syaw + odyaw * a) * (6.2831853f / 4096.0f),
+                    battle.f[j].kneeling ? 150.0f : 0.0f);
+        }
         for (int k = 0; k < ACR_GEN1_MAX_SHOTS; ++k) {
             const acr_gen1_shot *sh = &battle.shot[k];
             if (!sh->active) continue;
@@ -1697,7 +1773,7 @@ int main(int argc, char **argv) {
         }
         /* Weapon, ammo, AP, lock box and the target's marker. */
         {
-            const acr_gen1_fighter *me = &battle.f[view], *tg = &battle.f[1 - view];
+            const acr_gen1_fighter *me = &battle.f[view], *tg = &battle.f[tgi];
             if (me->weapons) {
                 const acr_gen1_weapon *w = &me->weapon[me->current];
                 if (w->stance && !me->human_plus) {
@@ -1781,6 +1857,15 @@ int main(int argc, char **argv) {
                 }
             }
             (void)rc_y;
+            /* Co-op: your teammate's name over their AC. */
+            for (int j = 0; j < nf && battle.count; ++j) {
+                float sx, sy;
+                if (j == view || battle.f[j].ap <= 0 ||
+                    acr_gen1_battle_team(&battle, j) != acr_gen1_battle_team(&battle, view) ||
+                    !to_hud(proj, viewm, v3(ox[j], oy[j] + 260, oz[j]), g_vw, &sx, &sy)) continue;
+                const char *nm = g_net && j < 2 ? net_info.name[j] : "ALLY";
+                acr_hud_text(sx - 4.0f * (float)SDL_strlen(nm), sy - 10, nm, 120, 230, 150);
+            }
             /* The game's HUD (battle_hud.c). */
             {
                 battle_hud_state hs;
@@ -1805,11 +1890,22 @@ int main(int argc, char **argv) {
                 hs.enemy_dx = (T->sx - ac.sx) / 64;
                 hs.enemy_dz = (T->sz - ac.sz) / 64;
                 hs.enemy_on_radar = tg->ap > 0;
+                /* Co-op: every other AC on the radar too, teammates in their own colour. */
+                for (int j = 0; j < nf && hs.others < BATTLE_HUD_MAX_OTHERS; ++j) {
+                    if (j == view || j == tgi || battle.f[j].ap <= 0) continue;
+                    hs.other[hs.others].dx = (battle.f[j].ac.sx - ac.sx) / 64;
+                    hs.other[hs.others].dz = (battle.f[j].ac.sz - ac.sz) / 64;
+                    hs.other[hs.others].ally = acr_gen1_battle_team(&battle, j) == acr_gen1_battle_team(&battle, view);
+                    ++hs.others;
+                }
                 /* HIT: this AC landed one; DAMAGED: it took one. ARMOR LOW
                  * below a quarter of its AP (threshold not read from the game
                  * yet); CHARGING while the energy refills after running dry. */
                 if (me->hit_flash & 4) hs.messages |= BATTLE_HUD_MSG_HIT;
-                if (tg->hit_flash & 4) hs.messages |= BATTLE_HUD_MSG_DAMAGED;
+                for (int j = 0; j < nf; ++j)     /* an enemy aimed at us landed a hit */
+                    if (acr_gen1_battle_team(&battle, j) != acr_gen1_battle_team(&battle, view) &&
+                        acr_gen1_battle_target(&battle, j) == view && (battle.f[j].hit_flash & 4))
+                        hs.messages |= BATTLE_HUD_MSG_DAMAGED;
                 if (acr_gen1_battle_out_of_area(&battle, view) && !round_over) hs.messages |= BATTLE_HUD_MSG_LEAVING_AREA;
                 if (me->ap > 0 && me->ap * 4 < me->ap_max) hs.messages |= BATTLE_HUD_MSG_ARMOR_LOW;
                 if (ac.drained) hs.messages |= BATTLE_HUD_MSG_CHARGING;
@@ -1820,7 +1916,7 @@ int main(int argc, char **argv) {
             }
             /* Round over: each player's own result in their own view. */
             if (round_over) {
-                const int won = round_result == 1 + view, draw = round_result == 3;
+                const int won = round_result == 1 + acr_gen1_battle_team(&battle, view), draw = round_result == 3;
                 battle_hud_word(g_vw, g_hud_frame, draw ? BATTLE_HUD_DRAW : won ? BATTLE_HUD_WIN : BATTLE_HUD_LOSE, 70,
                                 draw ? 240 : won ? 120 : 255, draw ? 240 : won ? 230 : 80, draw ? 240 : won ? 255 : 60);
             }
@@ -1860,8 +1956,9 @@ int main(int argc, char **argv) {
         if (round_over) {
             /* The result itself is in each player's view; here, how it ended. */
             const int time_up = round_ms <= 0 && (two_players || g_ai_mode);
-            const char *why = (acr_gen1_battle_out_of_area(&battle, 0) == 2 || acr_gen1_battle_out_of_area(&battle, 1) == 2)
-                                  ? "OUT OF AREA" : "KNOCKED OUT";
+            int out = 0;
+            for (int j = 0; j < acr_gen1_battle_fighters(&battle); ++j) out |= acr_gen1_battle_out_of_area(&battle, j) == 2;
+            const char *why = out ? "OUT OF AREA" : "KNOCKED OUT";
             if (time_up) battle_hud_word(full_w, g_hud_frame, BATTLE_HUD_TIME_UP, 140, 255, 230, 120);
             else battle_hud_text(full_w, g_hud_frame, 0, 160.0f - 3.0f * (float)SDL_strlen(why), 140, why, 1, 255, 230, 120);
             {

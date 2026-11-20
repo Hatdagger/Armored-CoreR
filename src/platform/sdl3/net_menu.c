@@ -3,6 +3,7 @@
 #include <SDL3/SDL.h>
 #include <string.h>
 
+#include "../../gen1/acr_gen1_ai.h"
 #include "../../render/acr_render.h"
 
 #define WHITE 220, 230, 235
@@ -19,7 +20,7 @@ static const char k_keys[] = "0123456789.:";
 #define KEY_JOIN ((int)sizeof k_keys)
 #define KEYS     ((int)sizeof k_keys + 1)
 
-enum { ROW_HOST, ROW_STAGE, ROW_DELAY, ROW_FOUND };
+enum { ROW_HOST, ROW_MODE, ROW_AI, ROW_STAGE, ROW_DELAY, ROW_FOUND };
 
 static int rows(const net_menu *m) { return ROW_FOUND + m->found_n + 2; }
 static int row_address(const net_menu *m) { return ROW_FOUND + m->found_n; }
@@ -37,6 +38,7 @@ const char *net_menu_stage_name(int stage) {
 void net_menu_init(net_menu *m) {
     memset(m, 0, sizeof *m);
     m->delay = 1;
+    m->ai_preset = ACR_GEN1_AI_BALANCED;
     for (int i = 0; i < NET_MENU_STAGES; ++i) m->stage_ok[i] = 1;
     m->picker = 0;
 }
@@ -85,6 +87,11 @@ net_menu_command net_menu_input(net_menu *m, garage_action a, int keyboard, char
         const int d = a == GA_LEFT ? -1 : 1;
         if (m->row == ROW_STAGE) step_stage(m, d);
         if (m->row == ROW_DELAY) m->delay = (m->delay + d + 5) % 5;    /* 0..4 */
+        if (m->row == ROW_MODE) m->coop_ai = (m->coop_ai + d + 3) % 3;
+        if (m->row == ROW_AI) {
+            const int k = ACR_GEN1_AI_PRESETS - 1;                     /* BALANCED .. EVASIVE */
+            m->ai_preset = (m->ai_preset - 1 + d + k) % k + 1;
+        }
         if (addr_row) m->picker = (m->picker + d + KEYS) % KEYS;
         return NM_NONE;
     }
@@ -96,6 +103,8 @@ net_menu_command net_menu_input(net_menu *m, garage_action a, int keyboard, char
     if (m->row == ROW_HOST) return NM_HOST;
     if (m->row == ROW_STAGE) { step_stage(m, 1); return NM_NONE; }
     if (m->row == ROW_DELAY) { m->delay = (m->delay + 1) % 5; return NM_NONE; }
+    if (m->row == ROW_MODE) { m->coop_ai = (m->coop_ai + 1) % 3; return NM_NONE; }
+    if (m->row == ROW_AI) { m->ai_preset = m->ai_preset % (ACR_GEN1_AI_PRESETS - 1) + 1; return NM_NONE; }
     if (m->row >= ROW_FOUND && m->row < row_address(m)) {
         const net_found *g = &m->found[m->row - ROW_FOUND];
         if (!g->same_data) {
@@ -139,6 +148,11 @@ void net_menu_draw(net_menu *m, float hud_w, int elapsed_ms) {
 
     acr_hud_text(x, y, "HOST", DIM); y += 14;
     row_text(x, y, m->row == ROW_HOST, "HOST A MATCH (YOU ARE PLAYER 1)"); y += 18;
+    static const char *const k_mode[3] = { "VS  (YOU AGAINST EACH OTHER)", "CO-OP  (YOU TWO VS 1 AI)", "CO-OP  (YOU TWO VS 2 AI)" };
+    SDL_snprintf(line, sizeof line, "MODE          < %s >", k_mode[m->coop_ai]);
+    row_text(x, y, m->row == ROW_MODE, line); y += 18;
+    SDL_snprintf(line, sizeof line, "AI PILOT      < %s >%s", acr_gen1_ai_preset_name(m->ai_preset), m->coop_ai ? "" : "  (CO-OP ONLY)");
+    row_text(x, y, m->row == ROW_AI, line); y += 18;
     SDL_snprintf(line, sizeof line, "STAGE         < %s >", net_menu_stage_name(net_menu_stage(m)));
     row_text(x, y, m->row == ROW_STAGE, line); y += 18;
     SDL_snprintf(line, sizeof line, "INPUT DELAY   < %d >  %s", m->delay,
@@ -149,8 +163,9 @@ void net_menu_draw(net_menu *m, float hud_w, int elapsed_ms) {
     if (!m->found_n) { acr_hud_text(x, y, "LOOKING...  (NONE YET: HOST ON THE OTHER PC FIRST)", DIM); y += 18; }
     for (int i = 0; i < m->found_n; ++i) {
         const net_found *g = &m->found[i];
-        SDL_snprintf(line, sizeof line, "%-12.12s %-21s %s", g->name[0] ? g->name : "AC", g->this_pc ? "THIS PC" : g->addr,
-                     g->same_data ? net_menu_stage_name(g->stage) : "DIFFERENT DATA");
+        SDL_snprintf(line, sizeof line, "%-12.12s %-21s %s%s", g->name[0] ? g->name : "AC", g->this_pc ? "THIS PC" : g->addr,
+                     g->same_data ? net_menu_stage_name(g->stage) : "DIFFERENT DATA",
+                     g->same_data && g->coop_ai ? "  CO-OP" : "");
         row_text(x, y, m->row == ROW_FOUND + i, line);
         if (!g->same_data && m->row != ROW_FOUND + i) acr_hud_text(x + 8 * 35, y, "DIFFERENT DATA", BAD);
         y += 18;

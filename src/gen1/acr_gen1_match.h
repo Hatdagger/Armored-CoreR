@@ -49,6 +49,9 @@ typedef struct acr_gen1_match {
     uint8_t  round;         /* rounds started, 1 = the first */
     uint8_t  wins[2];       /* by team */
     acr_gen1_ai ai[ACR_GEN1_MAX_FIGHTERS];   /* the computer pilots (rules.ai_mask) */
+    /* Presentation only (not in the hash): the controls each AC used in the
+     * latest step, so the computer ACs' poses follow what they pressed. */
+    acr_gen1_input shown_in[ACR_GEN1_MAX_FIGHTERS];
 } acr_gen1_match;
 
 /* A new match from a fight set up and ready to go (both ACs placed,
