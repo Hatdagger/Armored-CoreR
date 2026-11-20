@@ -807,9 +807,9 @@ static acr_gen1_input hard_lock_input(acr_gen1_battle *b, int i, acr_gen1_input 
     for (int k = 0; k < f->weapons; ++k)            /* the current gun / missile, else any with a sight */
         if (f->weapon[k].kind != ACR_GEN1_BLADE && f->weapon[k].box_w && (!w || k == f->current)) w = &f->weapon[k];
     if (!w || b->f[1 - i].ap <= 0 || !acr_gen1_in_lock_box(b, i, w)) { f->hard_lock = 0; return in; }
-    if (!was_on && w->hard_lock_range) {            /* starting it: within a normal FCS's reach */
+    if (!was_on) {                                  /* starting it: close enough */
         int32_t ay, ap;
-        if (sight_angles(b, i, &ay, &ap) > (uint32_t)w->hard_lock_range) { f->hard_lock = 0; return in; }
+        if (sight_angles(b, i, &ay, &ap) > MT(b, hard_lock_start, HARD_LOCK_START)) { f->hard_lock = 0; return in; }
     }
     const acr_gen1_ac *me = &f->ac, *it = &b->f[1 - i].ac;
     uint16_t yaw;
