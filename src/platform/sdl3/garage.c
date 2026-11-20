@@ -10,13 +10,13 @@
 
 /* The main menu. In a Rogue Arena run the garage is assembly only: parts
  * come from the prize screen, so no shop and no AC TEST. */
-enum { M_ASSEMBLY, M_SHOP, M_TEST, M_ROGUE, M_EXIT };
-static const char *const k_menu[] = { "ASSEMBLY", "PARTS SHOP", "AC TEST", "ROGUE ARENA", "EXIT" };
-static const int k_menu_main[] = { M_ASSEMBLY, M_SHOP, M_TEST, M_ROGUE, M_EXIT };
+enum { M_ASSEMBLY, M_SHOP, M_TEST, M_ROGUE, M_CONTROLS, M_EXIT };
+static const char *const k_menu[] = { "ASSEMBLY", "PARTS SHOP", "AC TEST", "ROGUE ARENA", "CONTROLS", "EXIT" };
+static const int k_menu_main[] = { M_ASSEMBLY, M_SHOP, M_TEST, M_ROGUE, M_CONTROLS, M_EXIT };
 static const int k_menu_rogue[] = { M_ASSEMBLY, M_EXIT };
 static int menu_items(const garage_ui *ui, const int **ids) {
     *ids = ui->rogue ? k_menu_rogue : k_menu_main;
-    return ui->rogue ? 2 : 5;
+    return ui->rogue ? 2 : 6;
 }
 static const char *menu_name(const garage_ui *ui, int id) {
     return ui->rogue && id == M_EXIT ? "BACK TO THE ARENA" : k_menu[id];
@@ -130,6 +130,7 @@ garage_command garage_input(garage_ui *ui, garage_data *d, garage_action a) {
         if (id == M_ASSEMBLY) { ui->screen = 1; ui->list_open = 0; }
         if (id == M_SHOP) { ui->screen = 2; ui->confirm = 0; ui->shop = ui->shop_top = 0; }
         if (id == M_ROGUE) return GC_ROGUE;
+        if (id == M_CONTROLS) return GC_CONTROLS;
         if (id == M_TEST) {
             acr_gen1_fit_numbers n;
             const unsigned fail = acr_gen1_garage_check(d->hangar, d->cat, &n);

@@ -97,6 +97,12 @@ own part models (every part, FCS and options included) go to
    `--ai-vs-ai` puts player 1 on autopilot too. With an AI opponent the
    round is two minutes, as in VS.
 
+The controller buttons for boost, fire, switch weapon, blade, strafe and
+view tilt can be changed on the garage's **CONTROLS** page (pick a row, then
+press the button you want; a button already in use swaps places). Moving
+and turning stay on the left stick / d-pad; Start and Back keep their jobs.
+The mapping is saved in `controls.toml` beside the save.
+
 | Action | Controller | Keyboard |
 | --- | --- | --- |
 | Walk forward / back | left stick or d-pad up / down | W / S |

@@ -135,7 +135,7 @@ if(ACR_BUILD_GAME)
         GIT_SHALLOW TRUE)
     FetchContent_MakeAvailable(SDL3)
     add_executable(armored-corer WIN32 src/platform/sdl3/main.c src/platform/sdl3/demo_data.c src/platform/sdl3/demo_model.c
-                   src/platform/sdl3/demo_stage.c src/platform/sdl3/garage.c src/platform/sdl3/rogue.c
+                   src/platform/sdl3/demo_stage.c src/platform/sdl3/garage.c src/platform/sdl3/rogue.c src/platform/sdl3/controls.c
                    src/platform/sdl3/battle_hud.c src/platform/sdl3/net_link.c)
     add_library(acr_render_gl STATIC src/render/acr_render_gl.c)
     target_include_directories(acr_render_gl PUBLIC src/render)

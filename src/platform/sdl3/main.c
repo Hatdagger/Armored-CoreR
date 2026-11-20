@@ -47,6 +47,7 @@
 #include "../../model/acr_aim.h"
 #include "garage.h"
 #include "rogue.h"
+#include "controls.h"
 #include "battle_hud.h"
 
 /* HUD framing: the PS1's 4:3 layout in the middle (default) or spread to a
@@ -105,12 +106,13 @@ static acr_gen1_input read_input(SDL_Gamepad *pad, int keyboard) {
         if (ly > dead || SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_DPAD_DOWN)) in.move = -1;
         if (lx < -dead || SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_DPAD_LEFT)) in.turn = -1;
         if (lx > dead || SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_DPAD_RIGHT)) in.turn = 1;
-        if (SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_LEFT_SHOULDER) || rx < -dead) in.strafe = -1;
-        if (SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER) || rx > dead) in.strafe = 1;
-        if (SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_SOUTH)) in.boost = 1;
-        /* L2 / R2 tilt the view up / down; both together: back to level. */
-        const int lt = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFT_TRIGGER) > 8000;
-        const int rt = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) > 8000;
+        /* The buttons as mapped on the CONTROLS page (controls.c). */
+        if (controls_held(pad, CT_STRAFE_L) || rx < -dead) in.strafe = -1;
+        if (controls_held(pad, CT_STRAFE_R) || rx > dead) in.strafe = 1;
+        if (controls_held(pad, CT_BOOST)) in.boost = 1;
+        /* Tilt the view up / down (L2 / R2 as standard); both together: back to level. */
+        const int lt = controls_held(pad, CT_LOOK_UP);
+        const int rt = controls_held(pad, CT_LOOK_DOWN);
         if (lt || rt) in.look = (int8_t)(lt && rt ? 2 : lt - rt);
     }
     return in;
@@ -777,7 +779,10 @@ int main(int argc, char **argv) {
             for (int i = 0; i < ACR_GEN1_PART_MAX; ++i) g_catalog.part[c][i].for_sale = 0;
     hangar_open(parts);
     rogue_init(dir, &g_catalog, g_part_names);
-    int mode = g_direct_test ? 1 : 0;   /* 0 garage, 1 test arena, 2 Rogue Arena */
+    controls_load();
+    controls_ui cui;
+    controls_open(&cui);
+    int mode = g_direct_test ? 1 : 0;   /* 0 garage, 1 test arena, 2 Rogue Arena, 3 CONTROLS */
     garage_ui gui;
     garage_init(&gui);
     const garage_data gdata_main = { &g_hangar, &g_catalog, g_part_names };
@@ -985,6 +990,14 @@ int main(int argc, char **argv) {
             if (e.type == SDL_EVENT_GAMEPAD_REMOVED)
                 for (int k = 0; k < 2; ++k)
                     if (pads[k] && SDL_GetGamepadID(pads[k]) == e.gdevice.which) { SDL_CloseGamepad(pads[k]); pads[k] = NULL; }
+            if (mode == 3) {   /* the CONTROLS page: a button to map, or the menu */
+                if (controls_capture(&cui, &e)) continue;
+                garage_action ga = GA_NONE;
+                if (e.type == SDL_EVENT_KEY_DOWN) ga = key_action(e.key.scancode);
+                if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) ga = button_action(e.gbutton.button);
+                if (controls_input(&cui, ga)) { mode = 0; gui.screen = 0; }
+                continue;
+            }
             if (mode == 2) {   /* Rogue Arena's screens take all other input */
                 garage_action ga = GA_NONE;
                 if (e.type == SDL_EVENT_KEY_DOWN) ga = key_action(e.key.scancode);
@@ -1050,8 +1063,8 @@ int main(int argc, char **argv) {
                 /* Online: the controls and screen options only; nothing that changes the fight. */
                 if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_TAB) switch_pressed[0] = 1;
                 if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_V) blade_pressed[0] = 1;
-                if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && e.gbutton.button == SDL_GAMEPAD_BUTTON_NORTH) switch_pressed[0] = 1;
-                if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && e.gbutton.button == SDL_GAMEPAD_BUTTON_EAST) blade_pressed[0] = 1;
+                if (controls_pressed(&e, CT_SWITCH)) switch_pressed[0] = 1;
+                if (controls_pressed(&e, CT_BLADE)) blade_pressed[0] = 1;
                 continue;
             }
             if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_F3) g_landing_anim = !g_landing_anim;
@@ -1135,6 +1148,13 @@ int main(int argc, char **argv) {
             int toggle_two = 0;
             if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_F2) toggle_two = 1;
             int cycle_rate = 0, cycle_slot = -1, toggle_plus = 0, cycle_who = 0;
+            /* The blade and the weapon switch, as mapped (CONTROLS page);
+             * a trigger can be one too. Which player's controller? */
+            if (!back_held && (controls_pressed(&e, CT_BLADE) || controls_pressed(&e, CT_SWITCH))) {
+                const int who = !two_players ? 0 : pads[1] ? (player_of(pads, controls_event_pad(&e), 0) == 1) : 1;
+                if (controls_pressed(&e, CT_BLADE)) blade_pressed[who] = 1;
+                if (controls_pressed(&e, CT_SWITCH)) switch_pressed[who] = 1;
+            }
             if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) {
                 const int btn = e.gbutton.button;
                 cycle_who = !two_players ? 0 : pads[1] ? (player_of(pads, e.gbutton.which, 0) == 1) : 1;
@@ -1146,15 +1166,7 @@ int main(int argc, char **argv) {
                 if (btn == SDL_GAMEPAD_BUTTON_SOUTH && back_held) { toggle_plus = 1; back_combo = 1; }
                 if (btn == SDL_GAMEPAD_BUTTON_LEFT_SHOULDER && back_held) { toggle_two = 1; back_combo = 1; }
                 if (btn == SDL_GAMEPAD_BUTTON_RIGHT_STICK && back_held) { g_landing_anim = !g_landing_anim; back_combo = 1; }
-                if (btn == SDL_GAMEPAD_BUTTON_EAST && !back_held) {   /* the blade: circle / B */
-                    const int who = !two_players ? 0 : pads[1] ? (player_of(pads, e.gbutton.which, 0) == 1) : 1;
-                    blade_pressed[who] = 1;
-                }
-                if (btn == SDL_GAMEPAD_BUTTON_NORTH && !back_held) {
-                    /* which player's controller? */
-                    const int who = !two_players ? 0 : pads[1] ? (player_of(pads, e.gbutton.which, 0) == 1) : 1;
-                    switch_pressed[who] = 1;
-                }
+                (void)btn;
                 if (btn == SDL_GAMEPAD_BUTTON_START && back_held && !g_direct_test) { to_garage = 1; back_combo = 1; }
                 else if (btn == SDL_GAMEPAD_BUTTON_START) { SETUP_FIGHTERS(); prevs[0] = *P; prevs[1] = *T; }
             }
@@ -1272,6 +1284,25 @@ int main(int argc, char **argv) {
                 mode = 1;
             }
         }
+        if (mode == 3) {
+            if (!cui.waiting) {
+                garage_action d = pad_direction(pads[0], SDL_GetTicks());
+                if (d == GA_NONE) d = script_action();
+                if (controls_input(&cui, d)) { mode = 0; gui.screen = 0; }
+            }
+        }
+        if (mode == 3) {
+            static Uint64 controls_last_ms;
+            const Uint64 now_ms = SDL_GetTicks();
+            const int elapsed = controls_last_ms ? (int)(now_ms - controls_last_ms) : 0;
+            controls_last_ms = now_ms;
+            int pw = 0, ph = 0;
+            SDL_GetWindowSizeInPixels(window, &pw, &ph);
+            if (pw < 1 || ph < 1) { SDL_Delay(10); continue; }
+            acr_render_begin(pw, ph, 18, 22, 28);
+            controls_draw(&cui, acr_render_hud(0, 0, pw, ph), elapsed);
+            goto present;
+        }
         if (mode == 2) {
             static Uint64 rogue_last_ms;
             const Uint64 now_ms = SDL_GetTicks();
@@ -1301,6 +1332,7 @@ int main(int argc, char **argv) {
                 gcmd = GC_NONE;
             }
             if (gcmd == GC_ROGUE) { rogue_open(g_hangar.pilot_name, g_hangar.ac_name); mode = 2; }
+            if (gcmd == GC_CONTROLS) { controls_open(&cui); mode = 3; }
             if (gcmd == GC_QUIT) running = 0;
             if (gcmd == GC_CHANGED || gcmd == GC_TEST) {
                 int fitted[SLOT_COUNT];
@@ -1362,9 +1394,9 @@ int main(int argc, char **argv) {
         const bool *keys = SDL_GetKeyboardState(NULL);
         acr_gen1_actions act[2] = { { 0, 0, 0 }, { 0, 0, 0 } };
         act[0].fire = (uint8_t)(hold_fire || keys[SDL_SCANCODE_F] || keys[SDL_SCANCODE_LCTRL] ||
-                                (ctl[0] && !back_held && SDL_GetGamepadButton(ctl[0], SDL_GAMEPAD_BUTTON_WEST)));
+                                (ctl[0] && !back_held && controls_held(ctl[0], CT_FIRE)));
         if (two_players)
-            act[1].fire = (uint8_t)(ctl[1] && !back_held && SDL_GetGamepadButton(ctl[1], SDL_GAMEPAD_BUTTON_WEST));
+            act[1].fire = (uint8_t)(ctl[1] && !back_held && controls_held(ctl[1], CT_FIRE));
 
         /* A quick release of the booster between two steps still counts. */
         static int boost_released[2];

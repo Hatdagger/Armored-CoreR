@@ -138,6 +138,11 @@ Fixes after the first play-test (2026-11-19):
 - **Empty weapons** (user): no automatic swap; an empty weapon stays
   selected until the pilot switches away, then can't be picked again. With
   one weapon, or the last one empty, the pilot is stuck with it.
+- **CONTROLS page** (garage menu, user): remap the controller's boost,
+  fire, switch weapon, blade, strafe and view tilt (any face button,
+  shoulder, trigger, stick click or paddle; a button in use swaps), saved
+  to `controls.toml`. Stick / d-pad movement, Start and Back stay fixed;
+  the keyboard isn't remapped yet.
 - **Both back weapons work** (only the left one was a weapon): the AC now
   carries up to 4 (arm weapon, back left, back right, blade); a two-slot
   unit is one weapon.

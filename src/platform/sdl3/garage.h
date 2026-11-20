@@ -17,6 +17,7 @@ typedef enum garage_command {
     GC_CHANGED,     /* the build or the stock changed: reload the AC and save */
     GC_TEST,        /* AC TEST with the current build (it passed the check) */
     GC_ROGUE,       /* ROGUE ARENA */
+    GC_CONTROLS,    /* CONTROLS: the controller mapping page */
     GC_QUIT         /* EXIT (in a Rogue Arena run: back to its hub) */
 } garage_command;
 
