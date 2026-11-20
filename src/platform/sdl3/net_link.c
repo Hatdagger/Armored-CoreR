@@ -48,7 +48,7 @@ struct net_link {
     char name[NET_NAME + 1];
     int stage, delay, port_shown;
     char join[256];
-    uint64_t start_ms, last_send_ms, last_rx_ms, last_ping_ms;
+    uint64_t start_ms, last_send_ms, last_rx_ms, last_ping_ms, last_beacon_ms;
     int got_match;               /* guest: the host's match packets have started */
     int ping_ms;
     net_match_info info;
@@ -174,6 +174,10 @@ net_link *net_link_open(const net_setup *s, char *err, int err_size) {
 #else
     fcntl(l->s, F_SETFL, fcntl(l->s, F_GETFL, 0) | O_NONBLOCK);
 #endif
+    if (s->host) {
+        const int yes = 1;
+        setsockopt(l->s, SOL_SOCKET, SO_BROADCAST, (const char *)&yes, sizeof yes);   /* LAN beacons */
+    }
     struct sockaddr_in sa;
     memset(&sa, 0, sizeof sa);
     sa.sin_family = AF_INET;
@@ -396,13 +400,30 @@ int net_link_connect(net_link *l, uint64_t now_ms, net_match_info *info, char *s
     if (l->state == NET_FAILED) return NET_FAILED;
 
     if (l->host) {
+        if (!l->have_peer && (!l->last_beacon_ms || now_ms - l->last_beacon_ms >= 1000)) {
+            /* Tell finders on the network (and on this PC) we're here. */
+            uint8_t bb[64];
+            int n = 0;
+            bb[n++] = 'A'; bb[n++] = 'C'; bb[n++] = 'R'; bb[n++] = 'B'; bb[n++] = VERSION;
+            put16(bb + n, l->port_shown); n += 2;
+            put32(bb + n, l->data_hash); n += 4;
+            bb[n++] = (uint8_t)l->stage;
+            memcpy(bb + n, l->name, NET_NAME); n += NET_NAME;
+            put32(bb + n, l->info.seed); n += 4;      /* tells copies of the same beacon apart from other hosts */
+            static const net_addr everyone = { { 255, 255, 255, 255 }, NET_BEACON_PORT },
+                                  here = { { 127, 0, 0, 1 }, NET_BEACON_PORT };
+            raw_send(l, &everyone, bb, n);
+            raw_send(l, &here, bb, n);
+            l->last_beacon_ms = now_ms;
+        }
         char addr[64];
         net_local_address(addr, sizeof addr);
         SDL_snprintf(status, (size_t)status_size,
                      "HOSTING A MATCH (PLAYER 1)\n\n"
                      "TELL PLAYER 2 TO JOIN:  %s:%d\n"
                      "(SAME PC: 127.0.0.1:%d)\n\n"
-                     "WAITING FOR PLAYER 2...  %d S\n\n%s%s\n\nESC: QUIT",
+                     "WAITING FOR PLAYER 2...  %d S\n"
+                     "(PLAYER 2 CAN ALSO PICK THIS GAME UNDER GARAGE > NETWORK)\n\n%s%s\n\nB / ESC: CANCEL",
                      addr[0] ? addr : "(this PC's address)", l->port_shown,
                      l->port_shown, (int)(waited / 1000),
                      l->refused_once ? "A PLAYER TRIED TO JOIN BUT COULD NOT:\n" : "", l->refused_once ? (l->error[0] ? l->error : refusal(R_DATA)) : "");
@@ -415,7 +436,7 @@ int net_link_connect(net_link *l, uint64_t now_ms, net_match_info *info, char *s
             l->state = NET_FAILED;
             return NET_FAILED;
         }
-        SDL_snprintf(status, (size_t)status_size, "JOINING A MATCH (PLAYER 2)\n\nCONNECTING TO %s...  %d S\n\nESC: QUIT",
+        SDL_snprintf(status, (size_t)status_size, "JOINING A MATCH (PLAYER 2)\n\nCONNECTING TO %s...  %d S\n\nB / ESC: CANCEL",
                      l->join, (int)(waited / 1000));
     }
     return NET_CONNECTING;
@@ -459,6 +480,7 @@ int net_link_recv(net_link *l, void *buf, int cap, uint64_t now_ms) {
     return 0;
 }
 
+void net_link_touch(net_link *l, uint64_t now_ms) { l->last_rx_ms = now_ms; }
 uint64_t net_link_quiet_ms(const net_link *l, uint64_t now_ms) { return now_ms > l->last_rx_ms ? now_ms - l->last_rx_ms : 0; }
 int net_link_ping_ms(const net_link *l) { return l->ping_ms; }
 
@@ -482,6 +504,91 @@ void net_local_address(char *out, int size) {
         }
     }
     close_sock(s);
+}
+
+/* ---------------- LAN discovery ---------------- */
+
+#define FOUND_MAX 16
+struct net_finder {
+    sock_t s;
+    uint32_t data_hash;
+    net_found found[FOUND_MAX];
+    int n;
+};
+
+net_finder *net_finder_open(const char *import_dir) {
+    if (!sockets_up()) return NULL;
+    net_finder *f = (net_finder *)SDL_calloc(1, sizeof *f);
+    if (!f) return NULL;
+    f->s = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
+    if (f->s == BAD_SOCK) { SDL_free(f); return NULL; }
+    const int yes = 1;
+    /* Several copies on one PC can all listen. */
+    setsockopt(f->s, SOL_SOCKET, SO_REUSEADDR, (const char *)&yes, sizeof yes);
+    setsockopt(f->s, SOL_SOCKET, SO_BROADCAST, (const char *)&yes, sizeof yes);
+#ifdef _WIN32
+    u_long nb = 1;
+    ioctlsocket(f->s, FIONBIO, &nb);
+#else
+    fcntl(f->s, F_SETFL, fcntl(f->s, F_GETFL, 0) | O_NONBLOCK);
+#endif
+    struct sockaddr_in sa;
+    memset(&sa, 0, sizeof sa);
+    sa.sin_family = AF_INET;
+    sa.sin_addr.s_addr = htonl(INADDR_ANY);
+    sa.sin_port = htons(NET_BEACON_PORT);
+    if (bind(f->s, (const struct sockaddr *)&sa, sizeof sa) != 0) { close_sock(f->s); SDL_free(f); return NULL; }
+    f->data_hash = net_data_check(import_dir);
+    return f;
+}
+
+void net_finder_close(net_finder *f) {
+    if (!f) return;
+    close_sock(f->s);
+    SDL_free(f);
+}
+
+int net_finder_poll(net_finder *f, uint64_t now_ms, net_found *out, int max) {
+    if (!f) return 0;
+    uint8_t b[128];
+    struct sockaddr_in sa;
+    for (;;) {
+        socklen_t sl = sizeof sa;
+        const int len = (int)recvfrom(f->s, (char *)b, sizeof b, 0, (struct sockaddr *)&sa, &sl);
+        if (len <= 0) break;
+        if (len < 5 + 2 + 4 + 1 + NET_NAME + 4 || b[0] != 'A' || b[1] != 'C' || b[2] != 'R' || b[3] != 'B' || b[4] != VERSION) continue;
+        net_addr from;
+        from_sa(&sa, &from);
+        const int port = get16(b + 5);
+        const uint32_t id = get32(b + 12 + NET_NAME);
+        const int here = from.ip[0] == 127;
+        char addr[64];
+        SDL_snprintf(addr, sizeof addr, "%d.%d.%d.%d:%d", from.ip[0], from.ip[1], from.ip[2], from.ip[3], port);
+        int i = 0;
+        while (i < f->n && f->found[i].id != id) ++i;
+        if (i == f->n) {
+            if (f->n == FOUND_MAX) continue;
+            ++f->n;
+            f->found[i].this_pc = 0;
+        }
+        net_found *g = &f->found[i];
+        g->id = id;
+        /* Heard on this PC's own address too: it's on this PC, use 127.0.0.1. */
+        if (here) g->this_pc = 1;
+        if (here || !g->this_pc) SDL_strlcpy(g->addr, addr, sizeof g->addr);
+        g->same_data = get32(b + 7) == f->data_hash;
+        g->stage = b[11];
+        memcpy(g->name, b + 12, NET_NAME);
+        g->name[NET_NAME] = 0;
+        g->seen_ms = now_ms;
+    }
+    /* Forget hosts gone quiet (started a match or closed). */
+    for (int i = 0; i < f->n;)
+        if (now_ms - f->found[i].seen_ms > 3000) f->found[i] = f->found[--f->n];
+        else ++i;
+    int n = 0;
+    for (int i = 0; i < f->n && n < max; ++i) out[n++] = f->found[i];
+    return n;
 }
 
 /* ---------------- data check ---------------- */

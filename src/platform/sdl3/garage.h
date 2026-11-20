@@ -1,5 +1,5 @@
 /* The garage for the test build, laid out like Master of Arena's: a main
- * menu (ASSEMBLY, PARTS SHOP, AC TEST, EXIT), the assembly screen (slots in
+ * menu (ASSEMBLY, PARTS SHOP, AC TEST, NETWORK, EXIT), the assembly screen (slots in
  * the game's order, then the parts you own for the chosen slot), and the
  * parts shop (buy and sell by category). The AC turns in the middle with
  * the build's totals beside it. Controller first; the keyboard mirrors it. */
@@ -16,6 +16,7 @@ typedef enum garage_command {
     GC_NONE,
     GC_CHANGED,     /* the build or the stock changed: reload the AC and save */
     GC_TEST,        /* AC TEST with the current build (it passed the check) */
+    GC_NETWORK,     /* the NETWORK screen (host or join a match; the build passed the check) */
     GC_QUIT
 } garage_command;
 

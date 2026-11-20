@@ -8,8 +8,8 @@
 
 /* ---- text (one table, so it can be translated later) ---- */
 
-static const char *const k_menu[] = { "ASSEMBLY", "PARTS SHOP", "AC TEST", "EXIT" };
-#define MENU_ITEMS 4
+static const char *const k_menu[] = { "ASSEMBLY", "PARTS SHOP", "AC TEST", "NETWORK", "EXIT" };
+#define MENU_ITEMS 5
 
 /* Assembly rows in Master of Arena's order; -1 is the optional parts row. */
 static const int k_rows[] = {
@@ -114,10 +114,10 @@ garage_command garage_input(garage_ui *ui, garage_data *d, garage_action a) {
         if (a != GA_OK) return GC_NONE;
         if (ui->menu == 0) { ui->screen = 1; ui->list_open = 0; }
         if (ui->menu == 1) { ui->screen = 2; ui->confirm = 0; ui->shop = ui->shop_top = 0; }
-        if (ui->menu == 2) {
+        if (ui->menu == 2 || ui->menu == 3) {
             acr_gen1_fit_numbers n;
             const unsigned fail = acr_gen1_garage_check(d->hangar, d->cat, &n);
-            if (!fail) return GC_TEST;
+            if (!fail) return ui->menu == 2 ? GC_TEST : GC_NETWORK;
             say(ui, fail & ACR_GEN1_FAIL_MISSING_PART ? "AC EQUIPMENT INCOMPLETE." :
                     fail & ACR_GEN1_FAIL_NO_BOOSTER ? "THESE LEGS NEED A BOOSTER." :
                     fail & ACR_GEN1_FAIL_ENERGY ? "ENERGY OUTPUT TOO LOW." :
@@ -125,7 +125,7 @@ garage_command garage_input(garage_ui *ui, garage_data *d, garage_action a) {
                     fail & ACR_GEN1_FAIL_WEIGHT ? "TOO HEAVY FOR THESE LEGS." :
                     "TOO MANY OPTIONAL PARTS FOR THIS CORE.");
         }
-        if (ui->menu == 3) return GC_QUIT;
+        if (ui->menu == 4) return GC_QUIT;
         return GC_NONE;
     }
 

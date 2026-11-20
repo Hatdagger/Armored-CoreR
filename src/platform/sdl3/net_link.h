@@ -65,10 +65,31 @@ void net_link_send(net_link *l, const void *data, int len, uint64_t now_ms);
 int  net_link_recv(net_link *l, void *buf, int cap, uint64_t now_ms);
 /* Lets held (fake-lag) packets go when their time comes. */
 void net_link_pump(net_link *l, uint64_t now_ms);
+/* Starts the quiet clock again (after loading the match, say). */
+void net_link_touch(net_link *l, uint64_t now_ms);
 /* Milliseconds since anything came from the other player. */
 uint64_t net_link_quiet_ms(const net_link *l, uint64_t now_ms);
 /* Round trip in ms, from the handshake and match pings (0 = not known yet). */
 int net_link_ping_ms(const net_link *l);
+
+/* LAN discovery: a host waiting for player 2 announces itself once a
+ * second on the local network (UDP broadcast to port NET_BEACON_PORT, and
+ * to this PC itself); the finder lists the hosts it hears. */
+#define NET_BEACON_PORT 7778
+typedef struct net_found {
+    char addr[64];            /* "192.168.1.20:7777", ready for --join */
+    char name[NET_NAME + 1];  /* the host's AC */
+    int stage;
+    int same_data;            /* its game data matches ours */
+    int this_pc;              /* the host is another copy on this PC */
+    uint32_t id;
+    uint64_t seen_ms;
+} net_found;
+typedef struct net_finder net_finder;
+net_finder *net_finder_open(const char *import_dir);
+void net_finder_close(net_finder *f);
+/* Hosts heard in the last 3 seconds (at most max); returns the count. */
+int net_finder_poll(net_finder *f, uint64_t now_ms, net_found *out, int max);
 
 /* This PC's address on the local network ("192.168.1.20"), for the host to
  * tell the other player; "" if unknown. */

@@ -11,7 +11,22 @@ Both PCs need the same disc imported (the game checks and refuses the
 match with a message if the part, animation or stage files differ). Each
 player flies their own garage build.
 
-On Windows, next to `armored-corer.exe`:
+In the game: **GARAGE > NETWORK**.
+
+- **HOST A MATCH** (pick the stage and input delay first with left / right):
+  waits for player 2 and shows this PC's address.
+- **GAMES ON YOUR NETWORK**: hosts on the same network (or another copy on
+  this PC, shown as THIS PC) appear by themselves; pick one to join.
+  DIFFERENT DATA means that host imported other disc data.
+- **JOIN BY ADDRESS**: for a host that isn't listed. With a controller,
+  left / right and A pick the characters (DEL, JOIN at the end); with a
+  keyboard, type it and press Enter.
+- After the match, Esc (or Back on a controller) returns to the garage.
+
+Hosts announce themselves once a second by UDP broadcast on port 7778
+(and to this PC itself); the match uses port 7777.
+
+Or skip the menu: on Windows, next to `armored-corer.exe`:
 
 - **`host-match.bat`** on one PC: hosts as player 1 and shows the address
   to give the other player.
@@ -79,7 +94,6 @@ discovery and ICE connection codes are still the plan for the next steps.
 
 ## Next
 
-- In-game host / join screen with LAN discovery (no command line).
 - Co-op (two players against the AI): the AI runs inside the match on
   both PCs, from the same seed.
 - Lockstep mode for LAN, then copy-paste connection codes for online

@@ -52,11 +52,13 @@
  * wide screen's edges (F9 / --hud-wide). */
 static int g_hud_frame = BATTLE_HUD_FRAME_43;
 #include "net_link.h"
+#include "net_menu.h"
 #include "../../net/acr_rollback.h"
 
 /* Netplay (--host / --join): a 1v1 over the network with rollback
  * (src/net/acr_rollback.h). Each PC shows its own player full screen. */
-static int g_net;                         /* 1 while playing online */
+static int g_net;                         /* 1 while in an online match */
+static int g_net_cmd;                     /* --host (1) or --join (2) on the command line */
 static int g_net_host;                    /* this PC hosts (player 1) */
 static int g_net_port = NET_PORT_DEFAULT;
 static const char *g_net_join;            /* the host's address */
@@ -457,11 +459,11 @@ static int parse_args(int argc, char **argv, const char **dir, int parts[SLOT_CO
         if (!strcmp(argv[i], "--ai-file") && i + 1 < argc) { load_ai_file(argv[++i]); continue; }
         if (!strcmp(argv[i], "--ai-vs-ai")) { g_autopilot = 1; if (!g_ai_mode) g_ai_mode = 1; continue; }
         if (!strcmp(argv[i], "--host")) {
-            g_net = g_net_host = 1; g_direct_test = 1;
+            g_net_cmd = 1; g_direct_test = 1;
             if (i + 1 < argc && argv[i + 1][0] >= '0' && argv[i + 1][0] <= '9') g_net_port = atoi(argv[++i]);
             continue;
         }
-        if (!strcmp(argv[i], "--join") && i + 1 < argc) { g_net = 1; g_net_host = 0; g_net_join = argv[++i]; g_direct_test = 1; continue; }
+        if (!strcmp(argv[i], "--join") && i + 1 < argc) { g_net_cmd = 2; g_net_join = argv[++i]; g_direct_test = 1; continue; }
         if (!strcmp(argv[i], "--net-delay") && i + 1 < argc) { g_net_delay = atoi(argv[++i]); continue; }
         if (!strcmp(argv[i], "--net-lag") && i + 1 < argc) { g_net_lag = atoi(argv[++i]); continue; }
         if (!strcmp(argv[i], "--net-jitter") && i + 1 < argc) { g_net_jitter = atoi(argv[++i]); continue; }
@@ -649,6 +651,47 @@ static int import_disc(SDL_Window *r, const char *disc, const char *dir, char *e
     return 1;
 }
 
+/* Testing aid: ACR_KEYS="ok,down,ok,..." feeds the garage and the network
+ * screen one action a frame; "wait" lets half a second pass. */
+static garage_action script_action(void) {
+    static const char *script;
+    static int script_read;
+    static Uint64 wait_until;
+    if (!script_read) { script = SDL_getenv("ACR_KEYS"); script_read = 1; }
+    if (!script || !*script || SDL_GetTicks() < wait_until) return GA_NONE;
+    garage_action a = GA_NONE;
+    static const char *const k_names[] = { "", "up", "down", "left", "right", "ok", "back", "lb", "rb" };
+    if (!SDL_strncmp(script, "wait", 4)) wait_until = SDL_GetTicks() + 500;
+    else
+        for (int k = 1; k < 9; ++k)
+            if (!SDL_strncmp(script, k_names[k], SDL_strlen(k_names[k]))) { a = (garage_action)k; break; }
+    script = SDL_strchr(script, ',');
+    if (script) ++script;
+    return a;
+}
+
+/* Opens the network link to host (join == NULL) or join a match with this
+ * player's build. NULL with the reason in err. */
+static net_link *net_open(const char *dir, const char *join, int stage, int delay, const int parts[SLOT_COUNT],
+                          char *err, int err_size) {
+    if (stage > 0 && !net_stage_check(dir, stage)) stage = 0;   /* not in this import: the open floor */
+    net_setup ns;
+    SDL_zero(ns);
+    ns.host = join == NULL;
+    ns.port = g_net_port;
+    ns.join = join;
+    ns.import_dir = dir;
+    for (int i = 0; i < SLOT_COUNT; ++i) ns.parts[i] = parts[i];
+    ns.ac_name = g_hangar.ac_name;
+    ns.stage = stage;
+    ns.delay = delay < 0 ? 0 : delay > ACR_RB_MAX_DELAY ? ACR_RB_MAX_DELAY : delay;
+    ns.lag_ms = g_net_lag;
+    ns.jitter_ms = g_net_jitter;
+    ns.loss_pct = g_net_loss;
+    g_net_host = ns.host;
+    return net_link_open(&ns, err, err_size);
+}
+
 int main(int argc, char **argv) {
     void *block = malloc(ACR_POOLS_TOTAL_BYTES);
     acr_pools pools;
@@ -755,83 +798,27 @@ int main(int argc, char **argv) {
         if (demo_load(dir, fitted, &ac_data[0], err, sizeof err)) memcpy(parts, fitted, sizeof fitted);
         else demo_load(dir, parts, &ac_data[0], err, sizeof err);
     }
-    /* Netplay: connect, then both PCs build the same match: player 1 is the
-     * host's garage build, player 2 the guest's, on the host's stage. */
+    /* Netplay: the NETWORK screen (2), connecting (3) and why it failed (4);
+     * --host / --join start at connecting. The match itself is built
+     * once connected (see "the match starts" below). */
     static net_link *net = NULL;
     static net_match_info net_info;
+    static net_menu nmenu;
+    static net_finder *finder = NULL;
+    static char net_status[1600];
     _Static_assert(SLOT_COUNT == NET_PARTS, "the network sends every part slot");
-    if (g_net) {
-        if (!g_part_args) hangar_parts(parts);
-        int stage = g_net_stage >= 0 ? g_net_stage : g_stage_id > 0 ? g_stage_id : 27;
-        if (stage > 0 && !net_stage_check(dir, stage)) stage = 0;   /* not in this import: the open floor */
-        net_setup ns;
-        SDL_zero(ns);
-        ns.host = g_net_host;
-        ns.port = g_net_port;
-        ns.join = g_net_join;
-        ns.import_dir = dir;
-        for (int i = 0; i < SLOT_COUNT; ++i) ns.parts[i] = parts[i];
-        ns.ac_name = g_hangar.ac_name;
-        ns.stage = stage;
-        ns.delay = g_net_delay < 0 ? 0 : g_net_delay > ACR_RB_MAX_DELAY ? ACR_RB_MAX_DELAY : g_net_delay;
-        ns.lag_ms = g_net_lag;
-        ns.jitter_ms = g_net_jitter;
-        ns.loss_pct = g_net_loss;
-        char nerr[512] = "", status[1600] = "";
-        net = net_link_open(&ns, nerr, sizeof nerr);
-        int state = net ? NET_CONNECTING : NET_FAILED;
-        while (state == NET_CONNECTING) {
-            state = net_link_connect(net, SDL_GetTicks(), &net_info, status, sizeof status);
-            if (state != NET_CONNECTING) break;
-            show_message(window, status);
-            SDL_Event e;
-            int quit = 0;
-            while (SDL_PollEvent(&e))
-                if (e.type == SDL_EVENT_QUIT || (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_ESCAPE) ||
-                    (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && e.gbutton.button == SDL_GAMEPAD_BUTTON_BACK)) quit = 1;
-            if (quit) { net_link_close(net); SDL_Quit(); return 0; }
-            SDL_Delay(5);
-        }
-        if (state == NET_FAILED) {
-            const char *why = net ? net_link_error(net) : nerr;
-            SDL_Log("netplay: %s", why);
-            char text[1200];
-            SDL_snprintf(text, sizeof text, "COULD NOT START THE MATCH\n\n%s\n\nESC / BACK: QUIT", why);
-            const Uint64 t0 = SDL_GetTicks();
-            for (int quit = 0; !quit && SDL_GetTicks() - t0 < 120000;) {
-                show_message(window, text);
-                SDL_Event e;
-                while (SDL_PollEvent(&e))
-                    if (e.type == SDL_EVENT_QUIT || e.type == SDL_EVENT_KEY_DOWN ||
-                        (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && e.gbutton.button == SDL_GAMEPAD_BUTTON_BACK)) quit = 1;
-                SDL_Delay(10);
-            }
-            net_link_close(net);
-            SDL_Quit();
-            return 1;
-        }
-        SDL_Log("netplay: match started, you are player %d (%s vs %s), stage %d, input delay %d",
-                net_info.local + 1, net_info.name[0], net_info.name[1], net_info.stage, net_info.delay);
-        for (int i = 0; i < SLOT_COUNT; ++i) { parts[i] = net_info.parts[0][i]; parts2[i] = net_info.parts[1][i]; }
-        demo_load(dir, parts, &ac_data[0], err, sizeof err);
-        demo_load(dir, parts2, &ac_data[1], err, sizeof err);
-        if (net_info.stage > 0 && !(g_stage.ok && g_stage_id == net_info.stage)) {
-            demo_stage tmp;
-            if (demo_stage_load(dir, net_info.stage, &tmp)) {
-                if (g_stage.ok) demo_stage_free(&g_stage);
-                g_stage = tmp;
-                g_stage_id = net_info.stage;
-            }
-        }
-        g_stage_on = net_info.stage > 0 && g_stage.ok && g_stage_id == net_info.stage;
-        g_tick_rate = 60;          /* netplay always runs 60 steps a second */
-        g_ai_mode = 0;
-        g_autopilot = 0;
-    } else {
-        /* Player 2 starts with the same build; each player can change theirs. */
-        memcpy(parts2, parts, sizeof parts2);
-        demo_load(dir, parts2, &ac_data[1], err, sizeof err);
+    net_menu_init(&nmenu);
+    if (g_net_cmd) {
+        int own[SLOT_COUNT];
+        memcpy(own, parts, sizeof own);
+        if (!g_part_args) hangar_parts(own);
+        const int stage = g_net_stage >= 0 ? g_net_stage : g_stage_id > 0 ? g_stage_id : 27;
+        net = net_open(dir, g_net_cmd == 2 ? g_net_join : NULL, stage, g_net_delay, own, net_status, sizeof net_status);
+        mode = net ? 3 : 4;
     }
+    /* Player 2 starts with the same build; each player can change theirs. */
+    memcpy(parts2, parts, sizeof parts2);
+    demo_load(dir, parts2, &ac_data[1], err, sizeof err);
     int *const pp[2] = { parts, parts2 };
     acr_gen1_ac_def *def = &ac_data[0].def;
     acr_gen1_ac_def *def2 = &ac_data[1].def;
@@ -881,19 +868,11 @@ int main(int argc, char **argv) {
             acr_gen1_ai_init(&g_ai[i_], &p_, 0x1234u + (uint32_t)i_ * 977u + (uint32_t)(++g_ai_round) * 7919u); \
         }                                                                                 \
     } while (0)
-    int human_plus = 0, two_players = SDL_getenv("ACR_TWO") != NULL || g_net;
+    int human_plus = 0, two_players = SDL_getenv("ACR_TWO") != NULL;
     if (SDL_getenv("ACR_AI")) g_ai_mode = ai_preset_of(SDL_getenv("ACR_AI"));
     #define ROUND_MS 120000   /* two minutes, like Master of Arena's VS mode */
     int32_t round_ms = ROUND_MS, ko_ms = 0;
     int round_over = 0, round_result = 0;
-    if (g_net) {
-        /* Everything the fight reads is fixed before the first snapshot. */
-        def->stage = def2->stage = battle.stage = g_stage_on ? &g_stage.collision : NULL;
-        def->landing_from_anim = def2->landing_from_anim = (uint8_t)g_landing_anim;
-        battle.step_ms = (uint16_t)(1000 / g_tick_rate);
-        battle.step_rate = def->step_rate;
-        battle.gen1_rate = def->gen1_rate;
-    }
     SETUP_FIGHTERS();
     /* Netplay: the match as set up is every round's start; the rollback
      * session runs it from here. */
@@ -902,13 +881,6 @@ int main(int argc, char **argv) {
     int net_skip_cool = 0, net_lost = 0;
     unsigned net_skips = 0;
     Uint64 net_wait_since = 0;                /* when the match started waiting for the other player */
-    if (g_net) {
-        net_start = battle;
-        net_start.rng = net_info.seed;
-        const acr_gen1_match_rules rules = { ROUND_MS, 5000, g_stage_on ? 0 : ARENA };
-        acr_rb_init(&net_rb, net_info.local, net_info.delay, &net_start, &rules);
-        battle = net_rb.cur.b;
-    }
     acr_gen1_ac prevs[2] = { *P, *T };
     /* After a part change: new stats and weapons, same place in the arena. */
     #define REFRESH_FIGHTERS() do {                                                      \
@@ -937,6 +909,8 @@ int main(int argc, char **argv) {
         SDL_Event e;
         garage_command gcmd = GC_NONE;
         int to_garage = 0;
+        garage_action net_action = GA_NONE;   /* the network screens' input this frame */
+        int net_action_keys = 0;
         while (SDL_PollEvent(&e)) {
             if (e.type == SDL_EVENT_QUIT) running = 0;
             if (e.type == SDL_EVENT_GAMEPAD_ADDED) {
@@ -948,6 +922,33 @@ int main(int argc, char **argv) {
             if (e.type == SDL_EVENT_GAMEPAD_REMOVED)
                 for (int k = 0; k < 2; ++k)
                     if (pads[k] && SDL_GetGamepadID(pads[k]) == e.gdevice.which) { SDL_CloseGamepad(pads[k]); pads[k] = NULL; }
+            if (mode >= 2) {   /* the network screens */
+                garage_action ga = GA_NONE;
+                int from_keys = 0;
+                if (mode == 2 && e.type == SDL_EVENT_TEXT_INPUT) net_menu_text(&nmenu, e.text.text);
+                if (e.type == SDL_EVENT_KEY_DOWN) {
+                    from_keys = 1;
+                    const SDL_Scancode k = e.key.scancode;
+                    if (mode == 2 && net_menu_typing(&nmenu)) {
+                        /* typing the address: letters are text, not moves */
+                        if (k == SDL_SCANCODE_BACKSPACE) net_menu_text(&nmenu, "\b");
+                        else if (k == SDL_SCANCODE_UP) ga = GA_UP;
+                        else if (k == SDL_SCANCODE_DOWN) ga = GA_DOWN;
+                        else if (k == SDL_SCANCODE_LEFT) ga = GA_LEFT;
+                        else if (k == SDL_SCANCODE_RIGHT) ga = GA_RIGHT;
+                        else if (k == SDL_SCANCODE_RETURN) ga = GA_OK;
+                        else if (k == SDL_SCANCODE_ESCAPE) ga = GA_CANCEL;
+                    } else {
+                        ga = key_action(k);
+                    }
+                }
+                if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) {
+                    ga = button_action(e.gbutton.button);
+                    if (e.gbutton.button == SDL_GAMEPAD_BUTTON_BACK) ga = GA_CANCEL;
+                }
+                if (ga != GA_NONE) net_action = ga, net_action_keys = from_keys;
+                continue;
+            }
             if (mode == 0) {   /* the garage takes all other input */
                 garage_action ga = GA_NONE;
                 if (e.type == SDL_EVENT_KEY_DOWN) ga = key_action(e.key.scancode);
@@ -974,6 +975,10 @@ int main(int argc, char **argv) {
                 if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_V) blade_pressed[0] = 1;
                 if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && e.gbutton.button == SDL_GAMEPAD_BUTTON_NORTH) switch_pressed[0] = 1;
                 if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && e.gbutton.button == SDL_GAMEPAD_BUTTON_EAST) blade_pressed[0] = 1;
+                if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && e.gbutton.button == SDL_GAMEPAD_BUTTON_BACK) {
+                    if (g_direct_test) running = 0;
+                    else to_garage = 1;
+                }
                 continue;
             }
             if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_F3) g_landing_anim = !g_landing_anim;
@@ -1127,25 +1132,40 @@ int main(int argc, char **argv) {
                 prevs[1] = *T;
             }
         }
+        if (to_garage && g_net) {
+            /* Leaving an online match: back to your own build, offline. */
+            net_link_close(net);
+            net = NULL;
+            g_net = 0;
+            two_players = SDL_getenv("ACR_TWO") != NULL;
+            hangar_parts(parts);
+            demo_load(dir, parts, &ac_data[0], err, sizeof err);
+            memcpy(parts2, parts, sizeof parts2);
+            demo_load(dir, parts2, &ac_data[1], err, sizeof err);
+            set_rate(&clock, def, g_tick_rate);
+            set_rate(&clock, def2, g_tick_rate);
+            SETUP_FIGHTERS();
+            prevs[0] = *P; prevs[1] = *T;
+        }
         if (to_garage) { mode = 0; gui.screen = 0; }
         if (mode == 0) {
             garage_action dir_action = pad_direction(pads[0], SDL_GetTicks());
-            /* Testing aid: ACR_KEYS="ok,down,ok,..." feeds the garage one action a frame. */
-            static const char *script;
-            static int script_read;
-            if (!script_read) { script = SDL_getenv("ACR_KEYS"); script_read = 1; }
-            if (script && *script && dir_action == GA_NONE) {
-                static const char *const k_names[] = { "", "up", "down", "left", "right", "ok", "back", "lb", "rb" };
-                for (int k = 1; k < 9; ++k)
-                    if (!SDL_strncmp(script, k_names[k], SDL_strlen(k_names[k]))) { dir_action = (garage_action)k; break; }
-                script = SDL_strchr(script, ',');
-                if (script) ++script;
-            }
+            if (dir_action == GA_NONE) dir_action = script_action();
             if (dir_action != GA_NONE) {
                 const garage_command c = garage_input(&gui, &gdata, dir_action);
                 if (c != GC_NONE) gcmd = c;
             }
             if (gcmd == GC_QUIT) running = 0;
+            if (gcmd == GC_NETWORK) {
+                mode = 2;
+                nmenu.message_ms = 0;
+                for (int i = 0; i < NET_MENU_STAGES; ++i) {
+                    const int id = i == 0 ? 27 : i == 1 ? 39 : 0;
+                    nmenu.stage_ok[i] = id == 0 || net_stage_check(dir, id) != 0;
+                }
+                if (!nmenu.stage_ok[nmenu.stage_pick]) nmenu.stage_pick = 2;
+                SDL_StartTextInput(window);
+            }
             if (gcmd == GC_CHANGED || gcmd == GC_TEST) {
                 int fitted[SLOT_COUNT];
                 hangar_parts(fitted);
@@ -1162,6 +1182,111 @@ int main(int argc, char **argv) {
                 prevs[0] = *P; prevs[1] = *T;
                 last = SDL_GetTicksNS();
             }
+        }
+        if (mode >= 2) {
+            const Uint64 now_ms = SDL_GetTicks();
+            static Uint64 net_last_ms;
+            const int elapsed = net_last_ms ? (int)(now_ms - net_last_ms) : 0;
+            net_last_ms = now_ms;
+            if (net_action == GA_NONE && mode == 2) net_action = pad_direction(pads[0], now_ms);
+            if (net_action == GA_NONE) net_action = script_action();
+            if (mode == 2) {
+                if (!finder) finder = net_finder_open(dir);
+                nmenu.found_n = net_finder_poll(finder, now_ms, nmenu.found, NET_MENU_FOUND);
+                char join_to[256];
+                const net_menu_command c = net_menu_input(&nmenu, net_action, net_action_keys, join_to, sizeof join_to);
+                if (c == NM_BACK) { mode = 0; gui.screen = 0; SDL_StopTextInput(window); }
+                if (c == NM_HOST || c == NM_JOIN) {
+                    int own[SLOT_COUNT];
+                    hangar_parts(own);
+                    net_status[0] = 0;
+                    net = net_open(dir, c == NM_JOIN ? join_to : NULL, net_menu_stage(&nmenu), nmenu.delay, own,
+                                   net_status, sizeof net_status);
+                    mode = net ? 3 : 4;
+                }
+            } else if (mode == 3) {
+                if (net_action == GA_CANCEL) {
+                    net_link_close(net);
+                    net = NULL;
+                    if (g_direct_test) running = 0;
+                    mode = 2;
+                } else {
+                    const int st = net_link_connect(net, now_ms, &net_info, net_status, sizeof net_status);
+                    if (st == NET_FAILED) {
+                        SDL_Log("netplay: %s", net_link_error(net));
+                        SDL_snprintf(net_status, sizeof net_status, "%s", net_link_error(net));
+                        net_link_close(net);
+                        net = NULL;
+                        mode = 4;
+                    } else if (st == NET_STARTED) {
+                        /* The match starts: both PCs build the same one. Player 1
+                         * is the host's garage build, player 2 the guest's, on the
+                         * host's stage. */
+                        SDL_Log("netplay: match started, you are player %d (%s vs %s), stage %d, input delay %d",
+                                net_info.local + 1, net_info.name[0], net_info.name[1], net_info.stage, net_info.delay);
+                        for (int i = 0; i < SLOT_COUNT; ++i) { parts[i] = net_info.parts[0][i]; parts2[i] = net_info.parts[1][i]; }
+                        demo_load(dir, parts, &ac_data[0], err, sizeof err);
+                        demo_load(dir, parts2, &ac_data[1], err, sizeof err);
+                        if (net_info.stage > 0 && !(g_stage.ok && g_stage_id == net_info.stage)) {
+                            demo_stage tmp;
+                            if (demo_stage_load(dir, net_info.stage, &tmp)) {
+                                if (g_stage.ok) demo_stage_free(&g_stage);
+                                g_stage = tmp;
+                                g_stage_id = net_info.stage;
+                            }
+                        }
+                        g_stage_on = net_info.stage > 0 && g_stage.ok && g_stage_id == net_info.stage;
+                        g_tick_rate = 60;          /* netplay always runs 60 steps a second */
+                        g_ai_mode = 0;
+                        g_autopilot = 0;
+                        human_plus = 0;
+                        two_players = 1;
+                        g_net = 1;
+                        set_rate(&clock, def, g_tick_rate);
+                        set_rate(&clock, def2, g_tick_rate);
+                        /* Everything the fight reads is fixed before the first snapshot. */
+                        def->stage = def2->stage = battle.stage = g_stage_on ? &g_stage.collision : NULL;
+                        def->landing_from_anim = def2->landing_from_anim = (uint8_t)g_landing_anim;
+                        battle.step_ms = (uint16_t)(1000 / g_tick_rate);
+                        battle.step_rate = def->step_rate;
+                        battle.gen1_rate = def->gen1_rate;
+                        SETUP_FIGHTERS();
+                        net_start = battle;
+                        net_start.rng = net_info.seed;
+                        const acr_gen1_match_rules rules = { ROUND_MS, 5000, g_stage_on ? 0 : ARENA };
+                        acr_rb_init(&net_rb, net_info.local, net_info.delay, &net_start, &rules);
+                        battle = net_rb.cur.b;
+                        prevs[0] = *P; prevs[1] = *T;
+                        net_skip_cool = 0; net_lost = 0; net_skips = 0; net_wait_since = 0;
+                        switch_pressed[0] = switch_pressed[1] = blade_pressed[0] = blade_pressed[1] = 0;
+                        net_finder_close(finder);
+                        finder = NULL;
+                        SDL_StopTextInput(window);
+                        mode = 1;
+                        last = SDL_GetTicksNS();
+                        net_link_touch(net, SDL_GetTicks());   /* the stage load took a while */
+                        continue;
+                    }
+                }
+            } else if (mode == 4) {
+                if (net_action == GA_OK || net_action == GA_CANCEL) {
+                    if (g_direct_test) running = 0;
+                    mode = 2;
+                }
+            }
+            int pw = 0, ph = 0;
+            SDL_GetWindowSizeInPixels(window, &pw, &ph);
+            if (pw < 1 || ph < 1) { SDL_Delay(10); continue; }
+            acr_render_begin(pw, ph, 18, 22, 28);
+            const float hud_w = acr_render_hud(0, 0, pw, ph);
+            if (mode == 2) net_menu_draw(&nmenu, hud_w, elapsed);
+            else if (mode == 3) net_menu_draw_status(hud_w, "NETWORK MATCH", net_status);
+            else {
+                char text[1800];
+                SDL_snprintf(text, sizeof text, "%s\n\nA / ENTER: BACK", net_status);
+                net_menu_draw_status(hud_w, "COULD NOT START THE MATCH", text);
+            }
+            goto present;
         }
         if (mode == 0) {
             static Uint64 garage_last_ms;
@@ -1234,7 +1359,8 @@ int main(int argc, char **argv) {
             int len;
             while ((len = net_link_recv(net, pkt, sizeof pkt, now_ms)) > 0)
                 if (acr_rb_read(&net_rb, pkt, len) == 2) net_lost = 2;    /* they left */
-            if (!net_lost && net_link_quiet_ms(net, now_ms) > 5000) net_lost = 1;
+            /* Nothing heard for 10 s: shown as lost, but the match goes on if they come back. */
+            net_lost = net_lost == 2 ? 2 : net_link_quiet_ms(net, now_ms) > 10000;
             const int me = net_info.local;
             const acr_gen1_ac before[2] = { battle.f[0].ac, battle.f[1].ac };
             int ran = 0;
@@ -1788,13 +1914,14 @@ int main(int argc, char **argv) {
         SDL_GL_SwapWindow(window);
     }
 
-    if (g_net) {
+    if (net && g_net) {
         SDL_Log("netplay: ended at step %u, %u fixes (deepest %u steps), %u checks in step, desync at %u, ping %d ms, "
                 "%u waits, %u skips, adv %d/%d",
                 net_rb.frame, net_rb.rollbacks, net_rb.deepest, net_rb.checks_ok, acr_rb_desync(&net_rb),
                 net_link_ping_ms(net), net_rb.waits, net_skips, net_rb.local_adv256 / 256, net_rb.remote_adv256 / 256);
-        net_link_close(net);
     }
+    net_link_close(net);
+    net_finder_close(finder);
     for (int k = 0; k < 2; ++k) if (pads[k]) SDL_CloseGamepad(pads[k]);
     SDL_GL_DestroyContext(gl);
     SDL_DestroyWindow(window);
