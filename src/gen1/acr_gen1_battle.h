@@ -171,6 +171,8 @@ typedef struct acr_gen1_shot {
  *   BLADE_EN_PCT of the charge drain, and after the swing the AC stands
  *   still for RECOVER_HIT_MS after a hit or RECOVER_MISS_MS after a miss
  *   (no moving, firing or swinging).
+ * - Running dry: no energy weapons (or blade, as for everyone) until the
+ *   bar is full again; the boost toggle still works (acr_gen1_sim.h).
  * - Hard lock (a toggle): while the target is in the current weapon's
  *   (lagging, smaller) sight, the AC turns and tilts toward it at its normal
  *   rates whenever the pilot isn't turning / tilting. It drops when the

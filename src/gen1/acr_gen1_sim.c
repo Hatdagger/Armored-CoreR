@@ -276,6 +276,22 @@ static void game_stage_tick(acr_gen1_ac *ac, const acr_gen1_ac_def *def, int32_t
     if (!boosting) { ac->vx = 0; ac->vz = 0; }
 }
 
+int32_t acr_gen1_quick_cost(const acr_gen1_ac_def *def, int air) {
+    const acr_gen1_motion *m = &def->motion;
+    const int32_t accel = air ? m->air_accel : m->boost_accel, top = air ? m->air_max : m->boost_max;
+    const int64_t dist = (int64_t)top * ACR_GEN1_QUICK_TICKS;
+    int64_t covered = 0, v = 0;
+    int32_t ticks = 0;
+    if (accel <= 0 || top <= 0) ticks = ACR_GEN1_QUICK_TICKS;
+    while (covered < dist && ticks < 1000) {    /* a normal boost from a stand */
+        v += accel;
+        if (v > top) v = top;
+        covered += v;
+        ++ticks;
+    }
+    return ticks * (int32_t)(def->stats.rise_drain >> 1);
+}
+
 void acr_gen1_ac_spawn(acr_gen1_ac *ac, const acr_gen1_ac_def *def, int32_t x, int32_t z, uint16_t yaw) {
     *ac = (acr_gen1_ac){0};
     ac->x = ac->px = ac->sx = x;
@@ -322,20 +338,29 @@ void acr_gen1_ac_tick(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
 
     /* Modern controls: the quick boost (see ACR_GEN1_QUICK_TICKS). */
     if (ac->quick_cool) --ac->quick_cool;
+    if (!ac->quick_ticks && ac->quick_chain && ++ac->quick_gap > ACR_GEN1_QUICK_CHAIN_GAP) {
+        ac->quick_chain = 0;                    /* too long: the chain starts over */
+        ac->quick_gap = 0;
+    }
     const int quick_press = ac->quick_pending;
-    ac->quick_pending = 0;
-    if (quick_press && dir && !ac->quick_cool && !ac->drained && ac->energy > 0 && !in.crouch &&
+    ac->quick_pending = (uint8_t)(quick_press && ac->quick_ticks);   /* pressed mid-burst: waits for its end */
+    if (quick_press && !ac->quick_ticks && dir && !ac->quick_cool && !ac->drained && ac->energy > 0 && !in.crouch &&
         (ac->state == ACR_GEN1_GROUND || ac->state == ACR_GEN1_AIR)) {
-        const int32_t top = ac->state == ACR_GEN1_AIR ? m->air_max : m->boost_max;
+        const int air = ac->state == ACR_GEN1_AIR;
+        const int32_t top = air ? m->air_max : m->boost_max;
+        const int32_t cost = acr_gen1_quick_cost(def, air);
+        if (ac->energy > cost) ac->energy -= cost;
+        else { ac->energy = 0; ac->drained = 1; }
         ac->vx = (int32_t)((int64_t)dx * top / 4096);
         ac->vz = (int32_t)((int64_t)dz * top / 4096);
         ac->quick_ticks = ACR_GEN1_QUICK_TICKS;
-        ac->quick_cool = ACR_GEN1_QUICK_COOL;
-        if (ac->state == ACR_GEN1_GROUND) set_anim(ac, ACR_GEN1_ANIM_IDLE);
+        ac->quick_gap = 0;
+        if (++ac->quick_chain >= ACR_GEN1_QUICK_CHAIN) { ac->quick_chain = 0; ac->quick_cool = ACR_GEN1_QUICK_COOL; }
+        if (!air) set_anim(ac, ACR_GEN1_ANIM_IDLE);
     }
     if (ac->quick_ticks && (ac->state == ACR_GEN1_GROUND || ac->state == ACR_GEN1_AIR)) {
         --ac->quick_ticks;
-        drain = 2;                              /* a ground boost's cost */
+        drain = 4;                              /* paid at the press: no cost, no refill */
         if (ac->state == ACR_GEN1_GROUND) {
             ac->coast = 3;
             mx = ac->vx;
@@ -377,7 +402,7 @@ void acr_gen1_ac_tick(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
             break;
         }
         /* Modern controls: the boost toggle, a slow ground boost. */
-        const int cruising = in.cruise && !in.boost && !ac->drained && ac->energy > 0 && dir && moving;
+        const int cruising = in.cruise && !in.boost && (ac->drained || ac->energy > 0) && dir && moving;
         if (cruising) {
             const int32_t top = (int32_t)m->boost_max * ACR_GEN1_CRUISE_PCT / 100;
             ac->vx += dx * (int32_t)m->boost_accel / 4096;
@@ -515,9 +540,14 @@ moved:
     const int moving_refill = on_ground && (walking(ac) || ac->vx || ac->vz);
     int32_t cost = s->rise_drain;
     int32_t refill = moving_refill ? s->refill_moving : s->refill_standing;
+    if (drain == 4) return;                     /* quick boost burst: paid at the press */
     if (ac->drained) {
         if (ac->energy >= s->energy_capacity) { ac->energy = s->energy_capacity; ac->drained = 0; }
-        else ac->energy += refill >> 1;
+        else {
+            ac->energy += refill >> 1;
+            if (drain == 3) ac->energy -= (cost >> 1) * ACR_GEN1_CRUISE_PCT / 100;   /* the toggle still runs */
+            if (ac->energy < 0) ac->energy = 0;
+        }
         return;
     }
     if (ac->energy < s->red_zone) { cost >>= 2; refill >>= 2; }
