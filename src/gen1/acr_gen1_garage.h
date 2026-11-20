@@ -106,7 +106,9 @@ acr_gen1_result acr_gen1_shop_sell(acr_gen1_hangar *h, const acr_gen1_catalog *c
 acr_gen1_result acr_gen1_garage_fit(acr_gen1_hangar *h, const acr_gen1_catalog *c,
                                     acr_gen1_slot slot, unsigned index, uint32_t *removed);
 
-/* Fits or removes option `bit`. Fitting needs a spare copy and free core slots. */
+/* Fits or removes option `bit`. Fitting needs a spare copy and free core
+ * slots; SP-MODERN takes every other option off instead (it uses all the
+ * slots), and while it is fitted no other option fits. */
 acr_gen1_result acr_gen1_garage_option(acr_gen1_hangar *h, const acr_gen1_catalog *c,
                                        unsigned bit, int on);
 

@@ -159,10 +159,18 @@ garage_command garage_input(garage_ui *ui, garage_data *d, garage_action a) {
             say(ui, "MODERN CONTROLS NEED A TWIN-STICK CONTROLLER.");
             return GC_NONE;
         }
+        const uint16_t options_before = d->hangar->options;
         if (s < 0) r = acr_gen1_garage_option(d->hangar, d->cat, (unsigned)index,
                                                !((d->hangar->options >> index) & 1u));
         else r = acr_gen1_garage_fit(d->hangar, d->cat, (acr_gen1_slot)s, (unsigned)index, &removed);
-        if (r != ACR_GEN1_OK) { say(ui, result_text(r)); return GC_NONE; }
+        if (r != ACR_GEN1_OK) {
+            if (s < 0 && r == ACR_GEN1_NO_OPTION_SLOTS && (d->hangar->options & ACR_GEN1_OPTION_MODERN))
+                say(ui, "SP-MODERN USES EVERY OPTION SLOT.");
+            else say(ui, result_text(r));
+            return GC_NONE;
+        }
+        if (s < 0 && (options_before & (uint16_t)~d->hangar->options & (uint16_t)~ACR_GEN1_OPTION_MODERN))
+            say(ui, "OTHER OPTIONAL PARTS UNEQUIPPED.");
         if (removed) {
             char text[96] = "UNEQUIPPED:";
             for (int k = 0; k < ACR_GEN1_SLOT_COUNT; ++k)

@@ -214,6 +214,7 @@ acr_gen1_result acr_gen1_garage_option(acr_gen1_hangar *h, const acr_gen1_catalo
     if (!o) return ACR_GEN1_NOT_IN_SHOP;
     if (h->options & m) return ACR_GEN1_ALREADY_FITTED;
     if (!acr_gen1_spare_copies(h, ACR_GEN1_CAT_OPTION, bit)) return ACR_GEN1_NONE_SPARE;
+    if (bit == ACR_GEN1_OPTION_MODERN_BIT) { h->options = (uint16_t)m; return ACR_GEN1_OK; }   /* the others come off */
     acr_gen1_fit_build b;
     acr_gen1_garage_build(h, c, &b);
     unsigned used = 0;

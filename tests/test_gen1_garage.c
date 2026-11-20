@@ -231,9 +231,9 @@ static void test_modern(void) {
     EXPECT(h.owned[ACR_GEN1_CAT_OPTION][m] == 1 && !(h.options & ACR_GEN1_OPTION_MODERN));
     h.owned[ACR_GEN1_CAT_OPTION][0] = 1;
     EXPECT(acr_gen1_garage_option(&h, &g_cat, 0, 1) == ACR_GEN1_OK);          /* 1 of core 0's 2 slots */
-    EXPECT(acr_gen1_garage_option(&h, &g_cat, m, 1) == ACR_GEN1_NO_OPTION_SLOTS);
-    EXPECT(acr_gen1_garage_option(&h, &g_cat, 0, 0) == ACR_GEN1_OK);
-    EXPECT(acr_gen1_garage_option(&h, &g_cat, m, 1) == ACR_GEN1_OK);
+    EXPECT(acr_gen1_garage_option(&h, &g_cat, m, 1) == ACR_GEN1_OK);          /* takes option 0 off */
+    EXPECT(h.options == ACR_GEN1_OPTION_MODERN);
+    EXPECT(acr_gen1_human_plus_level(9, h.options) == 0 && acr_gen1_human_plus_level(9, 1) == 9);
     EXPECT(acr_gen1_garage_option(&h, &g_cat, 0, 1) == ACR_GEN1_NO_OPTION_SLOTS);
     acr_gen1_fit_numbers n;
     EXPECT(!(acr_gen1_garage_check(&h, &g_cat, &n) & ACR_GEN1_FAIL_OPTION_SLOTS) && n.option_slots_used == 2);
