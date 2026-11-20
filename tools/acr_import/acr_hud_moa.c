@@ -71,6 +71,81 @@ static int write_layer(const char *path, const uint8_t *px, unsigned w, unsigned
     return ok;
 }
 
+/* Every other picture in RTIM 61 is a battle effect (muzzle glows,
+ * fireballs, smoke, fire, sparks, shot sprites, lens flare, ...): written
+ * one PNG per picture and palette row, in the order they sit in the entry
+ * (docs/research/gen1-effects.md). Colour 0 (0x0000) is see-through, as
+ * the PS1 draws it. */
+static int export_fx(const uint8_t *d, size_t n, const char *out_dir) {
+    char path[1200];
+    size_t o = 0;
+    unsigned index = 0;
+    int ok = 1;
+    while (ok && o + 8 <= n && u32(d + o) == 0x10) {
+        const uint32_t flags = u32(d + o + 4);
+        o += 8;
+        const uint8_t *clut = NULL;
+        unsigned cw = 0, ch = 0;
+        if (flags & 8) {
+            if (o + 12 > n) break;
+            const uint32_t clen = u32(d + o);
+            if (clen < 12 || o + clen > n) break;
+            cw = u16(d + o + 8);
+            ch = u16(d + o + 10);
+            if ((size_t)cw * ch * 2 > clen - 12) break;
+            clut = d + o + 12;
+            o += clen;
+        }
+        if (o + 12 > n) break;
+        const uint32_t len = u32(d + o);
+        if (len < 12 || o + len > n) break;
+        const unsigned vx = u16(d + o + 4), bpp = flags & 3;
+        const unsigned words = u16(d + o + 8), h = u16(d + o + 10);
+        const uint8_t *px = d + o + 12;
+        o += len;
+        const unsigned this_index = index++;
+        if (vx >= 832 || !clut || bpp > 1) continue;            /* the HUD and text sheets */
+        const unsigned w = bpp == 0 ? words * 4u : words * 2u, colours = bpp == 0 ? 16u : 256u;
+        if (cw < colours || (size_t)words * 2 * h > len - 12) continue;
+        uint8_t *pixels = malloc((size_t)w * h);
+        if (!pixels) return 0;
+        for (unsigned y = 0; y < h; ++y)
+            for (unsigned x = 0; x < w; ++x)
+                pixels[y * w + x] = bpp == 0 ? (uint8_t)((px[y * words * 2 + x / 2] >> ((x & 1) * 4)) & 15)
+                                             : px[y * words * 2 + x];
+        for (unsigned row = 0; row < ch && ok; ++row) {
+            uint8_t pal[768], alpha[256];
+            memset(pal, 0, sizeof pal);
+            memset(alpha, 0, sizeof alpha);
+            for (unsigned c = 0; c < colours; ++c) {
+                const uint16_t v = u16(clut + (row * cw + c) * 2);
+                const unsigned r = v & 31, g = (v >> 5) & 31, b = (v >> 10) & 31;
+                pal[3 * c] = (uint8_t)(r << 3 | r >> 2);
+                pal[3 * c + 1] = (uint8_t)(g << 3 | g >> 2);
+                pal[3 * c + 2] = (uint8_t)(b << 3 | b >> 2);
+                alpha[c] = v ? 255 : 0;
+            }
+            if (row) snprintf(path, sizeof path, "%s/fx-%02u-%u.png", out_dir, this_index, row);
+            else snprintf(path, sizeof path, "%s/fx-%02u.png", out_dir, this_index);
+            ok = acr_write_png8(path, w, h, pixels, pal, alpha);
+        }
+        free(pixels);
+    }
+    return ok;
+}
+
+int acr_export_moa_fx(const char *unpacked_dir, const char *out_dir, char *err, size_t err_size) {
+    char path[1200];
+    snprintf(path, sizeof path, "%s/GG/COM/RTIM/061.bin", unpacked_dir);
+    size_t n = 0;
+    uint8_t *d = read_all(path, &n);
+    if (!d) return 1;     /* not there: the engine draws plain stand-ins */
+    const int ok = export_fx(d, n, out_dir);
+    free(d);
+    if (!ok && err) snprintf(err, err_size, "could not write the effect pictures in %s", out_dir);
+    return ok;
+}
+
 int acr_export_moa_hud(const char *unpacked_dir, const char *out_dir, char *err, size_t err_size) {
     char path[1200];
     snprintf(path, sizeof path, "%s/GG/COM/RTIM/061.bin", unpacked_dir);

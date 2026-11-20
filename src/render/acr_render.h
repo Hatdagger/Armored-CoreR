@@ -42,11 +42,14 @@ void acr_render_lines(const acr_vtx *v, int count);
  * 128 shows the texel as it is (texel x colour / 128, up to twice as
  * bright); see-through texels (alpha 0) are skipped. ACR_MESH_SEMI blends
  * without writing depth (draw these after the solid ones). */
-enum { ACR_MESH_PS1_TEXEL = 1, ACR_MESH_SEMI = 2, ACR_MESH_OVERLAY = 4 };
+enum { ACR_MESH_PS1_TEXEL = 1, ACR_MESH_SEMI = 2, ACR_MESH_OVERLAY = 4, ACR_MESH_ADD = 8 };
 /* ACR_MESH_OVERLAY: faces lying on top of others in the same plane (a
  * model's second layer, which the PS1 simply drew later) are pulled toward
  * the eye in depth so they always show over the face below instead of
- * flickering through it. */
+ * flickering through it.
+ * ACR_MESH_ADD: the PS1's additive blend (screen + colour x alpha) for
+ * glows, fire and sparks; no depth writes and no fog (fog would add the
+ * fog colour where the sprite is see-through). */
 void acr_render_mesh(const acr_vtx *v, int count, uint32_t texture, int flags);
 /* The stage's sky: textured faces drawn PS1-style around the eye (moved
  * with it), behind everything else (no depth, no fog). Call right after

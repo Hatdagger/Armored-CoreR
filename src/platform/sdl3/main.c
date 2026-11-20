@@ -47,6 +47,8 @@
 #include "../../model/acr_aim.h"
 #include "garage.h"
 #include "battle_hud.h"
+#include "fx.h"
+#include "sfx.h"
 
 /* HUD framing: the PS1's 4:3 layout in the middle (default) or spread to a
  * wide screen's edges (F9 / --hud-wide). */
@@ -875,6 +877,8 @@ int main(int argc, char **argv) {
             acr_gen1_ac_spawn(T, def2, target_side() * 64, (target_dist() - 2500) * 64, 2048); \
         }                                                                                 \
         memset(battle.shot, 0, sizeof battle.shot);                                       \
+        fx_reset();                                                                       \
+        sfx_reset();                                                                      \
         round_ms = ROUND_MS; round_over = 0; round_result = 0; ko_ms = 0;                 \
         for (int i_ = 0; i_ < 2; ++i_) {                                                  \
             const acr_gen1_ai_profile p_ = ai_profile(g_ai_mode);                         \
@@ -1357,6 +1361,25 @@ int main(int argc, char **argv) {
         refresh_model(0, dir, parts, ac_data[0].model);
         refresh_model(1, dir, parts2, ac_data[1].model);
         const int views = two_players && !g_net ? 2 : 1;
+        {   /* weapon effects: once a frame, watching the fight from outside */
+            static int fx_tried;
+            if (!fx_tried) { fx_tried = 1; fx_load(g_import_dir); }
+            for (int k = 0; k < 2; ++k) fx_set_weapons(k, (const char (*)[24])ac_data[k].weapon_type, ac_data[k].weapons);
+            fx_update(&battle, SDL_GetTicksNS());
+        }
+        {   /* fight sounds: the same, heard from your own AC (player 1 on a shared screen) */
+            static int sfx_tried;
+            if (!sfx_tried) { sfx_tried = 1; sfx_open(g_import_dir); }
+            const int ear = g_net ? net_info.local : 0;
+            for (int k = 0; k < 2; ++k) sfx_set_weapons(k, (const char (*)[24])ac_data[k].weapon_type, ac_data[k].weapons);
+            sfx_listen sl;
+            SDL_zero(sl);
+            sl.view = ear;
+            sl.red_zone = ac_data[ear].def.stats.red_zone;
+            sl.out_of_area = acr_gen1_battle_out_of_area(&battle, ear) != 0;
+            sl.round_over = round_over;
+            sfx_update(&battle, &sl, SDL_GetTicksNS());
+        }
         for (int vi = 0; vi < views; ++vi) {
         const int view = g_net ? net_info.local : vi;   /* online: your own player, full screen */
         const int vx = vi * pw / views, vpw = (vi + 1) * pw / views - vx;
@@ -1390,6 +1413,7 @@ int main(int argc, char **argv) {
             acr_mat_perspective(proj, 2.0f * atanf(t), aspect, 12.0f, 80000.0f);
         }
         float sky_eye[3] = { 0, 0, 0 };
+        float cam_fwd[3] = { 0, 0, 1 };
         {
             /* L2/R2 tilt (measured): the look-at point turns on a circle of
              * 82 around a pivot 186 up the AC's axis, up to ~66 degrees; the
@@ -1451,6 +1475,7 @@ int main(int argc, char **argv) {
             const float fwd[3] = { look[0] - eye[0], look[1] - eye[1], look[2] - eye[2] };
             const float up[3] = { 0, 1, 0 };
             acr_mat_look(viewm, eye, fwd, up);
+            for (int c = 0; c < 3; ++c) cam_fwd[c] = fwd[c];
             for (int k = 0; k < 4; ++k) viewm[4 * k] = -viewm[4 * k];
         }
         const acr_fog fog = { 30000.0f, 60000.0f, 18, 22, 28 };
@@ -1502,13 +1527,6 @@ int main(int argc, char **argv) {
         if (tdyaw < -2048) tdyaw += 4096;
         if (battle.f[1 - view].ap > 0)
             draw_ac(1 - view, T, tx, ty, tz, ((float)tprev.syaw + tdyaw * a) * (6.2831853f / 4096.0f), 0);
-        for (int k = 0; k < ACR_GEN1_MAX_SHOTS; ++k) {
-            const acr_gen1_shot *sh = &battle.shot[k];
-            if (!sh->active) continue;
-            const int missile = sh->missile;
-            if (missile) add_box(v3(sh->x / 64.0f, -sh->y / 64.0f, sh->z / 64.0f), 0, v3(10, 10, 10), 1.0f, 0.55f, 0.15f);
-            else add_box(v3(sh->x / 64.0f, -sh->y / 64.0f, sh->z / 64.0f), 0, v3(5, 5, 5), 1.0f, 0.95f, 0.5f);
-        }
         if (battle.f[view].swing >= ACR_GEN1_BLADE_LUNGE_MS) {   /* blade arc while lunging */
             float r = 205.0f;
             for (int k = 0; k < battle.f[view].weapons; ++k)
@@ -1528,6 +1546,7 @@ int main(int argc, char **argv) {
         }
         flush_scene();
         if (g_stage_on) demo_stage_draw(&g_stage, 1);   /* see-through faces last */
+        fx_draw(&battle, sky_eye, cam_fwd);   /* shots, flashes, smoke, blasts */
 
         /* HUD, on a 480-high grid as wide as this view's shape. */
         g_vw = acr_render_hud(vx, 0, vpw, ph);
@@ -1796,6 +1815,7 @@ int main(int argc, char **argv) {
         net_link_close(net);
     }
     for (int k = 0; k < 2; ++k) if (pads[k]) SDL_CloseGamepad(pads[k]);
+    sfx_close();
     SDL_GL_DestroyContext(gl);
     SDL_DestroyWindow(window);
     SDL_Quit();

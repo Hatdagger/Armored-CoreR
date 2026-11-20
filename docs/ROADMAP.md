@@ -40,8 +40,8 @@ weapons, damage, two-player test build (see `docs/research/`).
    per part; the engine (`src/model/`) reads the export, puts the build's
    parts on its animation set's skeleton, plays the joint animations with
    their hold times and builds the patterned textures from the player's
-   colours. The test build draws both ACs this way. Still to come: the
-   effects texture ("fx" faces), per-texel semi-transparency, aiming joints
+   colours. The test build draws both ACs this way. Still to come: drawing the
+   "fx" faces with the effects page (found: RTIM 61, docs/research/gen1-effects.md), per-texel semi-transparency, aiming joints
    (tables a/b), kneel/landing poses and colour patterns 1-15.
 3. **Garage, shop, test mode** (first version done): the game opens in the
    garage. `src/gen1/acr_gen1_garage.c` (no OS calls) holds what a player

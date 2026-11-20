@@ -32,6 +32,7 @@ empty arena with Gen 1 movement.
 | Gen 1 movement: walk, strafe, turn, boost, rise, landing, energy, at the game's own 22 ticks a second at any step rate | second version |
 | AC graphics | real models from your disc: parts on the skeleton, joint animations, your colours (PS1-style lighting) |
 | Arenas: Green Silo and Ocean Platform from your disc, with the game's own wall and floor rules | first version |
+| Weapon effects: muzzle flashes, shots by weapon type, missile smoke trails, hits, explosions, an AC's blast, from the game's own pictures | first version |
 | Lock-on, guns, missiles (lock cursor, volleys, flight, giving up), blade, interceptor, damage: following the AC1Recomp fork's mapping of the game code | first version |
 | Two players on one machine (split screen) | first version |
 | Renderer: OpenGL 2.1, PS1-style lighting and fog, native resolution | first version |
@@ -52,8 +53,11 @@ the core, tools and tests, add `-DACR_BUILD_GAME=OFF`.
 
 ## Importing your disc
 
-Re-import after updating to this version: Green Silo now has its sky
-(stars behind the arches). Before that, the arenas gained the
+Re-import after updating to this version: the fight sounds need the
+game's shared fight bank (`sfx/`); without it fights are silent.
+`ACR_SFX_VOLUME=0..100` sets their volume (70 by default, 0 turns them off).
+Before that, the weapon effects needed the game's effect pictures (`fx/`);
+without them shots draw as plain glows. Before that, Green Silo gained its sky (stars behind the arches). Before that, the arenas gained the
 game's own collision data (`collision.txt`), so walls and floors follow
 the game's rules (an older import keeps the stand-in rules). Before that: the animation sets now carry
 the game's aim tables (the gun arm, waist and back units follow the
