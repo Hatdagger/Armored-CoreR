@@ -85,9 +85,9 @@ int main(void) {
     def.stats.thrust = 32; def.stats.thrust_80 = 25; def.stats.thrust_120 = 38;
     def.stats.turn_accel = 22; def.stats.turn_speed = 41;
     acr_gen1_motion_from_stats(&def.stats, &def.motion);
-    const acr_gen1_actions fire[2] = { { 1, 0, 0 }, { 0, 0, 0 } };
-    const acr_gen1_actions idle[2] = { { 0, 0, 0 }, { 0, 0, 0 } };
-    const acr_gen1_actions swing[2] = { { 0, 0, 1 }, { 0, 0, 0 } };
+    const acr_gen1_actions fire[2] = { { 1, 0, 0, 0 }, { 0, 0, 0, 0 } };
+    const acr_gen1_actions idle[2] = { { 0, 0, 0, 0 }, { 0, 0, 0, 0 } };
+    const acr_gen1_actions swing[2] = { { 0, 0, 1, 0 }, { 0, 0, 0, 0 } };
 
     /* Two ACs 3,000 apart, facing each other: the rifle locks, then hits. */
     static acr_gen1_battle b;
@@ -245,7 +245,7 @@ int main(void) {
         me->weapons = 2;
         me->weapon[0] = rifle(); me->ammo[0] = 200;
         me->weapon[1] = blade();
-        const acr_gen1_actions cycle[2] = { { 0, 1, 0 }, { 0, 0, 0 } };
+        const acr_gen1_actions cycle[2] = { { 0, 1, 0, 0 }, { 0, 0, 0, 0 } };
         acr_gen1_battle_step(&bb, none, cycle);
         EXPECT(me->current == 0);                       /* only the gun to cycle to */
         /* Nothing in reach: the full lunge, 516 straight ahead. */
@@ -387,7 +387,7 @@ int main(void) {
         cb.f[0].weapons = 1;
         cb.f[0].ammo[0] = 200;
         acr_gen1_ac_set_yaw(&cb.f[0].ac, 60);              /* target 60 to the left (bearing -60) */
-        acr_gen1_actions none_act[2] = { { 0, 0, 0 }, { 0, 0, 0 } };
+        acr_gen1_actions none_act[2] = { { 0, 0, 0, 0 }, { 0, 0, 0, 0 } };
         acr_gen1_battle_step(&cb, none, none_act);
         EXPECT(cb.f[0].cam_yaw == -20 && cb.f[0].cam_yaw_prev == 0);
         for (int t = 0; t < 5; ++t) acr_gen1_battle_step(&cb, none, none_act);
@@ -433,6 +433,44 @@ int main(void) {
         EXPECT(acr_gen1_battle_target(&q, 1) == 2);
         EXPECT(acr_gen1_battle_target(&q, 2) == 1);           /* the nearest in its box */
         for (int i = 0; i < 4; ++i) EXPECT(acr_gen1_battle_team(&q, acr_gen1_battle_target(&q, i)) != acr_gen1_battle_team(&q, i));
+        /* The user's lock rules. Starting a lock with two enemies side by
+         * side: the closer. */
+        SETUP4();
+        acr_gen1_ac_spawn(&q.f[1].ac, &def, -3000 * 64, 0, 0);
+        acr_gen1_ac_spawn(&q.f[2].ac, &def, 150 * 64, 3000 * 64, 2048);
+        acr_gen1_ac_spawn(&q.f[3].ac, &def, -150 * 64, 2400 * 64, 2048);
+        q.targeted = 0;
+        acr_gen1_battle_retarget(&q);
+        EXPECT(acr_gen1_battle_target(&q, 0) == 3);
+        /* Switch target: the next one in the sight, then round again. */
+        acr_gen1_actions sw4[ACR_GEN1_MAX_FIGHTERS] = { { 0 } };
+        sw4[0].switch_target = 1;
+        acr_gen1_battle_retarget_acts(&q, sw4);
+        EXPECT(acr_gen1_battle_target(&q, 0) == 2);
+        acr_gen1_battle_retarget_acts(&q, sw4);
+        EXPECT(acr_gen1_battle_target(&q, 0) == 3);
+        acr_gen1_battle_retarget_acts(&q, none_act4);
+        EXPECT(acr_gen1_battle_target(&q, 0) == 3);
+        /* One gun only: weapon switch swaps targets too (not with two weapons). */
+        acr_gen1_actions nx4[ACR_GEN1_MAX_FIGHTERS] = { { 0 } };
+        nx4[0].next_weapon = 1;
+        acr_gen1_battle_retarget_acts(&q, nx4);
+        EXPECT(acr_gen1_battle_target(&q, 0) == 3);
+        q.f[0].weapon[1] = blade();
+        acr_gen1_battle_retarget_acts(&q, nx4);
+        EXPECT(acr_gen1_battle_target(&q, 0) == 2);
+        q.f[0].weapon[1] = small_missile();
+        acr_gen1_battle_retarget_acts(&q, sw4);
+        EXPECT(acr_gen1_battle_target(&q, 0) == 3);
+        /* Crossing: locked on 2, enemy 3 passes in front of it; the lock stays on 2. */
+        acr_gen1_battle_retarget_acts(&q, sw4);
+        EXPECT(acr_gen1_battle_target(&q, 0) == 2);
+        for (int x = 1500; x >= -1500; x -= 250) {
+            acr_gen1_ac_spawn(&q.f[3].ac, &def, x * 64, 1800 * 64, 2048);
+            acr_gen1_battle_retarget(&q);
+            EXPECT(acr_gen1_battle_target(&q, 0) == 2);
+        }
+        SETUP4();
         /* Friendly fire: 0's rifle shots run into teammate 1, standing in the way. */
         acr_gen1_actions fire4[ACR_GEN1_MAX_FIGHTERS] = { { 0 } };
         fire4[0].fire = 1;

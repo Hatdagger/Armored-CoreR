@@ -932,7 +932,8 @@ int main(int argc, char **argv) {
 
     Uint64 last = SDL_GetTicksNS();
     const Uint64 start_ns = last;
-    int running = 1, show_help = 0, back_held = 0, back_combo = 0, switch_pressed[2] = { 0, 0 }, blade_pressed[2] = { 0, 0 };
+    int running = 1, show_help = 0, back_held = 0, back_combo = 0, switch_pressed[2] = { 0, 0 }, blade_pressed[2] = { 0, 0 },
+        target_pressed[2] = { 0, 0 };   /* switch target: Back/Select tap, X */
     SDL_Gamepad *pads[2] = { pad, NULL };
     {   /* a second controller, if there is one */
         int count = 0;
@@ -1009,11 +1010,19 @@ int main(int argc, char **argv) {
                 /* Online: the controls and screen options only; nothing that changes the fight. */
                 if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_TAB) switch_pressed[0] = 1;
                 if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_V) blade_pressed[0] = 1;
+                if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_X) target_pressed[0] = 1;
                 if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && e.gbutton.button == SDL_GAMEPAD_BUTTON_NORTH) switch_pressed[0] = 1;
                 if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && e.gbutton.button == SDL_GAMEPAD_BUTTON_EAST) blade_pressed[0] = 1;
-                if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && e.gbutton.button == SDL_GAMEPAD_BUTTON_BACK) {
+                /* Back/Select: a tap switches target; Back + Start leaves. */
+                if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && e.gbutton.button == SDL_GAMEPAD_BUTTON_BACK) { back_held = 1; back_combo = 0; }
+                if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && e.gbutton.button == SDL_GAMEPAD_BUTTON_START && back_held) {
+                    back_combo = 1;
                     if (g_direct_test) running = 0;
                     else to_garage = 1;
+                }
+                if (e.type == SDL_EVENT_GAMEPAD_BUTTON_UP && e.gbutton.button == SDL_GAMEPAD_BUTTON_BACK) {
+                    if (!back_combo) target_pressed[0] = 1;
+                    back_held = 0;
                 }
                 continue;
             }
@@ -1122,9 +1131,11 @@ int main(int argc, char **argv) {
                 else if (btn == SDL_GAMEPAD_BUTTON_START) { SETUP_FIGHTERS(); prevs[0] = *P; prevs[1] = *T; }
             }
             if (e.type == SDL_EVENT_GAMEPAD_BUTTON_UP && e.gbutton.button == SDL_GAMEPAD_BUTTON_BACK) {
-                if (!back_combo) cycle_rate = 1;
+                /* A tap on its own switches target (the step rate is on T). */
+                if (!back_combo) target_pressed[!two_players ? 0 : pads[1] ? (player_of(pads, e.gbutton.which, 0) == 1) : 1] = 1;
                 back_held = 0;
             }
+            if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_X) target_pressed[0] = 1;
             if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_T) cycle_rate = 1;
             if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_B) cycle_slot = SLOT_BOOSTER;
             if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_G) cycle_slot = SLOT_GEN;
@@ -1320,6 +1331,8 @@ int main(int argc, char **argv) {
                         for (int k = 0; k < ACR_GEN1_MAX_FIGHTERS; ++k) prevs[k] = battle.f[k].ac;
                         net_skip_cool = 0; net_lost = 0; net_skips = 0; net_wait_since = 0;
                         switch_pressed[0] = switch_pressed[1] = blade_pressed[0] = blade_pressed[1] = 0;
+                        target_pressed[0] = target_pressed[1] = 0;
+                        back_held = 0;
                         net_finder_close(finder);
                         finder = NULL;
                         SDL_StopTextInput(window);
@@ -1390,7 +1403,7 @@ int main(int argc, char **argv) {
             hold_fire = v[4];
         }
         const bool *keys = SDL_GetKeyboardState(NULL);
-        acr_gen1_actions act[2] = { { 0, 0, 0 }, { 0, 0, 0 } };
+        acr_gen1_actions act[2] = { { 0 }, { 0 } };
         act[0].fire = (uint8_t)(hold_fire || keys[SDL_SCANCODE_F] || keys[SDL_SCANCODE_LCTRL] ||
                                 (ctl[0] && !back_held && SDL_GetGamepadButton(ctl[0], SDL_GAMEPAD_BUTTON_WEST)));
         if (two_players)
@@ -1433,13 +1446,14 @@ int main(int argc, char **argv) {
                 acr_gen1_actions a = act[0];
                 a.next_weapon = (uint8_t)switch_pressed[0];
                 a.blade = (uint8_t)blade_pressed[0];
+                a.switch_target = (uint8_t)target_pressed[0];
                 if (!acr_rb_tick(&net_rb, acr_rb_pack(&in2[0], &a))) {   /* waiting for them */
                     if (!net_wait_since) net_wait_since = now_ms;
                     break;
                 }
                 net_wait_since = 0;
                 ++ran;
-                switch_pressed[0] = blade_pressed[0] = 0;
+                switch_pressed[0] = blade_pressed[0] = target_pressed[0] = 0;
                 in2[0].boost_tapped = 0;
                 boost_released[0] = !in2[0].boost;
             }
@@ -1498,6 +1512,7 @@ int main(int argc, char **argv) {
             for (int k = 0; k < 2; ++k) {
                 act[k].next_weapon = (uint8_t)switch_pressed[k]; switch_pressed[k] = 0;
                 act[k].blade = (uint8_t)blade_pressed[k]; blade_pressed[k] = 0;
+                act[k].switch_target = (uint8_t)target_pressed[k]; target_pressed[k] = 0;
             }
             /* The computer pilot presses its buttons like a pad, each step. */
             for (int k = 0; k < 2; ++k) {
@@ -1925,7 +1940,7 @@ int main(int argc, char **argv) {
             acr_hud_rect(12, 22, g_vw - 24, 128, 0, 0, 0, 160, 1);
             TEXT(20, 28, "MOVE: STICK/DPAD UP-DOWN  TURN: LEFT-RIGHT");
             TEXT(20, 40, "STRAFE: LB/RB  BOOST: A (NO DIRECTION = RISE)  LOOK UP/DOWN: LT/RT, BOTH = LEVEL (PGUP/PGDN)");
-            TEXT(20, 52, "FIRE: X (F)  SWITCH WEAPON: Y (TAB)  BLADE: B (V)");
+            TEXT(20, 52, "FIRE: X (F)  SWITCH WEAPON: Y (TAB)  BLADE: B (V)  SWITCH TARGET: BACK TAP (X)");
             if (g_direct_test) {
                 TEXT(20, 64, "BACK+X/Y/B/RB (B/G/C/L): BOOSTER/GENERATOR/BACK WEAPON/LEGS");
                 TEXT(20, 76, "START/R: RESET  F1: HIDE HELP  F5: ANIM SMOOTH/STEPPED  F9: HUD 4:3/WIDE  ESC: QUIT");
@@ -1933,7 +1948,7 @@ int main(int argc, char **argv) {
                 TEXT(20, 64, "BACK+START (ESC): BACK TO THE GARAGE");
                 TEXT(20, 76, "START/R: RESET  F1: HIDE HELP  F9: HUD 4:3/WIDE  (KEYS 1-9 = F1-F9)");
             }
-            TEXT(20, 88, "BACK+A (H): HUMAN PLUS  BACK (T): STEP RATE");
+            TEXT(20, 88, "BACK+A (H): HUMAN PLUS  (T): STEP RATE");
             TEXT(20, 100, "BACK+LB (F2): TWO PLAYERS  BACK+R3 (F3): LANDING PAUSE GUESS/ANIMATION");
             TEXT(20, 112, "BACK+UP (F4): OPPONENT STILL / AI PRESETS  BACK+DOWN (F6): AI VS AI (WATCH)");
             if (g_stage.ok) TEXT(20, 136, g_stage.collision.bounds ? "BACK+RIGHT (F8): TEST BOUNDARY ON (1,500 PAST THE STARTS)"

@@ -78,10 +78,17 @@ second player 2's), in dark grey and red; the Arena's rankers come later.
 The round is the usual two minutes: a team loses when all its ACs are down
 (or out of the area); at time up the team with more AP left in total wins.
 
-- **Targets**: your FCS only ever locks on enemies. Lock-on picks the enemy
-  in the sight nearest its middle (holding the one you have while it stays
-  in the sight); outside the sight, the nearest enemy (its AP at the top,
-  the red dot on the radar). A new target drops the locks.
+- **Targets**: your FCS only ever locks on enemies (rules from the user):
+  - the enemy you're on stays your target while it's in the sight, even
+    when another enemy crosses in front of or behind it;
+  - starting a lock with two enemies in the sight side by side: the closer;
+  - **switch target**: tap Back / Select (keyboard X) for the next enemy in
+    the sight, near to far and round again. With only one gun or missile
+    (the blade aside), weapon switch (Triangle / Y, Tab) does it too;
+  - with no enemy in the sight: the nearest enemy (its AP at the top, the
+    red dot on the radar). A new target drops the locks.
+- **Leaving online**: Back + Start on a controller (Back alone switches
+  target now), Esc on the keyboard.
 - **Friendly fire is on**: shots, missiles and the blade hit a teammate in
   the way. Missiles keep the enemy they were fired at.
 - **On screen**: your teammate's name over their AC; on the radar your

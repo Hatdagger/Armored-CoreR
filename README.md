@@ -111,7 +111,8 @@ own part models (every part, FCS and options included) go to
 | Test boundary for out of area (on / off) | Back + d-pad right | F8 |
 | AI against AI (player 1 on autopilot, to watch) | Back + d-pad down | F6 |
 | Landing pause: guess / landing animation's length (test) | Back + R3 | F3 |
-| Change step rate (22, 30, 45, 60 steps a second; same game pace) | Back | T |
+| Switch target (2+ enemies in the sight; with one gun or missile, weapon switch does it too) | Back (tap) | X |
+| Change step rate (22, 30, 45, 60 steps a second; same game pace) | | T |
 | Reset | Start | R |
 | Hide help | | F1 |
 

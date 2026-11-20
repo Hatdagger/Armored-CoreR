@@ -185,7 +185,7 @@ static int64_t dist2(const acr_gen1_ac *a, const acr_gen1_ac *o) {
 }
 
 /* See "Teams and targets" in the header. */
-void acr_gen1_battle_retarget(acr_gen1_battle *b) {
+void acr_gen1_battle_retarget_acts(acr_gen1_battle *b, const acr_gen1_actions act[]) {
     if (!b->count) return;
     const int n = acr_gen1_battle_fighters(b);
     for (int i = 0; i < n; ++i) {
@@ -194,26 +194,33 @@ void acr_gen1_battle_retarget(acr_gen1_battle *b) {
         if (f->volley_ticks && old >= 0) continue;          /* a volley keeps its target */
         const acr_gen1_weapon *w = f->weapons && f->current < f->weapons ? &f->weapon[f->current] : NULL;
         const int boxed = w && w->kind != ACR_GEN1_BLADE && w->box_w;
-        int pick = -1;
-        if (boxed && old >= 0 && in_box_of(b, i, old, sight_range(w), w->box_w, w->box_h)) pick = old;
-        if (pick < 0 && boxed) {
-            int32_t best = 0x7FFFFFFF;
-            uint32_t best_d = 0xFFFFFFFFu;
-            for (int j = 0; j < n; ++j) {      /* nearest the box's middle; equal: the nearer AC */
-                if (!enemies(b, i, j) || !in_box_of(b, i, j, sight_range(w), w->box_w, w->box_h)) continue;
-                int32_t ay, ap;
-                const uint32_t d = sight_angles_to(b, i, j, &ay, &ap);
-                /* in steps of 32 (about 3 degrees), so a hair's difference doesn't decide */
-                const int32_t off = ((ay < 0 ? -ay : ay) + (ap < 0 ? -ap : ap)) / 32;
-                if (off < best || (off == best && d < best_d)) { best = off; best_d = d; pick = j; }
-            }
+        /* Enemies inside the lock box, near to far (equal: lower number first). */
+        int in[ACR_GEN1_MAX_FIGHTERS], k = 0;
+        int64_t d[ACR_GEN1_MAX_FIGHTERS];
+        for (int j = 0; boxed && j < n; ++j) {
+            if (!enemies(b, i, j) || !in_box_of(b, i, j, sight_range(w), w->box_w, w->box_h)) continue;
+            const int64_t dj = dist2(&f->ac, &b->f[j].ac);
+            int at = k++;
+            while (at > 0 && d[at - 1] > dj) { in[at] = in[at - 1]; d[at] = d[at - 1]; --at; }
+            in[at] = j;
+            d[at] = dj;
         }
+        int held = -1;
+        for (int c = 0; c < k; ++c) if (in[c] == old) held = c;
+        /* The switch: its own button, or weapon switch when there is only one
+         * gun / missile to switch to (the blade is not in the cycle). */
+        int cycled = 0;
+        for (int c = 0; c < f->weapons; ++c) cycled += f->weapon[c].kind != ACR_GEN1_BLADE;
+        const int sw = act && (act[i].switch_target || (act[i].next_weapon && cycled <= 1));
+        int pick = -1;
+        if (held >= 0) pick = sw ? in[(held + 1) % k] : old;
+        else if (k) pick = in[0];
         if (pick < 0) {
             int64_t best = -1;
             for (int j = 0; j < n; ++j) {
                 if (!enemies(b, i, j) || b->f[j].ap <= 0) continue;
-                const int64_t d = dist2(&f->ac, &b->f[j].ac);
-                if (best < 0 || d < best) { best = d; pick = j; }
+                const int64_t dj = dist2(&f->ac, &b->f[j].ac);
+                if (best < 0 || dj < best) { best = dj; pick = j; }
             }
         }
         if (pick < 0 && old >= 0) pick = old;                 /* every enemy down: keep looking at one */
@@ -224,6 +231,8 @@ void acr_gen1_battle_retarget(acr_gen1_battle *b) {
     }
     b->targeted = 1;
 }
+
+void acr_gen1_battle_retarget(acr_gen1_battle *b) { acr_gen1_battle_retarget_acts(b, NULL); }
 
 int acr_gen1_in_lock_box(const acr_gen1_battle *b, int i, const acr_gen1_weapon *w) {
     return in_box(b, i, sight_range(w), w->box_w, w->box_h);
@@ -870,7 +879,7 @@ void acr_gen1_battle_step(acr_gen1_battle *b, const acr_gen1_input in[], const a
         if (f->swing) use.move = use.strafe = use.boost = use.boost_tapped = 0;   /* the swing holds the AC */
         acr_gen1_ac_advance(&f->ac, f->def, use, ticks, num, den);
     }
-    acr_gen1_battle_retarget(b);
+    acr_gen1_battle_retarget_acts(b, act);
     for (int i = 0; i < n; ++i) fighter_step(b, i, act[i], ticks);
     shots_step(b, ticks);
 }

@@ -69,6 +69,7 @@ static acr_rb_pad next_pad(pilot *p) {
     }
     acr_rb_pad pad = p->held;
     if (rnd() % 30 == 0) pad |= 1u << 12;   /* next weapon */
+    if (rnd() % 25 == 0) pad |= 1u << 14;   /* switch target */
     if (rnd() % 60 == 0) pad |= 1u << 13;   /* blade */
     if (rnd() % 20 == 0) pad |= 1u << 9;    /* boost tapped */
     return pad;
@@ -192,14 +193,14 @@ int main(void) {
     }
     {
         const acr_gen1_input in = { 1, -1, 0, 1, 1, 2, 0 };
-        const acr_gen1_actions act = { 1, 1, 1 };
+        const acr_gen1_actions act = { 1, 1, 1, 1 };
         acr_gen1_input o;
         acr_gen1_actions oa;
         acr_rb_unpack(acr_rb_pack(&in, &act), &o, &oa);
         EXPECT(o.move == 1 && o.turn == -1 && o.strafe == 0 && o.boost && o.boost_tapped && o.look == 2);
-        EXPECT(oa.fire && oa.next_weapon && oa.blade);
+        EXPECT(oa.fire && oa.next_weapon && oa.blade && oa.switch_target);
         acr_rb_unpack(acr_rb_held(acr_rb_pack(&in, &act)), &o, &oa);
-        EXPECT(o.boost && !o.boost_tapped && oa.fire && !oa.next_weapon && !oa.blade);
+        EXPECT(o.boost && !o.boost_tapped && oa.fire && !oa.next_weapon && !oa.blade && !oa.switch_target);
     }
 
     /* A snapshot replays exactly: copy the match, run on, go back, run the

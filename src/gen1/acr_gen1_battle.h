@@ -86,10 +86,16 @@ enum { ACR_GEN1_LEGS_TWO, ACR_GEN1_LEGS_FOUR, ACR_GEN1_LEGS_TRACKS };
 /* Teams and targets (ours; the game has only two ACs). battle.count = 0 is
  * the old two-AC fight: fighter i is team i and always aims at 1 - i. With
  * a count, each fighter has a team (0 or 1) and the battle picks its target
- * every step (acr_gen1_battle_retarget): an enemy inside the current
- * weapon's lock box, the one nearest the box's middle (the current target
- * is kept while it stays in the box); else the nearest enemy. A new target
- * drops the gun lock and missile locks. Lock-on, the blade's seek and the
+ * every step (acr_gen1_battle_retarget), as the user set out:
+ * - the current target is kept while it stays inside the current weapon's
+ *   lock box, even when another enemy crosses in front of or behind it;
+ * - else the nearest enemy inside the box (two side by side: the closer);
+ * - else the nearest enemy anywhere;
+ * - the switch-target button moves to the next enemy inside the box, from
+ *   near to far, round to the nearest again; with only one gun or missile
+ *   (the blade aside) the weapon-switch button does the same.
+ * A new target drops the gun lock and missile locks; a missile volley in
+ * flight keeps its target. Lock-on, the blade's seek and the
  * missiles' homing only ever pick enemies; shots and blade hits land on
  * any AC in the way, teammates included (friendly fire). */
 
@@ -179,6 +185,7 @@ typedef struct acr_gen1_actions {
     uint8_t fire;            /* held: the selected gun or missile */
     uint8_t next_weapon;     /* pressed this step: cycles guns and missiles (not the blade) */
     uint8_t blade;           /* pressed this step: the blade has its own button, as in the game */
+    uint8_t switch_target;   /* pressed this step: the next enemy in the sight (ours, for 2+ enemies) */
 } acr_gen1_actions;
 
 /* The game draws an AC at a quarter of its model's units (VS model draw
@@ -264,6 +271,8 @@ int acr_gen1_battle_target(const acr_gen1_battle *b, int i);
 /* Picks every fighter's target now (the step does this itself; call it
  * once after setting a fight up so the first frame shows the right one). */
 void acr_gen1_battle_retarget(acr_gen1_battle *b);
+/* The same, with each fighter's switch-target press (act[] one per fighter, or NULL). */
+void acr_gen1_battle_retarget_acts(acr_gen1_battle *b, const acr_gen1_actions act[]);
 
 /* Can the fighter fire its current weapon in its present stance? */
 int acr_gen1_stance_ok(const acr_gen1_fighter *f);

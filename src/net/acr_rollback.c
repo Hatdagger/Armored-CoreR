@@ -3,7 +3,7 @@
 #include <string.h>
 
 #define NONE 0xFFFFFFFFu
-#define EDGE_BITS ((1u << 9) | (1u << 12) | (1u << 13))
+#define EDGE_BITS ((1u << 9) | (1u << 12) | (1u << 13) | (1u << 14))
 
 enum { PKT_INPUT = 1, PKT_BYE = 2 };
 #define VERSION 1
@@ -18,7 +18,8 @@ acr_rb_pad acr_rb_pack(const acr_gen1_input *in, const acr_gen1_actions *act) {
     unsigned look = in->look >= 2 ? 3u : (unsigned)(in->look + 1);   /* -1, 0, 1, 2 -> 0..3 */
     unsigned p = tri(in->move) | tri(in->turn) << 2 | tri(in->strafe) << 4 | look << 6 |
                  (in->boost ? 1u : 0u) << 8 | (in->boost_tapped ? 1u : 0u) << 9 | (in->crouch ? 1u : 0u) << 10 |
-                 (act->fire ? 1u : 0u) << 11 | (act->next_weapon ? 1u : 0u) << 12 | (act->blade ? 1u : 0u) << 13;
+                 (act->fire ? 1u : 0u) << 11 | (act->next_weapon ? 1u : 0u) << 12 | (act->blade ? 1u : 0u) << 13 |
+                 (act->switch_target ? 1u : 0u) << 14;
     return (acr_rb_pad)p;
 }
 
@@ -35,6 +36,7 @@ void acr_rb_unpack(acr_rb_pad p, acr_gen1_input *in, acr_gen1_actions *act) {
     act->fire = (uint8_t)(p >> 11 & 1u);
     act->next_weapon = (uint8_t)(p >> 12 & 1u);
     act->blade = (uint8_t)(p >> 13 & 1u);
+    act->switch_target = (uint8_t)(p >> 14 & 1u);
 }
 
 acr_rb_pad acr_rb_held(acr_rb_pad p) { return (acr_rb_pad)(p & ~EDGE_BITS); }
