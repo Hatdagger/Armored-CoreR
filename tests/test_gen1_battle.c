@@ -471,14 +471,34 @@ int main(void) {
             acr_gen1_ac_set_yaw(&mb.f[0].ac, 2048);
         }
         {
+            /* Firing: the AC snaps to the target; the FCS sight swings round
+             * from the old facing at the legs' rate, and only then locks. */
             acr_gen1_actions hold[2] = { { 1 }, { 0 } };
+            for (int k = 0; k < 100; ++k) acr_gen1_battle_step(&mb, none, na);   /* the sight settles behind */
+            EXPECT(mb.f[0].sight_yaw == 2048 && mb.f[0].ac.yaw == 2048);
             acr_gen1_battle_step(&mb, none, hold);
-            const int32_t y1 = mb.f[0].ac.yaw >= 2048 ? (int32_t)mb.f[0].ac.yaw - 4096 : mb.f[0].ac.yaw;
-            EXPECT(y1 != -2048 && (y1 > 0 ? 2048 - y1 : 2048 + y1) <= mb.f[0].def->motion.turn_max);   /* at its legs' rate */
-            for (int t = 0; t < 80; ++t) acr_gen1_battle_step(&mb, none, hold);
+            const int32_t tm = mb.f[0].def->motion.turn_max;
+            const int32_t s1 = mb.f[0].sight_yaw >= 2048 ? (int32_t)mb.f[0].sight_yaw - 4096 : mb.f[0].sight_yaw;
+            EXPECT(mb.f[0].ac.yaw == 0);                                  /* snapped */
+            EXPECT(s1 != -2048 && (s1 > 0 ? 2048 - s1 : 2048 + s1) <= tm && !acr_gen1_in_lock_box(&mb, 0, &mb.f[0].weapon[0]));
+            int t = 0;
+            while (!acr_gen1_in_lock_box(&mb, 0, &mb.f[0].weapon[0]) && t < 200) { acr_gen1_battle_step(&mb, none, hold); ++t; }
+            EXPECT(t > 2 && t < 200 && mb.f[0].hard_lock);              /* caught up after a while */
+            /* Already facing it: the sight is there at once. */
+            acr_gen1_battle_step(&mb, none, hold);
+            EXPECT(acr_gen1_in_lock_box(&mb, 0, &mb.f[0].weapon[0]));
+            /* Dodging (not firing): the AC turns to face its way at the legs' rate. */
+            acr_gen1_input side[2] = { { 0 }, { 0 } };
+            side[0].strafe = 1;
+            acr_gen1_battle_step(&mb, side, na);
             const int32_t y = mb.f[0].ac.yaw >= 2048 ? (int32_t)mb.f[0].ac.yaw - 4096 : mb.f[0].ac.yaw;
-            EXPECT(mb.f[0].hard_lock && y < 60 && y > -60);
-            EXPECT(acr_gen1_in_lock_box(&mb, 0, &mb.f[0].weapon[0]));     /* facing it: the FCS has it */
+            EXPECT(y > 0 && y <= tm);
+            for (int k = 0; k < 100; ++k) acr_gen1_battle_step(&mb, side, na);
+            EXPECT(mb.f[0].ac.yaw > 1024 - 64 && mb.f[0].ac.yaw < 1024 + 64 && mb.f[0].look_yaw == 0);
+            /* Firing while strafing: faces the target, still strafing. */
+            acr_gen1_battle_step(&mb, side, hold);
+            EXPECT(mb.f[0].ac.yaw == 0 && mb.f[0].used.strafe == 1 && mb.f[0].used.move == 0);
+            acr_gen1_ac_set_yaw(&mb.f[0].ac, 0);
         }
         /* Modern rockets: a third of the fire rate and slower flight, hard lock or not. */
         mb.f[0].weapon[0].straight = 1; mb.f[0].weapon[0].box_w = mb.f[0].weapon[0].box_h = 0;

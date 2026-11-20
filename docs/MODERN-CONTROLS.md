@@ -16,7 +16,7 @@ speed, weapons and weapon switching stay exactly as in AC1.
 | Control | Does |
 |---|---|
 | Left stick | move, relative to the camera |
-| Right stick | spin the camera (the AC turns to follow); tilt the view. With hard lock: turn and tilt the AC |
+| Right stick | spin the camera (the AC turns to follow); tilt the view. With hard lock: turn and tilt the AC while standing |
 | Cross | jump; with the boost toggle on, hold to rise (never a ground boost) |
 | L1 | boost toggle on / off: the only ground boost |
 | Square | quick boost |
@@ -54,13 +54,17 @@ speed, weapons and weapon switching stay exactly as in AC1.
   (which follows the AC's facing) still turns no faster than the legs allow.
 - **Hard lock.** Pins the target to the middle of the screen wherever it is,
   at any distance (`ACR_GEN1_MODERN_HARD_LOCK_START`, 0 = no limit). The
-  left stick moves relative to that view; the right stick turns and tilts
-  the AC freely. While R2 (fire) is held or L2 (blade) is pressed, the AC
-  turns and tilts toward the target instead: that is the aim, and it turns
-  no faster than its legs allow. Every normal FCS condition still applies:
-  the target has to come into the (smaller) lock box, in range, and the
-  lock has to build up as normal. It stays on until R3 is pressed again or
-  the target is down.
+  left stick moves relative to that view. Not firing, the AC turns to face
+  the way it moves (dodging always turns it, at the legs' turn speed);
+  standing, the right stick turns and tilts it. While R2 (fire) is held or
+  L2 (blade) is pressed, the AC snaps to face the target, and strafes if
+  moving. The FCS sight does not snap: it swings round from where the AC
+  was facing at the legs' turn speed, and unlocked shots go where the sight
+  points. So an AC already facing the target is ready at once, and one that
+  was dodging has to wait for the sight to catch up. Every normal FCS
+  condition still applies: the target has to come into the (smaller) lock
+  box, in range, and the lock has to build up as normal. It stays on until
+  R3 is pressed again or the target is down.
 - **FCS only with hard lock.** Without hard lock there is no FCS: no sight on
   screen, no gun lock, no missile lock; shots go where the AC faces. With it
   on the sight comes up and locks work as above.

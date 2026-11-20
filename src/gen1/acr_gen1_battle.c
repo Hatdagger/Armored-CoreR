@@ -695,9 +695,10 @@ static void fighter_step(acr_gen1_battle *b, int i, acr_gen1_actions a, int tick
     if (f->locked && !w->straight) {
         vec_of(f->lead_yaw, f->lead_pitch, &ax, &ay, &az);   /* VS 0x80081150: the lock's aim */
     } else {
-        /* Along the facing, tilted with the view (+y is down). */
-        const uint16_t p = (uint16_t)(f->ac.pitch & 4095);
-        fwd_vec(f->ac.yaw, &ax, &az);
+        /* Along the facing, tilted with the view (+y is down). Modern: along
+         * the FCS sight, which may still be swinging round after a snap. */
+        const uint16_t p = (uint16_t)(view_pitch(f) & 4095);
+        fwd_vec(view_yaw(f), &ax, &az);
         ax = (int32_t)((int64_t)ax * acr_gen1_cos(p) / 4096);
         az = (int32_t)((int64_t)az * acr_gen1_cos(p) / 4096);
         ay = -acr_gen1_sin(p);
@@ -851,10 +852,13 @@ static acr_gen1_input modern_input(acr_gen1_battle *b, int i, acr_gen1_input in,
         f->look_yaw = (uint16_t)((f->look_yaw + in.turn * ACR_GEN1_MODERN_CAM_RATE * ticks) & 4095);
     }
     /* The stick, relative to the camera, as one of the AC's eight directions. */
-    if (in.move || in.strafe) {
+    const int moving = in.move || in.strafe;
+    int32_t stick_yaw = f->look_yaw;                    /* the stick's way in the world */
+    if (moving) {
         static const int8_t k_move[8] = { 1, 1, 0, -1, -1, -1, 0, 1 }, k_strafe[8] = { 0, 1, 1, 1, 0, -1, -1, -1 };
         int h = 0;
         for (int k = 0; k < 8; ++k) if (k_move[k] == in.move && k_strafe[k] == in.strafe) h = k;
+        stick_yaw = (f->look_yaw + h * 512) & 4095;
         const int32_t rel = (int32_t)((f->look_yaw + h * 512 - me->yaw + 256) & 4095) / 512;
         in.move = k_move[rel];
         in.strafe = k_strafe[rel];
@@ -862,15 +866,31 @@ static acr_gen1_input modern_input(acr_gen1_battle *b, int i, acr_gen1_input in,
     in.turn = 0;
     if (in.crouch) return in;
     if (f->hard_lock) {
-        if (act.fire || act.blade) {                    /* firing / attacking: turn to aim */
+        if (act.fire || act.blade) {
+            /* Firing / attacking: the AC snaps to face the target. The FCS
+             * sight does not: it swings round from where the AC faced at the
+             * legs' turn rate (sight_tick), so the lock has to catch up. */
             uint16_t yaw;
             int16_t pitch;
             dir_of((it->x - me->x) / 64, (it->y - CENTRE_UP - (me->y - MUZZLE_UP)) / 64, (it->z - me->z) / 64, &yaw, &pitch);
-            const int32_t ry = wrap((int32_t)yaw - me->yaw), rp = wrap((int32_t)pitch - me->pitch);
-            in.turn = (int8_t)(ry > dead ? 1 : ry < -dead ? -1 : 0);
-            in.look = (int8_t)(rp > ACR_GEN1_PITCH_RATE ? 1 : rp < -ACR_GEN1_PITCH_RATE ? -1 : 0);
+            int32_t pf = (int32_t)pitch * 256;
+            if (pf > ACR_GEN1_PITCH_MAX * 256) pf = ACR_GEN1_PITCH_MAX * 256;
+            if (pf < -ACR_GEN1_PITCH_MAX * 256) pf = -ACR_GEN1_PITCH_MAX * 256;
+            acr_gen1_ac_set_yaw(&f->ac, yaw);
+            f->ac.pitch_fine = pf;
+            f->ac.pitch = (int16_t)(pf / 256);
+            in.look = 0;
+            if (in.move || in.strafe) {                 /* strafing: re-take the stick for the new facing */
+                static const int8_t k_move[8] = { 1, 1, 0, -1, -1, -1, 0, 1 }, k_strafe[8] = { 0, 1, 1, 1, 0, -1, -1, -1 };
+                const int32_t rel = (int32_t)((stick_yaw - f->ac.yaw + 256) & 4095) / 512;
+                in.move = k_move[rel];
+                in.strafe = k_strafe[rel];
+            }
+        } else if (moving) {                            /* dodging: the AC turns to face its way */
+            const int32_t d = wrap(stick_yaw - me->yaw);
+            in.turn = (int8_t)(d > dead ? 1 : d < -dead ? -1 : 0);
         } else {
-            in.turn = stick_turn;                       /* free: the right stick turns the AC */
+            in.turn = stick_turn;                       /* standing: the right stick turns the AC */
         }
         return in;
     }

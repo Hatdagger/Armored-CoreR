@@ -178,10 +178,11 @@ typedef struct acr_gen1_shot {
  *   (no moving, firing or swinging).
  * - Running dry: no energy weapons (or blade, as for everyone) until the
  *   bar is full again; the boost toggle still works (acr_gen1_sim.h).
- * - Hard lock (R3, a toggle): pins the camera on the target. The AC turns
- *   freely on the right stick, but while the pilot fires or swings it turns
- *   and tilts toward the target at its legs' turn rate (the aim); the FCS,
- *   following the facing, still has to box and lock the target as normal.
+ * - Hard lock (R3, a toggle): pins the camera on the target. Not firing,
+ *   the AC turns to face the way it moves (the right stick turns it while
+ *   standing). While the pilot fires or swings it snaps to face the target;
+ *   the FCS sight swings round from the old facing at the legs' turn rate
+ *   (unlocked shots go along it), and still has to box and lock as normal.
  * - Rockets (no lead, straight down the facing): a modern pilot's refire
  *   wait is ROCKET_ROF_PCT of normal and they fly at ROCKET_SPEED_PCT of
  *   their speed (same range), with or without hard lock.
