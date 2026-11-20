@@ -177,13 +177,14 @@ typedef struct acr_gen1_shot {
  *   (lagging, smaller) sight, the AC turns and tilts toward it at its normal
  *   rates whenever the pilot isn't turning / tilting. It drops when the
  *   target leaves the sight and needs a fresh press. Rockets (no-lock
- *   weapons) work with it: their "sight" is the default FCS's gun box
- *   (ROCKET_BOX, shrunk like any modern sight) out to the rocket's range.
+ *   weapons) work with it: their "sight" is the default FCS's gun box at
+ *   ROCKET_BOX_PCT (never drawn: rockets show no sight) out to the
+ *   rocket's range.
  *   They still get no lead (they fly straight down the facing at where the
  *   target is), and while hard lock is on their refire wait is ROCKET_ROF_PCT
  *   of normal, cutting their damage per second.
  * Stand-in values to tune in play (mirror matches, modern vs original). */
-#define ACR_GEN1_MODERN_BOX_PCT          20    /* aiming is automatic: a much smaller sight (and not drawn) */
+#define ACR_GEN1_MODERN_BOX_PCT          30    /* aiming is automatic: a much smaller sight */
 #define ACR_GEN1_MODERN_LEAD_PCT         60
 #define ACR_GEN1_MODERN_SIGHT_LAG        2     /* ticks, ~0.1 s; at most 3 */
 #define ACR_GEN1_MODERN_MISSILE_PCT      140
@@ -196,12 +197,13 @@ typedef struct acr_gen1_shot {
  * So a long-range FCS (QX-9009, RATOR) has to close in to lock, then can
  * pull back out. */
 #define ACR_GEN1_MODERN_HARD_LOCK_START  5000
-#define ACR_GEN1_MODERN_ROCKET_BOX       240   /* the default FCS's gun box, before BOX_PCT */
+#define ACR_GEN1_MODERN_ROCKET_BOX       240   /* the default FCS's gun box ... */
+#define ACR_GEN1_MODERN_ROCKET_BOX_PCT   20    /* ... at 20 %, never drawn */
 #define ACR_GEN1_MODERN_ROCKET_ROF_PCT   300   /* refire wait with hard lock on: a third of the rate */
 
 typedef struct acr_gen1_modern_tuning {
     uint16_t box_pct, lead_pct, sight_lag, missile_pct, blade_en_pct, steer_pct, recover_hit_ms, recover_miss_ms;
-    uint16_t hard_lock_start, rocket_rof_pct;
+    uint16_t hard_lock_start, rocket_rof_pct, rocket_box_pct;
 } acr_gen1_modern_tuning;
 
 typedef struct acr_gen1_battle {

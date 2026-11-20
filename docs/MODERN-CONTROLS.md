@@ -30,7 +30,7 @@ speed, weapons and weapon switching stay exactly as in AC1.
 
 | What | Value (stand-in) | Where |
 |---|---|---|
-| FCS lock boxes (inner and outer) | 20 % of the FCS's (aiming is automatic), and not drawn | `ACR_GEN1_MODERN_BOX_PCT` |
+| FCS lock boxes (inner and outer) | 30 % of the FCS's (aiming is automatic) | `ACR_GEN1_MODERN_BOX_PCT` |
 | Locked shots lead the target | 60 % of the way | `ACR_GEN1_MODERN_LEAD_PCT` |
 | FCS sight follows the facing | 2 ticks late (~0.1 s), no faster than the AC turns | `ACR_GEN1_MODERN_SIGHT_LAG` |
 | Missile lock time | 140 % | `ACR_GEN1_MODERN_MISSILE_PCT` |
@@ -42,9 +42,6 @@ speed, weapons and weapon switching stay exactly as in AC1.
 | Quick boost cost | at the press: what a normal boost from a stand would use to cover the same distance | `acr_gen1_quick_cost` |
 | Chain boost | up to 3 quick boosts in a row, each within 8 ticks (~0.36 s) of the last ending; then 16 ticks (~0.7 s) cool-down | `ACR_GEN1_QUICK_CHAIN*`, `_COOL` |
 
-- **Invisible sight.** A modern pilot's HUD draws no FCS sight, no missile lock
-  cursor and no "in the sight" marker, so they can't see how close a shot is.
-  Only LOCK (the red marker and the LOCK x count) shows.
 - **Sight lag.** A target that crosses quickly slips out of the sight and the
   lock breaks, even though it stays on screen.
 - **Hard lock.** While the target is in the current weapon's sight (the
@@ -52,7 +49,7 @@ speed, weapons and weapon switching stay exactly as in AC1.
   whenever the pilot isn't turning or tilting. It turns off when the target
   leaves the sight; press R3 again to turn it back on.
 - **Rockets with hard lock.** They work with it (sight: the default FCS's gun
-  box, shrunk like any modern sight, out to the rocket's range), but get no
+  box at 20 %, out to the rocket's range, never drawn), but get no
   leading: they fly straight at where the target is now. While hard lock is on
   their refire wait is 3x normal (`ACR_GEN1_MODERN_ROCKET_ROF_PCT`), a third
   of the damage per second. Aimed by hand they fire at the normal rate.

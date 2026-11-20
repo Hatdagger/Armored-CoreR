@@ -148,13 +148,16 @@ static uint32_t sight_angles(const acr_gen1_battle *b, int i, int32_t *dyaw, int
 }
 
 /* Inside a lock box (angles either side, 4096 a turn) and the range? */
+static int in_box_pct(const acr_gen1_battle *b, int i, int32_t range, uint16_t box_w, uint16_t box_h, unsigned pct);
 static int in_box(const acr_gen1_battle *b, int i, int32_t range, uint16_t box_w, uint16_t box_h) {
+    return in_box_pct(b, i, range, box_w, box_h, b->f[i].modern ? MT(b, box_pct, BOX_PCT) : 100u);
+}
+static int in_box_pct(const acr_gen1_battle *b, int i, int32_t range, uint16_t box_w, uint16_t box_h, unsigned pct) {
     if (b->f[1 - i].ap <= 0 || !box_w) return 0;
     int32_t ay, ap;
     const uint32_t dist = sight_angles(b, i, &ay, &ap);
     if (dist > (uint32_t)range) return 0;
-    if (b->f[i].modern) {
-        const unsigned pct = MT(b, box_pct, BOX_PCT);
+    if (pct != 100u) {
         box_w = (uint16_t)(box_w * pct / 100u);
         box_h = (uint16_t)(box_h * pct / 100u);
     }
@@ -808,7 +811,8 @@ static acr_gen1_input hard_lock_input(acr_gen1_battle *b, int i, acr_gen1_input 
     else
         for (int k = 0; k < f->weapons; ++k)        /* the current gun / missile, else any with a sight */
             if (f->weapon[k].kind != ACR_GEN1_BLADE && f->weapon[k].box_w && (!w || k == f->current)) w = &f->weapon[k];
-    const int seen = w && (rockets ? in_box(b, i, w->range, ACR_GEN1_MODERN_ROCKET_BOX, ACR_GEN1_MODERN_ROCKET_BOX)
+    const int seen = w && (rockets ? in_box_pct(b, i, w->range, ACR_GEN1_MODERN_ROCKET_BOX, ACR_GEN1_MODERN_ROCKET_BOX,
+                                                         MT(b, rocket_box_pct, ROCKET_BOX_PCT))
                                    : acr_gen1_in_lock_box(b, i, w));
     if (!w || b->f[1 - i].ap <= 0 || !seen) { f->hard_lock = 0; return in; }
     if (!was_on) {                                  /* starting it: close enough */

@@ -412,7 +412,7 @@ int main(void) {
         setup(&mb, 3000);
         mb.f[0].last_missile = mb.f[1].last_missile = -1;
         mb.f[0].weapons = 1; mb.f[0].weapon[0] = rifle(); mb.f[0].ammo[0] = 200;
-        /* Target ~19 degrees off: inside the rifle's 21-degree box, outside 20 % of it. */
+        /* Target ~19 degrees off: inside the rifle's 21-degree box, outside 30 % of it. */
         acr_gen1_ac_set_yaw(&mb.f[0].ac, 216);
         EXPECT(acr_gen1_in_lock_box(&mb, 0, &mb.f[0].weapon[0]));
         mb.f[0].modern = 1;
@@ -446,6 +446,21 @@ int main(void) {
         acr_gen1_actions shoot[2] = { { 1 }, { 0 } };
         acr_gen1_battle_step(&mb, none, shoot);
         EXPECT(mb.f[0].hard_lock && mb.f[0].cooldown == 5 * ACR_GEN1_MODERN_ROCKET_ROF_PCT / 100);
+        {   /* the rocket "sight": 20 % of 240 = 48 either side */
+            mb.f[0].hard_lock = 0;
+            acr_gen1_ac_set_yaw(&mb.f[0].ac, 60);               /* 60 off: inside 30 % of 240, outside 20 % */
+            for (int t = 0; t < 10; ++t) acr_gen1_battle_step(&mb, none, na);
+            na[0].hard_lock = 1;
+            acr_gen1_battle_step(&mb, none, na);
+            na[0].hard_lock = 0;
+            EXPECT(!mb.f[0].hard_lock);
+            acr_gen1_ac_set_yaw(&mb.f[0].ac, 30);
+            for (int t = 0; t < 10; ++t) acr_gen1_battle_step(&mb, none, na);
+            na[0].hard_lock = 1;
+            acr_gen1_battle_step(&mb, none, na);
+            na[0].hard_lock = 0;
+            EXPECT(mb.f[0].hard_lock);
+        }
         mb.f[0].hard_lock = 0;
         mb.f[0].cooldown = mb.f[0].hold_left = 0;
         acr_gen1_battle_step(&mb, none, shoot);
