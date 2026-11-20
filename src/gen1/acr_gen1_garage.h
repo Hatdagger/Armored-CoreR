@@ -58,9 +58,15 @@ typedef struct acr_gen1_hangar {
     uint8_t  stock[ACR_GEN1_CAT_COUNT][ACR_GEN1_PART_MAX];   /* sold to the shop, can be bought back */
 } acr_gen1_hangar;
 
-/* New game: owns one of each starting part (options too) with them fitted. */
+/* New game: owns one of each starting part (options too) with them fitted,
+ * and one SP-MODERN (not fitted). */
 void acr_gen1_hangar_new(acr_gen1_hangar *h, const uint8_t start[ACR_GEN1_SLOT_COUNT],
                          uint16_t start_options, int32_t credits);
+
+/* Adds Armored-CoreR's own parts (not on the disc) to a catalogue read
+ * from acr-import: SP-MODERN, for sale from the start at no cost. `name`
+ * gets its shop name (may be NULL). */
+void acr_gen1_catalog_add_own_parts(acr_gen1_catalog *c, char name[24]);
 
 /* Test builds: own (at least) one of every part in the catalogue, options too. */
 void acr_gen1_hangar_give_all(acr_gen1_hangar *h, const acr_gen1_catalog *c);

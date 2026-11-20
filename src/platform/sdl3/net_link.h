@@ -19,7 +19,7 @@
 #include <stdint.h>
 
 #define NET_PORT_DEFAULT 7777
-#define NET_PARTS 11
+#define NET_PARTS 12   /* the 11 part slots, then the option mask */
 #define NET_NAME 20
 
 typedef struct net_addr { uint8_t ip[4]; uint16_t port; } net_addr;

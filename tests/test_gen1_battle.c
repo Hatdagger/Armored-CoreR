@@ -404,6 +404,87 @@ int main(void) {
         EXPECT(cb.f[0].cam_yaw == 54);                     /* toward 3/4 of 1448, 64 a tick */
     }
 
+    /* Modern controls: a smaller sight that lags the facing, part-way lead,
+     * slower missile locks, a dearer blade with a recovery. */
+    {
+        static acr_gen1_battle mb;
+        acr_gen1_actions na[2] = { { 0 }, { 0 } };
+        setup(&mb, 3000);
+        mb.f[0].last_missile = mb.f[1].last_missile = -1;
+        mb.f[0].weapons = 1; mb.f[0].weapon[0] = rifle(); mb.f[0].ammo[0] = 200;
+        /* Target ~19 degrees off: inside the rifle's 21-degree box, outside 80 % of it. */
+        acr_gen1_ac_set_yaw(&mb.f[0].ac, 216);
+        EXPECT(acr_gen1_in_lock_box(&mb, 0, &mb.f[0].weapon[0]));
+        mb.f[0].modern = 1;
+        acr_gen1_battle_step(&mb, none, na);
+        EXPECT(!acr_gen1_in_lock_box(&mb, 0, &mb.f[0].weapon[0]));
+        /* Facing it: in the sight. A sudden turn away leaves the sight behind for a moment. */
+        acr_gen1_ac_set_yaw(&mb.f[0].ac, 0);
+        for (int t = 0; t < 10; ++t) acr_gen1_battle_step(&mb, none, na);
+        EXPECT(mb.f[0].sight_yaw == 0 && acr_gen1_in_lock_box(&mb, 0, &mb.f[0].weapon[0]));
+        acr_gen1_ac_set_yaw(&mb.f[0].ac, 600);
+        acr_gen1_battle_step(&mb, none, na);
+        EXPECT(mb.f[0].sight_yaw == 0);                          /* still where the facing was */
+        for (int t = 0; t < 40; ++t) acr_gen1_battle_step(&mb, none, na);
+        EXPECT(mb.f[0].sight_yaw == 600);
+        /* Hard lock: turns back toward the target until it is in the sight, then holds. */
+        acr_gen1_ac_set_yaw(&mb.f[0].ac, 100);
+        for (int t = 0; t < 20; ++t) acr_gen1_battle_step(&mb, none, na);
+        EXPECT(acr_gen1_in_lock_box(&mb, 0, &mb.f[0].weapon[0]));
+        na[0].hard_lock = 1;
+        acr_gen1_battle_step(&mb, none, na);
+        na[0].hard_lock = 0;
+        EXPECT(mb.f[0].hard_lock);
+        for (int t = 0; t < 20; ++t) acr_gen1_battle_step(&mb, none, na);
+        {
+            const int32_t y = mb.f[0].ac.yaw >= 2048 ? (int32_t)mb.f[0].ac.yaw - 4096 : mb.f[0].ac.yaw;
+            EXPECT(mb.f[0].hard_lock && y < 60 && y > -60);
+        }
+        mb.f[1].ac.x = 6000 * 64;                                 /* jumps far off to the side: lock drops */
+        mb.f[1].ac.px = mb.f[1].ac.sx = mb.f[1].ac.x;
+        acr_gen1_battle_step(&mb, none, na);
+        EXPECT(!mb.f[0].hard_lock);
+        mb.f[1].ac.x = mb.f[1].ac.px = mb.f[1].ac.sx = 0;
+
+        /* Missile locks take 40 % longer. */
+        static acr_gen1_battle ml[2];
+        int took[2] = { 0, 0 };
+        for (int k = 0; k < 2; ++k) {
+            setup(&ml[k], 3000);
+            ml[k].f[0].last_missile = ml[k].f[1].last_missile = -1;
+            ml[k].f[0].weapons = 1; ml[k].f[0].weapon[0] = small_missile(); ml[k].f[0].ammo[0] = 40;
+            ml[k].f[0].modern = (uint8_t)k;
+            for (int t = 0; t < 200 && ml[k].f[0].locks < 2; ++t) { acr_gen1_battle_step(&ml[k], none, na); ++took[k]; }
+        }
+        EXPECT(ml[0].f[0].locks == 2 && ml[1].f[0].locks == 2 && took[1] > took[0] * 13 / 10);
+
+        /* Blade: 25 % more energy, and a miss leaves the AC standing longer than a hit. */
+        static acr_gen1_battle bb;
+        setup(&bb, 5000);                                           /* out of reach: a miss */
+        bb.f[0].weapons = 1; bb.f[0].weapon[0] = blade();
+        bb.f[0].modern = 1;
+        const int32_t e0 = bb.f[0].ac.energy;
+        acr_gen1_actions sw[2] = { { 0 }, { 0 } };
+        sw[0].blade = 1;
+        acr_gen1_battle_step(&bb, none, sw);
+        EXPECT(e0 - bb.f[0].ac.energy >= 2050 * 125 / 100 - 600 && bb.f[0].swing);
+        int steps_left = 0;
+        while (bb.f[0].swing && steps_left < 100) { acr_gen1_battle_step(&bb, none, na); ++steps_left; }
+        EXPECT(!bb.f[0].swing && bb.f[0].recover_ms > 200);
+        const acr_gen1_input fwd_in[2] = { { 1, 0, 0, 0, 0, 0, 0, 0, 0 }, { 0 } };
+        const int32_t z0 = bb.f[0].ac.z;
+        acr_gen1_battle_step(&bb, fwd_in, sw);                       /* held still, no new swing */
+        EXPECT(bb.f[0].ac.z == z0 && !bb.f[0].swing);
+        for (int t = 0; t < 10; ++t) acr_gen1_battle_step(&bb, none, na);
+        EXPECT(bb.f[0].recover_ms == 0);
+        setup(&bb, 400);                                            /* close: a hit */
+        bb.f[0].weapons = 1; bb.f[0].weapon[0] = blade();
+        bb.f[0].modern = 1;
+        acr_gen1_battle_step(&bb, none, sw);
+        while (bb.f[0].swing) acr_gen1_battle_step(&bb, none, na);
+        EXPECT(bb.f[1].ap < bb.f[1].ap_max && bb.f[0].recover_ms > 0 && bb.f[0].recover_ms <= ACR_GEN1_MODERN_RECOVER_HIT_MS);
+    }
+
     if (failures) { printf("%d failure(s)\n", failures); return 1; }
     printf("gen1 battle: all passed (first hit after %d steps)\n", steps);
     return 0;

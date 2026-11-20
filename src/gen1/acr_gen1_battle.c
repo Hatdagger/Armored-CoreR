@@ -108,6 +108,15 @@ static int32_t per_step(const acr_gen1_battle *b, int32_t gen1_value) {
     return (int32_t)((int64_t)gen1_value * 64 * rate_n(b) / rate_d(b));
 }
 
+/* Modern controls' tuning: the battle's value, or the default. */
+static unsigned tune(unsigned v, unsigned dflt) { return v ? v : dflt; }
+#define MT(b, field, DFLT) tune((b)->modern.field, ACR_GEN1_MODERN_##DFLT)
+
+/* Where the FCS sight points: the facing and view tilt, or with modern
+ * controls the lagging sight (see ACR_GEN1_MODERN_SIGHT_LAG). */
+static uint16_t view_yaw(const acr_gen1_fighter *f) { return f->modern && f->hist_n ? f->sight_yaw : f->ac.yaw; }
+static int16_t view_pitch(const acr_gen1_fighter *f) { return f->modern && f->hist_n ? f->sight_pitch : f->ac.pitch; }
+
 /* Where fighter i's current weapon fires from (1/64 world units). */
 static void muzzle_at(const acr_gen1_battle *b, int i, int32_t m[3]) {
     const acr_gen1_fighter *f = &b->f[i];
@@ -132,8 +141,9 @@ static uint32_t sight_angles(const acr_gen1_battle *b, int i, int32_t *dyaw, int
     uint16_t yaw;
     int16_t pitch;
     dir_of(dx, dy, dz, &yaw, &pitch);
-    *dyaw = wrap((int32_t)yaw - me->yaw);
-    *dpitch = wrap((int32_t)pitch - me->pitch);
+    (void)me;
+    *dyaw = wrap((int32_t)yaw - view_yaw(&b->f[i]));
+    *dpitch = wrap((int32_t)pitch - view_pitch(&b->f[i]));
     return isqrt64((uint64_t)(dx * dx + dy * dy + dz * dz));
 }
 
@@ -143,6 +153,11 @@ static int in_box(const acr_gen1_battle *b, int i, int32_t range, uint16_t box_w
     int32_t ay, ap;
     const uint32_t dist = sight_angles(b, i, &ay, &ap);
     if (dist > (uint32_t)range) return 0;
+    if (b->f[i].modern) {
+        const unsigned pct = MT(b, box_pct, BOX_PCT);
+        box_w = (uint16_t)(box_w * pct / 100u);
+        box_h = (uint16_t)(box_h * pct / 100u);
+    }
     return ay >= -(int32_t)box_w && ay <= box_w && ap >= -(int32_t)box_h && ap <= box_h;
 }
 
@@ -246,13 +261,16 @@ static void lunge_move(acr_gen1_battle *b, int i, int from, int to) {
 static void blade_step(acr_gen1_battle *b, int i, int blade, int pressed) {
     acr_gen1_fighter *f = &b->f[i];
     const int step_ms = b->step_ms ? b->step_ms : 45;
+    if (f->recover_ms) f->recover_ms = (uint16_t)(f->recover_ms > step_ms ? f->recover_ms - step_ms : 0);
     if (blade < 0) { f->swing = 0; return; }
     const acr_gen1_weapon *w = &f->weapon[blade];
     acr_gen1_ac *me = &f->ac;
     const int target = 1 - i;
     acr_gen1_ac *it = &b->f[target].ac;
-    if (pressed && !f->swing && w->attack && !me->drained && me->energy > (int32_t)w->charge_drain) {
-        me->energy -= w->charge_drain;
+    const int32_t cost = f->modern ? (int32_t)(w->charge_drain * MT(b, blade_en_pct, BLADE_EN_PCT) / 100u)
+                                   : (int32_t)w->charge_drain;
+    if (pressed && !f->swing && !f->recover_ms && w->attack && !me->drained && me->energy > cost) {
+        me->energy -= cost;
         f->swing = 1;
         f->swing_hits = 0;
         f->lunge_done = 0;
@@ -271,6 +289,7 @@ static void blade_step(acr_gen1_battle *b, int i, int blade, int pressed) {
     if (f->swing_target >= 0 && t1 <= tick_ms(ACR_GEN1_BLADE_STEER_TICKS)) {
         const int64_t dx = (it->x - me->x) / 64, dz = (it->z - me->z) / 64;
         int32_t rate = (int32_t)((int64_t)f->def->motion.turn_max * rate_n(b) / rate_d(b));
+        if (f->modern) rate = (int32_t)(rate * (int32_t)MT(b, steer_pct, STEER_PCT) / 100);
         if (rate < 1) rate = 1;
         acr_gen1_ac_set_yaw(me, (uint16_t)(turn_toward(me->yaw, angle_of(dx, dz), rate) & 4095));
     }
@@ -299,7 +318,12 @@ static void blade_step(acr_gen1_battle *b, int i, int blade, int pressed) {
         acr_gen1_ac_shift(it, kx * ACR_GEN1_BLADE_KNOCK * 64 / 4096, kz * ACR_GEN1_BLADE_KNOCK * 64 / 4096);
     }
     f->swing = (uint16_t)(t1 + 1);
-    if (t1 >= ACR_GEN1_BLADE_SWING_MS) f->swing = 0;
+    if (t1 >= ACR_GEN1_BLADE_SWING_MS) {
+        f->swing = 0;
+        if (f->modern)         /* standing still after the swing: short on a hit, long on a miss */
+            f->recover_ms = (uint16_t)(f->swing_hits ? MT(b, recover_hit_ms, RECOVER_HIT_MS)
+                                                     : MT(b, recover_miss_ms, RECOVER_MISS_MS));
+    }
 }
 
 /* ---- missiles ---- */
@@ -424,12 +448,14 @@ static void missile_lock_tick(acr_gen1_battle *b, int i, const acr_gen1_weapon *
     uint16_t tyaw;
     int16_t tpitch;
     dir_of((t->ac.x - f->ac.x) / 64, (t->ac.y - f->ac.y) / 64, (t->ac.z - f->ac.z) / 64, &tyaw, &tpitch);
-    const int32_t ry = wrap(tyaw - f->ac.yaw), rp = wrap(tpitch - f->ac.pitch);
+    const int32_t ry = wrap(tyaw - view_yaw(f)), rp = wrap(tpitch - view_pitch(f));
     const int32_t sp = w->lock_value * 3 / 16 > 0 ? w->lock_value * 3 / 16 : 1;
     f->cursor_yaw = (int16_t)turn_toward(f->cursor_yaw, ry, sp);
     f->cursor_pitch = (int16_t)turn_toward(f->cursor_pitch, rp, sp);
     if (f->cursor_yaw != ry || f->cursor_pitch != rp) return;
-    if (++f->lock_count > w->lock_ticks) {
+    unsigned need = w->lock_ticks;
+    if (f->modern) { need = need * MT(b, missile_pct, MISSILE_PCT) / 100u; if (need > 254) need = 254; }
+    if (++f->lock_count > need) {
         ++f->locks;
         f->lock_count = 0;
         f->cursor_yaw = f->cursor_pitch = 0;
@@ -530,8 +556,29 @@ static void camera_tick(acr_gen1_battle *b, int i) {
     f->cam_yaw = (int16_t)turn_toward(f->cam_yaw, to_yaw, step);
 }
 
+/* Modern controls: the FCS sight follows where the facing was a moment
+ * ago, no faster than the AC turns (ACR_GEN1_MODERN_SIGHT_LAG), one tick. */
+static void sight_tick(acr_gen1_battle *b, int i) {
+    acr_gen1_fighter *f = &b->f[i];
+    const acr_gen1_ac *me = &f->ac;
+    if (!f->modern) return;
+    for (int k = 3; k > 0; --k) { f->hist_yaw[k] = f->hist_yaw[k - 1]; f->hist_pitch[k] = f->hist_pitch[k - 1]; }
+    f->hist_yaw[0] = me->yaw;
+    f->hist_pitch[0] = me->pitch;
+    if (!f->hist_n) { f->sight_yaw = me->yaw; f->sight_pitch = me->pitch; }
+    if (f->hist_n < 4) ++f->hist_n;
+    unsigned lag = MT(b, sight_lag, SIGHT_LAG);
+    if (lag > 3) lag = 3;
+    if (lag > (unsigned)f->hist_n - 1) lag = (unsigned)f->hist_n - 1;
+    int32_t rate = f->def ? f->def->motion.turn_max : 32;
+    if (rate < 1) rate = 1;
+    f->sight_yaw = (uint16_t)(turn_toward(f->sight_yaw, f->hist_yaw[lag], rate) & 4095);
+    f->sight_pitch = (int16_t)turn_toward(f->sight_pitch, f->hist_pitch[lag], ACR_GEN1_PITCH_RATE);
+}
+
 static void fighter_tick(acr_gen1_battle *b, int i, int fire) {
     acr_gen1_fighter *f = &b->f[i];
+    sight_tick(b, i);
     camera_tick(b, i);
     if (f->hit_flash) --f->hit_flash;
     if (f->def) intercept_tick(b, i);
@@ -578,6 +625,10 @@ static void gun_lock_tick(acr_gen1_battle *b, int i, const acr_gen1_weapon *w) {
         const int64_t k = d / shot;
         ax = px + vx * k; ay = py + vy * k; az = pz + vz * k;
     }
+    if (f->modern) {          /* the weaker FCS leads only part of the way */
+        const int64_t pct = MT(b, lead_pct, LEAD_PCT);
+        ax = px + (ax - px) * pct / 100; ay = py + (ay - py) * pct / 100; az = pz + (az - pz) * pct / 100;
+    }
     dir_of(ax - mx, ay - my, az - mz, &f->lead_yaw, &f->lead_pitch);
     f->lock_wait = (uint16_t)(need + 0x20);
     if (f->lock_lead < 0x4000) ++f->lock_lead;
@@ -617,7 +668,7 @@ static void fighter_step(acr_gen1_battle *b, int i, acr_gen1_actions a, int tick
     if (!a.fire || f->cooldown || f->hold_left) return;
     if (w->ammo && !f->ammo[f->current]) return;
     if (!acr_gen1_stance_ok(f)) return;
-    if (f->swing) return;
+    if (f->swing || f->recover_ms) return;
     int32_t ax, ay, az;
     if (f->locked && !w->straight) {
         vec_of(f->lead_yaw, f->lead_pitch, &ax, &ay, &az);   /* VS 0x80081150: the lock's aim */
@@ -739,6 +790,30 @@ static acr_gen1_input kneel_input(acr_gen1_battle *b, acr_gen1_fighter *f, acr_g
     return in;
 }
 
+/* Modern controls' hard lock (see ACR_GEN1_MODERN_SIGHT_LAG): a press turns
+ * it on or off; while on and the target is in the current weapon's sight,
+ * the AC turns / tilts toward it at its normal rates unless the pilot is
+ * turning / tilting. Leaving the sight drops it. */
+static acr_gen1_input hard_lock_input(acr_gen1_battle *b, int i, acr_gen1_input in, int pressed) {
+    acr_gen1_fighter *f = &b->f[i];
+    if (pressed) f->hard_lock = (uint8_t)!f->hard_lock;
+    if (!f->hard_lock) return in;
+    const acr_gen1_weapon *w = NULL;
+    for (int k = 0; k < f->weapons; ++k)            /* the current gun / missile, else any with a sight */
+        if (f->weapon[k].kind != ACR_GEN1_BLADE && f->weapon[k].box_w && (!w || k == f->current)) w = &f->weapon[k];
+    if (!w || b->f[1 - i].ap <= 0 || !acr_gen1_in_lock_box(b, i, w)) { f->hard_lock = 0; return in; }
+    const acr_gen1_ac *me = &f->ac, *it = &b->f[1 - i].ac;
+    uint16_t yaw;
+    int16_t pitch;
+    dir_of((it->x - me->x) / 64, (it->y - CENTRE_UP - (me->y - MUZZLE_UP)) / 64, (it->z - me->z) / 64, &yaw, &pitch);
+    const int32_t ry = wrap((int32_t)yaw - me->yaw), rp = wrap((int32_t)pitch - me->pitch);
+    int32_t dead = f->def ? f->def->motion.turn_max : 16;     /* within a tick's turn: stop */
+    if (dead < 16) dead = 16;
+    if (!in.turn && !in.crouch) in.turn = (int8_t)(ry > dead ? 1 : ry < -dead ? -1 : 0);
+    if (!in.look) in.look = (int8_t)(rp > ACR_GEN1_PITCH_RATE ? 1 : rp < -ACR_GEN1_PITCH_RATE ? -1 : 0);
+    return in;
+}
+
 void acr_gen1_battle_step(acr_gen1_battle *b, const acr_gen1_input in[2], const acr_gen1_actions act[2]) {
     /* Gen 1 ticks that fall in this step, and how far the shown ACs are
      * from the tick before to the latest. */
@@ -754,11 +829,15 @@ void acr_gen1_battle_step(acr_gen1_battle *b, const acr_gen1_input in[2], const 
     for (int i = 0; i < 2; ++i) {
         acr_gen1_fighter *f = &b->f[i];
         if (f->ap <= 0) {                       /* down: stays where it is */
-            const acr_gen1_input still = { 0, 0, 0, 0, 0, 0, 0 };
+            const acr_gen1_input still = { 0 };
             acr_gen1_ac_advance(&f->ac, f->def, still, 0, 1, 1);
             continue;
         }
         acr_gen1_input use = kneel_input(b, f, in[i], act[i]);
+        if (!f->modern) { use.cruise = use.quick = 0; f->hard_lock = 0; }
+        else use = hard_lock_input(b, i, use, act[i].hard_lock);
+        if (f->recover_ms) use.move = use.strafe = use.boost = use.boost_tapped = use.cruise = use.quick = 0;
+        if (f->swing) use.quick = use.cruise = 0;
         if (f->swing) use.move = use.strafe = use.boost = use.boost_tapped = 0;   /* the swing holds the AC */
         acr_gen1_ac_advance(&f->ac, f->def, use, ticks, num, den);
     }

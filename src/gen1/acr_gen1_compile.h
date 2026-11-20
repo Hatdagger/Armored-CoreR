@@ -96,6 +96,12 @@ typedef struct acr_gen1_motion {
 #define ACR_GEN1_OPTION_ENERGY_AMP     0x0400u /* SP-E+ */
 #define ACR_GEN1_OPTION_ENERGY_REDUCE  0x0800u /* SP-DEtq */
 #define ACR_GEN1_OPTION_BALANCER_RE    0x1000u /* SP-ABS_Re: legs stability +1600 */
+/* Not on the disc: Armored-CoreR's own option. Modern controls (twin
+ * sticks, hard lock, boost toggle, quick boost) for a weaker FCS and blade
+ * rules (acr_gen1_battle.h). It takes every option slot the core has, so
+ * nothing else can be fitted with it, and it fits any core. */
+#define ACR_GEN1_OPTION_MODERN_BIT     13u
+#define ACR_GEN1_OPTION_MODERN         0x2000u /* SP-MODERN */
 
 void acr_gen1_compile(const acr_gen1_build *b, acr_gen1_stats *out);
 
