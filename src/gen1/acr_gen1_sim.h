@@ -58,8 +58,11 @@ typedef struct acr_gen1_input {
  *   def->cruise_pct; the walk animation's distance per tick; never above
  *   the ground boost's top speed) and CRUISE_DRAIN_PCT of a ground boost's
  *   cost. It starts at walking pace and cuts out when the AC runs dry (the
- *   platform also switches the toggle off then). Standing on the ground
- *   with it on still drains at the same rate.
+ *   platform also switches the toggle off then). Left on, it always
+ *   drains, whatever the AC is doing: on the ground (standing, crouching
+ *   for a jump, landing) at that rate, in the air (not rising) at
+ *   CRUISE_AIR_DRAIN_PCT of it, and there it slows the fall
+ *   (CRUISE_AIR_FALL_PCT of gravity and of the top fall speed).
  * - the booster (cross) with SP-MODERN: never a ground boost. Toggle off:
  *   a plain jump (the legs' take-off, no rise, no energy, as when drained),
  *   and a hop when pressed while sliding. Toggle on: jump and rise as
@@ -80,6 +83,8 @@ typedef struct acr_gen1_input {
 #define ACR_GEN1_CRUISE_PCT       150   /* of walking pace: two legs and reverse joints */
 #define ACR_GEN1_CRUISE_HEAVY_PCT 135   /* four legs and caterpillars */
 #define ACR_GEN1_CRUISE_DRAIN_PCT 20    /* of a ground boost's cost */
+#define ACR_GEN1_CRUISE_AIR_DRAIN_PCT 110 /* in the air: of the toggle's ground drain */
+#define ACR_GEN1_CRUISE_AIR_FALL_PCT  90  /* in the air: gravity and top fall speed */
 #define ACR_GEN1_MODERN_JUMP_PCT  50    /* SP-MODERN: the jump's take-off speed */
 #define ACR_GEN1_MODERN_RISE_PCT  60    /* SP-MODERN: the rise's lift (acceleration and top speed) */
 #define ACR_GEN1_MODERN_RISE_EN_PCT 125 /* SP-MODERN: the rise's energy cost */

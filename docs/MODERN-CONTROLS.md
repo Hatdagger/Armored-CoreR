@@ -40,6 +40,7 @@ speed, weapons and weapon switching stay exactly as in AC1.
 | Blade lunge steering | 115 % of the turn rate (ignores the weaker sight) | `ACR_GEN1_MODERN_STEER_PCT` |
 | Standing still after a swing | 100 ms after a hit, 300 ms after a miss | `ACR_GEN1_MODERN_RECOVER_*` |
 | Boost toggle | ground boost at 150 % of the AC's walking pace (135 % for four legs and caterpillars), never above its ground boost; 20 % of a ground boost's cost, also while standing | `ACR_GEN1_CRUISE_PCT`, `_HEAVY_PCT`, `_DRAIN_PCT` |
+| Boost toggle in the air | drains 110 % of its ground rate (when not rising); falls 10 % slower (gravity and top fall speed at 90 %) | `ACR_GEN1_CRUISE_AIR_DRAIN_PCT`, `_AIR_FALL_PCT` |
 | Quick boost | the AC's own top boost speed for 4 ticks (~0.18 s) in the stick's direction | `ACR_GEN1_QUICK_TICKS` |
 | Quick boost cost | at the press: what a normal boost from a stand would use to cover the same distance | `acr_gen1_quick_cost` |
 | Chain boost | up to 3 quick boosts in a row, each within 8 ticks (~0.36 s) of the last ending; then 16 ticks (~0.7 s) cool-down | `ACR_GEN1_QUICK_CHAIN*`, `_COOL` |
@@ -80,8 +81,10 @@ speed, weapons and weapon switching stay exactly as in AC1.
   slow guns like rifles stay tight.
 - **Boost toggle (L1).** A modern pilot's only ground boost; counts as one
   (slide, coast and stage rules). Walking pace comes from each AC's own walk
-  animation, so heavy legs cruise slower. Left on while standing, it keeps
-  draining at the same rate.
+  animation, so heavy legs cruise slower. Left on, it always drains and
+  the bar never refills: standing, crouching for a jump and landing at the
+  same rate; in the air (falling or drifting) at 110 % of it, and the AC
+  falls 10 % slower. Rising costs the rise's own (higher) rate instead.
 - **Weaker jump and rise.** The jump's take-off is 50 % (`ACR_GEN1_MODERN_JUMP_PCT`);
   rising has 60 % of the lift, acceleration and top speed
   (`ACR_GEN1_MODERN_RISE_PCT`), and costs 125 % energy (`ACR_GEN1_MODERN_RISE_EN_PCT`).

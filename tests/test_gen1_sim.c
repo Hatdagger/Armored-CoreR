@@ -350,6 +350,28 @@ int main(void) {
         for (int k = 0; k < 10; ++k) acr_gen1_ac_step(&s, &d, stand);
         EXPECT(s.state == ACR_GEN1_GROUND && s.vx == 0 && s.vz == 0);
         EXPECT(es - s.energy == 10 * ((d.stats.rise_drain >> 1) * ACR_GEN1_CRUISE_DRAIN_PCT / 100));
+        /* In the air (falling, not rising) the toggle drains at 110 % of its
+         * ground rate, never refills, and the fall is 10 % slower. */
+        {
+            acr_gen1_ac fa, fo;
+            acr_gen1_ac_spawn(&fa, &d, 0, 0, 0);
+            acr_gen1_ac_spawn(&fo, &d, 0, 0, 0);
+            fa.state = fo.state = ACR_GEN1_AIR;
+            fa.y = fo.y = -5000000;
+            fa.energy = fo.energy = 20000;
+            acr_gen1_input on = k_none, off = k_none;
+            on.modern = off.modern = 1;
+            on.cruise = 1;
+            const int32_t ea = fa.energy, eo = fo.energy;
+            for (int k = 0; k < 10; ++k) { acr_gen1_ac_step(&fa, &d, on); acr_gen1_ac_step(&fo, &d, off); }
+            EXPECT(fa.state == ACR_GEN1_AIR && fo.state == ACR_GEN1_AIR);
+            EXPECT(ea - fa.energy == 10 * ((d.stats.rise_drain >> 1) * ACR_GEN1_CRUISE_DRAIN_PCT / 100
+                                           * ACR_GEN1_CRUISE_AIR_DRAIN_PCT / 100));
+            EXPECT(fo.energy > eo);                                  /* toggle off: the air refills */
+            EXPECT(fa.vy == 10 * (ACR_GEN1_GRAVITY * ACR_GEN1_CRUISE_AIR_FALL_PCT / 100) && fo.vy == 10 * ACR_GEN1_GRAVITY);
+            for (int k = 0; k < 60; ++k) { acr_gen1_ac_step(&fa, &d, on); acr_gen1_ac_step(&fo, &d, off); }
+            EXPECT(fa.vy == ACR_GEN1_FALL_MAX * ACR_GEN1_CRUISE_AIR_FALL_PCT / 100 && fo.vy == ACR_GEN1_FALL_MAX);
+        }
         /* Cross with SP-MODERN: never a ground boost. Toggle off: a plain
          * jump with no rise and no cost; toggle on: jump and rise. */
         {
