@@ -287,7 +287,7 @@ int32_t acr_gen1_walk_pace(const acr_gen1_ac_def *def) {
 }
 
 int32_t acr_gen1_cruise_top(const acr_gen1_ac_def *def) {
-    int32_t top = acr_gen1_walk_pace(def) * ACR_GEN1_CRUISE_PCT / 100;
+    int32_t top = acr_gen1_walk_pace(def) * (def->cruise_pct ? def->cruise_pct : ACR_GEN1_CRUISE_PCT) / 100;
     if (top > (int32_t)def->motion.boost_max) top = def->motion.boost_max;
     return top;
 }
@@ -346,6 +346,12 @@ void acr_gen1_ac_tick(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
     /* The game reads the pad once a tick: a press is fresh when the button
      * was up at the last tick or was let go of since. */
     const int can_boost = in.boost && !ac->drained && ac->energy > 0;
+    /* SP-MODERN: the booster rises only with the toggle on (caterpillars
+     * always), never boosts along the ground, and jumps whatever the bar. */
+    const int tracks = def->no_boost_hop;
+    const int can_rise = can_boost && (!in.modern || in.cruise || tracks);
+    const int ground_boost = can_boost && !in.modern;
+    const int can_jump = in.modern && !tracks ? in.boost : can_rise;
     const int fresh_press = in.boost && (!ac->boost_was_down || ac->boost_released || in.boost_tapped);
     ac->boost_was_down = in.boost;
     ac->boost_released = 0;
@@ -406,7 +412,7 @@ void acr_gen1_ac_tick(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
          * again while still sliding, and the AC jumps straight into the air,
          * keeping its speed (humanoid, reverse-joint and four-legged legs;
          * as described by a player, not yet measured). */
-        if (can_boost && fresh_press && (ac->vx || ac->vz) && !def->no_boost_hop) {
+        if (can_jump && fresh_press && (ac->vx || ac->vz) && !def->no_boost_hop) {
             int32_t vy;
             uint16_t crouch;
             takeoff(def, &crouch, &vy);
@@ -432,14 +438,14 @@ void acr_gen1_ac_tick(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
             ac->coast = 3;
             drain = 3;                          /* marker: cruise (a ground boost at CRUISE_PCT) */
             set_anim(ac, ACR_GEN1_ANIM_IDLE);
-        } else if (can_boost && dir && moving) {
+        } else if (ground_boost && dir && moving) {
             ac->vx += dx * (int32_t)m->boost_accel / 4096;
             ac->vz += dz * (int32_t)m->boost_accel / 4096;
             limit_length(&ac->vx, &ac->vz, m->boost_max);
             ac->coast = 3;                      /* measured: 2-3 ticks at full speed */
             drain = 2;                          /* marker: ground boost (half cost) */
             set_anim(ac, ACR_GEN1_ANIM_IDLE);
-        } else if (can_boost && ac->vx == 0 && ac->vz == 0) {
+        } else if (can_jump && ac->vx == 0 && ac->vz == 0) {
             takeoff(def, &ac->timer, &ac->vy);
             ac->state = ACR_GEN1_CROUCH;
             set_anim(ac, ACR_GEN1_ANIM_JUMP);
@@ -451,6 +457,9 @@ void acr_gen1_ac_tick(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
         } else {
             walk(ac, def, in, &mx, &mz);
         }
+        /* The toggle left on while standing (or walking off) still drains. */
+        if (!drain && in.modern && in.cruise && !ac->drained && ac->energy > 0 && ac->state == ACR_GEN1_GROUND)
+            drain = 5;                          /* marker: the toggle's drain, not moving on it */
         mx += ac->vx;
         mz += ac->vz;
         break;
@@ -467,7 +476,7 @@ void acr_gen1_ac_tick(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
             mz = ac->vz;
             break;
         }
-        if (can_boost) {
+        if (can_rise) {
             ac->vy -= m->rise_accel;
             if (ac->vy < -(int32_t)m->rise_max) ac->vy = -(int32_t)m->rise_max;
             drain = 1;                          /* marker: rising / air boost */
@@ -519,7 +528,7 @@ moved:
      * drawing plays it from this and turns to the air poses when it ends. */
     if (ac->anim == ACR_GEN1_ANIM_JUMP && ac->anim_frame < UINT16_MAX) ++ac->anim_frame;
     if (def->stage && def->stage->areas) {
-        game_stage_tick(ac, def, mx, mz, drain >= 2);
+        game_stage_tick(ac, def, mx, mz, drain >= 2 && drain != 5);
     } else {
         ac->x += mx;
         ac->z += mz;
@@ -570,7 +579,7 @@ moved:
     if (ac->energy < s->red_zone) { cost >>= 2; refill >>= 2; }
     if (drain) {
         if (drain >= 2) cost >>= 1;
-        if (drain == 3) cost = cost * ACR_GEN1_CRUISE_DRAIN_PCT / 100;
+        if (drain == 3 || drain == 5) cost = cost * ACR_GEN1_CRUISE_DRAIN_PCT / 100;
         if (ac->energy > cost) ac->energy -= cost;
         else { ac->energy = 0; ac->drained = 1; }
     } else if (ac->energy >= s->energy_capacity) {

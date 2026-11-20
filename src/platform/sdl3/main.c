@@ -121,8 +121,8 @@ static acr_gen1_input read_input(SDL_Gamepad *pad, int keyboard) {
  * required, laid out after Armored Core VI's Type A, with Gen 1's weapons
  * (one selected at a time, switched with triangle):
  *   left stick   move and strafe        right stick  turn and tilt the view
- *   cross        boost (hold: jump / rise; with a direction: ground boost)
- *   circle       boost toggle (slow ground boost)   square  quick boost
+ *   cross        jump; hold to rise while the boost toggle is on
+ *   L1           boost toggle (the only ground boost) square  quick boost
  *   R2           fire the selected weapon            L2      blade
  *   triangle     switch weapon                       R3      hard lock
  *   d-pad down   view back to level
@@ -913,6 +913,8 @@ int main(int argc, char **argv) {
                        : pp[i_][SLOT_LEGS] >= 21 ? ACR_GEN1_LEGS_FOUR : ACR_GEN1_LEGS_TWO); \
             f_->human_plus = (uint8_t)(i_ == 0 && human_plus); f_->kneeling = 0;          \
             f_->modern = (uint8_t)modern_of(i_);                                          \
+            d_->def.cruise_pct = (uint8_t)(f_->legs == ACR_GEN1_LEGS_TWO ? ACR_GEN1_CRUISE_PCT \
+                                           : ACR_GEN1_CRUISE_HEAVY_PCT);                    \
         }                                                                                 \
         if (g_stage_on) { stage_spawn(P, def, 0); stage_spawn(T, def2, 1); }               \
         else {                                                                            \
@@ -1027,7 +1029,7 @@ int main(int argc, char **argv) {
                 if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_V) blade_pressed[0] = 1;
                 if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && e.gbutton.button == SDL_GAMEPAD_BUTTON_NORTH) switch_pressed[0] = 1;
                 if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && modern_of(net_info.local)) {
-                    if (e.gbutton.button == SDL_GAMEPAD_BUTTON_EAST) cruise_on[0] = !cruise_on[0];
+                    if (e.gbutton.button == SDL_GAMEPAD_BUTTON_LEFT_SHOULDER) cruise_on[0] = !cruise_on[0];
                     if (e.gbutton.button == SDL_GAMEPAD_BUTTON_WEST) quick_pressed[0] = 1;
                     if (e.gbutton.button == SDL_GAMEPAD_BUTTON_RIGHT_STICK) lock_pressed[0] = 1;
                 } else if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && e.gbutton.button == SDL_GAMEPAD_BUTTON_EAST) blade_pressed[0] = 1;
@@ -1127,7 +1129,7 @@ int main(int argc, char **argv) {
                 if (btn == SDL_GAMEPAD_BUTTON_RIGHT_STICK && back_held) { g_landing_anim = !g_landing_anim; back_combo = 1; }
                 const int pad_who = !two_players ? 0 : pads[1] ? (player_of(pads, e.gbutton.which, 0) == 1) : 1;
                 if (modern_of(pad_who) && !back_held) {
-                    if (btn == SDL_GAMEPAD_BUTTON_EAST) cruise_on[pad_who] = !cruise_on[pad_who];   /* boost toggle */
+                    if (btn == SDL_GAMEPAD_BUTTON_LEFT_SHOULDER) cruise_on[pad_who] = !cruise_on[pad_who];   /* boost toggle */
                     if (btn == SDL_GAMEPAD_BUTTON_WEST) quick_pressed[pad_who] = 1;                  /* quick boost */
                     if (btn == SDL_GAMEPAD_BUTTON_RIGHT_STICK) lock_pressed[pad_who] = 1;            /* hard lock */
                 } else if (btn == SDL_GAMEPAD_BUTTON_EAST && !back_held) {   /* the blade: circle / B */

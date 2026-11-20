@@ -42,19 +42,29 @@ typedef struct acr_gen1_input {
     uint8_t crouch;   /* crouched in the cannon stance (VS 0x8007E3E0): crouch turn rates,
                          sliding to a stop, no walking or boosting */
     /* Modern controls only (SP-MODERN; always 0 with the original pad): */
-    uint8_t cruise;   /* the boost toggle is on: a slow ground boost, a little faster than
-                         walking (ACR_GEN1_CRUISE_PCT); never jumps or rises */
+    uint8_t cruise;   /* the boost toggle is on: the only ground boost, faster than walking
+                         (ACR_GEN1_CRUISE_PCT); also lets the booster rise */
     uint8_t quick;    /* quick boost pressed this step */
+    uint8_t modern;   /* SP-MODERN is fitted (set by the battle, never sent): the booster
+                         never boosts along the ground; it jumps, and rises only with the
+                         toggle on (caterpillars: it always rises) */
 } acr_gen1_input;
 
 /* Modern controls' boosts (stand-ins, to tune in play):
- * - cruise: the toggled boost. On the ground with a direction held it is a
- *   ground boost (coast, slide and the stage's "boosting" rules included)
- *   with a top speed of CRUISE_PCT of the AC's walking pace (its walk
- *   animation's distance per tick; never above the ground boost's top
- *   speed) and CRUISE_DRAIN_PCT of a ground boost's cost. It starts at
- *   walking pace, does nothing in the air and cuts out when the AC runs
- *   dry (the platform also switches the toggle off then).
+ * - cruise: the toggled boost (L1), modern pilots' only ground boost. On the
+ *   ground with a direction held it is a ground boost (coast, slide and the
+ *   stage's "boosting" rules included) with a top speed of CRUISE_PCT of
+ *   the AC's walking pace (CRUISE_HEAVY_PCT for four legs and caterpillars,
+ *   def->cruise_pct; the walk animation's distance per tick; never above
+ *   the ground boost's top speed) and CRUISE_DRAIN_PCT of a ground boost's
+ *   cost. It starts at walking pace and cuts out when the AC runs dry (the
+ *   platform also switches the toggle off then). Standing on the ground
+ *   with it on still drains at the same rate.
+ * - the booster (cross) with SP-MODERN: never a ground boost. Toggle off:
+ *   a plain jump (the legs' take-off, no rise, no energy, as when drained),
+ *   and a hop when pressed while sliding. Toggle on: jump and rise as
+ *   normal. Caterpillars don't jump: their booster lifts off and rises
+ *   either way.
  * - quick boost: a press with a direction held sets the AC's speed that way
  *   to its own top speed (ground boost top speed on the ground, air top
  *   speed in the air) for QUICK_TICKS ticks, then it slides as after any
@@ -67,7 +77,8 @@ typedef struct acr_gen1_input {
  *   the last press before the next.
  * - running dry (the booster lock, acr_gen1_ac.drained): no toggle and no
  *   quick boost until the bar is full again. */
-#define ACR_GEN1_CRUISE_PCT       125   /* of walking pace */
+#define ACR_GEN1_CRUISE_PCT       150   /* of walking pace: two legs and reverse joints */
+#define ACR_GEN1_CRUISE_HEAVY_PCT 135   /* four legs and caterpillars */
 #define ACR_GEN1_CRUISE_DRAIN_PCT 20    /* of a ground boost's cost */
 #define ACR_GEN1_WALK_PACE        34    /* world units a tick when the AC has no walk track (measured 31-38) */
 #define ACR_GEN1_QUICK_TICKS     4      /* ~0.18 s */
@@ -96,6 +107,7 @@ typedef struct acr_gen1_ac_def {
      * 22 times a second, between steps. 0 / 0 = a tick every step. */
     uint16_t step_rate, gen1_rate;
     uint8_t  no_boost_hop;    /* caterpillars: re-pressing boost while sliding does not jump */
+    uint8_t  cruise_pct;      /* the boost toggle's top speed, % of walking pace (0 = CRUISE_PCT) */
     /* Test: every landing lasts the landing animation's length (animation
      * 36's track), whatever the fall, as it would if the game's landing
      * state simply ends with its animation (0x8008389C). 0 = the stand-in

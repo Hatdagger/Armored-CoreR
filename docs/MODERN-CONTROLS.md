@@ -17,8 +17,8 @@ speed, weapons and weapon switching stay exactly as in AC1.
 |---|---|
 | Left stick | move and strafe |
 | Right stick | turn and tilt the view |
-| Cross | boost (hold: jump / rise; with a direction while moving: full ground boost) |
-| Circle | boost toggle: slow ground boost |
+| Cross | jump; with the boost toggle on, hold to rise (never a ground boost) |
+| L1 | boost toggle on / off: the only ground boost |
 | Square | quick boost |
 | R2 | fire the selected weapon |
 | L2 | blade |
@@ -37,7 +37,7 @@ speed, weapons and weapon switching stay exactly as in AC1.
 | Blade energy per swing | 125 % | `ACR_GEN1_MODERN_BLADE_EN_PCT` |
 | Blade lunge steering | 115 % of the turn rate (ignores the weaker sight) | `ACR_GEN1_MODERN_STEER_PCT` |
 | Standing still after a swing | 100 ms after a hit, 300 ms after a miss | `ACR_GEN1_MODERN_RECOVER_*` |
-| Boost toggle | ground boost at 125 % of the AC's walking pace, 20 % of a ground boost's cost | `ACR_GEN1_CRUISE_PCT`, `_DRAIN_PCT` |
+| Boost toggle | ground boost at 150 % of the AC's walking pace (135 % for four legs and caterpillars), never above its ground boost; 20 % of a ground boost's cost, also while standing | `ACR_GEN1_CRUISE_PCT`, `_HEAVY_PCT`, `_DRAIN_PCT` |
 | Quick boost | the AC's own top boost speed for 4 ticks (~0.18 s) in the stick's direction | `ACR_GEN1_QUICK_TICKS` |
 | Quick boost cost | at the press: what a normal boost from a stand would use to cover the same distance | `acr_gen1_quick_cost` |
 | Chain boost | up to 3 quick boosts in a row, each within 8 ticks (~0.36 s) of the last ending; then 16 ticks (~0.7 s) cool-down | `ACR_GEN1_QUICK_CHAIN*`, `_COOL` |
@@ -57,9 +57,14 @@ speed, weapons and weapon switching stay exactly as in AC1.
   5,000, whatever the FCS (`ACR_GEN1_MODERN_HARD_LOCK_START`). Once on it holds
   out to the FCS's own range, so a long-range FCS (QX-9009, RATOR) has to close
   in to lock, then can pull back out.
-- **Boost toggle.** Counts as a ground boost (slide, coast and stage rules).
-  Walking pace comes from each AC's own walk animation, so heavy legs cruise
-  slower. It never jumps or rises, and does nothing in the air.
+- **Boost toggle (L1).** A modern pilot's only ground boost; counts as one
+  (slide, coast and stage rules). Walking pace comes from each AC's own walk
+  animation, so heavy legs cruise slower. Left on while standing, it keeps
+  draining at the same rate.
+- **Cross.** Never boosts along the ground. Toggle off: a plain jump from the
+  legs (no rise, no energy, works even when dry), or a hop while sliding.
+  Toggle on: jump and hold to rise as normal. Caterpillars don't jump, so for
+  them cross lifts off and rises either way.
 - **Quick boost.** Pick a direction with the left stick and press square: the AC
   thrusts that way. Never faster than the AC's normal boost. Nothing drains or
   refills during the burst. A press during a burst waits for it to end.

@@ -851,8 +851,8 @@ void acr_gen1_battle_step(acr_gen1_battle *b, const acr_gen1_input in[2], const 
             continue;
         }
         acr_gen1_input use = kneel_input(b, f, in[i], act[i]);
-        if (!f->modern) { use.cruise = use.quick = 0; f->hard_lock = 0; }
-        else use = hard_lock_input(b, i, use, act[i].hard_lock);
+        if (!f->modern) { use.cruise = use.quick = use.modern = 0; f->hard_lock = 0; }
+        else { use = hard_lock_input(b, i, use, act[i].hard_lock); use.modern = 1; }
         if (f->recover_ms) use.move = use.strafe = use.boost = use.boost_tapped = use.cruise = use.quick = 0;
         if (f->swing) use.quick = use.cruise = 0;
         if (f->swing) use.move = use.strafe = use.boost = use.boost_tapped = 0;   /* the swing holds the AC */
