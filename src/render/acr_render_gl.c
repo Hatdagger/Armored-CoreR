@@ -158,6 +158,8 @@ static void set_rect(int x, int y, int w, int h) {
     glEnable(GL_SCISSOR_TEST);
 }
 
+static int g_fog_on;   /* the current 3D view has fog */
+
 void acr_render_view3d(int x, int y, int w, int h, const float proj[16], const float view[16], const acr_fog *fog) {
     set_rect(x, y, w, h);
     glClear(GL_DEPTH_BUFFER_BIT);
@@ -174,12 +176,14 @@ void acr_render_view3d(int x, int y, int w, int h, const float proj[16], const f
     if (fog && fog->end > fog->start) {
         const GLfloat c[4] = { fog->r / 255.0f, fog->g / 255.0f, fog->b / 255.0f, 1.0f };
         glEnable(GL_FOG);
+        g_fog_on = 1;
         glFogi(GL_FOG_MODE, GL_LINEAR);
         glFogf(GL_FOG_START, fog->start);
         glFogf(GL_FOG_END, fog->end);
         glFogfv(GL_FOG_COLOR, c);
     } else {
         glDisable(GL_FOG);
+        g_fog_on = 0;
     }
 }
 
@@ -215,14 +219,23 @@ void acr_render_mesh(const acr_vtx *v, int count, uint32_t texture, int flags) {
         glEnable(GL_ALPHA_TEST);
         glAlphaFunc(GL_GREATER, 0.5f / 255.0f);
     }
-    if (flags & ACR_MESH_SEMI) glDepthMask(0);
+    if (flags & (ACR_MESH_SEMI | ACR_MESH_ADD)) glDepthMask(0);
+    const int fogged = (flags & ACR_MESH_ADD) && g_fog_on;
+    if (flags & ACR_MESH_ADD) {
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE);
+        if (fogged) glDisable(GL_FOG);
+    }
     if (flags & ACR_MESH_OVERLAY) {
         glEnable(GL_POLYGON_OFFSET_FILL);
         glPolygonOffset(-1.0f, -4.0f);
     }
     draw(GL_TRIANGLES, v, count, texture);
     if (flags & ACR_MESH_OVERLAY) glDisable(GL_POLYGON_OFFSET_FILL);
-    if (flags & ACR_MESH_SEMI) glDepthMask(1);
+    if (flags & ACR_MESH_ADD) {
+        glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+        if (fogged) glEnable(GL_FOG);
+    }
+    if (flags & (ACR_MESH_SEMI | ACR_MESH_ADD)) glDepthMask(1);
     if (texture) glDisable(GL_ALPHA_TEST);
     if (texture && (flags & ACR_MESH_PS1_TEXEL)) {
         glTexEnvf(GL_TEXTURE_ENV, GL_RGB_SCALE, 1.0f);

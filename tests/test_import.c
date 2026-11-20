@@ -5,6 +5,7 @@
 #include <string.h>
 
 #include "acr_import.h"
+#include "acr_sfx_moa.h"
 
 #ifdef _WIN32
 #include <direct.h>
@@ -140,6 +141,17 @@ int main(int argc, char **argv) {
     CHECK(acr_moa_archive_table(bad, sizeof bad, off, 8) == 0);
     bad[2] = 1; bad[4] = 3; bad[6] = 2;                 /* goes backwards */
     CHECK(acr_moa_archive_table(bad, sizeof bad, off, 8) == 0);
+
+    /* Sound samples: PS1 ADPCM, 28 frames a 16-byte block, block 0 a silent
+     * lead-in; flag 1 ends, 2 repeats, 4 marks the loop start. */
+    unsigned char vag[48] = {0};
+    int16_t pcm[96];
+    long loop = 0;
+    vag[16] = 12; vag[17] = 1; vag[18] = 0x71;           /* shift 12, filter 0, end: 1 then 7 */
+    CHECK(acr_moa_vag_decode(vag, 32, pcm, 96, &loop) == 56);
+    CHECK(pcm[0] == 0 && pcm[28] == 1 && pcm[29] == 7 && pcm[30] == 0 && loop == -1);
+    vag[17] = 6; vag[33] = 3;                            /* loop from block 1, end at block 2 */
+    CHECK(acr_moa_vag_decode(vag, 48, pcm, 96, &loop) == 84 && loop == 28);
 
     if (failures) return 1;
     printf("import: all checks passed\n");
