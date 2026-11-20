@@ -412,7 +412,7 @@ int main(void) {
         setup(&mb, 3000);
         mb.f[0].last_missile = mb.f[1].last_missile = -1;
         mb.f[0].weapons = 1; mb.f[0].weapon[0] = rifle(); mb.f[0].ammo[0] = 200;
-        /* Target ~19 degrees off: inside the rifle's 21-degree box, outside 80 % of it. */
+        /* Target ~19 degrees off: inside the rifle's 21-degree box, outside 30 % of it. */
         acr_gen1_ac_set_yaw(&mb.f[0].ac, 216);
         EXPECT(acr_gen1_in_lock_box(&mb, 0, &mb.f[0].weapon[0]));
         mb.f[0].modern = 1;
@@ -424,11 +424,11 @@ int main(void) {
         EXPECT(mb.f[0].sight_yaw == 0 && acr_gen1_in_lock_box(&mb, 0, &mb.f[0].weapon[0]));
         acr_gen1_ac_set_yaw(&mb.f[0].ac, 600);
         acr_gen1_battle_step(&mb, none, na);
-        EXPECT(mb.f[0].sight_yaw == 0);                          /* still where the facing was */
+        EXPECT(mb.f[0].sight_yaw == 0 && acr_gen1_in_lock_box(&mb, 0, &mb.f[0].weapon[0]));   /* the target still in it */                          /* still where the facing was */
         for (int t = 0; t < 40; ++t) acr_gen1_battle_step(&mb, none, na);
         EXPECT(mb.f[0].sight_yaw == 600);
         /* Hard lock: turns back toward the target until it is in the sight, then holds. */
-        acr_gen1_ac_set_yaw(&mb.f[0].ac, 100);
+        acr_gen1_ac_set_yaw(&mb.f[0].ac, 50);
         for (int t = 0; t < 20; ++t) acr_gen1_battle_step(&mb, none, na);
         EXPECT(acr_gen1_in_lock_box(&mb, 0, &mb.f[0].weapon[0]));
         na[0].hard_lock = 1;

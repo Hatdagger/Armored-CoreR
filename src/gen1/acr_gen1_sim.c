@@ -276,6 +276,22 @@ static void game_stage_tick(acr_gen1_ac *ac, const acr_gen1_ac_def *def, int32_t
     if (!boosting) { ac->vx = 0; ac->vz = 0; }
 }
 
+int32_t acr_gen1_walk_pace(const acr_gen1_ac_def *def) {
+    const acr_gen1_root_track *t = def->anim[ACR_GEN1_ANIM_WALK];
+    if (t && t->count && t->keys[t->count - 1].frame) {
+        const acr_gen1_root_key *k = &t->keys[t->count - 1];
+        const int32_t z = k->z < 0 ? -k->z : k->z;          /* model units: a quarter of world units */
+        return (int32_t)((int64_t)z * 64 / 4 / k->frame);
+    }
+    return ACR_GEN1_WALK_PACE * 64;
+}
+
+int32_t acr_gen1_cruise_top(const acr_gen1_ac_def *def) {
+    int32_t top = acr_gen1_walk_pace(def) * ACR_GEN1_CRUISE_PCT / 100;
+    if (top > (int32_t)def->motion.boost_max) top = def->motion.boost_max;
+    return top;
+}
+
 int32_t acr_gen1_quick_cost(const acr_gen1_ac_def *def, int air) {
     const acr_gen1_motion *m = &def->motion;
     const int32_t accel = air ? m->air_accel : m->boost_accel, top = air ? m->air_max : m->boost_max;
@@ -402,9 +418,14 @@ void acr_gen1_ac_tick(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
             break;
         }
         /* Modern controls: the boost toggle, a slow ground boost. */
-        const int cruising = in.cruise && !in.boost && (ac->drained || ac->energy > 0) && dir && moving;
+        const int cruising = in.cruise && !in.boost && !ac->drained && ac->energy > 0 && dir && moving;
         if (cruising) {
-            const int32_t top = (int32_t)m->boost_max * ACR_GEN1_CRUISE_PCT / 100;
+            const int32_t top = acr_gen1_cruise_top(def);
+            if (!ac->vx && !ac->vz) {               /* from a walk: starts at walking pace */
+                const int32_t pace = acr_gen1_walk_pace(def);
+                ac->vx = (int32_t)((int64_t)dx * pace / 4096);
+                ac->vz = (int32_t)((int64_t)dz * pace / 4096);
+            }
             ac->vx += dx * (int32_t)m->boost_accel / 4096;
             ac->vz += dz * (int32_t)m->boost_accel / 4096;
             limit_length(&ac->vx, &ac->vz, top);
@@ -543,17 +564,13 @@ moved:
     if (drain == 4) return;                     /* quick boost burst: paid at the press */
     if (ac->drained) {
         if (ac->energy >= s->energy_capacity) { ac->energy = s->energy_capacity; ac->drained = 0; }
-        else {
-            ac->energy += refill >> 1;
-            if (drain == 3) ac->energy -= (cost >> 1) * ACR_GEN1_CRUISE_PCT / 100;   /* the toggle still runs */
-            if (ac->energy < 0) ac->energy = 0;
-        }
+        else ac->energy += refill >> 1;
         return;
     }
     if (ac->energy < s->red_zone) { cost >>= 2; refill >>= 2; }
     if (drain) {
         if (drain >= 2) cost >>= 1;
-        if (drain == 3) cost = cost * ACR_GEN1_CRUISE_PCT / 100;
+        if (drain == 3) cost = cost * ACR_GEN1_CRUISE_DRAIN_PCT / 100;
         if (ac->energy > cost) ac->energy -= cost;
         else { ac->energy = 0; ac->drained = 1; }
     } else if (ac->energy >= s->energy_capacity) {

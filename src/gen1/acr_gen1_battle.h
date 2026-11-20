@@ -178,7 +178,7 @@ typedef struct acr_gen1_shot {
  *   rates whenever the pilot isn't turning / tilting. It drops when the
  *   target leaves the sight and needs a fresh press.
  * Stand-in values to tune in play (mirror matches, modern vs original). */
-#define ACR_GEN1_MODERN_BOX_PCT          80
+#define ACR_GEN1_MODERN_BOX_PCT          30    /* aiming is automatic: a much smaller sight */
 #define ACR_GEN1_MODERN_LEAD_PCT         60
 #define ACR_GEN1_MODERN_SIGHT_LAG        2     /* ticks, ~0.1 s; at most 3 */
 #define ACR_GEN1_MODERN_MISSILE_PCT      140
