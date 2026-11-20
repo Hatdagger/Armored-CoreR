@@ -440,6 +440,18 @@ int main(void) {
             const int32_t y = mb.f[0].ac.yaw >= 2048 ? (int32_t)mb.f[0].ac.yaw - 4096 : mb.f[0].ac.yaw;
             EXPECT(mb.f[0].hard_lock && y < 60 && y > -60);
         }
+        mb.f[0].weapon[0].straight = 1;                           /* rockets: hard lock off */
+        acr_gen1_battle_step(&mb, none, na);
+        EXPECT(!mb.f[0].hard_lock);
+        na[0].hard_lock = 1;
+        acr_gen1_battle_step(&mb, none, na);
+        na[0].hard_lock = 0;
+        EXPECT(!mb.f[0].hard_lock);                               /* and won't come on */
+        mb.f[0].weapon[0].straight = 0;
+        na[0].hard_lock = 1;
+        acr_gen1_battle_step(&mb, none, na);
+        na[0].hard_lock = 0;
+        EXPECT(mb.f[0].hard_lock);
         mb.f[1].ac.x = 6000 * 64;                                 /* jumps far off to the side: lock drops */
         mb.f[1].ac.px = mb.f[1].ac.sx = mb.f[1].ac.x;
         acr_gen1_battle_step(&mb, none, na);

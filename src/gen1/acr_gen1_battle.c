@@ -798,6 +798,9 @@ static acr_gen1_input kneel_input(acr_gen1_battle *b, acr_gen1_fighter *f, acr_g
 static acr_gen1_input hard_lock_input(acr_gen1_battle *b, int i, acr_gen1_input in, int pressed) {
     acr_gen1_fighter *f = &b->f[i];
     if (pressed) f->hard_lock = (uint8_t)!f->hard_lock;
+    /* No-lock weapons (rockets) stay aimed by hand: hard lock is off while
+     * one is selected. */
+    if (f->weapons && f->current < f->weapons && f->weapon[f->current].straight) f->hard_lock = 0;
     if (!f->hard_lock) return in;
     const acr_gen1_weapon *w = NULL;
     for (int k = 0; k < f->weapons; ++k)            /* the current gun / missile, else any with a sight */
