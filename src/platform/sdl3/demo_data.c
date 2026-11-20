@@ -223,6 +223,48 @@ static int load_tracks(const char *import_dir, int model, demo_ac *out) {
     return 1;
 }
 
+/* The furthest range a normal (not long-range) FCS in the import reaches,
+ * per lock class: where a modern pilot's hard lock can start
+ * (ACR_GEN1_LONG_FCS_RANGE). */
+typedef struct fcs_scan { const char *dir; long reach[4]; } fcs_scan;
+static SDL_EnumerationResult SDLCALL fcs_scan_cb(void *user, const char *dirname, const char *fname) {
+    fcs_scan *sc = user;
+    (void)dirname;
+    if (!SDL_strstr(fname, ".toml")) return SDL_ENUM_CONTINUE;
+    char path[1400];
+    SDL_snprintf(path, sizeof path, "%s/%s", sc->dir, fname);
+    char *t = load_text(path);
+    if (!t) return SDL_ENUM_CONTINUE;
+    const char *e = t + strlen(t);
+    long r[4];
+    for (int k = 0; k < 4; ++k) {
+        char key[16];
+        SDL_snprintf(key, sizeof key, "lock_class_%d", k);
+        r[k] = list_at(t, e, key, 0, 0);
+    }
+    if (r[0] && r[0] < ACR_GEN1_LONG_FCS_RANGE)
+        for (int k = 0; k < 4; ++k) if (r[k] > sc->reach[k]) sc->reach[k] = r[k];
+    SDL_free(t);
+    return SDL_ENUM_CONTINUE;
+}
+static void normal_fcs_reach(const char *import_dir, long reach[4]) {
+    static char cached_dir[1024];
+    static long cached[4];
+    static int have;
+    if (!have || SDL_strcmp(cached_dir, import_dir)) {
+        fcs_scan sc;
+        SDL_zero(sc);
+        char dir[1100];
+        SDL_snprintf(dir, sizeof dir, "%s/parts/fcs", import_dir);
+        sc.dir = dir;
+        SDL_EnumerateDirectory(dir, fcs_scan_cb, &sc);
+        SDL_memcpy(cached, sc.reach, sizeof cached);
+        SDL_strlcpy(cached_dir, import_dir, sizeof cached_dir);
+        have = 1;
+    }
+    SDL_memcpy(reach, cached, sizeof cached);
+}
+
 int demo_load(const char *import_dir, const int parts[SLOT_COUNT], demo_ac *out,
               char *err, int err_size) {
     memset(out, 0, sizeof *out);
@@ -364,6 +406,12 @@ int demo_load(const char *import_dir, const int parts[SLOT_COUNT], demo_ac *out,
         const int cls = w->box_w - 1;
         if (fcs[cls][0] && w->range > fcs[cls][0]) w->range = (int32_t)fcs[cls][0];
         w->lock_range = (int32_t)fcs[cls][0];   /* the sight looks out to the FCS's range */
+        {   /* long-range FCS: modern hard lock starts only within a normal FCS's reach */
+            long reach[4];
+            normal_fcs_reach(import_dir, reach);
+            w->hard_lock_range = fcs[0][0] >= ACR_GEN1_LONG_FCS_RANGE && reach[cls] && reach[cls] < w->lock_range
+                               ? (int32_t)reach[cls] : 0;
+        }
         w->box_w = (uint16_t)fcs[cls][1];
         w->box_h = (uint16_t)fcs[cls][2];
         w->inner_w = (uint16_t)fcs[cls][3];
