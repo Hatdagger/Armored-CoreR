@@ -38,7 +38,9 @@ speed, weapons and weapon switching stay exactly as in AC1.
 | Blade lunge steering | 115 % of the turn rate (ignores the weaker sight) | `ACR_GEN1_MODERN_STEER_PCT` |
 | Standing still after a swing | 100 ms after a hit, 300 ms after a miss | `ACR_GEN1_MODERN_RECOVER_*` |
 | Boost toggle | ground boost at 20 % of the top speed and of the cost | `ACR_GEN1_CRUISE_PCT` |
-| Quick boost | the AC's own top boost speed for 4 ticks (~0.18 s), 12-tick cool-down | `ACR_GEN1_QUICK_*` |
+| Quick boost | the AC's own top boost speed for 4 ticks (~0.18 s) in the stick's direction | `ACR_GEN1_QUICK_TICKS` |
+| Quick boost cost | at the press: what a normal boost from a stand would use to cover the same distance | `acr_gen1_quick_cost` |
+| Chain boost | up to 3 quick boosts in a row, each within 8 ticks (~0.36 s) of the last ending; then 16 ticks (~0.7 s) cool-down | `ACR_GEN1_QUICK_CHAIN*`, `_COOL` |
 
 - **Sight lag.** A target that crosses quickly slips out of the sight and the
   lock breaks, even though it stays on screen.
@@ -48,7 +50,12 @@ speed, weapons and weapon switching stay exactly as in AC1.
   leaves the sight; press R3 again to turn it back on.
 - **Boost toggle.** Counts as a ground boost (slide, coast and stage rules).
   It never jumps or rises, and does nothing in the air.
-- **Quick boost.** Never faster than the AC's normal boost.
+- **Quick boost.** Pick a direction with the left stick and press square: the AC
+  thrusts that way. Never faster than the AC's normal boost. Nothing drains or
+  refills during the burst. A press during a burst waits for it to end.
+- **Running dry.** The boost toggle still works (its cost comes out of the
+  half-speed refill), but no quick boost and no energy weapons until the bar
+  is full again. The blade already needs energy for everyone.
 
 **Human PLUS** (when it comes): a modern pilot gets only its no-kneel benefit
 (cannons fire without the stance). Its energy rules, and any Human PLUS

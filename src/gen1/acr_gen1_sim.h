@@ -54,12 +54,23 @@ typedef struct acr_gen1_input {
  *   boost. It does nothing in the air.
  * - quick boost: a press with a direction held sets the AC's speed that way
  *   to its own top speed (ground boost top speed on the ground, air top
- *   speed in the air) for QUICK_TICKS ticks, at the ground boost's cost,
- *   then it slides as after any boost. Never faster than the AC's normal
- *   boost; QUICK_COOL ticks before the next one. */
-#define ACR_GEN1_CRUISE_PCT  20
-#define ACR_GEN1_QUICK_TICKS 4      /* ~0.18 s */
-#define ACR_GEN1_QUICK_COOL  12     /* ~0.55 s from the press */
+ *   speed in the air) for QUICK_TICKS ticks, then it slides as after any
+ *   boost. Never faster than the AC's normal boost. It costs, at the press,
+ *   all the energy a normal boost (from a stand, same accel and top speed,
+ *   a ground boost's cost a tick) would use to cover the same distance;
+ *   nothing drains or refills during the burst. Up to QUICK_CHAIN in a row
+ *   (each pressed within QUICK_CHAIN_GAP ticks of the last burst's end;
+ *   a press during a burst waits for its end), then QUICK_COOL ticks from
+ *   the last press before the next.
+ * - running dry (the booster lock, acr_gen1_ac.drained): the toggle still
+ *   works (its cost comes out of the half-speed refill), the quick boost
+ *   doesn't until the bar is full again. */
+#define ACR_GEN1_CRUISE_PCT      20
+#define ACR_GEN1_QUICK_TICKS     4      /* ~0.18 s */
+#define ACR_GEN1_QUICK_CHAIN     3
+#define ACR_GEN1_QUICK_CHAIN_GAP 8      /* ~0.36 s */
+#define ACR_GEN1_QUICK_COOL      16     /* ~0.7 s from the chain's last press */
+
 
 /* View tilt, measured in the recomp (VS): L2 / R2 tilt the aim up / down
  * by up to ~66 degrees at ~80 degrees a second and it stays where it is let
@@ -91,6 +102,9 @@ typedef struct acr_gen1_ac_def {
     const acr_gen1_stage *stage;
 } acr_gen1_ac_def;
 
+/* Energy a quick boost costs on the ground (air = 0) or in the air (1). */
+int32_t acr_gen1_quick_cost(const acr_gen1_ac_def *def, int air);
+
 /* Arena stand-ins until the game's own rules are read: an AC walks up a
  * step this high, follows a floor dropping away by this much (slopes)
  * before it falls, and is a cylinder this wide (its hit cylinder). */
@@ -115,6 +129,8 @@ typedef struct acr_gen1_ac {
     uint8_t  quick_ticks;      /* modern quick boost: ticks of burst left */
     uint8_t  quick_cool;       /* ticks until the next quick boost */
     uint8_t  quick_pending;    /* a quick boost pressed since the latest tick */
+    uint8_t  quick_chain;      /* quick boosts in the current chain */
+    uint8_t  quick_gap;        /* ticks since the chain's last burst ended */
     uint8_t  state;
     uint16_t timer;
     int32_t  vy_at_touchdown;  /* fall speed at the latest touchdown */

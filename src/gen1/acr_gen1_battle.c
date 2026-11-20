@@ -667,6 +667,7 @@ static void fighter_step(acr_gen1_battle *b, int i, acr_gen1_actions a, int tick
 
     if (!a.fire || f->cooldown || f->hold_left) return;
     if (w->ammo && !f->ammo[f->current]) return;
+    if (f->modern && w->energy && f->ac.drained) return;   /* modern: no energy weapons until the bar is full */
     if (!acr_gen1_stance_ok(f)) return;
     if (f->swing || f->recover_ms) return;
     int32_t ax, ay, az;

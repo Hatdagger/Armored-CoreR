@@ -341,19 +341,43 @@ int main(void) {
         for (int k = 0; k < 10; ++k) acr_gen1_ac_step(&s, &d, stand);
         EXPECT(s.state == ACR_GEN1_GROUND && s.vx == 0 && s.vz == 0);
         /* Quick boost from a stand: the ground top speed at once, a few
-         * ticks, then a slide; not again until the cool-down ends. */
+         * ticks, then a slide. It costs, at once, what a normal boost would
+         * to cover the distance; three chain, then a cool-down. */
         acr_gen1_ac q;
         acr_gen1_ac_spawn(&q, &d, 0, 0, 0);
         acr_gen1_input qb = k_fwd;
         qb.quick = 1;
+        const int32_t cost = acr_gen1_quick_cost(&d, 0);
+        EXPECT(cost > ACR_GEN1_QUICK_TICKS * (d.stats.rise_drain >> 1));   /* more than the burst's own ticks: the ramp-up */
+        const int32_t eq = q.energy;
         acr_gen1_ac_step(&q, &d, qb);
         const int64_t v1 = (int64_t)q.vx * q.vx + (int64_t)q.vz * q.vz, bm = d.motion.boost_max;
         EXPECT(q.state == ACR_GEN1_GROUND && v1 >= (bm - 2) * (bm - 2) && v1 <= bm * bm + 2);
-        EXPECT(q.quick_ticks == ACR_GEN1_QUICK_TICKS - 1 && q.quick_cool == ACR_GEN1_QUICK_COOL);
+        EXPECT(q.energy == eq - cost && q.quick_ticks == ACR_GEN1_QUICK_TICKS - 1 && q.quick_cool == 0);
+        for (int k = 0; k < ACR_GEN1_QUICK_TICKS - 1; ++k) acr_gen1_ac_step(&q, &d, k_fwd);
+        EXPECT(q.quick_ticks == 0 && q.energy == eq - cost);      /* no drain or refill in the burst */
+        acr_gen1_ac_step(&q, &d, qb);                              /* second */
+        EXPECT(q.quick_ticks == ACR_GEN1_QUICK_TICKS - 1 && q.quick_chain == 2);
+        acr_gen1_ac_step(&q, &d, qb);                              /* mid-burst: waits */
+        for (int k = 0; k < ACR_GEN1_QUICK_TICKS - 2; ++k) acr_gen1_ac_step(&q, &d, k_fwd);
+        acr_gen1_ac_step(&q, &d, k_fwd);                           /* the waiting press: third */
+        EXPECT(q.quick_ticks == ACR_GEN1_QUICK_TICKS - 1 && q.quick_cool == ACR_GEN1_QUICK_COOL - 0 && q.quick_chain == 0);
         for (int k = 0; k < ACR_GEN1_QUICK_TICKS; ++k) acr_gen1_ac_step(&q, &d, k_fwd);
+        acr_gen1_ac_step(&q, &d, qb);                              /* fourth: cooling down */
         EXPECT(q.quick_ticks == 0);
-        acr_gen1_ac_step(&q, &d, qb);                              /* still cooling down */
+        /* Run dry: no quick boost, but the toggle still moves the AC. */
+        acr_gen1_ac_spawn(&q, &d, 0, 0, 0);
+        for (int k = 0; k < 6; ++k) acr_gen1_ac_step(&q, &d, k_fwd);
+        q.energy = 0; q.drained = 1;
+        acr_gen1_ac_step(&q, &d, qb);
         EXPECT(q.quick_ticks == 0);
+        acr_gen1_input dry = k_fwd;
+        dry.cruise = 1;
+        for (int k = 0; k < 30; ++k) acr_gen1_ac_step(&q, &d, dry);
+        {
+            const int64_t vq = (int64_t)q.vx * q.vx + (int64_t)q.vz * q.vz;
+            EXPECT(q.drained && vq >= (top - 2) * (top - 2) && q.energy > 0);   /* cruising, still recharging */
+        }
         acr_gen1_ac_spawn(&q, &d, 0, 0, 0);
         acr_gen1_ac_step(&q, &d, (acr_gen1_input){ .quick = 1 });  /* no direction: nothing */
         EXPECT(q.vx == 0 && q.vz == 0 && q.quick_cool == 0);
