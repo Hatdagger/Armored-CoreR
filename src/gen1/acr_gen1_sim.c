@@ -412,6 +412,24 @@ void acr_gen1_ac_tick(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
          * again while still sliding, and the AC jumps straight into the air,
          * keeping its speed (humanoid, reverse-joint and four-legged legs;
          * as described by a player, not yet measured). */
+        /* SP-MODERN caterpillars: the booster lifts them straight off while
+         * moving (cruising, sliding or walking), keeping their speed (the
+         * air top speed then caps it), instead of sliding to a stop first. */
+        if (in.modern && tracks && can_jump && moving) {
+            if (!ac->vx && !ac->vz && dir) {        /* from a walk: walking pace */
+                const int32_t pace = acr_gen1_walk_pace(def);
+                ac->vx = (int32_t)((int64_t)dx * pace / 4096);
+                ac->vz = (int32_t)((int64_t)dz * pace / 4096);
+            }
+            ac->vy = -(int32_t)m->rise_accel * ACR_GEN1_MODERN_RISE_PCT / 100;   /* the rise's first tick */
+            if (ac->vy >= 0) ac->vy = -1;
+            ac->state = ACR_GEN1_AIR;
+            set_anim(ac, ACR_GEN1_ANIM_IDLE);
+            drain = 1;                          /* marker: rising */
+            mx = ac->vx;
+            mz = ac->vz;
+            break;
+        }
         if (can_jump && fresh_press && (ac->vx || ac->vz) && !def->no_boost_hop) {
             int32_t vy;
             uint16_t crouch;

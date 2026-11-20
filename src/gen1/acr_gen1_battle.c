@@ -199,7 +199,9 @@ static acr_gen1_shot *free_shot(acr_gen1_battle *b) {
 static void spawn_shot(acr_gen1_battle *b, int i, int wi, int32_t side, int32_t dirx, int32_t diry, int32_t dirz) {
     acr_gen1_shot *s = free_shot(b);
     if (!s) return;
-    const int32_t sp = per_step(b, b->f[i].weapon[wi].speed);
+    int32_t sp = per_step(b, b->f[i].weapon[wi].speed);
+    if (b->f[i].modern && b->f[i].weapon[wi].straight)        /* modern rockets: slower */
+        sp = (int32_t)((int64_t)sp * MT(b, rocket_speed_pct, ROCKET_SPEED_PCT) / 100);
     int32_t m[3];
     muzzle_at(b, i, m);
     s->active = 1;
@@ -567,7 +569,8 @@ static void camera_tick(acr_gen1_battle *b, int i) {
             to_pitch = wrap((int32_t)pitch - f->ac.pitch);
         }
         f->cam_yaw = (int16_t)to_yaw;
-        f->cam_pitch = (int16_t)turn_toward(f->cam_pitch, to_pitch, 64);
+        /* Hard lock pins the target to the middle of the screen. */
+        f->cam_pitch = (int16_t)(f->hard_lock && t->ap > 0 ? to_pitch : turn_toward(f->cam_pitch, to_pitch, 64));
         return;
     }
     f->cam_pitch = (int16_t)turn_toward(f->cam_pitch, to_pitch, step);
@@ -706,7 +709,7 @@ static void fighter_step(acr_gen1_battle *b, int i, acr_gen1_actions a, int tick
         if (w->ammo) --f->ammo[f->current];
     }
     f->cooldown = w->interval;
-    if (f->modern && f->hard_lock && w->straight)    /* rockets on hard lock: far slower */
+    if (f->modern && w->straight)                    /* modern rockets: far slower to refire */
         f->cooldown = (uint16_t)(w->interval * MT(b, rocket_rof_pct, ROCKET_ROF_PCT) / 100u);
     f->hold_left = w->hold;
 }
@@ -746,7 +749,9 @@ static void shots_step(acr_gen1_battle *b, int ticks) {
             s->x += s->vx;
             s->y += s->vy;
             s->z += s->vz;
-            s->travelled += per_step(b, w->speed) / 64;
+            int32_t sp = per_step(b, w->speed);
+            if (owner->modern && w->straight) sp = (int32_t)((int64_t)sp * MT(b, rocket_speed_pct, ROCKET_SPEED_PCT) / 100);
+            s->travelled += sp / 64;                    /* same range at the slower speed */
         }
         const acr_gen1_ac *t = &b->f[target].ac;
         const int hits_ac = b->f[target].ap > 0 &&
@@ -812,15 +817,20 @@ static acr_gen1_input kneel_input(acr_gen1_battle *b, acr_gen1_fighter *f, acr_g
 }
 
 /* Modern controls' free camera and hard lock (see ACR_GEN1_MODERN_CAM_RATE).
- * The right stick (in.turn) spins the camera; R3 locks it on the target at
- * any distance (it drops only when the target is down). The left stick is
- * taken relative to the camera and turned into the AC's own eight
- * directions; the AC turns toward the camera's heading at its turn rate. */
-static acr_gen1_input modern_input(acr_gen1_battle *b, int i, acr_gen1_input in, int pressed, int ticks) {
+ * Without hard lock the right stick (in.turn) spins the camera and the AC
+ * turns toward the camera's heading at its turn rate. R3 hard lock pins the
+ * camera on the target at any distance (it drops when the target is down);
+ * the AC then turns freely on the right stick and tilts with in.look, and
+ * while the pilot fires or swings the blade it turns and tilts toward the
+ * target at its legs' turn rate and the normal tilt rate: that is the aim,
+ * and the FCS (which follows the facing) still has to bring the target into
+ * its box and lock as normal. The left stick is always taken relative to
+ * the camera and turned into the AC's own eight directions. */
+static acr_gen1_input modern_input(acr_gen1_battle *b, int i, acr_gen1_input in, acr_gen1_actions act, int ticks) {
     acr_gen1_fighter *f = &b->f[i];
     const acr_gen1_ac *me = &f->ac, *it = &b->f[1 - i].ac;
     if (!f->look_init) { f->look_yaw = me->yaw; f->look_init = 1; }
-    if (pressed) {
+    if (act.hard_lock) {
         f->hard_lock = (uint8_t)!f->hard_lock;
         if (f->hard_lock) {                             /* starting it: close enough (0 = anywhere) */
             const uint32_t start = b->modern.hard_lock_start ? b->modern.hard_lock_start : ACR_GEN1_MODERN_HARD_LOCK_START;
@@ -829,11 +839,14 @@ static acr_gen1_input modern_input(acr_gen1_battle *b, int i, acr_gen1_input in,
         }
     }
     if (b->f[1 - i].ap <= 0) f->hard_lock = 0;
+    int32_t dead = f->def ? f->def->motion.turn_max : 16;     /* within a tick's turn: stop */
+    if (dead < 16) dead = 16;
+    const int8_t stick_turn = in.turn;
     if (f->hard_lock) {
         uint16_t yaw;
         int16_t pitch;
         dir_of((it->x - me->x) / 64, (it->y - me->y) / 64, (it->z - me->z) / 64, &yaw, &pitch);
-        f->look_yaw = (uint16_t)(turn_toward(f->look_yaw, yaw, ACR_GEN1_MODERN_LOCK_CAM_RATE * ticks) & 4095);
+        f->look_yaw = yaw;                              /* the target stays in the middle */
     } else if (in.turn) {
         f->look_yaw = (uint16_t)((f->look_yaw + in.turn * ACR_GEN1_MODERN_CAM_RATE * ticks) & 4095);
     }
@@ -846,14 +859,24 @@ static acr_gen1_input modern_input(acr_gen1_battle *b, int i, acr_gen1_input in,
         in.move = k_move[rel];
         in.strafe = k_strafe[rel];
     }
-    /* The AC turns toward the camera's heading at its own rate. */
     in.turn = 0;
-    if (!in.crouch) {
-        const int32_t d = wrap((int32_t)f->look_yaw - me->yaw);
-        int32_t dead = f->def ? f->def->motion.turn_max : 16;
-        if (dead < 16) dead = 16;
-        in.turn = (int8_t)(d > dead ? 1 : d < -dead ? -1 : 0);
+    if (in.crouch) return in;
+    if (f->hard_lock) {
+        if (act.fire || act.blade) {                    /* firing / attacking: turn to aim */
+            uint16_t yaw;
+            int16_t pitch;
+            dir_of((it->x - me->x) / 64, (it->y - CENTRE_UP - (me->y - MUZZLE_UP)) / 64, (it->z - me->z) / 64, &yaw, &pitch);
+            const int32_t ry = wrap((int32_t)yaw - me->yaw), rp = wrap((int32_t)pitch - me->pitch);
+            in.turn = (int8_t)(ry > dead ? 1 : ry < -dead ? -1 : 0);
+            in.look = (int8_t)(rp > ACR_GEN1_PITCH_RATE ? 1 : rp < -ACR_GEN1_PITCH_RATE ? -1 : 0);
+        } else {
+            in.turn = stick_turn;                       /* free: the right stick turns the AC */
+        }
+        return in;
     }
+    /* No hard lock: the AC turns toward the camera's heading at its own rate. */
+    const int32_t d = wrap((int32_t)f->look_yaw - me->yaw);
+    in.turn = (int8_t)(d > dead ? 1 : d < -dead ? -1 : 0);
     return in;
 }
 
@@ -878,7 +901,7 @@ void acr_gen1_battle_step(acr_gen1_battle *b, const acr_gen1_input in[2], const 
         }
         acr_gen1_input use = kneel_input(b, f, in[i], act[i]);
         if (!f->modern) { use.cruise = use.quick = use.modern = 0; f->hard_lock = 0; }
-        else { use = modern_input(b, i, use, act[i].hard_lock, ticks); use.modern = 1; }
+        else { use = modern_input(b, i, use, act[i], ticks); use.modern = 1; }
         if (f->recover_ms) use.move = use.strafe = use.boost = use.boost_tapped = use.cruise = use.quick = 0;
         if (f->swing) use.quick = use.cruise = 0;
         if (f->swing) use.move = use.strafe = use.boost = use.boost_tapped = 0;   /* the swing holds the AC */

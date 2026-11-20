@@ -16,14 +16,14 @@ speed, weapons and weapon switching stay exactly as in AC1.
 | Control | Does |
 |---|---|
 | Left stick | move, relative to the camera |
-| Right stick | spin the camera (the AC turns to follow); tilt the view |
+| Right stick | spin the camera (the AC turns to follow); tilt the view. With hard lock: turn and tilt the AC |
 | Cross | jump; with the boost toggle on, hold to rise (never a ground boost) |
 | L1 | boost toggle on / off: the only ground boost |
 | Square | quick boost |
 | R2 | fire the selected weapon |
 | L2 | blade |
 | Triangle | switch weapon (as AC1: one weapon selected at a time) |
-| R3 | hard lock on / off: the camera stays on the target |
+| R3 | hard lock on / off: the target stays in the middle of the screen |
 | D-pad down | view back to level |
 
 ## Rules
@@ -32,7 +32,7 @@ speed, weapons and weapon switching stay exactly as in AC1.
 |---|---|---|
 | FCS lock boxes (inner and outer) | 30 % of the FCS's (aiming is automatic) | `ACR_GEN1_MODERN_BOX_PCT` |
 | Locked shots lead the target | 60 % of the way | `ACR_GEN1_MODERN_LEAD_PCT` |
-| FCS sight follows the facing | 2 ticks late (~0.1 s), no faster than the AC turns | `ACR_GEN1_MODERN_SIGHT_LAG` |
+| FCS sight follows the facing | no faster than the AC's legs turn (no extra delay) | `ACR_GEN1_MODERN_SIGHT_LAG` (0) |
 | Missile lock time | 140 % | `ACR_GEN1_MODERN_MISSILE_PCT` |
 | Blade energy per swing | 125 % | `ACR_GEN1_MODERN_BLADE_EN_PCT` |
 | Blade lunge steering | 115 % of the turn rate (ignores the weaker sight) | `ACR_GEN1_MODERN_STEER_PCT` |
@@ -42,23 +42,32 @@ speed, weapons and weapon switching stay exactly as in AC1.
 | Quick boost cost | at the press: what a normal boost from a stand would use to cover the same distance | `acr_gen1_quick_cost` |
 | Chain boost | up to 3 quick boosts in a row, each within 8 ticks (~0.36 s) of the last ending; then 16 ticks (~0.7 s) cool-down | `ACR_GEN1_QUICK_CHAIN*`, `_COOL` |
 
-- **Sight lag.** A target that crosses quickly slips out of the sight and the
-  lock breaks, even though it stays on screen.
+- **Sight follows the legs.** The FCS sight turns with the AC, so how fast it
+  can follow a target is set by the legs' turn speed. A target that crosses
+  faster than the legs can turn slips out of the sight and the lock breaks,
+  even though it stays on screen. (A delay on top, in ticks, can still be set
+  with `ACR_GEN1_MODERN_SIGHT_LAG`; it is 0.)
 - **Free camera.** The right stick spins the camera at about 180 degrees a
   second (`ACR_GEN1_MODERN_CAM_RATE`), and the AC turns in place to face
   where the camera looks, at its own legs' turn speed. The left stick moves
   relative to the camera. So the camera turns freely, but the FCS sight
   (which follows the AC's facing) still turns no faster than the legs allow.
-- **Hard lock.** Keeps the camera on the target wherever it is, at any
-  distance (`ACR_GEN1_MODERN_HARD_LOCK_START`, 0 = no limit). It does no
-  aiming: the AC still has to turn round at its own rate. It stays on until
-  R3 is pressed again or the target is down.
+- **Hard lock.** Pins the target to the middle of the screen wherever it is,
+  at any distance (`ACR_GEN1_MODERN_HARD_LOCK_START`, 0 = no limit). The
+  left stick moves relative to that view; the right stick turns and tilts
+  the AC freely. While R2 (fire) is held or L2 (blade) is pressed, the AC
+  turns and tilts toward the target instead: that is the aim, and it turns
+  no faster than its legs allow. Every normal FCS condition still applies:
+  the target has to come into the (smaller) lock box, in range, and the
+  lock has to build up as normal. It stays on until R3 is pressed again or
+  the target is down.
 - **FCS only with hard lock.** Without hard lock there is no FCS: no sight on
   screen, no gun lock, no missile lock; shots go where the AC faces. With it
   on the sight comes up and locks work as above.
-- **Rockets with hard lock.** While hard lock is on their refire wait is 3x
-  normal (`ACR_GEN1_MODERN_ROCKET_ROF_PCT`), a third of the damage per
-  second. With it off they fire at the normal rate.
+- **Rockets.** A modern pilot's rockets refire at a third of the rate
+  (`ACR_GEN1_MODERN_ROCKET_ROF_PCT`, 300 % wait) and fly at 60 % of their
+  speed with the same range (`ACR_GEN1_MODERN_ROCKET_SPEED_PCT`), with or
+  without hard lock.
 - **Boost toggle (L1).** A modern pilot's only ground boost; counts as one
   (slide, coast and stage rules). Walking pace comes from each AC's own walk
   animation, so heavy legs cruise slower. Left on while standing, it keeps
@@ -69,7 +78,8 @@ speed, weapons and weapon switching stay exactly as in AC1.
 - **Cross.** Never boosts along the ground. Toggle off: a plain jump from the
   legs (no rise, no energy, works even when dry), or a hop while sliding.
   Toggle on: jump and hold to rise as normal. Caterpillars don't jump, so for
-  them cross lifts off and rises either way.
+  them cross lifts off and rises either way; while moving (cruising, sliding
+  or walking) they lift off at once and keep their speed.
 - **Quick boost.** Pick a direction with the left stick and press square: the AC
   thrusts that way. Never faster than the AC's normal boost. Nothing drains or
   refills during the burst. A press during a burst waits for it to end.

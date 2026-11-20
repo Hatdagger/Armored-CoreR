@@ -409,6 +409,23 @@ int main(void) {
             int32_t top_t = 0;
             for (int k = 0; k < 60; ++k) { acr_gen1_ac_step(&tr, &t, jump); if (-tr.y > top_t) top_t = -tr.y; }
             EXPECT(top_t > top_j * 2);
+            /* Cruising caterpillars lift off at once, keeping their speed. */
+            {
+                acr_gen1_ac cr;
+                acr_gen1_ac_spawn(&cr, &t, 0, 0, 0);
+                acr_gen1_input go = k_fwd;
+                go.modern = go.cruise = 1;
+                for (int k = 0; k < 20; ++k) acr_gen1_ac_step(&cr, &t, go);
+                const int64_t v0 = (int64_t)cr.vx * cr.vx + (int64_t)cr.vz * cr.vz;
+                EXPECT(cr.state == ACR_GEN1_GROUND && v0 > 0);
+                acr_gen1_input up = go;
+                up.boost = 1;
+                acr_gen1_ac_step(&cr, &t, up);
+                const int64_t v1 = (int64_t)cr.vx * cr.vx + (int64_t)cr.vz * cr.vz;
+                EXPECT(cr.state == ACR_GEN1_AIR && v1 > 0);
+                for (int k = 0; k < 10; ++k) acr_gen1_ac_step(&cr, &t, up);
+                EXPECT(cr.y < 0 && (cr.vx || cr.vz));                /* rising and still moving */
+            }
         }
         /* Quick boost from a stand: the ground top speed at once, a few
          * ticks, then a slide. It costs, at once, what a normal boost would
