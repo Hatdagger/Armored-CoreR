@@ -452,6 +452,33 @@ int main(void) {
         acr_gen1_battle_step(&mb, none, na);
         na[0].hard_lock = 0;
         EXPECT(mb.f[0].hard_lock);
+        /* Long-range FCS: hard lock starts only within a normal FCS's reach,
+         * then holds out to the long range. */
+        {
+            static acr_gen1_battle lr;
+            setup(&lr, 9000);
+            lr.f[0].last_missile = lr.f[1].last_missile = -1;
+            lr.f[0].weapons = 1; lr.f[0].weapon[0] = rifle(); lr.f[0].ammo[0] = 200;
+            lr.f[0].weapon[0].lock_range = 10500; lr.f[0].weapon[0].range = 10500;
+            lr.f[0].weapon[0].hard_lock_range = 7400;
+            lr.f[0].modern = 1;
+            acr_gen1_actions hl[2] = { { 0 }, { 0 } };
+            for (int t = 0; t < 3; ++t) acr_gen1_battle_step(&lr, none, hl);
+            EXPECT(acr_gen1_in_lock_box(&lr, 0, &lr.f[0].weapon[0]));
+            hl[0].hard_lock = 1;
+            acr_gen1_battle_step(&lr, none, hl);
+            EXPECT(!lr.f[0].hard_lock);                            /* 9,000 out: too far to start */
+            lr.f[1].ac.z = lr.f[1].ac.pz = lr.f[1].ac.sz = 7000 * 64;
+            acr_gen1_battle_step(&lr, none, hl);
+            hl[0].hard_lock = 0;
+            EXPECT(lr.f[0].hard_lock);                             /* closer: on */
+            lr.f[1].ac.z = lr.f[1].ac.pz = lr.f[1].ac.sz = 10000 * 64;
+            acr_gen1_battle_step(&lr, none, hl);
+            EXPECT(lr.f[0].hard_lock);                             /* pulled back out: still on */
+            lr.f[1].ac.z = lr.f[1].ac.pz = lr.f[1].ac.sz = 11000 * 64;
+            acr_gen1_battle_step(&lr, none, hl);
+            EXPECT(!lr.f[0].hard_lock);                            /* past the FCS's range: gone */
+        }
         mb.f[1].ac.x = 6000 * 64;                                 /* jumps far off to the side: lock drops */
         mb.f[1].ac.px = mb.f[1].ac.sx = mb.f[1].ac.x;
         acr_gen1_battle_step(&mb, none, na);
