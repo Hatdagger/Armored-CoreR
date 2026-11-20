@@ -62,6 +62,8 @@ float acr_render_hud(int x, int y, int w, int h);
 void  acr_hud_rect(float x, float y, float w, float h, uint8_t r, uint8_t g, uint8_t b, uint8_t a, int filled);
 void  acr_hud_line(float x0, float y0, float x1, float y1, uint8_t r, uint8_t g, uint8_t b, uint8_t a);
 void  acr_hud_text(float x, float y, const char *text, uint8_t r, uint8_t g, uint8_t b);
+/* The same font at `size` HUD units a glyph (acr_hud_text is 8), see-through by `a`. */
+void  acr_hud_text_size(float x, float y, const char *text, float size, uint8_t r, uint8_t g, uint8_t b, uint8_t a);
 /* Part of a texture on the HUD: texels (u, v, tw, th) of a tex_w x tex_h
  * texture drawn into (x, y, w, h), tinted by the colour (white = as is).
  * Blend as the PS1 does: ACR_HUD_ALPHA the texture's alpha (a = colour

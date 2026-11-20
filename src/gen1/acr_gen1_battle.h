@@ -1,4 +1,5 @@
-/* Gen 1 fighting: lock-on, weapons, shots, missiles and damage for two ACs.
+/* Gen 1 fighting: lock-on, weapons, shots, missiles and damage for two to
+ * four ACs in two teams (1v1, or co-op: two players against AI ACs).
  * Integer only and stepped with the movement, so every machine agrees.
  *
  * Follows Master of Arena's split-screen VS engine (FDAT 209) as mapped in
@@ -77,9 +78,26 @@ typedef struct acr_gen1_weapon {
 enum { ACR_GEN1_LEGS_TWO, ACR_GEN1_LEGS_FOUR, ACR_GEN1_LEGS_TRACKS };
 #define ACR_GEN1_KNEEL_MS 400   /* time to crouch before a cannon fires (stand-in) */
 
-#define ACR_GEN1_MAX_WEAPONS 3
+#define ACR_GEN1_MAX_WEAPONS 4   /* arm weapon, back left, back right, blade */
 #define ACR_GEN1_MAX_SHOTS   128
 #define ACR_GEN1_MAX_LOCKS   6     /* locks on one target (lock slot +0x26) */
+#define ACR_GEN1_MAX_FIGHTERS 4
+
+/* Teams and targets (ours; the game has only two ACs). battle.count = 0 is
+ * the old two-AC fight: fighter i is team i and always aims at 1 - i. With
+ * a count, each fighter has a team (0 or 1) and the battle picks its target
+ * every step (acr_gen1_battle_retarget), as the user set out:
+ * - the current target is kept while it stays inside the current weapon's
+ *   lock box, even when another enemy crosses in front of or behind it;
+ * - else the nearest enemy inside the box (two side by side: the closer);
+ * - else the nearest enemy anywhere;
+ * - the switch-target button moves to the next enemy inside the box, from
+ *   near to far, round to the nearest again; with only one gun or missile
+ *   (the blade aside) the weapon-switch button does the same.
+ * A new target drops the gun lock and missile locks; a missile volley in
+ * flight keeps its target. Lock-on, the blade's seek and the
+ * missiles' homing only ever pick enemies; shots and blade hits land on
+ * any AC in the way, teammates included (friendly fire). */
 
 typedef struct acr_gen1_fighter {
     acr_gen1_ac ac;
@@ -130,6 +148,8 @@ typedef struct acr_gen1_fighter {
      * ticks. */
     int16_t  cam_pitch, cam_yaw, cam_pitch_prev, cam_yaw_prev;
     int16_t  last_missile;                     /* shot index of the latest missile launched (+0x1C) */
+    uint8_t  team;                             /* 0 or 1 (used when battle.count is set) */
+    int8_t   target;                           /* fighter aimed at, -1 none (battle.count set) */
     /* Modern controls (SP-MODERN fitted; see ACR_GEN1_MODERN_* below) */
     uint8_t  modern;
     uint8_t  hard_lock;                        /* on: the camera stays on the target (any distance) */
@@ -158,6 +178,7 @@ typedef struct acr_gen1_shot {
     int16_t  pitch;                            /* + = up */
     uint16_t age;                              /* ticks since launch */
     uint8_t  ignition, split;                  /* split: ticks after ignition, 0 = never */
+    int8_t   target;                           /* missiles: the AC it was launched at */
     acr_gen1_flight flight;
 } acr_gen1_shot;
 
@@ -225,7 +246,9 @@ typedef struct acr_gen1_modern_tuning {
 } acr_gen1_modern_tuning;
 
 typedef struct acr_gen1_battle {
-    acr_gen1_fighter f[2];
+    acr_gen1_fighter f[ACR_GEN1_MAX_FIGHTERS];
+    uint8_t count;                             /* fighters in the fight, 2..4 (0 = the old 2, see above) */
+    uint8_t targeted;                          /* targets picked at least once (set by retarget) */
     acr_gen1_shot shot[ACR_GEN1_MAX_SHOTS];
     uint16_t step_ms;                          /* length of a step, for times in ms */
     /* Shots fly at the original's speed per second whatever the step rate:
@@ -241,6 +264,7 @@ typedef struct acr_gen1_actions {
     uint8_t fire;            /* held: the selected gun or missile */
     uint8_t next_weapon;     /* pressed this step: cycles guns and missiles (not the blade) */
     uint8_t blade;           /* pressed this step: the blade has its own button, as in the game */
+    uint8_t switch_target;   /* pressed this step: the next enemy in the sight (ours, for 2+ enemies) */
     uint8_t hard_lock;       /* pressed this step: hard lock on / off (modern controls only) */
 } acr_gen1_actions;
 
@@ -315,12 +339,25 @@ int32_t acr_gen1_hit_ap(uint16_t attack, uint8_t factor);
 /* Knockback level of a hit (VS 0x80079AA4): impact x 256 / (stability x 25 / 4), 0..5. */
 int acr_gen1_knockback_level(uint16_t impact, uint8_t stability);
 
-void acr_gen1_battle_step(acr_gen1_battle *b, const acr_gen1_input in[2], const acr_gen1_actions act[2]);
+/* One step; in[] and act[] hold one entry per fighter. */
+void acr_gen1_battle_step(acr_gen1_battle *b, const acr_gen1_input in[], const acr_gen1_actions act[]);
+
+/* Fighters in the fight (count, or 2). */
+int acr_gen1_battle_fighters(const acr_gen1_battle *b);
+/* Fighter i's team: its team field, or i in the old two-AC fight. */
+int acr_gen1_battle_team(const acr_gen1_battle *b, int i);
+/* Fighter i's target, -1 none. */
+int acr_gen1_battle_target(const acr_gen1_battle *b, int i);
+/* Picks every fighter's target now (the step does this itself; call it
+ * once after setting a fight up so the first frame shows the right one). */
+void acr_gen1_battle_retarget(acr_gen1_battle *b);
+/* The same, with each fighter's switch-target press (act[] one per fighter, or NULL). */
+void acr_gen1_battle_retarget_acts(acr_gen1_battle *b, const acr_gen1_actions act[]);
 
 /* Can the fighter fire its current weapon in its present stance? */
 int acr_gen1_stance_ok(const acr_gen1_fighter *f);
 
-/* Does fighter i's sight see the other AC for weapon w: inside the outer
+/* Does fighter i's sight see its target for weapon w: inside the outer
  * lock box and the FCS range (lock record +0x16 bit 1)? */
 int acr_gen1_in_lock_box(const acr_gen1_battle *b, int i, const acr_gen1_weapon *w);
 
@@ -353,9 +390,9 @@ int acr_gen1_aim(const acr_gen1_battle *b, int i, int16_t aim[3]);
 int acr_gen1_battle_out_of_area(const acr_gen1_battle *b, int i);
 
 /* How a round stands (VS main loop end checks): 0 still fighting, 1 or 2 that
- * player won, 3 a draw. Knock-out: the one standing wins, both down is a
- * draw; out of area counts as down. Time up: the higher AP wins, equal AP is
- * a draw. */
+ * team won (team 0 / 1; in 1v1 the player), 3 a draw. Knock-out: a team
+ * whose ACs are all down loses, both teams down is a draw; out of area
+ * counts as down. Time up: the higher total AP wins, equal is a draw. */
 int acr_gen1_battle_result(const acr_gen1_battle *b, int time_up);
 
 #endif

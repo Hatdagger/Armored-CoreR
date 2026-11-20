@@ -6,6 +6,7 @@
 #include "acr_stages_moa.h"
 #include "acr_hud_moa.h"
 #include "acr_sfx_moa.h"
+#include "acr_arena_moa.h"
 
 #include <ctype.h>
 #include <errno.h>
@@ -209,7 +210,12 @@ static int import_disc(const char *disc_path, const char *out_dir, acr_import_st
         if (!make_dirs(fx_dir, 1) || !acr_export_moa_fx(unpacked, fx_dir, err, err_size)) return 0;
         char sfx_dir[ACR_PATH_MAX];
         snprintf(sfx_dir, sizeof sfx_dir, "%s/sfx", out_dir);
-        if (!make_dirs(sfx_dir, 1) || !acr_export_moa_sfx(unpacked, sfx_dir, err, err_size)) return 0;
+        if (!make_dirs(sfx_dir, 1) || !acr_export_moa_sfx(unpacked, sfx_dir, err, err_size) ||
+            !acr_export_moa_menu_sfx(unpacked, sfx_dir, err, err_size))
+            return 0;
+        char arena_dir[ACR_PATH_MAX];
+        snprintf(arena_dir, sizeof arena_dir, "%s/arena", out_dir);
+        if (!acr_export_moa_arena(menu, unpacked, arena_dir, &stats->opponents, err, err_size)) return 0;
     }
     return 1;
 }
@@ -222,4 +228,25 @@ int acr_import_disc(const char *disc_path, const char *out_dir, acr_import_stats
 int acr_import_disc_models(const char *disc_path, const char *out_dir, acr_import_stats *stats,
                            char *err, size_t err_size) {
     return import_disc(disc_path, out_dir, stats, 1, err, err_size);
+}
+
+int acr_import_refresh(const char *out_dir) {
+    char unpacked[ACR_PATH_MAX], menu[ACR_PATH_MAX + 32], probe[ACR_PATH_MAX + 64], dir[ACR_PATH_MAX + 16];
+    snprintf(unpacked, sizeof unpacked, "%s/unpacked", out_dir);
+    snprintf(menu, sizeof menu, "%s/GG/COM/FDAT/206.bin", unpacked);
+    FILE *f = fopen(menu, "rb");
+    if (!f) return 0;                         /* no unpacked disc to read from */
+    fclose(f);
+    int done = 0;
+    char err[256];
+    snprintf(probe, sizeof probe, "%s/sfx/menu-ok.wav", out_dir);
+    snprintf(dir, sizeof dir, "%s/sfx", out_dir);
+    if (!(f = fopen(probe, "rb")) && make_dirs(dir, 1) && acr_export_moa_menu_sfx(unpacked, dir, err, sizeof err)) done |= 1;
+    if (f) fclose(f);
+    snprintf(probe, sizeof probe, "%s/arena/00-arena/01-emblem.tim", out_dir);
+    snprintf(dir, sizeof dir, "%s/arena", out_dir);
+    uint32_t n = 0;
+    if (!(f = fopen(probe, "rb")) && acr_export_moa_arena(menu, unpacked, dir, &n, err, sizeof err)) done |= 2;
+    if (f) fclose(f);
+    return done;
 }

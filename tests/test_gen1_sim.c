@@ -315,6 +315,71 @@ int main(void) {
         for (int k = 0; k < 40; ++k) acr_gen1_ac_step(&t, &d, look);
         EXPECT(t.pitch == -ACR_GEN1_PITCH_MAX);
     }
+    {   /* Four legs / caterpillars: walking pushes like the ground boost, up
+         * to its top speed, with no energy cost, then slows when let go. */
+        acr_gen1_ac_def q = make_def();
+        q.drive_walk = 1;
+        q.anim[ACR_GEN1_ANIM_WALK] = NULL;
+        acr_gen1_ac t;
+        acr_gen1_ac_spawn(&t, &q, 0, 0, 0);
+        const int32_t e0 = t.energy;
+        acr_gen1_ac_step(&t, &q, k_fwd);
+        EXPECT(t.vz == (int32_t)q.motion.boost_accel);
+        for (int k = 0; k < 40; ++k) acr_gen1_ac_step(&t, &q, k_fwd);
+        EXPECT(t.vz == (int32_t)q.motion.boost_max && t.vx == 0);
+        EXPECT(t.energy >= e0 && t.state == ACR_GEN1_GROUND);
+        for (int k = 0; k < 200; ++k) acr_gen1_ac_step(&t, &q, k_none);
+        EXPECT(t.vz == 0);
+    }
+    {   /* Caterpillars: the booster lifts them into the rising boost with
+         * no take-off kick (a jump starts at its take-off speed); moving,
+         * the booster still rises instead of a ground boost. */
+        acr_gen1_ac_def c = make_def();
+        c.drive_walk = c.no_jump = c.no_boost_hop = 1;
+        acr_gen1_ac t;
+        acr_gen1_ac_spawn(&t, &c, 0, 0, 0);
+        acr_gen1_ac_step(&t, &c, k_up);
+        EXPECT(t.state == ACR_GEN1_AIR && t.vy == -(int32_t)c.motion.rise_accel);   /* rising from rest */
+        acr_gen1_ac_step(&t, &c, k_up);
+        EXPECT(t.vy == -2 * (int32_t)c.motion.rise_accel && t.y < 0);
+        acr_gen1_ac t2;
+        acr_gen1_ac_spawn(&t2, &c, 0, 0, 0);
+        for (int k = 0; k < 20; ++k) acr_gen1_ac_step(&t2, &c, k_fwd);
+        const int32_t vz = t2.vz;
+        acr_gen1_ac_step(&t2, &c, k_boost);
+        EXPECT(t2.state == ACR_GEN1_AIR && t2.vz == vz);   /* no ground boost: up, same speed */
+        /* SP-MODERN caterpillars: from a stand too, at the modern rise's lift. */
+        acr_gen1_ac t3;
+        acr_gen1_ac_spawn(&t3, &c, 0, 0, 0);
+        acr_gen1_input mup = k_up;
+        mup.modern = 1;
+        acr_gen1_ac_step(&t3, &c, mup);
+        EXPECT(t3.state == ACR_GEN1_AIR && t3.vy == -(int32_t)c.motion.rise_accel * ACR_GEN1_MODERN_RISE_PCT / 100);
+    }
+    {   /* SP-MODERN on four legs (drive_walk): walking is unchanged; the
+         * toggle keeps the same top speed (they walk at the ground boost's)
+         * and drains; cross while walking jumps instead of stopping. */
+        acr_gen1_ac_def q = make_def();
+        q.drive_walk = 1;
+        q.anim[ACR_GEN1_ANIM_WALK] = NULL;
+        EXPECT(acr_gen1_cruise_top(&q) == (int32_t)q.motion.boost_max);
+        acr_gen1_input mw = k_fwd, mc = k_fwd;
+        mw.modern = mc.modern = 1;
+        mc.cruise = 1;
+        acr_gen1_ac w, c;
+        acr_gen1_ac_spawn(&w, &q, 0, 0, 0);
+        acr_gen1_ac_spawn(&c, &q, 0, 0, 0);
+        const int32_t ew = w.energy;
+        for (int k = 0; k < 40; ++k) { acr_gen1_ac_step(&w, &q, mw); acr_gen1_ac_step(&c, &q, mc); }
+        EXPECT(w.vz == (int32_t)q.motion.boost_max && w.energy >= ew);
+        EXPECT(c.state == ACR_GEN1_GROUND && c.energy < ew);
+        const int64_t vc = (int64_t)c.vx * c.vx + (int64_t)c.vz * c.vz, bm = q.motion.boost_max;
+        EXPECT(vc <= bm * bm + 2);
+        acr_gen1_input mj = mw;
+        mj.boost = 1;
+        acr_gen1_ac_step(&w, &q, mj);
+        EXPECT(w.state == ACR_GEN1_AIR);
+    }
     /* Modern controls: the boost toggle is the only ground boost, at
      * CRUISE_PCT of walking pace and CRUISE_DRAIN_PCT of the cost; the quick
      * boost is the full top speed, briefly. */

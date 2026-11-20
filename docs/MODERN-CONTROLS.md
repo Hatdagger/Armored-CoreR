@@ -99,6 +99,18 @@ speed, weapons and weapon switching stay exactly as in AC1.
 - **Running dry.** The boost toggle cuts out and switches off, and there is no
   quick boost and no energy weapons until the bar is full again. The blade already needs energy for everyone.
 
+- **Four legs and caterpillars.** They walk by pushing up to the ground
+  boost's top speed, so the boost toggle adds no speed for them, only the
+  drain (it still counts as a ground boost for slides and stage rules).
+  Cross while walking jumps (four legs) or lifts off (caterpillars), at the
+  modern take-off and rise.
+- **Several enemies (co-op, Rogue Arena).** Hard lock pins the enemy that is
+  targeted when it is pressed and holds it even out of the sight, until it
+  is down or the switch-target button moves it to the next enemy in the
+  sight. Computer-flown ACs always use the original controls.
+- **Button remapping** (the CONTROLS page) applies to the original controls
+  only; SP-MODERN keeps the layout above.
+
 **Human PLUS** (when it comes as the player's option part): the one exception
 to "nothing else fits". It can be equipped together with SP-MODERN, and
 equipping SP-MODERN leaves it on. A modern pilot gets only its no-kneel benefit

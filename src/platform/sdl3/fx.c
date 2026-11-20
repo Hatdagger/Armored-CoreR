@@ -68,18 +68,18 @@ static const look k_looks[] = {
 static const look k_look_shell = { "", LOOK_STREAK, 255, 205, 120, 16, 0 };
 static const look k_look_energy = { "", LOOK_ENERGY, 120, 190, 255, 26, 0 };
 
-static const char (*g_types[2])[24];
-static int g_type_count[2];
+static const char (*g_types[ACR_GEN1_MAX_FIGHTERS])[24];
+static int g_type_count[ACR_GEN1_MAX_FIGHTERS];
 
 void fx_set_weapons(int fighter, const char (*types)[24], int count) {
-    if (fighter < 0 || fighter > 1) return;
+    if (fighter < 0 || fighter >= ACR_GEN1_MAX_FIGHTERS) return;
     g_types[fighter] = types;
     g_type_count[fighter] = count;
 }
 
 static const look *look_of(int owner, int slot, int energy) {
     if (energy) return &k_look_energy;
-    if (owner >= 0 && owner < 2 && g_types[owner] && slot < g_type_count[owner])
+    if (owner >= 0 && owner < ACR_GEN1_MAX_FIGHTERS && g_types[owner] && slot < g_type_count[owner])
         for (size_t i = 0; i < sizeof k_looks / sizeof k_looks[0]; ++i)
             if (!SDL_strcmp(k_looks[i].type, g_types[owner][slot])) return &k_looks[i];
     return &k_look_shell;
@@ -153,7 +153,7 @@ static struct {
     float p[3], step[3];       /* where it is, and how far it goes a step */
     float trail[3];            /* where the missile's last smoke puff went */
 } g_seen[ACR_GEN1_MAX_SHOTS];
-static int32_t g_ap[2];
+static int32_t g_ap[ACR_GEN1_MAX_FIGHTERS];
 static int g_ap_ok;
 static uint64_t g_last_ns;
 static float g_now_ms;          /* a running clock for flicker */
@@ -268,7 +268,7 @@ static void shot_ended(const acr_gen1_battle *b, int k) {
     const float *p = g_seen[k].p, *st = g_seen[k].step;
     /* The shot may have moved one more step before it ended: look along
      * the way it was going for an AC (the hit cylinder: radius 75, 212 tall). */
-    for (int t = 0; t < 2; ++t) {
+    for (int t = 0; t < acr_gen1_battle_fighters(b); ++t) {
         if (t == g_seen[k].owner || (g_ap_ok && g_ap[t] <= 0)) continue;
         float feet[3];
         ac_feet(b, t, feet);
@@ -334,7 +334,7 @@ void fx_update(const acr_gen1_battle *b, uint64_t now_ns) {
         if (!s->active) continue;
         float p[3];
         shot_pos(s, p);
-        const acr_gen1_fighter *o = &b->f[s->owner < 2 ? s->owner : 0];
+        const acr_gen1_fighter *o = &b->f[s->owner < ACR_GEN1_MAX_FIGHTERS ? s->owner : 0];
         const acr_gen1_weapon *w = s->weapon < o->weapons ? &o->weapon[s->weapon] : NULL;
         float st[3] = { (float)s->vx / 64.0f, -(float)s->vy / 64.0f, (float)s->vz / 64.0f };
         if (!g_seen[k].on) {
@@ -365,7 +365,7 @@ void fx_update(const acr_gen1_battle *b, uint64_t now_ns) {
         memcpy(g_seen[k].step, st, sizeof g_seen[k].step);
     }
 
-    for (int k = 0; k < 2; ++k) {
+    for (int k = 0; k < acr_gen1_battle_fighters(b); ++k) {
         if (g_ap_ok && g_ap[k] > 0 && b->f[k].ap <= 0) {
             float feet[3];
             ac_feet(b, k, feet);

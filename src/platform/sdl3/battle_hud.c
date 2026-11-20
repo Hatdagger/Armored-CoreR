@@ -168,11 +168,14 @@ void battle_hud_draw(const battle_hud_state *s, float hud_w, int frame) {
         int ap = s->ap < 0 ? 0 : s->ap;
         SDL_snprintf(line, sizeof line, "%d", ap);
         const int n = (int)SDL_strlen(line);
+        /* The digits turn red below 1,000 AP. */
+        const int low = ap < 1000;
+        const uint8_t ar = low ? 230 : 58, ag = low ? 48 : 214, ab = low ? 40 : 58;
         for (int i = 0; i < n; ++i) {
             const float x = 96.0f - 16.0f * (float)(n - i);
-            if (g_ready) spr(L, g_layer[0], 24 + 16 * (line[i] - '0'), 113, 16, 22, x, 23, GREEN, 255, ACR_HUD_ALPHA);
+            if (g_ready) spr(L, g_layer[0], 24 + 16 * (line[i] - '0'), 113, 16, 22, x, 23, ar, ag, ab, 255, ACR_HUD_ALPHA);
         }
-        if (!g_ready) text(L, 32, 30, line, 1, GREEN);
+        if (!g_ready) text(L, 32, 30, line, 1, ar, ag, ab);
         if (s->enemy_ap >= 0) {
             text(L, 40, 50, "ENEMY LIMIT", 0, GREEN);
             SDL_snprintf(line, sizeof line, "%d", s->enemy_ap);
@@ -231,26 +234,37 @@ void battle_hud_draw(const battle_hud_state *s, float hud_w, int frame) {
         box(R, fx1, fy0, 1, fy1 - fy0, 100, 255, 170, 220, ACR_HUD_ALPHA);
         if (g_ready) spr(R, g_layer[0], 160, 16, 48, 48, 260, 56, 64, 120, 24, 255, ACR_HUD_ADD);
         else box(R, 260, 56, 48, 48, 64, 120, 24, 255, ACR_HUD_ADD);
+        /* Forward is up: forward (sin, cos), right (cos, -sin). */
+        const float a = (float)s->heading * (6.2831853f / 4096.0f);
+        const float sn = SDL_sinf(a), cs = SDL_cosf(a);
+        const float k = 23.0f / (float)s->radar_range;
+        for (int i = 0; i < s->others && i < BATTLE_HUD_MAX_OTHERS; ++i) {   /* co-op: the others first */
+            const float fwd = (float)s->other[i].dx * sn + (float)s->other[i].dz * cs;
+            const float rgt = (float)s->other[i].dx * cs - (float)s->other[i].dz * sn;
+            const float bx = rgt * k, by = -fwd * k;
+            if (bx * bx + by * by > 23.0f * 23.0f) continue;
+            if (s->other[i].ally) box(R, 284 + bx - 1, 80 + by - 1, 2, 2, 90, 230, 255, 255, ACR_HUD_ALPHA);
+            else box(R, 284 + bx - 1, 80 + by - 1, 2, 2, 255, 140, 60, 255, ACR_HUD_ALPHA);
+        }
         if (s->enemy_on_radar) {
-            /* Forward is up: forward (sin, cos), right (cos, -sin). */
-            const float a = (float)s->heading * (6.2831853f / 4096.0f);
-            const float sn = SDL_sinf(a), cs = SDL_cosf(a);
             const float fwd = (float)s->enemy_dx * sn + (float)s->enemy_dz * cs;
             const float rgt = (float)s->enemy_dx * cs - (float)s->enemy_dz * sn;
-            const float k = 23.0f / (float)s->radar_range;
             const float bx = rgt * k, by = -fwd * k;
             if (bx * bx + by * by <= 23.0f * 23.0f) box(R, 284 + bx - 1, 80 + by - 1, 2, 2, 255, 60, 50, 255, ACR_HUD_ALPHA);
         }
     }
 
     /* Weapons: the selected one in yellow with its ammo, the others in
-     * green underneath, right-aligned under the radar. */
+     * green underneath, right-aligned under the radar. A weapon out of
+     * ammo shows its name and count in red. */
     if (s->weapons > 0 && s->current < s->weapons) {
         const battle_hud_weapon *w = &s->weapon[s->current];
-        text_r(R, 312, 112, w->name ? w->name : "", 1, 255, 255, 0);
+        const int empty = w->ammo_max > 0 && w->ammo <= 0;
+        const uint8_t cr = 255, cg = empty ? 48 : 255, cb = empty ? 40 : 0;
+        text_r(R, 312, 112, w->name ? w->name : "", 1, cr, cg, cb);
         if (w->ammo_max > 0) {
             SDL_snprintf(line, sizeof line, "%3d/%4d", w->ammo, w->ammo_max);
-            text_r(R, 312, 120, line, 1, 255, 255, 0);
+            text_r(R, 312, 120, line, 1, cr, cg, cb);
         }
         float y = 130;
         for (int i = 0; i < s->weapons; ++i) {
@@ -258,7 +272,8 @@ void battle_hud_draw(const battle_hud_state *s, float hud_w, int frame) {
             const battle_hud_weapon *o = &s->weapon[i];
             if (o->ammo_max > 0) SDL_snprintf(line, sizeof line, "%s %5d", o->name ? o->name : "", o->ammo);
             else SDL_snprintf(line, sizeof line, "%s", o->name ? o->name : "");
-            text_r(R, 311, y, line, 0, GREEN);
+            if (o->ammo_max > 0 && o->ammo <= 0) text_r(R, 311, y, line, 0, 230, 48, 40);
+            else text_r(R, 311, y, line, 0, GREEN);
             y += 7;
         }
     }

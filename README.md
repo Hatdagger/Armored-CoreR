@@ -38,7 +38,8 @@ empty arena with Gen 1 movement.
 | Renderer: OpenGL 2.1, PS1-style lighting and fog, native resolution | first version |
 | Original Xbox build of the core (nxdk test program) | in automatic builds |
 | Computer opponent (AI presets, AI against AI) | first version |
-| Online | not started |
+| Online: 1v1 and co-op with rollback, over LAN, direct IP, or the internet with mission-briefing codes | first version |
+| Rogue Arena: 19 + 1 ladder, prizes, ghosts (from the AC1Recomp fork) | first version |
 
 ## Building
 
@@ -53,11 +54,12 @@ the core, tools and tests, add `-DACR_BUILD_GAME=OFF`.
 
 ## Importing your disc
 
-Re-import after updating to this version: the fight sounds need the
-game's shared fight bank (`sfx/`); without it fights are silent.
-`ACR_SFX_VOLUME=0..100` sets their volume (70 by default, 0 turns them off).
-Before that, the weapon effects needed the game's effect pictures (`fx/`);
-without them shots draw as plain glows. Before that, Green Silo gained its sky (stars behind the arches). Before that, the arenas gained the
+Re-import after updating to this version: Rogue Arena needs the game's
+arena opponents (`arena/`), the fight sounds need the game's shared fight
+bank (`sfx/`; without it fights are silent) and the weapon effects need the
+game's effect pictures (`fx/`; without them shots draw as plain glows).
+`ACR_SFX_VOLUME=0..100` sets the sounds' volume (70 by default, 0 turns them off).
+Before that, Green Silo gained its sky (stars behind the arches). Before that, the arenas gained the
 game's own collision data (`collision.txt`), so walls and floors follow
 the game's rules (an older import keeps the stand-in rules). Before that: the animation sets now carry
 the game's aim tables (the gun arm, waist and back units follow the
@@ -99,6 +101,12 @@ own part models (every part, FCS and options included) go to
    `--ai-vs-ai` puts player 1 on autopilot too. With an AI opponent the
    round is two minutes, as in VS.
 
+The controller buttons for boost, fire, switch weapon, blade, strafe and
+view tilt can be changed on **SYSTEM > SETTINGS > CONTROLS** (pick a row, then
+press the button you want; a button already in use swaps places). Moving
+and turning stay on the left stick / d-pad; Start and Back keep their jobs.
+The mapping is saved in `controls.toml` beside the save.
+
 | Action | Controller | Keyboard |
 | --- | --- | --- |
 | Walk forward / back | left stick or d-pad up / down | W / S |
@@ -115,17 +123,32 @@ own part models (every part, FCS and options included) go to
 | Test boundary for out of area (on / off) | Back + d-pad right | F8 |
 | AI against AI (player 1 on autopilot, to watch) | Back + d-pad down | F6 |
 | Landing pause: guess / landing animation's length (test) | Back + R3 | F3 |
-| Change step rate (22, 30, 45, 60 steps a second; same game pace) | Back | T |
+| Switch target (2+ enemies in the sight; with one gun or missile, weapon switch does it too) | Back (tap) | X |
+| Change step rate (22, 30, 45, 60 steps a second; same game pace) | | T |
 | Reset | Start | R |
 | Hide help | | F1 |
 
-Netplay (1v1 over the network, with rollback): `host-match.bat` on one
-PC, `join-match.bat` on the other (or `--host` / `--join ADDRESS`). Both
-PCs need the same disc imported. Details: `docs/NETPLAY.md`.
+Netplay (1v1, or co-op against 1 or 2 AI, over the network, with
+rollback): **NETWORK** on the main menu, or `host-match.bat` (`host-coop.bat` for
+co-op) on one PC and `join-match.bat` on the other (or `--host` / `--join
+ADDRESS`). Both PCs need the same disc imported. Details: `docs/NETPLAY.md`.
 
 Two players: player 2 uses the second controller (or the only one, leaving
 player 1 the keyboard). Both fly the same build; the match ends when one
 AC's AP reaches 0, and Start starts the next.
+
+## Rogue Arena
+
+Main menu -> **ROGUE ARENA**. One AC, one life, 19 rivals from the
+game's own arenas. You start at rank 20 with a random AC and 0 P. Each win
+pays 1 P and opens a prize screen (pick a part, an upgrade, PASS for +1 P,
+or RE-ROLL once for 1 P). At the hub: NEXT BATTLE, SWAP PARTS (saved
+prizes), STAGE, GARAGE. One loss ends the run: RETRY ARENA keeps the same
+ladder and leaves your old AC on it as a ghost to beat. Reach rank 1 to
+clear it. Esc twice in a fight gives up. Same keys as the garage (arrows /
+WASD, Enter, Esc; Q / E or LB / RB pick a random stage). Tab / Triangle
+on a prize or a saved part shows its PART SPECS against what you have
+fitted. Enter on the VS screen skips the countdown.
 
 ## More
 

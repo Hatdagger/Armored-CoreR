@@ -12,7 +12,7 @@ static int failures;
 
 static acr_gen1_ac_def def;
 static acr_gen1_battle start;
-static const acr_gen1_match_rules rules = { 20000, 3000, 20000 };   /* short rounds: round ends get tested too */
+static acr_gen1_match_rules rules = { .round_ms = 20000, .next_round_ms = 3000, .arena_half = 20000 };   /* short rounds: round ends get tested too */
 
 static uint32_t seed = 12345;
 static uint32_t rnd(void) { seed = seed * 1103515245u + 12345u; return seed >> 8; }
@@ -26,11 +26,11 @@ static void setup(void) {
     def.step_rate = 60; def.gen1_rate = 22;
     memset(&start, 0, sizeof start);
     start.step_ms = 16; start.step_rate = 60; start.gen1_rate = 22;
-    for (int i = 0; i < 2; ++i) {
+    for (int i = 0; i < ACR_GEN1_MAX_FIGHTERS; ++i) {
         acr_gen1_fighter *f = &start.f[i];
         f->def = &def;
         f->intercept_shot = -1; f->swing_target = -1; f->last_missile = -1;
-        acr_gen1_ac_spawn(&f->ac, &def, 0, i ? 2500 * 64 : 0, i ? 2048 : 0);
+        acr_gen1_ac_spawn(&f->ac, &def, (i & 2) ? 1500 * 64 : 0, (i & 1) ? 2500 * 64 : 0, (i & 1) ? 2048 : 0);
         f->ap = f->ap_max = 4000;
         f->shell_factor = 27; f->energy_factor = 32;
         acr_gen1_weapon *w = f->weapon;
@@ -69,6 +69,7 @@ static acr_rb_pad next_pad(pilot *p) {
     }
     acr_rb_pad pad = p->held;
     if (rnd() % 30 == 0) pad |= 1u << 12;   /* next weapon */
+    if (rnd() % 25 == 0) pad |= 1u << 14;   /* switch target */
     if (rnd() % 60 == 0) pad |= 1u << 13;   /* blade */
     if (rnd() % 20 == 0) pad |= 1u << 9;    /* boost tapped */
     return pad;
@@ -179,6 +180,7 @@ static void play(const char *name, int frames, int delay, const link *l, int cor
 
 int main(void) {
     setup();
+    const link lan_c = { 1, 0, 0 }, home_c = { 40, 10, 2 }, far_c = { 90, 30, 5 };
 
     /* Pads survive packing. */
     for (int i = 0; i < 2000; ++i) {
@@ -191,22 +193,22 @@ int main(void) {
     }
     {
         const acr_gen1_input in = { 1, -1, 0, 1, 1, 2, 0 };
-        const acr_gen1_actions act = { 1, 1, 1 };
+        const acr_gen1_actions act = { 1, 1, 1, 1 };
         acr_gen1_input o;
         acr_gen1_actions oa;
         acr_rb_unpack(acr_rb_pack(&in, &act), &o, &oa);
         EXPECT(o.move == 1 && o.turn == -1 && o.strafe == 0 && o.boost && o.boost_tapped && o.look == 2);
-        EXPECT(oa.fire && oa.next_weapon && oa.blade);
+        EXPECT(oa.fire && oa.next_weapon && oa.blade && oa.switch_target);
         acr_rb_unpack(acr_rb_held(acr_rb_pack(&in, &act)), &o, &oa);
-        EXPECT(o.boost && !o.boost_tapped && oa.fire && !oa.next_weapon && !oa.blade);
+        EXPECT(o.boost && !o.boost_tapped && oa.fire && !oa.next_weapon && !oa.blade && !oa.switch_target);
         /* Modern controls: the toggle is held, quick boost and hard lock are presses. */
         acr_gen1_input mi = { 0 };
         acr_gen1_actions ma = { 0 };
-        mi.cruise = 1; mi.quick = 1; ma.hard_lock = 1;
+        mi.cruise = 1; mi.quick = 1; ma.hard_lock = 1; ma.switch_target = 1;
         acr_rb_unpack(acr_rb_pack(&mi, &ma), &o, &oa);
-        EXPECT(o.cruise && o.quick && oa.hard_lock);
+        EXPECT(o.cruise && o.quick && oa.hard_lock && oa.switch_target);
         acr_rb_unpack(acr_rb_held(acr_rb_pack(&mi, &ma)), &o, &oa);
-        EXPECT(o.cruise && !o.quick && !oa.hard_lock);
+        EXPECT(o.cruise && !o.quick && !oa.hard_lock && !oa.switch_target);
     }
 
     /* A snapshot replays exactly: copy the match, run on, go back, run the
@@ -242,7 +244,40 @@ int main(void) {
         EXPECT(m.b.f[0].ammo[0] < 200 || m.b.f[1].ammo[0] < 200);
     }
 
+    /* Co-op: the two players (team 0) against two AI ACs, which run inside
+     * the match on both machines. */
+    start.count = 4;
+    for (int i = 0; i < 4; ++i) start.f[i].team = (uint8_t)(i >= 2);
+    /* players 0 and 1 side by side at z 0; the AIs across at z 2500 */
+    acr_gen1_ac_spawn(&start.f[1].ac, &def, 1500 * 64, 0, 0);
+    acr_gen1_ac_spawn(&start.f[2].ac, &def, 0, 2500 * 64, 2048);
+    acr_gen1_ac_spawn(&start.f[3].ac, &def, 1500 * 64, 2500 * 64, 2048);
+    rules.ai_mask = 0xC;
+    rules.ai_seed = 99;
+    acr_gen1_ai_preset(&rules.ai[2], ACR_GEN1_AI_AGGRESSOR);
+    acr_gen1_ai_preset(&rules.ai[3], ACR_GEN1_AI_SNIPER);
+    {
+        /* The AI really flies: it moves and shoots. */
+        static acr_gen1_match m;
+        acr_gen1_match_init(&m, &start, &rules);
+        const acr_gen1_input in[2] = { { 0 } };
+        const acr_gen1_actions act[2] = { { 0 } };
+        const int32_t z0 = m.b.f[2].ac.z;
+        for (int f = 0; f < 600; ++f) acr_gen1_match_step(&m, &start, &rules, in, act);
+        EXPECT(m.b.f[2].ac.z != z0);
+        EXPECT(m.b.f[2].ammo[0] < 200 || m.b.f[2].ammo[1] < 40 || m.b.f[3].ammo[0] < 200 || m.b.f[3].ammo[1] < 40);
+        EXPECT(m.b.f[0].ap < m.b.f[0].ap_max || m.b.f[1].ap < m.b.f[1].ap_max);
+    }
+    play("co-op vs 2 AI, LAN", 3000, 0, &lan_c, 0);
+    play("co-op vs 2 AI, 90 ms 5%", 3000, 2, &far_c, 0);
+    rules.ai_mask = 0x4;                     /* two players against one AI */
+    start.count = 3;
+    play("co-op vs 1 AI, 40 ms 2%", 3000, 1, &home_c, 0);
+    play("co-op, different data", 1500, 1, &home_c, 1);
+
     /* Matches over different networks: in step, and the same as a plain run. */
+    setup();                                 /* back to 1v1 */
+    rules.ai_mask = 0;
     const link lan = { 1, 0, 0 }, home = { 40, 10, 2 }, far = { 90, 30, 5 }, awful = { 120, 60, 20 };
     play("LAN, no delay", 3000, 0, &lan, 0);
     play("LAN, delay 1", 3000, 1, &lan, 0);

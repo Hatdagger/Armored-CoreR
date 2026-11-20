@@ -115,6 +115,10 @@ typedef struct acr_gen1_ac_def {
      * 22 times a second, between steps. 0 / 0 = a tick every step. */
     uint16_t step_rate, gen1_rate;
     uint8_t  no_boost_hop;    /* caterpillars: re-pressing boost while sliding does not jump */
+    uint8_t  no_jump;         /* caterpillars: no jump and no ground boost; the booster goes
+                                 straight into the rising boost without a take-off kick */
+    uint8_t  drive_walk;      /* four-legged and caterpillar legs: walking pushes the AC like
+                                 the ground boost (VS 0x80085704), no root motion */
     uint8_t  cruise_pct;      /* the boost toggle's top speed, % of walking pace (0 = CRUISE_PCT) */
     /* Test: every landing lasts the landing animation's length (animation
      * 36's track), whatever the fall, as it would if the game's landing

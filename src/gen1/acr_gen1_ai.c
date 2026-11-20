@@ -198,7 +198,10 @@ static int32_t lerp100(int32_t a, int32_t b, int t) { return a + (b - a) * t / 1
 /* ---- what the pilot sees ------------------------------------------------ */
 
 void acr_gen1_ai_look(const acr_gen1_battle *b, int me, int32_t arena_half, acr_gen1_ai_view *v) {
-    const acr_gen1_fighter *f = &b->f[me], *t = &b->f[1 - me];
+    /* The target the battle picked for us (enemies only); with none, our own
+     * AC stands in and target_alive stays 0. */
+    const int ti = acr_gen1_battle_target(b, me);
+    const acr_gen1_fighter *f = &b->f[me], *t = &b->f[ti < 0 ? me : ti];
     const acr_gen1_ac *a = &f->ac, *o = &t->ac;
     memset(v, 0, sizeof *v);
     v->x = a->x / 64; v->y = a->y / 64; v->z = a->z / 64;
@@ -234,17 +237,26 @@ void acr_gen1_ai_look(const acr_gen1_battle *b, int me, int32_t arena_half, acr_
     v->volley = (uint8_t)(f->volley_ticks != 0);
     v->swinging = (uint8_t)(f->swing != 0);
 
-    v->target_alive = (uint8_t)(t->ap > 0);
+    v->target_alive = (uint8_t)(ti >= 0 && t->ap > 0);
     const int64_t dx = (o->x - a->x) / 64, dy = (o->y - a->y) / 64, dz = (o->z - a->z) / 64;
     v->dist = (int32_t)isqrt64((uint64_t)(dx * dx + dz * dz));
     v->bearing = (int16_t)wrap((int32_t)angle_of(dx, dz) - a->yaw);
     v->elevation = (int16_t)wrap((int32_t)angle_of(-dy, v->dist));
     v->target_height = -o->y / 64;
-    v->target_locked = (uint8_t)(t->locked || t->locks);
-    v->target_swinging = (uint8_t)(t->swing != 0);
+    /* Threats: any enemy with a lock on us or swinging at us, and missiles
+     * flying at us. */
+    const int n = acr_gen1_battle_fighters(b);
+    const int my_team = acr_gen1_battle_team(b, me);
+    for (int j = 0; j < n; ++j) {
+        const acr_gen1_fighter *e = &b->f[j];
+        if (j == me || acr_gen1_battle_team(b, j) == my_team || e->ap <= 0 || acr_gen1_battle_target(b, j) != me) continue;
+        if (e->locked || e->locks) v->target_locked = 1;
+        if (e->swing) v->target_swinging = 1;
+    }
     for (int k = 0; k < ACR_GEN1_MAX_SHOTS; ++k) {
         const acr_gen1_shot *s = &b->shot[k];
-        if (s->active && s->missile && s->owner != me && v->missiles_in < 255) ++v->missiles_in;
+        if (s->active && s->missile && s->owner != me && acr_gen1_battle_team(b, s->owner) != my_team &&
+            (!b->count || s->target == me) && v->missiles_in < 255) ++v->missiles_in;
     }
     v->arena_half = arena_half;
     if (arena_half) {

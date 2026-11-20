@@ -149,6 +149,41 @@ void demo_model_draw(const demo_model *m, int anim, unsigned tick, float x, floa
     demo_model_draw_pose(m, &pose, x, y, z, yaw, scale, light);
 }
 
+int demo_model_bounds(const demo_model *m, int anim, unsigned tick, float mn[3], float mx[3]) {
+    if (!m->ok) return 0;
+    acr_pose pose;
+    acr_pose_play(&m->skel, &m->anims, anim, tick, &pose);
+    float mat[ACR_SKEL_MAX_NODES][12];
+    acr_pose_matrices(&m->skel, &pose, mat);
+    int found = 0;
+    for (int i = 0; i < m->skel.count; ++i) {
+        const acr_skel_node *node = &m->skel.node[i];
+        if (node->draw_kind >= ACR_PART_KINDS) continue;
+        const demo_part_model *p = &m->part[node->draw_kind];
+        if (!p->present || node->draw_piece >= p->pieces) continue;
+        const acr_mesh *mesh = &p->piece[node->draw_piece];
+        const float *M = mat[i];
+        float d[3] = { 0, 0, 0 };
+        if (p->has_joint[node->draw_piece]) {   /* as demo_model_draw_pose */
+            const int *jt = p->joint[node->draw_piece];
+            d[0] = (float)(node->pos[0] + jt[0]);
+            d[1] = -(float)(node->pos[1] + jt[1]);
+            d[2] = -(float)(node->pos[2] + jt[2]);
+        }
+        for (int v = 0; v < mesh->tri_count * 3; ++v) {
+            const float px = mesh->v[v].p[0] + d[0], py = mesh->v[v].p[1] + d[1], pz = mesh->v[v].p[2] + d[2];
+            const float o[3] = { -(M[0] * px + M[1] * py + M[2] * pz + M[3]), M[4] * px + M[5] * py + M[6] * pz + M[7],
+                                 M[8] * px + M[9] * py + M[10] * pz + M[11] };
+            for (int k = 0; k < 3; ++k) {
+                if (!found || o[k] < mn[k]) mn[k] = o[k];
+                if (!found || o[k] > mx[k]) mx[k] = o[k];
+            }
+            found = 1;
+        }
+    }
+    return found;
+}
+
 int demo_model_part_tip(const demo_model *m, const acr_pose *pose, unsigned kinds, float scale, float out[3]) {
     if (!m->ok) return 0;
     float mat[ACR_SKEL_MAX_NODES][12];

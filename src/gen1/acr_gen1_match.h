@@ -1,4 +1,4 @@
-/* A two-player match: the fight plus the round around it (clock, knock-out,
+/* A match (1v1, or two players with AI ACs in co-op): the fight plus the round around it (clock, knock-out,
  * result, next round), in one plain struct that can be copied as a whole.
  *
  * That copy is the snapshot online play needs: rollback saves one before
@@ -18,12 +18,23 @@
 
 #include <stdint.h>
 
+#include "acr_gen1_ai.h"
 #include "acr_gen1_battle.h"
 
 typedef struct acr_gen1_match_rules {
     int32_t round_ms;       /* length of a round (0 = no clock) */
     int32_t next_round_ms;  /* after a round ends, the next one starts this much later (0 = never) */
     int32_t arena_half;     /* the open test floor's square walls, world units (used without a stage) */
+    /* Computer pilots run inside the match (co-op against the AI): fighter
+     * k is flown by the AI when bit k of ai_mask is set, with profile ai[k].
+     * Their controls are made in acr_gen1_match_step, so both machines run
+     * the same pilots and rollback replays them. ai_half: the arena
+     * half-width the pilots steer by (0 = arena_half). ai_seed: their random
+     * numbers (both machines must use the same). */
+    uint8_t  ai_mask;
+    int32_t  ai_half;
+    uint32_t ai_seed;
+    acr_gen1_ai_profile ai[ACR_GEN1_MAX_FIGHTERS];
 } acr_gen1_match_rules;
 
 typedef struct acr_gen1_match {
@@ -36,7 +47,11 @@ typedef struct acr_gen1_match {
     uint8_t  result;        /* 1 or 2: that player won; 3: a draw */
     uint8_t  time_up;       /* the round ended on the clock */
     uint8_t  round;         /* rounds started, 1 = the first */
-    uint8_t  wins[2];
+    uint8_t  wins[2];       /* by team */
+    acr_gen1_ai ai[ACR_GEN1_MAX_FIGHTERS];   /* the computer pilots (rules.ai_mask) */
+    /* Presentation only (not in the hash): the controls each AC used in the
+     * latest step, so the computer ACs' poses follow what they pressed. */
+    acr_gen1_input shown_in[ACR_GEN1_MAX_FIGHTERS];
 } acr_gen1_match;
 
 /* A new match from a fight set up and ready to go (both ACs placed,
@@ -44,10 +59,11 @@ typedef struct acr_gen1_match {
  * new round. */
 void acr_gen1_match_init(acr_gen1_match *m, const acr_gen1_battle *start, const acr_gen1_match_rules *r);
 
-/* One step (battle.step_ms) with both players' controls. While a round is
- * over the controls are ignored. */
+/* One step (battle.step_ms) with the players' controls: in[] / act[] hold
+ * one entry per fighter (entries for AI fighters are not read), at least
+ * two. While a round is over the controls are ignored. */
 void acr_gen1_match_step(acr_gen1_match *m, const acr_gen1_battle *start, const acr_gen1_match_rules *r,
-                         const acr_gen1_input in[2], const acr_gen1_actions act[2]);
+                         const acr_gen1_input in[], const acr_gen1_actions act[]);
 
 /* A check number of everything that decides the fight (positions, speeds,
  * energy, AP, ammo, shots, random numbers, the clock). Two machines whose

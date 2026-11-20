@@ -5,6 +5,7 @@
 
 #include "../../gen1/acr_gen1_battle.h"
 #include "../../gen1/acr_gen1_garage.h"
+#include "../../gen1/acr_gen1_rogue.h"
 
 #define DEMO_MAX_KEYS 4096
 
@@ -32,10 +33,38 @@ typedef struct demo_ac {
 int demo_load(const char *import_dir, const int parts[SLOT_COUNT], demo_ac *out,
               char *err, int err_size);
 
+/* The animation set (model) a build is drawn with; -1 = none in the import. */
+int demo_pick_model(const char *import_dir, const int parts[SLOT_COUNT]);
+
 /* The shop catalogue from the import's part files: every part's price,
  * fitting flags and stats, and its name in `names` (may be NULL). 0 when
  * the import has no parts. */
 int demo_catalog(const char *import_dir, acr_gen1_catalog *cat,
                  char names[ACR_GEN1_CAT_COUNT][ACR_GEN1_PART_MAX][24]);
+
+/* Rogue Arena: each part's attack and prize flags (radar, stealth unit,
+ * cannon stance) from the import's part files. */
+int demo_rogue_parts(const char *import_dir, acr_gen1_rogue_parts *info);
+/* The arena opponents acr-import wrote to <import>/arena (none in older
+ * imports); `names` marks KARASAWA users. Returns how many. */
+int demo_rogue_roster(const char *import_dir, acr_gen1_rogue_foe *out, int max,
+                      char names[ACR_GEN1_CAT_COUNT][ACR_GEN1_PART_MAX][24]);
+
+/* PART SPECS (Rogue Arena): each part's numbers as the import's part files
+ * have them, its type, and the shop's text from the disc (unpacked MIS.T;
+ * options: their own description). */
+enum { DS_WEIGHT, DS_DRAIN, DS_OUTPUT, DS_AP, DS_DEF_S, DS_DEF_E, DS_RADAR, DS_RADAR_R, DS_COMPUTER,
+       DS_ARM_LOAD, DS_SLOTS, DS_LOAD, DS_SPEED, DS_TURN, DS_STAB, DS_POWER, DS_BOOST_D, DS_CAP, DS_RED,
+       DS_LOCKS, DS_AREA, DS_ATTACK, DS_AMMO, DS_RANGE, DS_RELOAD, DS_EPS, DS_SALVO, DS_KIND, DS_AMMO_FLAGS,
+       DS_IMPACT, DS_RADAR_FLAGS, DS_COUNT };
+#define DEMO_SPEC_NONE (-2147483647 - 1)
+typedef struct demo_part_specs {
+    uint8_t present[ACR_GEN1_CAT_COUNT][ACR_GEN1_PART_MAX];
+    int32_t v[ACR_GEN1_CAT_COUNT][ACR_GEN1_PART_MAX][DS_COUNT];   /* DEMO_SPEC_NONE = not in the file */
+    char type[ACR_GEN1_CAT_COUNT][ACR_GEN1_PART_MAX][24];
+    char text[ACR_GEN1_CAT_COUNT][ACR_GEN1_PART_MAX][3][76];
+    uint8_t text_n[ACR_GEN1_CAT_COUNT][ACR_GEN1_PART_MAX];
+} demo_part_specs;
+int demo_part_specs_load(const char *import_dir, demo_part_specs *out);
 
 #endif

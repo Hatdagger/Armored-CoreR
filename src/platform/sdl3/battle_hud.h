@@ -19,6 +19,7 @@ enum { BATTLE_HUD_MSG_HIT = 1, BATTLE_HUD_MSG_DAMAGED = 2, BATTLE_HUD_MSG_LEAVIN
        BATTLE_HUD_MSG_ARMOR_LOW = 8, BATTLE_HUD_MSG_CHARGING = 16, BATTLE_HUD_MSG_SYSTEM_ERROR = 32 };
 
 #define BATTLE_HUD_MAX_WEAPONS 4
+#define BATTLE_HUD_MAX_OTHERS 3
 
 typedef struct battle_hud_weapon {
     const char *name;
@@ -36,6 +37,9 @@ typedef struct battle_hud_state {
     int radar_range;         /* 0: no radar fitted, no radar shown */
     int enemy_dx, enemy_dz;  /* enemy minus own position, world units (engine axes) */
     int enemy_on_radar;
+    /* Co-op: the other ACs on the radar (not the target): enemies orange, teammates light blue. */
+    struct { int dx, dz, ally; } other[BATTLE_HUD_MAX_OTHERS];
+    int others;
     unsigned messages;       /* BATTLE_HUD_MSG_* */
     int recording;           /* REC: only while the game records replay data
                                 (arena and VS fights, never missions) */

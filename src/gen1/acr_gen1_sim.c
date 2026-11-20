@@ -287,6 +287,9 @@ int32_t acr_gen1_walk_pace(const acr_gen1_ac_def *def) {
 }
 
 int32_t acr_gen1_cruise_top(const acr_gen1_ac_def *def) {
+    /* Four legs and caterpillars already walk at the ground boost's top
+     * speed (drive_walk), so the toggle can't go faster than walking. */
+    if (def->drive_walk) return def->motion.boost_max;
     int32_t top = acr_gen1_walk_pace(def) * (def->cruise_pct ? def->cruise_pct : ACR_GEN1_CRUISE_PCT) / 100;
     if (top > (int32_t)def->motion.boost_max) top = def->motion.boost_max;
     return top;
@@ -416,25 +419,28 @@ void acr_gen1_ac_tick(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
          * again while still sliding, and the AC jumps straight into the air,
          * keeping its speed (humanoid, reverse-joint and four-legged legs;
          * as described by a player, not yet measured). */
-        /* SP-MODERN caterpillars: the booster lifts them straight off while
-         * moving (cruising, sliding or walking), keeping their speed (the
-         * air top speed then caps it), instead of sliding to a stop first. */
-        if (in.modern && tracks && can_jump && moving) {
-            if (!ac->vx && !ac->vz && dir) {        /* from a walk: walking pace */
+        /* Caterpillars (user, 2026-11-19): no ground boost and no jump. The
+         * booster lifts them straight into the rising boost, from a stand
+         * or on the move, without the take-off kick the other legs start
+         * their arc with; they keep their speed across the ground. With
+         * SP-MODERN the same, at the modern rise's lift (and any other
+         * no_boost_hop legs lift off this way while moving). */
+        if ((def->no_jump && can_rise) || (in.modern && tracks && can_jump && moving)) {
+            if (!ac->vx && !ac->vz && dir && in.modern) {   /* from a walk: walking pace */
                 const int32_t pace = acr_gen1_walk_pace(def);
                 ac->vx = (int32_t)((int64_t)dx * pace / 4096);
                 ac->vz = (int32_t)((int64_t)dz * pace / 4096);
             }
-            ac->vy = -(int32_t)m->rise_accel * ACR_GEN1_MODERN_RISE_PCT / 100;   /* the rise's first tick */
+            ac->vy = -(int32_t)m->rise_accel * (in.modern ? ACR_GEN1_MODERN_RISE_PCT : 100) / 100;   /* the rise's first tick */
             if (ac->vy >= 0) ac->vy = -1;
+            drain = 1;                                 /* marker: rising */
             ac->state = ACR_GEN1_AIR;
             set_anim(ac, ACR_GEN1_ANIM_IDLE);
-            drain = 1;                          /* marker: rising */
             mx = ac->vx;
             mz = ac->vz;
             break;
         }
-        if (can_jump && fresh_press && (ac->vx || ac->vz) && !def->no_boost_hop) {
+        if (can_jump && fresh_press && (ac->vx || ac->vz) && !def->no_boost_hop && !(def->drive_walk && dir && !in.modern)) {
             int32_t vy;
             uint16_t crouch;
             takeoff(def, &crouch, &vy);
@@ -446,8 +452,38 @@ void acr_gen1_ac_tick(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
             mz = ac->vz;
             break;
         }
+        /* Four-legged and caterpillar ACs (the game's second movement
+         * handler, VS 0x80085704): their walking animations carry no root
+         * motion. A direction pushes the AC that way by the ground boost's
+         * acceleration (player block +0x208) up to its top speed (+0x20A),
+         * along the facing turned by the direction (0, +-45, +-90, 180,
+         * +-135 degrees); with none it is cut to the top speed and slows by
+         * a quarter of the acceleration (0x80014790, as in the air). The
+         * booster from a stand still jumps; boosting while moving is the
+         * ground boost, which uses the same two numbers. */
         /* Modern controls: the boost toggle, a slow ground boost. */
         const int cruising = in.cruise && !in.boost && !ac->drained && ac->energy > 0 && dir && moving;
+        /* SP-MODERN on these legs: they walk the same way unless the toggle
+         * is cruising or cross jumps from a stand. */
+        if (def->drive_walk && !ground_boost && !cruising && !(in.modern && can_jump && !ac->vx && !ac->vz)) {
+            uint8_t loop = ACR_GEN1_ANIM_IDLE;
+            if (dir) {
+                ac->vx += dx * (int32_t)m->boost_accel / 4096;
+                ac->vz += dz * (int32_t)m->boost_accel / 4096;
+                limit_length(&ac->vx, &ac->vz, m->boost_max);
+                loop = in.move > 0 ? ACR_GEN1_ANIM_WALK : in.move < 0 ? ACR_GEN1_ANIM_BACK
+                     : in.strafe < 0 ? ACR_GEN1_ANIM_STRAFE_L : ACR_GEN1_ANIM_STRAFE_R;
+            } else {
+                limit_length(&ac->vx, &ac->vz, m->boost_max);
+                slow_down(&ac->vx, &ac->vz, m->boost_accel / 4 ? m->boost_accel / 4 : 1);
+            }
+            /* The legs' walking loop shows while it moves (pose only). */
+            if (loop == ACR_GEN1_ANIM_IDLE && !ac->vx && !ac->vz) { if (walking(ac)) set_anim(ac, ACR_GEN1_ANIM_IDLE); }
+            else if (loop != ACR_GEN1_ANIM_IDLE) { if (ac->anim != loop) set_anim(ac, loop); else ac->anim_frame++; }
+            mx = ac->vx;
+            mz = ac->vz;
+            break;
+        }
         if (cruising) {
             const int32_t top = acr_gen1_cruise_top(def);
             if (!ac->vx && !ac->vz) {               /* from a walk: starts at walking pace */

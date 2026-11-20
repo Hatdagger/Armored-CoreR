@@ -232,7 +232,7 @@ int main(void) {
         w->interval = 5; w->speed = 700; w->shots = 1;
         b.f[0].weapons = 1; b.f[0].ammo[0] = 200;
         const acr_gen1_input none[2] = { { 0, 0, 0, 0, 0, 0, 0 }, { 0, 0, 0, 0, 0, 0, 0 } };
-        const acr_gen1_actions fire[2] = { { 1, 0, 0 }, { 0, 0, 0 } }, idle[2] = { { 0, 0, 0 }, { 0, 0, 0 } };
+        const acr_gen1_actions fire[2] = { { 1, 0, 0, 0 }, { 0, 0, 0, 0 } }, idle[2] = { { 0, 0, 0, 0 }, { 0, 0, 0, 0 } };
         const uint16_t ammo = b.f[0].ammo[0];
         acr_gen1_battle_step(&b, none, fire);
         EXPECT(b.f[0].ammo[0] == ammo - 1);

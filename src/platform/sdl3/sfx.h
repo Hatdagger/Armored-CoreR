@@ -18,7 +18,8 @@
 #include "../../gen1/acr_gen1_battle.h"
 
 /* Loads the sounds and opens the audio device (once). 1 when sounds are
- * ready; 0 (silent) if the import has no sfx/ or there is no audio. */
+ * ready; 0 (silent) if the import has no sfx/ or there is no audio. The
+ * menus call it too (their clicks), before any fight. */
 int  sfx_open(const char *import_dir);
 void sfx_close(void);
 
@@ -38,5 +39,22 @@ typedef struct sfx_listen {
 
 /* Once a frame, after the fight has stepped. `now_ns` is a steady clock. */
 void sfx_update(const acr_gen1_battle *b, const sfx_listen *l, uint64_t now_ns);
+
+/* ---- menu and screen sounds (not placed in the world) ---- */
+
+enum {
+    SFX_UI_BACK, SFX_UI_CURSOR, SFX_UI_OK, SFX_UI_EQUIP,   /* the menu bank's (sfx/menu-*.wav) */
+    SFX_VS_SHOT, SFX_VS_SHOT_LAST, SFX_VS_DOOR,           /* Rogue Arena's VS screen (rogue_sound.c) */
+    SFX_WIN_STING, SFX_WIN_TICK,                          /* its victory screen */
+    SFX_UI_COUNT
+};
+/* Plays one, centred, at its own level. */
+void sfx_ui(int id);
+/* Stops one if it is playing. */
+void sfx_ui_stop(int id);
+/* Gives slot `id` a sound (22050 Hz mono float; sfx keeps the buffer). */
+void sfx_set_ui(int id, float *pcm, int frames);
+/* A fight bank sample (sfx/NN.wav) as loaded, or NULL. */
+const float *sfx_sample(int n, int *frames);
 
 #endif
