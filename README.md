@@ -53,9 +53,11 @@ the core, tools and tests, add `-DACR_BUILD_GAME=OFF`.
 
 ## Importing your disc
 
-Re-import after updating to this version: the weapon effects need the
-game's effect pictures (`fx/`); without them shots draw as plain glows.
-Before that, Green Silo gained its sky (stars behind the arches). Before that, the arenas gained the
+Re-import after updating to this version: the fight sounds need the
+game's shared fight bank (`sfx/`); without it fights are silent.
+`ACR_SFX_VOLUME=0..100` sets their volume (70 by default, 0 turns them off).
+Before that, the weapon effects needed the game's effect pictures (`fx/`);
+without them shots draw as plain glows. Before that, Green Silo gained its sky (stars behind the arches). Before that, the arenas gained the
 game's own collision data (`collision.txt`), so walls and floors follow
 the game's rules (an older import keeps the stand-in rules). Before that: the animation sets now carry
 the game's aim tables (the gun arm, waist and back units follow the

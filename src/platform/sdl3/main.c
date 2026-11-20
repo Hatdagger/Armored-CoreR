@@ -48,6 +48,7 @@
 #include "garage.h"
 #include "battle_hud.h"
 #include "fx.h"
+#include "sfx.h"
 
 /* HUD framing: the PS1's 4:3 layout in the middle (default) or spread to a
  * wide screen's edges (F9 / --hud-wide). */
@@ -877,6 +878,7 @@ int main(int argc, char **argv) {
         }                                                                                 \
         memset(battle.shot, 0, sizeof battle.shot);                                       \
         fx_reset();                                                                       \
+        sfx_reset();                                                                      \
         round_ms = ROUND_MS; round_over = 0; round_result = 0; ko_ms = 0;                 \
         for (int i_ = 0; i_ < 2; ++i_) {                                                  \
             const acr_gen1_ai_profile p_ = ai_profile(g_ai_mode);                         \
@@ -1365,6 +1367,19 @@ int main(int argc, char **argv) {
             for (int k = 0; k < 2; ++k) fx_set_weapons(k, (const char (*)[24])ac_data[k].weapon_type, ac_data[k].weapons);
             fx_update(&battle, SDL_GetTicksNS());
         }
+        {   /* fight sounds: the same, heard from your own AC (player 1 on a shared screen) */
+            static int sfx_tried;
+            if (!sfx_tried) { sfx_tried = 1; sfx_open(g_import_dir); }
+            const int ear = g_net ? net_info.local : 0;
+            for (int k = 0; k < 2; ++k) sfx_set_weapons(k, (const char (*)[24])ac_data[k].weapon_type, ac_data[k].weapons);
+            sfx_listen sl;
+            SDL_zero(sl);
+            sl.view = ear;
+            sl.red_zone = ac_data[ear].def.stats.red_zone;
+            sl.out_of_area = acr_gen1_battle_out_of_area(&battle, ear) != 0;
+            sl.round_over = round_over;
+            sfx_update(&battle, &sl, SDL_GetTicksNS());
+        }
         for (int vi = 0; vi < views; ++vi) {
         const int view = g_net ? net_info.local : vi;   /* online: your own player, full screen */
         const int vx = vi * pw / views, vpw = (vi + 1) * pw / views - vx;
@@ -1800,6 +1815,7 @@ int main(int argc, char **argv) {
         net_link_close(net);
     }
     for (int k = 0; k < 2; ++k) if (pads[k]) SDL_CloseGamepad(pads[k]);
+    sfx_close();
     SDL_GL_DestroyContext(gl);
     SDL_DestroyWindow(window);
     SDL_Quit();
