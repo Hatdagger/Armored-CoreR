@@ -12,7 +12,7 @@ Both PCs need the same disc imported (the game checks and refuses the
 match with a message if the part, animation or stage files differ). Each
 player flies their own garage build.
 
-In the game: **GARAGE > NETWORK**.
+In the game: **NETWORK** on the main menu.
 
 - **HOST A MATCH** (pick the mode, AI pilot, stage and input delay first
   with left / right): waits for player 2 and shows this PC's address.
@@ -27,7 +27,7 @@ In the game: **GARAGE > NETWORK**.
 - **JOIN BY ADDRESS**: for a host that isn't listed. With a controller,
   left / right and A pick the characters (DEL, JOIN at the end); with a
   keyboard, type it and press Enter.
-- After the match, Esc (or Back on a controller) returns to the garage.
+- After the match, Esc (or Back on a controller) returns to the main menu.
 
 Hosts announce themselves once a second by UDP broadcast on port 7778
 (and to this PC itself); the match uses port 7777.
@@ -132,7 +132,7 @@ The round is the usual two minutes: a team loses when all its ACs are down
 
 ## Over the internet: mission briefings
 
-No server of ours. GARAGE > NETWORK > HOST ONLINE shows player 1 a
+No server of ours. NETWORK > HOST ONLINE shows player 1 a
 **mission briefing**; player 2 picks JOIN WITH A MISSION BRIEFING and
 enters it. The briefing is a connection code (`src/net/acr_brief.h`):
 

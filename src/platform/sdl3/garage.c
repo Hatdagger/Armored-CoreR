@@ -8,18 +8,48 @@
 
 /* ---- text (one table, so it can be translated later) ---- */
 
-/* The main menu. In a Rogue Arena run the garage is assembly only: parts
- * come from the prize screen, so no shop and no AC TEST. */
-enum { M_ASSEMBLY, M_SHOP, M_TEST, M_NETWORK, M_ROGUE, M_CONTROLS, M_EXIT };
-static const char *const k_menu[] = { "ASSEMBLY", "PARTS SHOP", "AC TEST", "NETWORK", "ROGUE ARENA", "CONTROLS", "EXIT" };
-static const int k_menu_main[] = { M_ASSEMBLY, M_SHOP, M_TEST, M_NETWORK, M_ROGUE, M_CONTROLS, M_EXIT };
-static const int k_menu_rogue[] = { M_ASSEMBLY, M_EXIT };
-static int menu_items(const garage_ui *ui, const int **ids) {
-    *ids = ui->rogue ? k_menu_rogue : k_menu_main;
-    return ui->rogue ? 2 : 7;
+/* The game's main menu and its sub-menus (user, 2026-11-19): GARAGE,
+ * SHOP, ARENA, MISSIONS, NETWORK, ROGUE ARENA, SYSTEM. GARAGE holds
+ * ASSEMBLY and AC TEST; SYSTEM holds SAVE, LOAD and SETTINGS (CONTROLS,
+ * VIDEO, AUDIO). Entries for modes not built yet are shown dimmed. In a
+ * Rogue Arena run the garage is assembly only: parts come from the prize
+ * screen, so no shop and no AC TEST. */
+enum {
+    M_GARAGE, M_SHOP, M_ARENA, M_MISSIONS, M_NETWORK, M_ROGUE, M_SYSTEM,
+    M_ASSEMBLY, M_TEST, M_SAVE, M_LOAD, M_SETTINGS, M_CONTROLS, M_VIDEO, M_AUDIO, M_QUIT, M_BACK, M_EXIT_RUN,
+    M_COUNT
+};
+static const char *const k_menu[M_COUNT] = {
+    "GARAGE", "SHOP", "ARENA", "MISSIONS", "NETWORK", "ROGUE ARENA", "SYSTEM",
+    "ASSEMBLY", "AC TEST", "SAVE", "LOAD", "SETTINGS", "CONTROLS", "VIDEO", "AUDIO", "EXIT GAME", "BACK",
+    "BACK TO THE ARENA"
+};
+/* Not built yet: shown, not chosen. */
+static int menu_ready(int id) {
+    return id != M_ARENA && id != M_MISSIONS && id != M_VIDEO && id != M_AUDIO;
 }
-static const char *menu_name(const garage_ui *ui, int id) {
-    return ui->rogue && id == M_EXIT ? "BACK TO THE ARENA" : k_menu[id];
+static const int k_page_main[] = { M_GARAGE, M_SHOP, M_ARENA, M_MISSIONS, M_NETWORK, M_ROGUE, M_SYSTEM };
+static const int k_page_garage[] = { M_ASSEMBLY, M_TEST, M_BACK };
+static const int k_page_system[] = { M_SAVE, M_LOAD, M_SETTINGS, M_QUIT, M_BACK };
+static const int k_page_settings[] = { M_CONTROLS, M_VIDEO, M_AUDIO, M_BACK };
+static const int k_page_rogue[] = { M_ASSEMBLY, M_EXIT_RUN };
+static const char *const k_page_title[GARAGE_PAGES] = { "MAIN MENU", "GARAGE", "SYSTEM", "SETTINGS" };
+static const int k_page_parent[GARAGE_PAGES] = { GARAGE_PAGE_MAIN, GARAGE_PAGE_MAIN, GARAGE_PAGE_MAIN, GARAGE_PAGE_SYSTEM };
+static int menu_items(const garage_ui *ui, const int **ids) {
+    if (ui->rogue) { *ids = k_page_rogue; return 2; }
+    switch (ui->page) {
+    case GARAGE_PAGE_GARAGE: *ids = k_page_garage; return 3;
+    case GARAGE_PAGE_SYSTEM: *ids = k_page_system; return 5;
+    case GARAGE_PAGE_SETTINGS: *ids = k_page_settings; return 4;
+    default: *ids = k_page_main; return 7;
+    }
+}
+static int *menu_cursor(garage_ui *ui) {
+    return ui->rogue ? &ui->menu : &ui->cursor[ui->page];
+}
+static void open_page(garage_ui *ui, int page) {
+    ui->page = page;
+    ui->cursor[page] = 0;
 }
 
 /* Assembly rows in Master of Arena's order; -1 is the optional parts row. */
@@ -76,6 +106,10 @@ void garage_init(garage_ui *ui) {
     memset(ui, 0, sizeof *ui);
 }
 
+void garage_say(garage_ui *ui, const char *text) {
+    say(ui, text);
+}
+
 /* ---- lists ---- */
 
 #define LIST_MAX (ACR_GEN1_PART_MAX + 1)
@@ -121,16 +155,33 @@ garage_command garage_input(garage_ui *ui, garage_data *d, garage_action a) {
     if (ui->screen == 0) {
         const int *ids;
         const int items = menu_items(ui, &ids);
-        if (ui->menu >= items) ui->menu = 0;
-        if (a == GA_UP) ui->menu = (ui->menu + items - 1) % items;
-        if (a == GA_DOWN) ui->menu = (ui->menu + 1) % items;
-        if (a == GA_CANCEL) ui->menu = items - 1;
+        int *cur = menu_cursor(ui);
+        if (*cur >= items) *cur = 0;
+        if (a == GA_UP) *cur = (*cur + items - 1) % items;
+        if (a == GA_DOWN) *cur = (*cur + 1) % items;
+        if (a == GA_CANCEL) {
+            if (ui->rogue) *cur = items - 1;
+            else if (ui->page != GARAGE_PAGE_MAIN) ui->page = k_page_parent[ui->page];
+            else *cur = items - 1;              /* the main menu: to SYSTEM */
+            return GC_NONE;
+        }
         if (a != GA_OK) return GC_NONE;
-        const int id = ids[ui->menu];
-        if (id == M_ASSEMBLY) { ui->screen = 1; ui->list_open = 0; }
-        if (id == M_SHOP) { ui->screen = 2; ui->confirm = 0; ui->shop = ui->shop_top = 0; }
-        if (id == M_ROGUE) return GC_ROGUE;
-        if (id == M_CONTROLS) return GC_CONTROLS;
+        const int id = ids[*cur];
+        if (!menu_ready(id)) { say(ui, "NOT AVAILABLE YET."); return GC_NONE; }
+        switch (id) {
+        case M_GARAGE: open_page(ui, GARAGE_PAGE_GARAGE); return GC_NONE;
+        case M_SYSTEM: open_page(ui, GARAGE_PAGE_SYSTEM); return GC_NONE;
+        case M_SETTINGS: open_page(ui, GARAGE_PAGE_SETTINGS); return GC_NONE;
+        case M_BACK: ui->page = k_page_parent[ui->page]; return GC_NONE;
+        case M_ASSEMBLY: ui->screen = 1; ui->list_open = 0; return GC_NONE;
+        case M_SHOP: ui->screen = 2; ui->confirm = 0; ui->shop = ui->shop_top = 0; return GC_NONE;
+        case M_ROGUE: return GC_ROGUE;
+        case M_CONTROLS: return GC_CONTROLS;
+        case M_SAVE: return GC_SAVE;
+        case M_LOAD: return GC_LOAD;
+        case M_QUIT: case M_EXIT_RUN: return GC_QUIT;
+        default: break;
+        }
         if (id == M_TEST || id == M_NETWORK) {
             acr_gen1_fit_numbers n;
             const unsigned fail = acr_gen1_garage_check(d->hangar, d->cat, &n);
@@ -142,7 +193,6 @@ garage_command garage_input(garage_ui *ui, garage_data *d, garage_action a) {
                     fail & ACR_GEN1_FAIL_WEIGHT ? "TOO HEAVY FOR THESE LEGS." :
                     "TOO MANY OPTIONAL PARTS FOR THIS CORE.");
         }
-        if (id == M_EXIT) return GC_QUIT;
         return GC_NONE;
     }
 
@@ -150,7 +200,7 @@ garage_command garage_input(garage_ui *ui, garage_data *d, garage_action a) {
         if (!ui->list_open) {
             if (a == GA_UP) ui->slot = (ui->slot + ROWS - 1) % ROWS;
             if (a == GA_DOWN) ui->slot = (ui->slot + 1) % ROWS;
-            if (a == GA_CANCEL) ui->screen = 0;
+            if (a == GA_CANCEL) ui->screen = 0;   /* back to the GARAGE menu */
             if (a == GA_OK) {
                 ui->list_open = 1;
                 const int n = assembly_list(ui, d, list);
@@ -298,8 +348,8 @@ static void totals(const garage_data *d, float x, float y) {
 void garage_draw(garage_ui *ui, const garage_data *d, float hud_w, int elapsed_ms) {
     char line[96];
     const float lx = 16, rx = hud_w - PANEL_W - 16;
-    static const char *const k_title[] = { "GARAGE", "ASSEMBLY", "PARTS SHOP" };
-    acr_hud_text(lx, 12, k_title[ui->screen], HILITE);
+    static const char *const k_title[] = { "GARAGE", "ASSEMBLY", "SHOP" };
+    acr_hud_text(lx, 12, ui->screen == 0 && !ui->rogue ? k_page_title[ui->page] : k_title[ui->screen], HILITE);
     if (ui->rogue) SDL_snprintf(line, sizeof line, "BALANCE %6ld P", (long)d->hangar->credits);
     else SDL_snprintf(line, sizeof line, "CREDITS %10ld", (long)d->hangar->credits);
     if (d->hangar->credits < 0) acr_hud_text(rx + 60, 12, line, BAD); else acr_hud_text(rx + 60, 12, line, WHITE);
@@ -311,9 +361,15 @@ void garage_draw(garage_ui *ui, const garage_data *d, float hud_w, int elapsed_m
     if (ui->screen == 0) {
         const int *ids;
         const int items = menu_items(ui, &ids);
+        const int cur = *menu_cursor(ui);
         for (int i = 0; i < items; ++i) {
-            if (i == ui->menu) { acr_hud_rect(lx + 4, 48 + i * 22 - 3, PANEL_W - 8, 14, 60, 70, 40, 255, 1); acr_hud_text(lx + 12, 48 + i * 22, menu_name(ui, ids[i]), HILITE); }
-            else acr_hud_text(lx + 12, 48 + i * 22, menu_name(ui, ids[i]), WHITE);
+            const char *name = k_menu[ids[i]];
+            const int ready = menu_ready(ids[i]);
+            if (i == cur) {
+                acr_hud_rect(lx + 4, 48 + i * 22 - 3, PANEL_W - 8, 14, 60, 70, 40, 255, 1);
+                if (ready) acr_hud_text(lx + 12, 48 + i * 22, name, HILITE); else acr_hud_text(lx + 12, 48 + i * 22, name, DIM);
+            } else if (ready) acr_hud_text(lx + 12, 48 + i * 22, name, WHITE);
+            else acr_hud_text(lx + 12, 48 + i * 22, name, DIM);
         }
         totals(d, rx + 10, 46);
     } else if (ui->screen == 1) {

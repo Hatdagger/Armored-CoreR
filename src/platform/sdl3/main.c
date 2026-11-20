@@ -613,6 +613,18 @@ static int hangar_save(void) {
     return n < sizeof text && SDL_SaveFile(path, text, n);
 }
 
+/* SYSTEM > LOAD: the saved garage again, if there is one. */
+static int hangar_load(void) {
+    char path[1200];
+    save_path(path, sizeof path);
+    char *text = SDL_LoadFile(path, NULL);
+    acr_gen1_hangar h;
+    const int ok = text && acr_gen1_save_read(&h, text);
+    SDL_free(text);
+    if (ok) g_hangar = h;
+    return ok;
+}
+
 static void hangar_parts(int parts[SLOT_COUNT]) {
     for (int i = 0; i < SLOT_COUNT; ++i) parts[i] = g_hangar.fitted[i];
 }
@@ -1472,6 +1484,15 @@ int main(int argc, char **argv) {
                 }
                 if (!nmenu.stage_ok[nmenu.stage_pick]) nmenu.stage_pick = 2;
                 SDL_StartTextInput(window);
+            }
+            if (gcmd == GC_SAVE) garage_say(&gui, hangar_save() ? "SAVED." : "COULD NOT SAVE.");
+            if (gcmd == GC_LOAD) {
+                if (hangar_load()) {
+                    int fitted[SLOT_COUNT];
+                    hangar_parts(fitted);
+                    if (demo_load(dir, fitted, &ac_data[0], err, sizeof err)) memcpy(parts, fitted, sizeof fitted);
+                    garage_say(&gui, "LOADED.");
+                } else garage_say(&gui, "NO SAVE TO LOAD.");
             }
             if (gcmd == GC_CHANGED || gcmd == GC_TEST) {
                 int fitted[SLOT_COUNT];

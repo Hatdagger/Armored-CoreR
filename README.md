@@ -102,7 +102,7 @@ own part models (every part, FCS and options included) go to
    round is two minutes, as in VS.
 
 The controller buttons for boost, fire, switch weapon, blade, strafe and
-view tilt can be changed on the garage's **CONTROLS** page (pick a row, then
+view tilt can be changed on **SYSTEM > SETTINGS > CONTROLS** (pick a row, then
 press the button you want; a button already in use swaps places). Moving
 and turning stay on the left stick / d-pad; Start and Back keep their jobs.
 The mapping is saved in `controls.toml` beside the save.
@@ -129,7 +129,7 @@ The mapping is saved in `controls.toml` beside the save.
 | Hide help | | F1 |
 
 Netplay (1v1, or co-op against 1 or 2 AI, over the network, with
-rollback): GARAGE > NETWORK, or `host-match.bat` (`host-coop.bat` for
+rollback): **NETWORK** on the main menu, or `host-match.bat` (`host-coop.bat` for
 co-op) on one PC and `join-match.bat` on the other (or `--host` / `--join
 ADDRESS`). Both PCs need the same disc imported. Details: `docs/NETPLAY.md`.
 
@@ -139,7 +139,7 @@ AC's AP reaches 0, and Start starts the next.
 
 ## Rogue Arena
 
-Garage menu -> **ROGUE ARENA**. One AC, one life, 19 rivals from the
+Main menu -> **ROGUE ARENA**. One AC, one life, 19 rivals from the
 game's own arenas. You start at rank 20 with a random AC and 0 P. Each win
 pays 1 P and opens a prize screen (pick a part, an upgrade, PASS for +1 P,
 or RE-ROLL once for 1 P). At the hub: NEXT BATTLE, SWAP PARTS (saved

@@ -43,8 +43,8 @@ weapons, damage, two-player test build (see `docs/research/`).
    colours. The test build draws both ACs this way. Still to come: drawing the
    "fx" faces with the effects page (found: RTIM 61, docs/research/gen1-effects.md), per-texel semi-transparency, aiming joints
    (tables a/b), kneel/landing poses and colour patterns 1-15.
-3. **Garage, shop, test mode** (first version done): the game opens in the
-   garage. `src/gen1/acr_gen1_garage.c` (no OS calls) holds what a player
+3. **Garage, shop, test mode** (first version done): the game opens on the
+   main menu (step 8). `src/gen1/acr_gen1_garage.c` (no OS calls) holds what a player
    owns, credits, buying and selling (full price back; no trading while in
    debt, as in the PS1 games), fitting under the game's rules (a part the
    build rules out is refused; parts the new one can't be used with come
@@ -87,7 +87,7 @@ weapons, damage, two-player test build (see `docs/research/`).
 
 Brought over from the AC1Recomp fork's Rogue Arena (release 0.8.4.4.2) at
 its rules, with **19 opponents + the player** instead of 49 + 1, and no
-balance changes (user). Garage menu -> ROGUE ARENA. Needs a re-import:
+balance changes (user). Main menu -> ROGUE ARENA. Needs a re-import:
 acr-import now writes the game's arena opponents to `<import>/arena/`
 (158 on the USA disc: build, colours, names, prize, and the AI editor's
 rows read back from each opponent's 36-byte AI record).
@@ -138,7 +138,7 @@ Fixes after the first play-test (2026-11-19):
 - **Empty weapons** (user): no automatic swap; an empty weapon stays
   selected until the pilot switches away, then can't be picked again. With
   one weapon, or the last one empty, the pilot is stuck with it.
-- **CONTROLS page** (garage menu, user): remap the controller's boost,
+- **CONTROLS page** (SYSTEM > SETTINGS, user): remap the controller's boost,
   fire, switch weapon, blade, strafe and view tilt (any face button,
   shoulder, trigger, stick click or paddle; a button in use swaps), saved
   to `controls.toml`. Stick / d-pad movement, Start and Back stay fixed;
@@ -160,7 +160,13 @@ Fixes after the first play-test (2026-11-19):
 7. **Arena**: finish step 4 (the stages' own area boxes, the other stages,
    stage lights, rankings, opponents and rewards).
 8. **UI**: the game's menus and garage screens to Master of Arena's design
-   (and the split-screen HUD).
+   (and the split-screen HUD). **Main menu** (first version done,
+   2026-11-19, user's layout): GARAGE (ASSEMBLY, AC TEST), SHOP, ARENA,
+   MISSIONS, NETWORK, ROGUE ARENA, SYSTEM (SAVE, LOAD, SETTINGS: CONTROLS,
+   VIDEO, AUDIO; EXIT GAME). NETWORK and SHOP are their own entries, not
+   inside the garage. ARENA, MISSIONS, VIDEO and AUDIO show dimmed ("NOT
+   AVAILABLE YET.") until they exist. The game saves by itself after every
+   change; SAVE writes it now, LOAD goes back to the saved garage.
 9. **Android**: SDL3 already runs there; needs an OpenGL ES version of the
    renderer (`src/render/`), picking the disc image with Android's file
    picker for the import, controllers first (touch controls later), and an
