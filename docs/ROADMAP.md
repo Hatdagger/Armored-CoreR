@@ -135,7 +135,7 @@ Fixes after the first play-test (2026-11-19):
 - **Both back weapons work** (only the left one was a weapon): the AC now
   carries up to 4 (arm weapon, back left, back right, blade); a two-slot
   unit is one weapon.
-- **AP turns red below 1,000.**
+- **AP turns red below 1,000**, and a weapon out of ammo shows its name and count in red.
 
 ## Next, in order (agreed 2026-11-19)
 
