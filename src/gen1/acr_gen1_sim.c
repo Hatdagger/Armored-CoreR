@@ -380,6 +380,10 @@ void acr_gen1_ac_tick(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
         if (++ac->quick_chain >= ACR_GEN1_QUICK_CHAIN) { ac->quick_chain = 0; ac->quick_cool = ACR_GEN1_QUICK_COOL; }
         if (!air) set_anim(ac, ACR_GEN1_ANIM_IDLE);
     }
+    /* The boost toggle on in the air slows the fall (not while rising). */
+    const int toggle_on = in.modern && in.cruise && !ac->drained && ac->energy > 0;
+    const int32_t gravity = toggle_on ? ACR_GEN1_GRAVITY * ACR_GEN1_CRUISE_AIR_FALL_PCT / 100 : ACR_GEN1_GRAVITY;
+    const int32_t fall_max = toggle_on ? ACR_GEN1_FALL_MAX * ACR_GEN1_CRUISE_AIR_FALL_PCT / 100 : ACR_GEN1_FALL_MAX;
     if (ac->quick_ticks && (ac->state == ACR_GEN1_GROUND || ac->state == ACR_GEN1_AIR)) {
         --ac->quick_ticks;
         drain = 4;                              /* paid at the press: no cost, no refill */
@@ -477,9 +481,6 @@ void acr_gen1_ac_tick(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
         } else {
             walk(ac, def, in, &mx, &mz);
         }
-        /* The toggle left on while standing (or walking off) still drains. */
-        if (!drain && in.modern && in.cruise && !ac->drained && ac->energy > 0 && ac->state == ACR_GEN1_GROUND)
-            drain = 5;                          /* marker: the toggle's drain, not moving on it */
         mx += ac->vx;
         mz += ac->vz;
         break;
@@ -490,8 +491,8 @@ void acr_gen1_ac_tick(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
         break;
     case ACR_GEN1_AIR:
         if (ac->quick_ticks) {                  /* quick boost: keeps its line, no rise */
-            ac->vy += ACR_GEN1_GRAVITY;
-            if (ac->vy > ACR_GEN1_FALL_MAX) ac->vy = ACR_GEN1_FALL_MAX;
+            ac->vy += gravity;
+            if (ac->vy > fall_max) ac->vy = fall_max;
             mx = ac->vx;
             mz = ac->vz;
             break;
@@ -502,8 +503,8 @@ void acr_gen1_ac_tick(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
             if (ac->vy < -(int32_t)m->rise_max * pct / 100) ac->vy = -(int32_t)m->rise_max * pct / 100;
             drain = 1;                          /* marker: rising / air boost */
         } else {
-            ac->vy += ACR_GEN1_GRAVITY;
-            if (ac->vy > ACR_GEN1_FALL_MAX) ac->vy = ACR_GEN1_FALL_MAX;
+            ac->vy += gravity;
+            if (ac->vy > fall_max) ac->vy = fall_max;
         }
         /* Steering in the air (VS air handler 0x8007FBAC, direction states
          * 0x41-0x48 from the pad, 0x80085400): any direction held, booster
@@ -531,6 +532,11 @@ void acr_gen1_ac_tick(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
         mz = ac->vz;
         break;
     }
+    /* SP-MODERN: the boost toggle left on always drains, never refills:
+     * on the ground (standing, crouching for a jump, landing) at its own
+     * rate, in the air (falling or drifting, not rising) at 110 % of it. */
+    if (!drain && toggle_on)
+        drain = ac->state == ACR_GEN1_AIR ? 6 : 5;   /* marker: the toggle's drain, not moving on it */
 
 moved:
     /* Every move is cut to 75 a tick on each axis (three quarters of the
@@ -549,7 +555,7 @@ moved:
      * drawing plays it from this and turns to the air poses when it ends. */
     if (ac->anim == ACR_GEN1_ANIM_JUMP && ac->anim_frame < UINT16_MAX) ++ac->anim_frame;
     if (def->stage && def->stage->areas) {
-        game_stage_tick(ac, def, mx, mz, drain >= 2 && drain != 5);
+        game_stage_tick(ac, def, mx, mz, drain == 2 || drain == 3);
     } else {
         ac->x += mx;
         ac->z += mz;
@@ -601,7 +607,8 @@ moved:
     if (drain) {
         if (drain >= 2) cost >>= 1;
         else if (drain == 1 && in.modern) cost = cost * ACR_GEN1_MODERN_RISE_EN_PCT / 100;
-        if (drain == 3 || drain == 5) cost = cost * ACR_GEN1_CRUISE_DRAIN_PCT / 100;
+        if (drain == 3 || drain == 5 || drain == 6) cost = cost * ACR_GEN1_CRUISE_DRAIN_PCT / 100;
+        if (drain == 6) cost = cost * ACR_GEN1_CRUISE_AIR_DRAIN_PCT / 100;
         if (ac->energy > cost) ac->energy -= cost;
         else { ac->energy = 0; ac->drained = 1; }
     } else if (ac->energy >= s->energy_capacity) {
