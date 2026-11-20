@@ -132,13 +132,19 @@ typedef struct acr_gen1_fighter {
     int16_t  last_missile;                     /* shot index of the latest missile launched (+0x1C) */
     /* Modern controls (SP-MODERN fitted; see ACR_GEN1_MODERN_* below) */
     uint8_t  modern;
-    uint8_t  hard_lock;                        /* on: the AC turns and tilts toward the target */
+    uint8_t  hard_lock;                        /* on: the camera stays on the target (any distance) */
+    uint16_t look_yaw;                         /* modern: the free camera's heading (world); the AC
+                                                  turns toward it at its own turn rate */
+    uint8_t  look_init;
+    acr_gen1_input used;                       /* the input the AC last moved by (camera-relative
+                                                  stick turned to the AC's own), for the poses */
     uint16_t sight_yaw;                        /* where the FCS sight points (modern: lags the facing) */
     int16_t  sight_pitch;
     uint16_t hist_yaw[4];                      /* facing / tilt over the last ticks, newest first */
     int16_t  hist_pitch[4];
     uint8_t  hist_n;
     uint16_t recover_ms;                       /* modern blade: recovery left after a swing */
+    uint16_t bloom;                            /* modern: extra shot spread built up by firing */
 } acr_gen1_fighter;
 
 typedef struct acr_gen1_shot {
@@ -162,8 +168,8 @@ typedef struct acr_gen1_shot {
  * - FCS: the lock boxes are BOX_PCT of the FCS's own (inner and outer);
  *   locked gun shots aim only LEAD_PCT of the way to the predicted point;
  *   missile locks take MISSILE_PCT of the ticks. The FCS sight does not sit
- *   on the facing: it follows where the facing was SIGHT_LAG ticks ago, and
- *   turns no faster than the AC's own top turn rate (tilt: the L2 / R2
+ *   on the facing: it follows where the facing was SIGHT_LAG ticks ago (0 by
+ *   default: no delay), and turns no faster than the AC's own top turn rate (tilt: the L2 / R2
  *   rate). A target crossing quickly slips out of the sight (the lock
  *   breaks) while staying on screen.
  * - Blade: easier to land, dearer to miss. Lunge steering at STEER_PCT of
@@ -173,37 +179,49 @@ typedef struct acr_gen1_shot {
  *   (no moving, firing or swinging).
  * - Running dry: no energy weapons (or blade, as for everyone) until the
  *   bar is full again; the boost toggle still works (acr_gen1_sim.h).
- * - Hard lock (a toggle): while the target is in the current weapon's
- *   (lagging, smaller) sight, the AC turns and tilts toward it at its normal
- *   rates whenever the pilot isn't turning / tilting. It drops when the
- *   target leaves the sight and needs a fresh press. Rockets (no-lock
- *   weapons) work with it: their "sight" is the default FCS's gun box at
- *   ROCKET_BOX_PCT (never drawn: rockets show no sight) out to the
- *   rocket's range.
- *   They still get no lead (they fly straight down the facing at where the
- *   target is), and while hard lock is on their refire wait is ROCKET_ROF_PCT
- *   of normal, cutting their damage per second.
+ * - Hard lock (R3, a toggle): pins the camera on the target. Not firing,
+ *   the AC turns to face the way it moves (the right stick turns it while
+ *   standing). While the pilot fires or swings it snaps to face the target;
+ *   the FCS sight swings round from the old facing at the legs' turn rate
+ *   (unlocked shots go along it), and still has to box and lock as normal.
+ * - Rockets (no lead, straight down the facing): a modern pilot's refire
+ *   wait is ROCKET_ROF_PCT of normal and they fly at ROCKET_SPEED_PCT of
+ *   their speed (same range), with or without hard lock.
  * Stand-in values to tune in play (mirror matches, modern vs original). */
 #define ACR_GEN1_MODERN_BOX_PCT          30    /* aiming is automatic: a much smaller sight */
 #define ACR_GEN1_MODERN_LEAD_PCT         60
-#define ACR_GEN1_MODERN_SIGHT_LAG        2     /* ticks, ~0.1 s; at most 3 */
+#define ACR_GEN1_MODERN_SIGHT_LAG        0     /* ticks late, at most 3 (0: the legs' turn speed is the only limit) */
 #define ACR_GEN1_MODERN_MISSILE_PCT      140
 #define ACR_GEN1_MODERN_BLADE_EN_PCT     125
 #define ACR_GEN1_MODERN_STEER_PCT        115
 #define ACR_GEN1_MODERN_RECOVER_HIT_MS   100
 #define ACR_GEN1_MODERN_RECOVER_MISS_MS  300
-/* Hard lock only switches on with the target within this distance (world
- * units), whatever the FCS; once on it holds out to the FCS's own range.
- * So a long-range FCS (QX-9009, RATOR) has to close in to lock, then can
- * pull back out. */
-#define ACR_GEN1_MODERN_HARD_LOCK_START  5000
+/* The free camera (third-person): the right stick spins the camera at
+ * CAM_RATE; the left stick moves relative to the camera; the AC turns to
+ * face the camera's heading at its own legs' turn rate, so its FCS sight
+ * still turns no faster than in AC1. Hard lock (R3) keeps the camera on
+ * the target wherever it is (see hard lock above). HARD_LOCK_START: hard lock only
+ * switches on within this distance (0 = any distance). */
+#define ACR_GEN1_MODERN_CAM_RATE         93    /* facing units a Gen 1 tick: ~180 degrees a second */
+#define ACR_GEN1_MODERN_HARD_LOCK_START  0
 #define ACR_GEN1_MODERN_ROCKET_BOX       240   /* the default FCS's gun box ... */
 #define ACR_GEN1_MODERN_ROCKET_BOX_PCT   20    /* ... at 20 %, never drawn */
-#define ACR_GEN1_MODERN_ROCKET_ROF_PCT   300   /* refire wait with hard lock on: a third of the rate */
+#define ACR_GEN1_MODERN_ROCKET_ROF_PCT   300   /* modern rockets' refire wait: a third of the rate */
+#define ACR_GEN1_MODERN_ROCKET_SPEED_PCT 60    /* modern rockets fly at 60 % speed (same range) */
+/* Shot spread and bloom (modern guns and rockets, locked or not): each shot
+ * goes off by a random angle up to SPREAD + the bloom either side (half that
+ * up / down). Every shot adds BLOOM_SHOT to the bloom, up to BLOOM_MAX, and it
+ * falls by BLOOM_DECAY a tick, so rapid fire (machine guns) spreads wide and
+ * slow guns stay near SPREAD. Facing units, 4096 a turn. */
+#define ACR_GEN1_MODERN_SPREAD           8     /* ~0.7 degrees */
+#define ACR_GEN1_MODERN_BLOOM_SHOT       10
+#define ACR_GEN1_MODERN_BLOOM_MAX        56    /* ~5 degrees more */
+#define ACR_GEN1_MODERN_BLOOM_DECAY      2
 
 typedef struct acr_gen1_modern_tuning {
     uint16_t box_pct, lead_pct, sight_lag, missile_pct, blade_en_pct, steer_pct, recover_hit_ms, recover_miss_ms;
-    uint16_t hard_lock_start, rocket_rof_pct, rocket_box_pct;
+    uint16_t hard_lock_start, rocket_rof_pct, rocket_box_pct, rocket_speed_pct;
+    uint16_t spread, bloom_shot, bloom_max, bloom_decay;
 } acr_gen1_modern_tuning;
 
 typedef struct acr_gen1_battle {

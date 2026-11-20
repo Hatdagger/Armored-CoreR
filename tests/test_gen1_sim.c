@@ -315,8 +315,9 @@ int main(void) {
         for (int k = 0; k < 40; ++k) acr_gen1_ac_step(&t, &d, look);
         EXPECT(t.pitch == -ACR_GEN1_PITCH_MAX);
     }
-    /* Modern controls: the boost toggle is a ground boost at 20 % of the top
-     * speed and of the cost; the quick boost is the full top speed, briefly. */
+    /* Modern controls: the boost toggle is the only ground boost, at
+     * CRUISE_PCT of walking pace and CRUISE_DRAIN_PCT of the cost; the quick
+     * boost is the full top speed, briefly. */
     {
         const acr_gen1_ac_def d = make_def();
         acr_gen1_ac c, g;
@@ -324,23 +325,108 @@ int main(void) {
         acr_gen1_ac_spawn(&g, &d, 0, 0, 0);
         acr_gen1_input walk = k_fwd, cruise = k_fwd, boost = k_boost;
         cruise.cruise = 1;
+        cruise.modern = 1;
         for (int k = 0; k < 6; ++k) { acr_gen1_ac_step(&c, &d, walk); acr_gen1_ac_step(&g, &d, walk); }
         const int32_t e0 = c.energy;
         for (int k = 0; k < 40; ++k) { acr_gen1_ac_step(&c, &d, cruise); acr_gen1_ac_step(&g, &d, boost); }
         const int64_t vc = (int64_t)c.vx * c.vx + (int64_t)c.vz * c.vz, vg = (int64_t)g.vx * g.vx + (int64_t)g.vz * g.vz;
         const int64_t top = acr_gen1_cruise_top(&d), pace = acr_gen1_walk_pace(&d);
-        EXPECT(pace == 548 * 64 / 4 / 4 && top > pace && top < pace * 3 / 2);   /* a little faster than walking */
+        EXPECT(pace == 548 * 64 / 4 / 4 && top == pace * ACR_GEN1_CRUISE_PCT / 100);
         EXPECT(c.state == ACR_GEN1_GROUND && vc <= top * top + 2 && vc >= (top - 2) * (top - 2));
-        EXPECT(g.state == ACR_GEN1_GROUND && vg > vc * 3);
-        EXPECT(c.energy < e0 && e0 - c.energy < (28000 - g.energy));   /* drains, much less than a full boost */
+        EXPECT(g.state == ACR_GEN1_GROUND && vg > vc);                   /* never beats a real ground boost */
+        EXPECT(c.energy < e0 && e0 - c.energy < (28000 - g.energy));
         EXPECT(e0 - c.energy == 40 * ((d.stats.rise_drain >> 1) * ACR_GEN1_CRUISE_DRAIN_PCT / 100));
-        /* Standing still the toggle never jumps. */
+        /* Four legs and caterpillars: the heavy rate. */
+        acr_gen1_ac_def h = d;
+        h.cruise_pct = ACR_GEN1_CRUISE_HEAVY_PCT;
+        EXPECT(acr_gen1_cruise_top(&h) == pace * ACR_GEN1_CRUISE_HEAVY_PCT / 100);
+        /* Standing still the toggle never jumps, but still drains. */
         acr_gen1_ac s;
         acr_gen1_ac_spawn(&s, &d, 0, 0, 0);
         acr_gen1_input stand = k_none;
         stand.cruise = 1;
+        stand.modern = 1;
+        const int32_t es = s.energy;
         for (int k = 0; k < 10; ++k) acr_gen1_ac_step(&s, &d, stand);
         EXPECT(s.state == ACR_GEN1_GROUND && s.vx == 0 && s.vz == 0);
+        EXPECT(es - s.energy == 10 * ((d.stats.rise_drain >> 1) * ACR_GEN1_CRUISE_DRAIN_PCT / 100));
+        /* Cross with SP-MODERN: never a ground boost. Toggle off: a plain
+         * jump with no rise and no cost; toggle on: jump and rise. */
+        {
+            acr_gen1_ac w;
+            acr_gen1_ac_spawn(&w, &d, 0, 0, 0);
+            for (int k = 0; k < 6; ++k) acr_gen1_ac_step(&w, &d, k_fwd);
+            acr_gen1_input mb = k_boost;
+            mb.modern = 1;
+            acr_gen1_ac_step(&w, &d, mb);
+            EXPECT(w.state != ACR_GEN1_GROUND || (w.vx == 0 && w.vz == 0));   /* no ground boost */
+            acr_gen1_ac j, r;
+            acr_gen1_ac_spawn(&j, &d, 0, 0, 0);
+            acr_gen1_ac_spawn(&r, &d, 0, 0, 0);
+            acr_gen1_input jump = k_none, rise = k_none;
+            jump.boost = rise.boost = 1;
+            jump.modern = rise.modern = 1;
+            rise.cruise = 1;
+            int32_t top_j = 0, top_r = 0;
+            const int32_t ej = j.energy;
+            for (int k = 0; k < 60; ++k) {
+                acr_gen1_ac_step(&j, &d, jump);
+                acr_gen1_ac_step(&r, &d, rise);
+                if (-j.y > top_j) top_j = -j.y;
+                if (-r.y > top_r) top_r = -r.y;
+            }
+            EXPECT(top_j > 0 && top_r > top_j * 2);                 /* jumped; the toggle rises far higher */
+            EXPECT(j.energy >= ej);                                  /* the plain jump costs nothing */
+            acr_gen1_ac dj;                                          /* drained: still jumps */
+            acr_gen1_ac_spawn(&dj, &d, 0, 0, 0);
+            dj.energy = 0; dj.drained = 1;
+            for (int k = 0; k < 12; ++k) acr_gen1_ac_step(&dj, &d, jump);
+            EXPECT(dj.state == ACR_GEN1_AIR || dj.y < 0);
+            /* Weaker than the original: half the take-off, 60 % lift, 125 % cost. */
+            {
+                acr_gen1_ac o, n;
+                acr_gen1_ac_spawn(&o, &d, 0, 0, 0);
+                acr_gen1_ac_spawn(&n, &d, 0, 0, 0);
+                while (o.state != ACR_GEN1_AIR) { acr_gen1_ac_step(&o, &d, k_boost); acr_gen1_ac_step(&n, &d, rise); }
+                EXPECT(n.state == ACR_GEN1_AIR);
+                const int32_t eo = o.energy, en = n.energy;
+                for (int k = 0; k < 10; ++k) { acr_gen1_ac_step(&o, &d, k_boost); acr_gen1_ac_step(&n, &d, rise); }
+                EXPECT(en - n.energy == 10 * (d.stats.rise_drain * ACR_GEN1_MODERN_RISE_EN_PCT / 100));
+                EXPECT(eo - o.energy == 10 * d.stats.rise_drain);
+                EXPECT(n.y > o.y);                                   /* lower */
+                acr_gen1_ac jo, jn;                                  /* the take-off */
+                acr_gen1_ac_spawn(&jo, &d, 0, 0, 0);
+                acr_gen1_ac_spawn(&jn, &d, 0, 0, 0);
+                acr_gen1_ac_step(&jo, &d, k_boost);
+                acr_gen1_ac_step(&jn, &d, jump);
+                EXPECT(jn.vy == jo.vy * ACR_GEN1_MODERN_JUMP_PCT / 100);
+            }
+            /* Caterpillars rise with the toggle off too. */
+            acr_gen1_ac_def t = d;
+            t.no_boost_hop = 1;
+            acr_gen1_ac tr;
+            acr_gen1_ac_spawn(&tr, &t, 0, 0, 0);
+            int32_t top_t = 0;
+            for (int k = 0; k < 60; ++k) { acr_gen1_ac_step(&tr, &t, jump); if (-tr.y > top_t) top_t = -tr.y; }
+            EXPECT(top_t > top_j * 2);
+            /* Cruising caterpillars lift off at once, keeping their speed. */
+            {
+                acr_gen1_ac cr;
+                acr_gen1_ac_spawn(&cr, &t, 0, 0, 0);
+                acr_gen1_input go = k_fwd;
+                go.modern = go.cruise = 1;
+                for (int k = 0; k < 20; ++k) acr_gen1_ac_step(&cr, &t, go);
+                const int64_t v0 = (int64_t)cr.vx * cr.vx + (int64_t)cr.vz * cr.vz;
+                EXPECT(cr.state == ACR_GEN1_GROUND && v0 > 0);
+                acr_gen1_input up = go;
+                up.boost = 1;
+                acr_gen1_ac_step(&cr, &t, up);
+                const int64_t v1 = (int64_t)cr.vx * cr.vx + (int64_t)cr.vz * cr.vz;
+                EXPECT(cr.state == ACR_GEN1_AIR && v1 > 0);
+                for (int k = 0; k < 10; ++k) acr_gen1_ac_step(&cr, &t, up);
+                EXPECT(cr.y < 0 && (cr.vx || cr.vz));                /* rising and still moving */
+            }
+        }
         /* Quick boost from a stand: the ground top speed at once, a few
          * ticks, then a slide. It costs, at once, what a normal boost would
          * to cover the distance; three chain, then a cool-down. */
@@ -374,6 +460,7 @@ int main(void) {
         EXPECT(q.quick_ticks == 0);
         acr_gen1_input dry = k_fwd;
         dry.cruise = 1;
+        dry.modern = 1;
         for (int k = 0; k < 30; ++k) acr_gen1_ac_step(&q, &d, dry);
         EXPECT(q.drained && q.vx == 0 && q.vz == 0 && q.energy > 0);     /* walking again, recharging */
         acr_gen1_ac_spawn(&q, &d, 0, 0, 0);

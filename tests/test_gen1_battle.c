@@ -419,91 +419,150 @@ int main(void) {
         acr_gen1_battle_step(&mb, none, na);
         EXPECT(!acr_gen1_in_lock_box(&mb, 0, &mb.f[0].weapon[0]));
         /* Facing it: in the sight. A sudden turn away leaves the sight behind for a moment. */
-        acr_gen1_ac_set_yaw(&mb.f[0].ac, 0);
+        acr_gen1_ac_set_yaw(&mb.f[0].ac, 0); mb.f[0].look_yaw = 0;
         for (int t = 0; t < 10; ++t) acr_gen1_battle_step(&mb, none, na);
-        EXPECT(mb.f[0].sight_yaw == 0 && acr_gen1_in_lock_box(&mb, 0, &mb.f[0].weapon[0]));
-        acr_gen1_ac_set_yaw(&mb.f[0].ac, 600);
+        EXPECT(mb.f[0].sight_yaw == 0 && !acr_gen1_in_lock_box(&mb, 0, &mb.f[0].weapon[0]));   /* no FCS without hard lock */
+        mb.f[0].hard_lock = 1;
+        EXPECT(acr_gen1_in_lock_box(&mb, 0, &mb.f[0].weapon[0]));
+        mb.f[0].hard_lock = 0;
+        acr_gen1_ac_set_yaw(&mb.f[0].ac, 600); mb.f[0].look_yaw = 600;
         acr_gen1_battle_step(&mb, none, na);
-        EXPECT(mb.f[0].sight_yaw == 0 && acr_gen1_in_lock_box(&mb, 0, &mb.f[0].weapon[0]));   /* the target still in it */                          /* still where the facing was */
+        /* The sight follows at the legs' turn rate, no faster. */
+        EXPECT(mb.f[0].sight_yaw > 0 && mb.f[0].sight_yaw <= mb.f[0].def->motion.turn_max &&
+               !acr_gen1_in_lock_box(&mb, 0, &mb.f[0].weapon[0]));   /* no FCS without hard lock */
         for (int t = 0; t < 40; ++t) acr_gen1_battle_step(&mb, none, na);
         EXPECT(mb.f[0].sight_yaw == 600);
-        /* Hard lock: turns back toward the target until it is in the sight, then holds. */
-        acr_gen1_ac_set_yaw(&mb.f[0].ac, 30);
-        for (int t = 0; t < 20; ++t) acr_gen1_battle_step(&mb, none, na);
-        EXPECT(acr_gen1_in_lock_box(&mb, 0, &mb.f[0].weapon[0]));
+        /* The free camera: the right stick spins it; the AC follows at its own turn rate. */
+        {
+            acr_gen1_input spin[2] = { { 0 }, { 0 } };
+            spin[0].turn = 1;
+            const uint16_t l0 = mb.f[0].look_yaw, y0 = mb.f[0].ac.yaw;
+            acr_gen1_battle_step(&mb, spin, na);
+            EXPECT(mb.f[0].look_yaw == ((l0 + ACR_GEN1_MODERN_CAM_RATE) & 4095));
+            for (int t = 0; t < 4; ++t) acr_gen1_battle_step(&mb, spin, na);
+            const int32_t cam_moved = ((int32_t)mb.f[0].look_yaw - l0) & 4095, ac_moved = ((int32_t)mb.f[0].ac.yaw - y0) & 4095;
+            EXPECT(cam_moved == 5 * ACR_GEN1_MODERN_CAM_RATE && ac_moved > 0 && ac_moved < cam_moved);
+            /* Forward on the stick with the camera a quarter turn right of the AC: the AC strafes right. */
+            acr_gen1_ac_set_yaw(&mb.f[0].ac, 0);
+            mb.f[0].look_yaw = 1024;
+            acr_gen1_input fwd[2] = { { 0 }, { 0 } };
+            fwd[0].move = 1;
+            acr_gen1_battle_step(&mb, fwd, na);
+            EXPECT(mb.f[0].used.move == 0 && mb.f[0].used.strafe == 1 && mb.f[0].used.turn == 1);
+            acr_gen1_ac_set_yaw(&mb.f[0].ac, 0); mb.f[0].look_yaw = 0;
+            for (int t = 0; t < 10; ++t) acr_gen1_battle_step(&mb, none, na);
+        }
+        /* Hard lock: the camera stays on the target wherever it is (here
+         * right behind). The AC turns freely until it fires, then turns
+         * round toward the target at its own rate. */
+        acr_gen1_ac_set_yaw(&mb.f[0].ac, 2048); mb.f[0].look_yaw = 2048;
+        acr_gen1_battle_step(&mb, none, na);
         na[0].hard_lock = 1;
         acr_gen1_battle_step(&mb, none, na);
         na[0].hard_lock = 0;
-        EXPECT(mb.f[0].hard_lock);
+        EXPECT(mb.f[0].hard_lock && mb.f[0].look_yaw == 0);       /* the camera on the target at once */
         for (int t = 0; t < 20; ++t) acr_gen1_battle_step(&mb, none, na);
+        EXPECT(mb.f[0].look_yaw == 0 && mb.f[0].hard_lock && mb.f[0].ac.yaw == 2048);   /* not firing: no aim */
         {
-            const int32_t y = mb.f[0].ac.yaw >= 2048 ? (int32_t)mb.f[0].ac.yaw - 4096 : mb.f[0].ac.yaw;
-            EXPECT(mb.f[0].hard_lock && y < 60 && y > -60);
+            acr_gen1_input spin[2] = { { 0 }, { 0 } };
+            spin[0].turn = 1;
+            for (int t = 0; t < 3; ++t) acr_gen1_battle_step(&mb, spin, na);
+            EXPECT(mb.f[0].ac.yaw > 2048 && mb.f[0].look_yaw == 0);  /* the right stick turns the AC */
+            acr_gen1_ac_set_yaw(&mb.f[0].ac, 2048);
         }
-        /* Rockets keep hard lock, but fire at a third of the rate with it on. */
+        {
+            /* Firing: the AC snaps to the target; the FCS sight swings round
+             * from the old facing at the legs' rate, and only then locks. */
+            acr_gen1_actions hold[2] = { { 1 }, { 0 } };
+            for (int k = 0; k < 100; ++k) acr_gen1_battle_step(&mb, none, na);   /* the sight settles behind */
+            EXPECT(mb.f[0].sight_yaw == 2048 && mb.f[0].ac.yaw == 2048);
+            acr_gen1_battle_step(&mb, none, hold);
+            const int32_t tm = mb.f[0].def->motion.turn_max;
+            const int32_t s1 = mb.f[0].sight_yaw >= 2048 ? (int32_t)mb.f[0].sight_yaw - 4096 : mb.f[0].sight_yaw;
+            EXPECT(mb.f[0].ac.yaw == 0);                                  /* snapped */
+            EXPECT(s1 != -2048 && (s1 > 0 ? 2048 - s1 : 2048 + s1) <= tm && !acr_gen1_in_lock_box(&mb, 0, &mb.f[0].weapon[0]));
+            int t = 0;
+            while (!acr_gen1_in_lock_box(&mb, 0, &mb.f[0].weapon[0]) && t < 200) { acr_gen1_battle_step(&mb, none, hold); ++t; }
+            EXPECT(t > 2 && t < 200 && mb.f[0].hard_lock);              /* caught up after a while */
+            /* Already facing it: the sight is there at once. */
+            acr_gen1_battle_step(&mb, none, hold);
+            EXPECT(acr_gen1_in_lock_box(&mb, 0, &mb.f[0].weapon[0]));
+            /* Dodging (not firing): the AC turns to face its way at the legs' rate. */
+            acr_gen1_input side[2] = { { 0 }, { 0 } };
+            side[0].strafe = 1;
+            acr_gen1_battle_step(&mb, side, na);
+            const int32_t y = mb.f[0].ac.yaw >= 2048 ? (int32_t)mb.f[0].ac.yaw - 4096 : mb.f[0].ac.yaw;
+            EXPECT(y > 0 && y <= tm);
+            for (int k = 0; k < 100; ++k) acr_gen1_battle_step(&mb, side, na);
+            EXPECT(mb.f[0].ac.yaw > 1024 - 64 && mb.f[0].ac.yaw < 1024 + 64 && mb.f[0].look_yaw == 0);
+            /* Firing while strafing: faces the target, still strafing. */
+            acr_gen1_battle_step(&mb, side, hold);
+            EXPECT(mb.f[0].ac.yaw == 0 && mb.f[0].used.strafe == 1 && mb.f[0].used.move == 0);
+            acr_gen1_ac_set_yaw(&mb.f[0].ac, 0);
+        }
+        /* Modern rockets: a third of the fire rate and slower flight, hard lock or not. */
         mb.f[0].weapon[0].straight = 1; mb.f[0].weapon[0].box_w = mb.f[0].weapon[0].box_h = 0;
+        for (int k = 0; k < ACR_GEN1_MAX_SHOTS; ++k) mb.shot[k].active = 0;
         mb.f[0].cooldown = mb.f[0].hold_left = 0;
         acr_gen1_actions shoot[2] = { { 1 }, { 0 } };
         acr_gen1_battle_step(&mb, none, shoot);
         EXPECT(mb.f[0].hard_lock && mb.f[0].cooldown == 5 * ACR_GEN1_MODERN_ROCKET_ROF_PCT / 100);
-        {   /* the rocket "sight": 20 % of 240 = 48 either side */
-            mb.f[0].hard_lock = 0;
-            acr_gen1_ac_set_yaw(&mb.f[0].ac, 60);               /* 60 off: inside 30 % of 240, outside 20 % */
-            for (int t = 0; t < 10; ++t) acr_gen1_battle_step(&mb, none, na);
-            na[0].hard_lock = 1;
-            acr_gen1_battle_step(&mb, none, na);
-            na[0].hard_lock = 0;
-            EXPECT(!mb.f[0].hard_lock);
-            acr_gen1_ac_set_yaw(&mb.f[0].ac, 30);
-            for (int t = 0; t < 10; ++t) acr_gen1_battle_step(&mb, none, na);
-            na[0].hard_lock = 1;
-            acr_gen1_battle_step(&mb, none, na);
-            na[0].hard_lock = 0;
-            EXPECT(mb.f[0].hard_lock);
+        {
+            int64_t v2 = 0;
+            for (int k = 0; k < ACR_GEN1_MAX_SHOTS; ++k)
+                if (mb.shot[k].active && mb.shot[k].owner == 0)
+                    v2 = (int64_t)mb.shot[k].vx * mb.shot[k].vx + (int64_t)mb.shot[k].vz * mb.shot[k].vz + (int64_t)mb.shot[k].vy * mb.shot[k].vy;
+            const int64_t full = (int64_t)mb.f[0].weapon[0].speed * 64;
+            const int64_t want = full * ACR_GEN1_MODERN_ROCKET_SPEED_PCT / 100;
+            EXPECT(v2 > (want - want / 50) * (want - want / 50) && v2 < (want + want / 50) * (want + want / 50));
         }
         mb.f[0].hard_lock = 0;
         mb.f[0].cooldown = mb.f[0].hold_left = 0;
         acr_gen1_battle_step(&mb, none, shoot);
-        EXPECT(mb.f[0].cooldown == 5);                            /* aimed by hand: the normal rate */
+        EXPECT(mb.f[0].cooldown == 5 * ACR_GEN1_MODERN_ROCKET_ROF_PCT / 100);   /* without hard lock too */
+        /* Spread and bloom: rapid fire spreads the shots, then settles; the
+         * original controls get none. */
+        {
+            mb.f[0].weapon[0] = rifle(); mb.f[0].weapon[0].interval = 1; mb.f[0].weapon[0].hold = 0; mb.f[0].ammo[0] = 200;
+            mb.f[0].hard_lock = 0; mb.f[0].bloom = 0; mb.f[0].cooldown = mb.f[0].hold_left = 0;
+            acr_gen1_ac_set_yaw(&mb.f[0].ac, 0); mb.f[0].look_yaw = 0;
+            acr_gen1_actions mg[2] = { { 1 }, { 0 } };
+            int32_t lo = 4096, hi = -4096;
+            for (int k = 0; k < 40; ++k) {
+                for (int q = 0; q < ACR_GEN1_MAX_SHOTS; ++q) mb.shot[q].active = 0;
+                acr_gen1_battle_step(&mb, none, mg);
+                for (int q = 0; q < ACR_GEN1_MAX_SHOTS; ++q)
+                    if (mb.shot[q].active && mb.shot[q].owner == 0) {
+                        const int32_t sx = mb.shot[q].vx;
+                        if (sx < lo) lo = sx;
+                        if (sx > hi) hi = sx;
+                    }
+            }
+            EXPECT(mb.f[0].bloom == ACR_GEN1_MODERN_BLOOM_MAX);
+            EXPECT(hi > 0 && lo < 0);                                   /* shots go both ways off the line */
+            for (int k = 0; k < 60; ++k) acr_gen1_battle_step(&mb, none, na);
+            EXPECT(mb.f[0].bloom == 0);
+            mb.f[0].modern = 0;
+            for (int k = 0; k < 10; ++k) acr_gen1_battle_step(&mb, none, mg);
+            EXPECT(mb.f[0].bloom == 0);
+            mb.f[0].modern = 1;
+        }
         mb.f[0].weapon[0] = rifle();
-        mb.f[0].cooldown = mb.f[0].hold_left = 0;
+        /* Any distance, and it holds when the target moves far off. */
+        mb.f[1].ac.z = mb.f[1].ac.pz = mb.f[1].ac.sz = 20000 * 64;
         na[0].hard_lock = 1;
         acr_gen1_battle_step(&mb, none, na);
         na[0].hard_lock = 0;
         EXPECT(mb.f[0].hard_lock);
-        /* Hard lock starts only within 5,000, then holds out to the FCS's range. */
-        {
-            static acr_gen1_battle lr;
-            setup(&lr, 9000);
-            lr.f[0].last_missile = lr.f[1].last_missile = -1;
-            lr.f[0].weapons = 1; lr.f[0].weapon[0] = rifle(); lr.f[0].ammo[0] = 200;
-            lr.f[0].weapon[0].lock_range = 10500; lr.f[0].weapon[0].range = 10500;
-            lr.f[0].modern = 1;
-            acr_gen1_actions hl[2] = { { 0 }, { 0 } };
-            for (int t = 0; t < 3; ++t) acr_gen1_battle_step(&lr, none, hl);
-            EXPECT(acr_gen1_in_lock_box(&lr, 0, &lr.f[0].weapon[0]));
-            hl[0].hard_lock = 1;
-            acr_gen1_battle_step(&lr, none, hl);
-            EXPECT(!lr.f[0].hard_lock);                            /* 9,000 out: too far to start */
-            lr.f[1].ac.z = lr.f[1].ac.pz = lr.f[1].ac.sz = 5500 * 64;
-            acr_gen1_battle_step(&lr, none, hl);
-            EXPECT(!lr.f[0].hard_lock);                            /* 5,500: still too far */
-            lr.f[1].ac.z = lr.f[1].ac.pz = lr.f[1].ac.sz = 4500 * 64;
-            acr_gen1_battle_step(&lr, none, hl);
-            hl[0].hard_lock = 0;
-            EXPECT(lr.f[0].hard_lock);                             /* closer: on */
-            lr.f[1].ac.z = lr.f[1].ac.pz = lr.f[1].ac.sz = 10000 * 64;
-            acr_gen1_battle_step(&lr, none, hl);
-            EXPECT(lr.f[0].hard_lock);                             /* pulled back out: still on */
-            lr.f[1].ac.z = lr.f[1].ac.pz = lr.f[1].ac.sz = 11000 * 64;
-            acr_gen1_battle_step(&lr, none, hl);
-            EXPECT(!lr.f[0].hard_lock);                            /* past the FCS's range: gone */
-        }
-        mb.f[1].ac.x = 6000 * 64;                                 /* jumps far off to the side: lock drops */
-        mb.f[1].ac.px = mb.f[1].ac.sx = mb.f[1].ac.x;
+        mb.f[1].ac.x = mb.f[1].ac.px = mb.f[1].ac.sx = 6000 * 64;
         acr_gen1_battle_step(&mb, none, na);
+        EXPECT(mb.f[0].hard_lock);
+        na[0].hard_lock = 1;                                      /* R3 again: off */
+        acr_gen1_battle_step(&mb, none, na);
+        na[0].hard_lock = 0;
         EXPECT(!mb.f[0].hard_lock);
         mb.f[1].ac.x = mb.f[1].ac.px = mb.f[1].ac.sx = 0;
+        mb.f[1].ac.z = mb.f[1].ac.pz = mb.f[1].ac.sz = 3000 * 64;
 
         /* Missile locks take 40 % longer. */
         static acr_gen1_battle ml[2];
@@ -513,6 +572,7 @@ int main(void) {
             ml[k].f[0].last_missile = ml[k].f[1].last_missile = -1;
             ml[k].f[0].weapons = 1; ml[k].f[0].weapon[0] = small_missile(); ml[k].f[0].ammo[0] = 40;
             ml[k].f[0].modern = (uint8_t)k;
+            ml[k].f[0].hard_lock = (uint8_t)k;                  /* modern: the FCS only with hard lock */
             for (int t = 0; t < 200 && ml[k].f[0].locks < 2; ++t) { acr_gen1_battle_step(&ml[k], none, na); ++took[k]; }
         }
         EXPECT(ml[0].f[0].locks == 2 && ml[1].f[0].locks == 2 && took[1] > took[0] * 13 / 10);

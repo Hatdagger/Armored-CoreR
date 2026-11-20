@@ -121,8 +121,8 @@ static acr_gen1_input read_input(SDL_Gamepad *pad, int keyboard) {
  * required, laid out after Armored Core VI's Type A, with Gen 1's weapons
  * (one selected at a time, switched with triangle):
  *   left stick   move and strafe        right stick  turn and tilt the view
- *   cross        boost (hold: jump / rise; with a direction: ground boost)
- *   circle       boost toggle (slow ground boost)   square  quick boost
+ *   cross        jump; hold to rise while the boost toggle is on
+ *   L1           boost toggle (the only ground boost) square  quick boost
  *   R2           fire the selected weapon            L2      blade
  *   triangle     switch weapon                       R3      hard lock
  *   d-pad down   view back to level
@@ -913,6 +913,8 @@ int main(int argc, char **argv) {
                        : pp[i_][SLOT_LEGS] >= 21 ? ACR_GEN1_LEGS_FOUR : ACR_GEN1_LEGS_TWO); \
             f_->human_plus = (uint8_t)(i_ == 0 && human_plus); f_->kneeling = 0;          \
             f_->modern = (uint8_t)modern_of(i_);                                          \
+            d_->def.cruise_pct = (uint8_t)(f_->legs == ACR_GEN1_LEGS_TWO ? ACR_GEN1_CRUISE_PCT \
+                                           : ACR_GEN1_CRUISE_HEAVY_PCT);                    \
         }                                                                                 \
         if (g_stage_on) { stage_spawn(P, def, 0); stage_spawn(T, def2, 1); }               \
         else {                                                                            \
@@ -1027,7 +1029,7 @@ int main(int argc, char **argv) {
                 if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_V) blade_pressed[0] = 1;
                 if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && e.gbutton.button == SDL_GAMEPAD_BUTTON_NORTH) switch_pressed[0] = 1;
                 if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && modern_of(net_info.local)) {
-                    if (e.gbutton.button == SDL_GAMEPAD_BUTTON_EAST) cruise_on[0] = !cruise_on[0];
+                    if (e.gbutton.button == SDL_GAMEPAD_BUTTON_LEFT_SHOULDER) cruise_on[0] = !cruise_on[0];
                     if (e.gbutton.button == SDL_GAMEPAD_BUTTON_WEST) quick_pressed[0] = 1;
                     if (e.gbutton.button == SDL_GAMEPAD_BUTTON_RIGHT_STICK) lock_pressed[0] = 1;
                 } else if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && e.gbutton.button == SDL_GAMEPAD_BUTTON_EAST) blade_pressed[0] = 1;
@@ -1127,7 +1129,7 @@ int main(int argc, char **argv) {
                 if (btn == SDL_GAMEPAD_BUTTON_RIGHT_STICK && back_held) { g_landing_anim = !g_landing_anim; back_combo = 1; }
                 const int pad_who = !two_players ? 0 : pads[1] ? (player_of(pads, e.gbutton.which, 0) == 1) : 1;
                 if (modern_of(pad_who) && !back_held) {
-                    if (btn == SDL_GAMEPAD_BUTTON_EAST) cruise_on[pad_who] = !cruise_on[pad_who];   /* boost toggle */
+                    if (btn == SDL_GAMEPAD_BUTTON_LEFT_SHOULDER) cruise_on[pad_who] = !cruise_on[pad_who];   /* boost toggle */
                     if (btn == SDL_GAMEPAD_BUTTON_WEST) quick_pressed[pad_who] = 1;                  /* quick boost */
                     if (btn == SDL_GAMEPAD_BUTTON_RIGHT_STICK) lock_pressed[pad_who] = 1;            /* hard lock */
                 } else if (btn == SDL_GAMEPAD_BUTTON_EAST && !back_held) {   /* the blade: circle / B */
@@ -1503,7 +1505,7 @@ int main(int argc, char **argv) {
             const acr_gen1_fighter *cf = &battle.f[view];
             const float ct = acr_gen1_tick_fraction(&ac);
             const float cam_p = cf->cam_pitch_prev + (cf->cam_pitch - cf->cam_pitch_prev) * ct,
-                        cam_y = cf->cam_yaw_prev + (cf->cam_yaw - cf->cam_yaw_prev) * ct;
+                        cam_y = cf->cam_yaw_prev + (float)(((cf->cam_yaw - cf->cam_yaw_prev + 2048) & 4095) - 2048) * ct;
             float th_units = (float)prev.pitch + (float)(ac.pitch - prev.pitch) * a + cam_p;
             if (th_units > ACR_GEN1_CAM_PITCH_MAX) th_units = ACR_GEN1_CAM_PITCH_MAX;
             if (th_units < -ACR_GEN1_CAM_PITCH_MAX) th_units = -ACR_GEN1_CAM_PITCH_MAX;
@@ -1595,6 +1597,11 @@ int main(int argc, char **argv) {
             if (g_muzzle[k].ok)
                 for (int c = 0; c < 3; ++c) fk->muzzle[c] = (int16_t)g_muzzle[k].p[c];
             g_in[k].crouch = battle.f[k].kneeling;   /* the cannon stance keeps its own pose */
+            if (battle.f[k].modern) {                /* modern: the stick as the AC took it */
+                g_in[k].move = battle.f[k].used.move;
+                g_in[k].strafe = battle.f[k].used.strafe;
+                g_in[k].turn = battle.f[k].used.turn;
+            }
         }
         draw_ac(view, &ac, px, py, pz, yaw, crouch);
         const float tx = (tprev.sx + (T->sx - tprev.sx) * a) / 64.0f, ty = -(tprev.sy + (T->sy - tprev.sy) * a) / 64.0f,
@@ -1682,7 +1689,7 @@ int main(int argc, char **argv) {
                                    : me->hard_lock ? "HARD LOCK" : NULL;
                     if (mh) battle_hud_text(g_vw, g_hud_frame, 1, 312.0f - 4.0f * (float)SDL_strlen(mh), 172, mh, 0, 255, 160, 60);
                 }
-                if (w->box_w) {
+                if (w->box_w && (!me->modern || me->hard_lock)) {   /* modern: only with hard lock */
                     /* The game's sight (VS 0x800576E0): the inner lock box as
                      * an octagon, half-sizes sin(angle) and corners cut by 512,
                      * on a frame 16,384 out along the AC's facing and view tilt,
