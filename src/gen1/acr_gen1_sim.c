@@ -339,6 +339,19 @@ void acr_gen1_ac_tick(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
          * again while still sliding, and the AC jumps straight into the air,
          * keeping its speed (humanoid, reverse-joint and four-legged legs;
          * as described by a player, not yet measured). */
+        /* Caterpillars (user, 2026-11-19): no ground boost and no jump. The
+         * booster lifts them straight into the rising boost, from a stand
+         * or on the move, without the take-off kick the other legs start
+         * their arc with; they keep their speed across the ground. */
+        if (can_boost && def->no_jump) {
+            ac->vy = -(int32_t)m->rise_accel;          /* the first tick of the rise, from rest */
+            drain = 1;                                 /* marker: rising */
+            ac->state = ACR_GEN1_AIR;
+            set_anim(ac, ACR_GEN1_ANIM_IDLE);
+            mx = ac->vx;
+            mz = ac->vz;
+            break;
+        }
         if (can_boost && fresh_press && (ac->vx || ac->vz) && !def->no_boost_hop && !(def->drive_walk && dir)) {
             int32_t vy;
             uint16_t crouch;
@@ -378,17 +391,14 @@ void acr_gen1_ac_tick(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
             mz = ac->vz;
             break;
         }
-        /* Caterpillars can't jump (user, 2026-11-19): the booster with a
-         * direction is the ground boost even from a stand, and alone it
-         * does nothing. */
-        if (can_boost && dir && (moving || def->no_jump)) {
+        if (can_boost && dir && moving) {
             ac->vx += dx * (int32_t)m->boost_accel / 4096;
             ac->vz += dz * (int32_t)m->boost_accel / 4096;
             limit_length(&ac->vx, &ac->vz, m->boost_max);
             ac->coast = 3;                      /* measured: 2-3 ticks at full speed */
             drain = 2;                          /* marker: ground boost (half cost) */
             set_anim(ac, ACR_GEN1_ANIM_IDLE);
-        } else if (can_boost && ac->vx == 0 && ac->vz == 0 && !def->no_jump) {
+        } else if (can_boost && ac->vx == 0 && ac->vz == 0) {
             takeoff(def, &ac->timer, &ac->vy);
             ac->state = ACR_GEN1_CROUCH;
             set_anim(ac, ACR_GEN1_ANIM_JUMP);
@@ -409,7 +419,7 @@ void acr_gen1_ac_tick(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
         if (!ac->timer) ac->state = ACR_GEN1_AIR;
         break;
     case ACR_GEN1_AIR:
-        if (can_boost && !def->no_jump) {   /* caterpillars only fall (off a ledge) */
+        if (can_boost) {
             ac->vy -= m->rise_accel;
             if (ac->vy < -(int32_t)m->rise_max) ac->vy = -(int32_t)m->rise_max;
             drain = 1;                          /* marker: rising / air boost */

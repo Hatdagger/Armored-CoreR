@@ -331,16 +331,23 @@ int main(void) {
         for (int k = 0; k < 200; ++k) acr_gen1_ac_step(&t, &q, k_none);
         EXPECT(t.vz == 0);
     }
-    {   /* Caterpillars never leave the ground: the booster alone does
-         * nothing, with a direction it is the ground boost. */
+    {   /* Caterpillars: the booster lifts them into the rising boost with
+         * no take-off kick (a jump starts at its take-off speed); moving,
+         * the booster still rises instead of a ground boost. */
         acr_gen1_ac_def c = make_def();
         c.drive_walk = c.no_jump = c.no_boost_hop = 1;
         acr_gen1_ac t;
         acr_gen1_ac_spawn(&t, &c, 0, 0, 0);
-        for (int k = 0; k < 30; ++k) acr_gen1_ac_step(&t, &c, k_up);
-        EXPECT(t.state == ACR_GEN1_GROUND && t.y == 0 && t.vz == 0);
-        for (int k = 0; k < 30; ++k) acr_gen1_ac_step(&t, &c, k_boost);
-        EXPECT(t.state == ACR_GEN1_GROUND && t.y == 0 && t.vz > 0 && t.energy < c.stats.energy_capacity);
+        acr_gen1_ac_step(&t, &c, k_up);
+        EXPECT(t.state == ACR_GEN1_AIR && t.vy == -(int32_t)c.motion.rise_accel);   /* rising from rest */
+        acr_gen1_ac_step(&t, &c, k_up);
+        EXPECT(t.vy == -2 * (int32_t)c.motion.rise_accel && t.y < 0);
+        acr_gen1_ac t2;
+        acr_gen1_ac_spawn(&t2, &c, 0, 0, 0);
+        for (int k = 0; k < 20; ++k) acr_gen1_ac_step(&t2, &c, k_fwd);
+        const int32_t vz = t2.vz;
+        acr_gen1_ac_step(&t2, &c, k_boost);
+        EXPECT(t2.state == ACR_GEN1_AIR && t2.vz == vz);   /* no ground boost: up, same speed */
     }
     if (failures) { printf("%d failure(s)\n", failures); return 1; }
     printf("gen1 sim: all passed\n");

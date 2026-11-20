@@ -386,7 +386,7 @@ int demo_load(const char *import_dir, const int parts[SLOT_COUNT], demo_ac *out,
     out->def.landing_steps = 20;
     out->def.no_boost_hop = parts[SLOT_LEGS] >= 27;   /* caterpillars */
     out->def.drive_walk = parts[SLOT_LEGS] >= 21;     /* four legs and caterpillars */
-    out->def.no_jump = parts[SLOT_LEGS] >= 27;        /* caterpillars stay on the ground */
+    out->def.no_jump = parts[SLOT_LEGS] >= 27;        /* caterpillars: rise without a jump */
 
     out->model = pick_model(import_dir, parts);
     if (out->model < 0 || !load_tracks(import_dir, out->model, out)) {
