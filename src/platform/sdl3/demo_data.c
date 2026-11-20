@@ -3,6 +3,7 @@
 #include <SDL3/SDL.h>
 
 #include <stdlib.h>
+#include <limits.h>
 #include <string.h>
 
 /* ---- a very small reader for the files acr-import writes ---- */
@@ -160,7 +161,7 @@ static void read_part(int slot, const char *t, acr_gen1_part *p, char *name, siz
 
 /* ---- motion ---- */
 
-static int pick_model(const char *import_dir, const int parts[SLOT_COUNT]) {
+int demo_pick_model(const char *import_dir, const int parts[SLOT_COUNT]) {
     char path[1024];
     SDL_snprintf(path, sizeof path, "%s/motion/models.toml", import_dir);
     char *t = load_text(path);
@@ -388,7 +389,7 @@ int demo_load(const char *import_dir, const int parts[SLOT_COUNT], demo_ac *out,
     out->def.drive_walk = parts[SLOT_LEGS] >= 21;     /* four legs and caterpillars */
     out->def.no_jump = parts[SLOT_LEGS] >= 27;        /* caterpillars: rise without a jump */
 
-    out->model = pick_model(import_dir, parts);
+    out->model = demo_pick_model(import_dir, parts);
     if (out->model < 0 || !load_tracks(import_dir, out->model, out)) {
         SDL_snprintf(err, err_size, "(No walking animation in %s/motion: import the disc again.)",
                      import_dir);
@@ -404,7 +405,16 @@ typedef struct catalog_walk {
     char (*names)[ACR_GEN1_PART_MAX][24];
     int category, depth;
     acr_gen1_rogue_parts *info;   /* Rogue Arena's part info, when wanted */
+    demo_part_specs *specs;       /* PART SPECS' numbers, when wanted */
 } catalog_walk;
+
+/* PART SPECS: the TOML key of each number (demo_data.h DS_*). */
+static const char *const k_spec_key[DS_COUNT] = {
+    "weight", "energy_drain", "output", "ap", "defense_shell", "defense_energy", "radar", "radar_range",
+    "computer_type", "arm_load_limit", "option_slots", "carry_limit", "moving_speed", "turn_accel", "stability",
+    "power", "boost_drain", "capacity", "red_zone", "max_locks", "lock_area", "attack", "ammo", "range",
+    "fire_interval", "energy_per_shot", "salvo", "kind", "ammo_flags", "impact", "radar_flags",
+};
 
 static const char *const k_cat_folder[ACR_GEN1_CAT_COUNT] = {
     "core", "booster", "head", "arms", "blade", "hand", "back", "generator", "fcs", "legs", "option"
@@ -437,6 +447,22 @@ static void catalog_file(catalog_walk *w, const char *path) {
         p->for_sale = 1;   /* the shop's stock is not decoded yet: everything is for sale */
         p->price = (uint32_t)get_int(t, e, "price", 0);
         if (w->names) SDL_strlcpy(w->names[w->category][index], name, sizeof w->names[0][0]);
+        if (w->specs) {
+            demo_part_specs *sp = w->specs;
+            for (int k = 0; k < DS_COUNT; ++k) {
+                const long v = get_int(t, e, k_spec_key[k], LONG_MIN);
+                sp->v[w->category][index][k] = v == LONG_MIN ? DEMO_SPEC_NONE : (int32_t)v;
+            }
+            /* back radars keep their range in the same key as heads */
+            get_string(t, e, option ? "full_name" : "type", sp->type[w->category][index], sizeof sp->type[0][0]);
+            if (option) {   /* the option's own shop line */
+                char d[3 * 76];
+                get_string(t, e, "description", d, sizeof d);
+                SDL_strlcpy(sp->text[w->category][index][0], d, sizeof sp->text[0][0][0]);
+                sp->text_n[w->category][index] = d[0] ? 1 : 0;
+            }
+            sp->present[w->category][index] = 1;
+        }
         if (w->info) {
             const long atk = get_int(t, e, "attack", 0);
             w->info->attack[w->category][index] = (uint16_t)(atk > 0 && atk < 65536 ? atk : 0);
@@ -476,7 +502,7 @@ int demo_catalog(const char *import_dir, acr_gen1_catalog *cat, char names[ACR_G
     for (int c = 0; c < ACR_GEN1_CAT_COUNT; ++c) {
         char dir[1024];
         SDL_snprintf(dir, sizeof dir, "%s/parts/%s", import_dir, k_cat_folder[c]);
-        catalog_walk w = { cat, names, c, 0, NULL };
+        catalog_walk w = { cat, names, c, 0, NULL, NULL };
         SDL_EnumerateDirectory(dir, catalog_cb, &w);
     }
     for (int i = 0; i < ACR_GEN1_PART_MAX; ++i) found += cat->part[ACR_GEN1_CAT_CORE][i].present;
@@ -492,7 +518,7 @@ int demo_rogue_parts(const char *import_dir, acr_gen1_rogue_parts *info) {
     for (int c = 0; c < ACR_GEN1_CAT_COUNT; ++c) {
         char dir[1024];
         SDL_snprintf(dir, sizeof dir, "%s/parts/%s", import_dir, k_cat_folder[c]);
-        catalog_walk w = { &scratch, NULL, c, 0, info };
+        catalog_walk w = { &scratch, NULL, c, 0, info, NULL };
         SDL_EnumerateDirectory(dir, catalog_cb, &w);
     }
     return 1;
@@ -575,4 +601,55 @@ int demo_rogue_roster(const char *import_dir, acr_gen1_rogue_foe *out, int max,
         out[k + 1] = x;
     }
     return w.n;
+}
+
+/* ---- PART SPECS ---- */
+
+/* The shop's part text: GG/MS/MIS.T entry 385, one 76-byte line per part in
+ * the game's owned-table order (head 0, core 18, arms 29, legs 53, generator
+ * 93, FCS 108, booster 143, back 157, hand 217, blade 243), "\r\n" written
+ * out where the shop breaks the line (AC1Recomp, moa_arena_run_boot.c). */
+static const int k_text_base[ACR_GEN1_CAT_COUNT] = { 18, 143, 0, 29, 243, 217, 157, 93, 108, 53, -1 };
+
+static void shop_text(const char *import_dir, demo_part_specs *sp) {
+    char path[1024];
+    SDL_snprintf(path, sizeof path, "%s/unpacked/GG/MS/MIS/385.bin", import_dir);
+    size_t size = 0;
+    char *d = SDL_LoadFile(path, &size);
+    if (!d) return;
+    for (int c = 0; c < ACR_GEN1_CAT_COUNT; ++c) {
+        if (k_text_base[c] < 0) continue;
+        for (int i = 0; i < ACR_GEN1_PART_MAX; ++i) {
+            const size_t at = (size_t)(k_text_base[c] + i) * 76u;
+            if (!sp->present[c][i] || at + 76u > size) continue;
+            const char *t = d + at;
+            int n = 0, k = 0;
+            char (*out)[76] = sp->text[c][i];
+            for (unsigned j = 0; j < 74u && n < 3; ++j) {
+                const char ch = t[j];
+                if (ch == '\\' && j + 3u < 76u && t[j + 1] == 'r' && t[j + 2] == '\\' && t[j + 3] == 'n') {
+                    out[n][k] = 0; if (k) ++n; k = 0; j += 3; continue;
+                }
+                if (ch == '\r' || ch == '\n' || ch == 0) break;
+                if (k < 75) out[n][k++] = (char)((unsigned char)ch >= 32u && (unsigned char)ch < 127u ? ch : ' ');
+            }
+            if (n < 3) { while (k && out[n][k - 1] == ' ') --k; out[n][k] = 0; if (k) ++n; }
+            sp->text_n[c][i] = (uint8_t)n;
+        }
+    }
+    SDL_free(d);
+}
+
+int demo_part_specs_load(const char *import_dir, demo_part_specs *sp) {
+    static acr_gen1_catalog scratch;
+    memset(sp, 0, sizeof *sp);
+    memset(&scratch, 0, sizeof scratch);
+    for (int c = 0; c < ACR_GEN1_CAT_COUNT; ++c) {
+        char dir[1024];
+        SDL_snprintf(dir, sizeof dir, "%s/parts/%s", import_dir, k_cat_folder[c]);
+        catalog_walk w = { &scratch, NULL, c, 0, NULL, sp };
+        SDL_EnumerateDirectory(dir, catalog_cb, &w);
+    }
+    shop_text(import_dir, sp);
+    return 1;
 }

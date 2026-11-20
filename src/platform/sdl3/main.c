@@ -657,6 +657,7 @@ static garage_action key_action(SDL_Scancode k) {
     case SDL_SCANCODE_ESCAPE: case SDL_SCANCODE_BACKSPACE: return GA_CANCEL;
     case SDL_SCANCODE_Q: return GA_PREV_TAB;
     case SDL_SCANCODE_E: return GA_NEXT_TAB;
+    case SDL_SCANCODE_TAB: return GA_INFO;
     default: return GA_NONE;
     }
 }
@@ -667,6 +668,7 @@ static garage_action button_action(int b) {
     case SDL_GAMEPAD_BUTTON_EAST: return GA_CANCEL;
     case SDL_GAMEPAD_BUTTON_LEFT_SHOULDER: return GA_PREV_TAB;
     case SDL_GAMEPAD_BUTTON_RIGHT_SHOULDER: return GA_NEXT_TAB;
+    case SDL_GAMEPAD_BUTTON_NORTH: return GA_INFO;
     default: return GA_NONE;
     }
 }
@@ -693,6 +695,79 @@ static void draw_garage_ac(int pw, int ph, float hud_w, unsigned tick) {
     const float yaw = 3.14159265f + (float)tick * 0.004f;
     if (g_model[0].ok) demo_model_draw(&g_model[0], 0, tick, 0, 0, 0, yaw, 1.0f, &g_light);
     else { add_ac(v3(0, 0, 0), yaw, 0, 0); flush_scene(); }
+}
+
+/* Rogue Arena's VS and victory screens (rogue_ac_drawer): an AC drawn into a
+ * HUD box, standing and framed from the top of its head down `frac` of its
+ * height, or on its back. The models are kept for the screens' ACs (the
+ * last few builds asked for). */
+#define PORTRAITS 10
+static struct {
+    int used;
+    unsigned age;
+    int parts[SLOT_COUNT];
+    uint8_t colours[4][3];
+    demo_model m;
+    float mn[3], mx[3];
+    int boxed;
+} g_portrait[PORTRAITS];
+static unsigned g_portrait_age;
+static int g_screen_pw, g_screen_ph;
+
+static void rogue_draw_ac(const int parts[SLOT_COUNT], const uint8_t colours[4][3], float x, float y, float w, float h,
+                          float frac, float yaw, int lying, float shade) {
+    int k = -1, oldest = 0;
+    for (int i = 0; i < PORTRAITS && k < 0; ++i)
+        if (g_portrait[i].used && !memcmp(g_portrait[i].parts, parts, sizeof g_portrait[i].parts) &&
+            !memcmp(g_portrait[i].colours, colours, sizeof g_portrait[i].colours))
+            k = i;
+    if (k < 0) {
+        for (int i = 1; i < PORTRAITS; ++i)
+            if (!g_portrait[i].used || (g_portrait[oldest].used && g_portrait[i].age < g_portrait[oldest].age)) oldest = i;
+        k = oldest;
+        if (g_portrait[k].used) demo_model_free(&g_portrait[k].m);
+        memset(&g_portrait[k], 0, sizeof g_portrait[k]);
+        g_portrait[k].used = 1;
+        memcpy(g_portrait[k].parts, parts, sizeof g_portrait[k].parts);
+        memcpy(g_portrait[k].colours, colours, sizeof g_portrait[k].colours);
+        const int set = demo_pick_model(g_import_dir, parts);
+        if (set >= 0) demo_model_load(g_import_dir, set, parts, colours, &g_portrait[k].m);
+        g_portrait[k].boxed = demo_model_bounds(&g_portrait[k].m, 0, 0, g_portrait[k].mn, g_portrait[k].mx);
+    }
+    g_portrait[k].age = ++g_portrait_age;
+    if (!g_portrait[k].m.ok || !g_portrait[k].boxed || g_screen_ph < 1) return;
+    const float s = (float)g_screen_ph / 480.0f;
+    const int px = (int)(x * s), py = (int)(y * s), pw = (int)(w * s), ph = (int)(h * s);
+    if (pw < 4 || ph < 4) return;
+    const float *mn = g_portrait[k].mn, *mx = g_portrait[k].mx;
+    const float tall = mx[1] - mn[1], wide = mx[0] - mn[0] > mx[2] - mn[2] ? mx[0] - mn[0] : mx[2] - mn[2];
+    const float fov = 30.0f * 3.14159265f / 180.0f, aspect = (float)pw / (float)ph;
+    float proj[16], viewm[16], eye[3], fwd[3] = { 0, 0, 1 }, up[3] = { 0, 1, 0 };
+    if (!lying) {
+        /* the top `frac` of it, a little room over the head */
+        const float shown = tall * frac * 1.04f, cy = mx[1] + tall * 0.03f - shown * 0.5f;
+        const float dist = shown * 0.5f / SDL_tanf(fov * 0.5f) + wide * 0.5f;
+        eye[0] = 0; eye[1] = cy; eye[2] = -dist;
+    } else {
+        /* on its back: the view rolled a quarter turn, so it lies across the box */
+        const float across = tall * 1.06f / aspect;
+        const float dist = (across > wide ? across : wide) * 0.5f / SDL_tanf(fov * 0.5f) + wide * 0.5f;
+        eye[0] = 0; eye[1] = (mn[1] + mx[1]) * 0.5f; eye[2] = -dist;
+        up[0] = 1; up[1] = 0;
+    }
+    acr_mat_perspective(proj, fov, aspect, 20.0f, 40000.0f);
+    acr_mat_look(viewm, eye, fwd, up);
+    for (int i = 0; i < 4; ++i) viewm[4 * i] = -viewm[4 * i];
+    acr_render_view3d(px, py, pw, ph, proj, viewm, NULL);
+    acr_lighting l = g_light;
+    if (shade < 1.0f) {
+        l.ambient_r = (uint8_t)(l.ambient_r * shade); l.ambient_g = (uint8_t)(l.ambient_g * shade); l.ambient_b = (uint8_t)(l.ambient_b * shade);
+        for (int i = 0; i < l.count && i < 3; ++i) {
+            l.light[i].r = (uint8_t)(l.light[i].r * shade); l.light[i].g = (uint8_t)(l.light[i].g * shade); l.light[i].b = (uint8_t)(l.light[i].b * shade);
+        }
+    }
+    demo_model_draw(&g_portrait[k].m, 0, 0, 0, 0, 0, 3.14159265f + yaw, 1.0f, &l);
+    acr_render_hud(0, 0, g_screen_pw, g_screen_ph);
 }
 
 static int is_disc(const char *path) {
@@ -741,10 +816,10 @@ static garage_action script_action(void) {
     if (!script_read) { script = SDL_getenv("ACR_KEYS"); script_read = 1; }
     if (!script || !*script || SDL_GetTicks() < wait_until) return GA_NONE;
     garage_action a = GA_NONE;
-    static const char *const k_names[] = { "", "up", "down", "left", "right", "ok", "back", "lb", "rb" };
+    static const char *const k_names[] = { "", "up", "down", "left", "right", "ok", "back", "lb", "rb", "info" };
     if (!SDL_strncmp(script, "wait", 4)) wait_until = SDL_GetTicks() + 500;
     else
-        for (int k = 1; k < 9; ++k)
+        for (int k = 1; k < 10; ++k)
             if (!SDL_strncmp(script, k_names[k], SDL_strlen(k_names[k]))) { a = (garage_action)k; break; }
     script = SDL_strchr(script, ',');
     if (script) ++script;
@@ -874,7 +949,10 @@ int main(int argc, char **argv) {
         for (int c = 0; c < ACR_GEN1_CAT_COUNT; ++c)
             for (int i = 0; i < ACR_GEN1_PART_MAX; ++i) g_catalog.part[c][i].for_sale = 0;
     hangar_open(parts);
+    acr_import_refresh(dir);          /* older imports: the menu sounds, the emblems */
+    sfx_open(dir);                    /* the menus' clicks too */
     rogue_init(dir, &g_catalog, g_part_names);
+    rogue_set_ac_drawer(rogue_draw_ac);
     controls_load();
     controls_ui cui;
     controls_open(&cui);
@@ -1368,8 +1446,14 @@ int main(int argc, char **argv) {
         if (mode == 1 && g_rogue_fight) {
             if (round_over && !rogue_over_at) rogue_over_at = SDL_GetTicks();
             if (round_over && SDL_GetTicks() - rogue_over_at > 4000) rogue_done = 1;
-            if (rogue_give_up || rogue_done) {
-                rogue_fight_over(rogue_give_up || !round_over ? 2 : round_result);
+            /* Testing aid: ACR_ROGUE_AUTOWIN=1 counts every Rogue Arena fight
+             * as won a moment after it starts (headless screen tests). */
+            static Uint64 autowin_at;
+            if (!autowin_at) autowin_at = SDL_GetTicks();
+            const int autowin = SDL_getenv("ACR_ROGUE_AUTOWIN") && SDL_GetTicks() - autowin_at > 1500;
+            if (rogue_give_up || rogue_done || autowin) {
+                autowin_at = 0;
+                rogue_fight_over(autowin ? 1 : rogue_give_up || !round_over ? 2 : round_result);
                 g_rogue_fight = 0;
                 g_ai_mode = 0; g_autopilot = 0; g_plus2 = 0; human_plus = 0;
                 g_paint_on[0] = g_paint_on[1] = 0;
@@ -1453,6 +1537,7 @@ int main(int argc, char **argv) {
             SDL_GetWindowSizeInPixels(window, &pw, &ph);
             if (pw < 1 || ph < 1) { SDL_Delay(10); continue; }
             acr_render_begin(pw, ph, 8, 10, 14);
+            g_screen_pw = pw; g_screen_ph = ph;
             rogue_draw(acr_render_hud(0, 0, pw, ph), elapsed);
             goto present;
         }

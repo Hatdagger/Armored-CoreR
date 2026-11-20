@@ -10,7 +10,8 @@
  * and games/master-of-arena/moa_arena_run.c.)
  *
  * Writes <out_dir>/<AA>-<ARENA>/<RR>.toml, one file per opponent, RR = its
- * rank (01 = the arena's top), and <out_dir>/arenas.toml listing the arenas. */
+ * rank (01 = the arena's top), its emblem as <RR>-emblem.tim (the disc's
+ * 4-bit 64 x 64 TIM), and <out_dir>/arenas.toml listing the arenas. */
 #ifndef ACR_ARENA_MOA_H
 #define ACR_ARENA_MOA_H
 

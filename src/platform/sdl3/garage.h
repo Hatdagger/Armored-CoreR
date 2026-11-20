@@ -11,7 +11,8 @@
 #include "demo_data.h"
 
 typedef enum garage_action {
-    GA_NONE, GA_UP, GA_DOWN, GA_LEFT, GA_RIGHT, GA_OK, GA_CANCEL, GA_PREV_TAB, GA_NEXT_TAB
+    GA_NONE, GA_UP, GA_DOWN, GA_LEFT, GA_RIGHT, GA_OK, GA_CANCEL, GA_PREV_TAB, GA_NEXT_TAB,
+    GA_INFO         /* Triangle / Tab: a part's specs (Rogue Arena's PART SPECS) */
 } garage_action;
 
 typedef enum garage_command {

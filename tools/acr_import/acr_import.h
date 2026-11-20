@@ -46,4 +46,10 @@ int acr_import_disc_models(const char *disc_path, const char *out_dir, acr_impor
 uint32_t acr_moa_archive_table(const uint8_t *data, size_t bytes, uint16_t *offsets,
                                uint32_t max_entries);
 
+/* An import made by an older build: adds what newer builds export from the
+ * unpacked disc it already holds (the menu sounds, the opponents' emblems),
+ * without importing again. Bits of what was added (0 = nothing to do, or
+ * no unpacked disc). */
+int acr_import_refresh(const char *out_dir);
+
 #endif

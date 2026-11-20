@@ -158,7 +158,7 @@ int acr_export_moa_arena(const char *menu_module, const char *unpacked_dir, cons
     for (unsigned a = 0; a < ARENAS && ok; ++a) {
         const unsigned cnt = m[oc + a], start = m[os + a];
         if (!cnt || cnt > 64) continue;
-        const unsigned k = FIRST_ENTRY + 4u * start + 4u * a + 4u * cnt;
+        const unsigned k0 = FIRST_ENTRY + 4u * start + 4u * a, k = k0 + 4u * cnt;
         size_t nb = 0, nn = 0, np = 0, na = 0;
         uint8_t *bld = read_entry(unpacked_dir, k, &nb), *nam = read_entry(unpacked_dir, k + 1, &nn);
         uint8_t *prz = read_entry(unpacked_dir, k + 2, &np), *ais = read_entry(unpacked_dir, k + 3, &na);
@@ -182,6 +182,16 @@ int acr_export_moa_arena(const char *menu_module, const char *unpacked_dir, cons
                 ok = 0;
             }
             ++written;
+            /* Its emblem: the 4-bit 64 x 64 TIM as on the disc (the entries
+             * after the descriptions, one per opponent). */
+            size_t ne = 0;
+            uint8_t *em = read_entry(unpacked_dir, k0 + cnt + r, &ne);
+            if (em && ne >= 20) {
+                snprintf(path, sizeof path, "%s/%02u-emblem.tim", dir, r + 1);
+                FILE *ef = fopen(path, "wb");
+                if (ef) { fwrite(em, 1, ne, ef); fclose(ef); }
+            }
+            free(em);
         }
         if (ok) {
             fprintf(list, "[[arena]]\nnumber = %u\nname = \"%s\"\nfolder = \"%02u-%s\"\nentries = %u\nopponents = %u\n",

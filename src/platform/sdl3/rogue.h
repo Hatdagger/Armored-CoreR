@@ -24,6 +24,15 @@ typedef struct rogue_fight {
     char name[2][48];
 } rogue_fight;
 
+/* main.c draws the ACs of the VS and victory screens: build `parts` in
+ * `colours`, inside the HUD box (x, y, w, h) of the 480-high grid, the top
+ * `frac` of the AC showing (1 = all of it), turned `yaw` radians from
+ * facing the viewer, on its back when `lying`, `shade` 0..1 of its normal
+ * light. The drawer leaves the HUD set up again for 2D. */
+typedef void (*rogue_ac_drawer)(const int parts[SLOT_COUNT], const uint8_t colours[4][3], float x, float y,
+                                float w, float h, float frac, float yaw, int lying, float shade);
+void rogue_set_ac_drawer(rogue_ac_drawer fn);
+
 /* Reads the opponents and part info from the import. 0 = the import has
  * no arena opponents yet (an older import: re-import the disc). */
 int rogue_init(const char *import_dir, const acr_gen1_catalog *cat,
@@ -35,7 +44,8 @@ rogue_command rogue_input(garage_action a);
 void rogue_draw(float hud_w, int elapsed_ms);
 
 const rogue_fight *rogue_fight_info(void);
-/* The VS screen's countdown ran out: start the fight. */
+/* The VS screen is done (the count ran out, or was skipped, and the
+ * shutters are shut): start the fight. */
 int rogue_vs_due(void);
 /* The fight is over: 1 the player won, 2 lost, 3 draw (a loss), as
  * acr_gen1_battle_result. */

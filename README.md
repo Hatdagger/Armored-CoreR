@@ -146,7 +146,9 @@ or RE-ROLL once for 1 P). At the hub: NEXT BATTLE, SWAP PARTS (saved
 prizes), STAGE, GARAGE. One loss ends the run: RETRY ARENA keeps the same
 ladder and leaves your old AC on it as a ghost to beat. Reach rank 1 to
 clear it. Esc twice in a fight gives up. Same keys as the garage (arrows /
-WASD, Enter, Esc; Q / E or LB / RB pick a random stage).
+WASD, Enter, Esc; Q / E or LB / RB pick a random stage). Tab / Triangle
+on a prize or a saved part shows its PART SPECS against what you have
+fitted. Enter on the VS screen skips the countdown.
 
 ## More
 

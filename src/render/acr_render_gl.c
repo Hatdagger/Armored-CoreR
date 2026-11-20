@@ -317,6 +317,24 @@ void acr_hud_text(float x, float y, const char *text, uint8_t r, uint8_t g, uint
     draw(GL_TRIANGLES, q, n, g_font);
 }
 
+void acr_hud_text_size(float x, float y, const char *text, float size, uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
+    static acr_vtx q[6 * 256];
+    int n = 0;
+    for (const unsigned char *c = (const unsigned char *)text; *c && n < 6 * 256; ++c, x += size) {
+        if (*c <= 32 || *c > 126) continue;
+        const int gi = *c - 33;
+        const float u0 = (gi % 16) * 8 / 128.0f, v0 = (gi / 16) * 8 / 48.0f;
+        const float u1 = u0 + 8 / 128.0f, v1 = v0 + 8 / 48.0f;
+        q[n++] = hv(x, y, r, g, b, a, u0, v0);
+        q[n++] = hv(x + size, y, r, g, b, a, u1, v0);
+        q[n++] = hv(x + size, y + size, r, g, b, a, u1, v1);
+        q[n++] = hv(x, y, r, g, b, a, u0, v0);
+        q[n++] = hv(x + size, y + size, r, g, b, a, u1, v1);
+        q[n++] = hv(x, y + size, r, g, b, a, u0, v1);
+    }
+    draw(GL_TRIANGLES, q, n, g_font);
+}
+
 void acr_hud_sprite(uint32_t texture, int tex_w, int tex_h, float u, float v, float tw, float th,
                     float x, float y, float w, float h, uint8_t r, uint8_t g, uint8_t b, uint8_t a, int blend) {
     const float u0 = tex_w > 0 ? u / (float)tex_w : 0, u1 = tex_w > 0 ? (u + tw) / (float)tex_w : 0;

@@ -105,7 +105,7 @@ rows read back from each opponent's 36-byte AI record).
   good) or SAVE FOR LATER (SWAP PARTS at the hub). AC1Recomp's offer rules
   are kept (one leg type a screen, no radars or P77-ST, fewer crouch
   cannons on two legs).
-- Hub: NEXT BATTLE (VS screen, units deploy in 5), SWAP PARTS, STAGE
+- Hub: NEXT BATTLE (the VS screen, below), SWAP PARTS, STAGE
   (Green Silo, Ocean Platform, Garden Plaza, Night City: the user's four
   for now), GARAGE (assembly only), QUIT; the ladder beside it; the
   background is the belt tile of the player's rank (AC1Recomp's tiles).
@@ -118,9 +118,32 @@ rows read back from each opponent's 36-byte AI record).
   `rogue-ghosts/`. Rank 1 clears the arena.
 - Files beside the save: `rogue-run.toml`, `rogue-garage.toml`.
   `ACR_ROGUE_SEED=...` starts new arenas from that seed (testing).
-- Not brought over yet: AC1Recomp's victory picture and music, PART SPECS
-  (triangle), the opponent preview pictures, the shop idea (parts from a
-  lost AC on sale). Option parts are owned and fitted, but the fight
+- Brought over next (2026-11-19, matching 0.8.4.4.2): **PART SPECS**
+  (Triangle / Tab on a prize or a saved part: the part fitted now beside
+  the new one, the same stat rows, new values green / red with the
+  difference, the shop's text from the disc (MIS.T 385), the AC's weight,
+  legs load and energy before > after; upgrades and sets get one window
+  saying what they do; up / down: the next one). The **VS screen**
+  (fighting-game style: both ACs in 3D, the opponent's emblem behind it,
+  FOR RANK, the count, the strip of the last three beaten (crossed out on
+  counts 3, 2, 1 with the game's rifle shot), YOU, the next and the rest
+  of its belt; hangar shutters, black, fight; Enter skips the count). The
+  **victory screen** (the beaten AC on its back, smoking; the winner
+  sliding in; YOU WIN with a flash on the sting's big chord; two lines by
+  belt typed a word at a time). **Sounds**: the menu bank's clicks on
+  every Rogue Arena screen (cursor, OK, back, the garage's equip sound),
+  AC1Recomp's made victory sting and type tick and the reshaped VS shots
+  and shutter slam, all with its shared 90s finish
+  (`src/platform/sdl3/rogue_sound.c`). acr-import now also writes
+  `sfx/menu-*.wav` and each opponent's `arena/.../<RR>-emblem.tim`; an
+  older import gets them at start-up from its `unpacked/` folder
+  (`acr_import_refresh`), no re-import needed.
+- Differences from AC1Recomp: the strip's belts are two ranks on a ladder
+  of 19, so it shows the last three beaten whatever their belt; PART
+  SPECS has no part pictures yet; ghosts have no emblem.
+  `ACR_ROGUE_AUTOWIN=1` counts every fight as won (screen tests).
+- Not brought over: the shop (0.8.4.4.2 removed it too: parts come from
+  the prize screen). Option parts are owned and fitted, but the fight
   doesn't use options yet (true of the whole engine).
 
 Fixes after the first play-test (2026-11-19):
