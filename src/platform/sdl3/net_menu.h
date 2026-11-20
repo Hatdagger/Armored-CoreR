@@ -11,7 +11,11 @@
 #define NET_MENU_FOUND 8
 #define NET_MENU_STAGES 3
 
-typedef enum net_menu_command { NM_NONE, NM_HOST, NM_JOIN, NM_BACK } net_menu_command;
+typedef enum net_menu_command {
+    NM_NONE, NM_HOST, NM_JOIN, NM_BACK,
+    NM_HOST_ONLINE,              /* host over the internet: show a mission briefing */
+    NM_JOIN_BRIEF                /* join over the internet: enter a mission briefing */
+} net_menu_command;
 
 typedef struct net_menu {
     int row;                         /* cursor */

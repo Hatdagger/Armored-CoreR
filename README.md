@@ -37,7 +37,7 @@ empty arena with Gen 1 movement.
 | Renderer: OpenGL 2.1, PS1-style lighting and fog, native resolution | first version |
 | Original Xbox build of the core (nxdk test program) | in automatic builds |
 | Computer opponent (AI presets, AI against AI) | first version |
-| Online | not started |
+| Online: 1v1 and co-op with rollback, over LAN, direct IP, or the internet with mission-briefing codes | first version |
 
 ## Building
 

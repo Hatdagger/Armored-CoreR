@@ -130,16 +130,62 @@ The round is the usual two minutes: a team loses when all its ACs are down
   friendly fire, missiles keep their target, the blade seeks enemies,
   results by team).
 
+## Over the internet: mission briefings
+
+No server of ours. GARAGE > NETWORK > HOST ONLINE shows player 1 a
+**mission briefing**; player 2 picks JOIN WITH A MISSION BRIEFING and
+enters it. The briefing is a connection code (`src/net/acr_brief.h`):
+
+> MISSION BRIEFING: Destroy Cobalt Reach underground fortress squatters.
+> Payout 48,000 C. Time 03:40. Wingman Vesper.
+
+- **What's in it:** player 1's internet address and port (32 + 16 bits)
+  and a 16-bit check, scrambled, written as 6 words (lists of 64, 64,
+  128, 128, 128, 128), payout 1,000-99,000 C, time 00:00-23:59 and a
+  wingman (256 names): about 65 bits. The word lists are data
+  (`src/net/acr_brief_words.c`): any words, but keep the list sizes, the
+  alphabetical order and no word twice (`test_brief` checks).
+- **Finding the address:** the link asks public STUN servers (Google,
+  Cloudflare, Nextcloud; `ACR_STUN=host:port` overrides) what address its
+  socket shows to the internet. The same PC and port give the same
+  briefing every time.
+- **Step 1, one code:** player 2 sends straight to player 1's address. If
+  player 1's router lets it in (many do; always when UDP port 7777 is
+  forwarded), the match starts.
+- **Step 2, the read-back:** after 5 seconds without an answer, player 2's
+  screen flashes URGENT MISSION REQUEST, then shows a **READ-BACK** (player
+  2's own address, the same kind of code). Player 1 presses A on the
+  briefing screen and enters it; player 1 then sends to player 2 five
+  times a second ("punching"), which opens player 1's router for player
+  2's packets. Player 2 keeps trying for 5 minutes.
+- **Entering a code:** each field is a drop-down list (A opens it, up/down
+  scrolls, LB/RB or left/right pages, A picks); on a keyboard, typing
+  jumps in the list. Either code can always be copied (X on a pad, C or
+  Ctrl+C) and pasted (Ctrl+V, or the PASTE row for pads). A typo fails the
+  check ("code not recognised"); a read-back entered where a briefing
+  belongs is spotted and named.
+- **What still can't connect:** two routers that both change the port for
+  every destination (some mobile and carrier-grade NAT). Then: LAN, or
+  direct IP with port 7777 forwarded (player 1's screen shows the address),
+  or later a relay on a player-run server.
+- **Testing on one PC:** `--host-online`, `--join-brief "TEXT"`,
+  `--readback "TEXT"` (player 1 enters it at once), `--guest-port N`;
+  `ACR_NET_STRICT=1` makes player 1 act like a strict router (nothing gets
+  in from an address it hasn't sent to), so step 2 can be seen working.
+  Both copies log their code ("netplay: MISSION BRIEFING: ...").
+
 Not the AC1Recomp library (recomp-net): its rollback is built for
 recompiled games whose state is a whole PlayStation's memory. Our fight
-state is small, so a plain rollback is simpler to trust. recomp-net's LAN
-discovery and ICE connection codes are still the plan for the next steps.
+state is small, so a plain rollback is simpler to trust. Internet codes
+use plain STUN and hole punching on the match's own socket instead of
+libjuice / full ICE: short codes only have room for one address.
 
 ## Next
 
 - Co-op: the Arena's rankers as the AI ACs once the Arena work lands; a
   friendly-fire switch if wanted.
-- Lockstep mode for LAN, then copy-paste connection codes for online
-  (libjuice, as the user leans), spectators, more players (host-run
-  model), Xbox System Link.
+- Online: UPnP port opening (makes step 1 work more often), clickable
+  `acr://` links for codes.
+- Lockstep mode for LAN, spectators, more players (host-run model), Xbox
+  System Link.
 - Replays: the pads of a match are all it takes (REC on the HUD).

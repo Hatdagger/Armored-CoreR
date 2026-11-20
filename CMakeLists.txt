@@ -35,7 +35,7 @@ target_include_directories(acr_gen1 PUBLIC src/gen1)
 
 # Netplay: rollback over any packet link (no sockets in here, so it ports
 # to the Xbox's System Link later).
-add_library(acr_net STATIC src/net/acr_rollback.c)
+add_library(acr_net STATIC src/net/acr_rollback.c src/net/acr_brief.c src/net/acr_brief_words.c)
 target_include_directories(acr_net PUBLIC src/net)
 target_link_libraries(acr_net PUBLIC acr_gen1)
 target_link_libraries(acr_gen1 PUBLIC acr_core)
@@ -106,6 +106,9 @@ add_test(NAME gen1_ai COMMAND test_gen1_ai)
 add_executable(test_rollback tests/test_rollback.c)
 target_link_libraries(test_rollback PRIVATE acr_net)
 add_test(NAME rollback COMMAND test_rollback)
+add_executable(test_brief tests/test_brief.c)
+target_link_libraries(test_brief PRIVATE acr_net)
+add_test(NAME brief COMMAND test_brief)
 add_executable(test_light tests/test_light.c)
 target_link_libraries(test_light PRIVATE acr_light)
 add_test(NAME light COMMAND test_light)
@@ -132,7 +135,7 @@ if(ACR_BUILD_GAME)
     add_executable(armored-corer WIN32 src/platform/sdl3/main.c src/platform/sdl3/demo_data.c src/platform/sdl3/demo_model.c
                    src/platform/sdl3/demo_stage.c src/platform/sdl3/garage.c
                    src/platform/sdl3/battle_hud.c src/platform/sdl3/net_link.c
-                   src/platform/sdl3/net_menu.c)
+                   src/platform/sdl3/net_menu.c src/platform/sdl3/net_brief_ui.c)
     add_library(acr_render_gl STATIC src/render/acr_render_gl.c)
     target_include_directories(acr_render_gl PUBLIC src/render)
     target_link_libraries(armored-corer PRIVATE acr_core acr_gen1 acr_import_lib acr_model acr_light acr_render_gl acr_net SDL3::SDL3-static)

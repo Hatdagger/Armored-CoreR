@@ -21,6 +21,10 @@
  * Netplay, 1v1 with rollback (each PC uses its own garage build):
  *                 --host [PORT]        host a match as player 1 (port 7777)
  *                 --join ADDR[:PORT]   join the host as player 2
+ *                 --host-online        host over the internet: shows a mission briefing
+ *                 --join-brief "TEXT"  join over the internet with player 1's briefing
+ *                 --readback "TEXT"    (host, testing) enter player 2's read-back at once
+ *                 --guest-port N       (testing) the joiner's own UDP port
  *                 [--stage N]          host: stage number (27 Green Silo, 39 Ocean
  *                                      Platform, 0 the open test floor)
  *                 [--net-delay N]      host: input delay in steps (default 1)
@@ -53,6 +57,7 @@
 static int g_hud_frame = BATTLE_HUD_FRAME_43;
 #include "net_link.h"
 #include "net_menu.h"
+#include "net_brief_ui.h"
 #include "../../net/acr_rollback.h"
 
 /* Netplay (--host / --join): a 1v1 over the network with rollback
@@ -66,6 +71,10 @@ static int g_net_delay = 1;               /* input delay in steps (host decides)
 static int g_net_lag, g_net_jitter, g_net_loss;   /* testing: fake bad connection */
 static int g_net_stage = -1;              /* host: --stage N (-1: ACR_STAGE or Green Silo) */
 static int g_net_coop;                    /* host: --coop N, co-op against N AI ACs (0 = VS) */
+static int g_net_online;                  /* --host-online / --join-brief: over the internet with briefing codes */
+static const char *g_net_brief;           /* --join-brief "TEXT": player 1's briefing */
+static const char *g_net_readback;
+static int g_net_guest_port;              /* --guest-port N: the guest's own port (testing) */        /* --readback "TEXT": host enters player 2's read-back (testing) */
 static int g_part_args;                   /* parts were given on the command line */
 #include "acr_import.h"
 #include "../../render/acr_render.h"
@@ -467,6 +476,10 @@ static int parse_args(int argc, char **argv, const char **dir, int parts[SLOT_CO
             continue;
         }
         if (!strcmp(argv[i], "--join") && i + 1 < argc) { g_net_cmd = 2; g_net_join = argv[++i]; g_direct_test = 1; continue; }
+        if (!strcmp(argv[i], "--host-online")) { g_net_cmd = 1; g_net_online = 1; g_direct_test = 1; continue; }
+        if (!strcmp(argv[i], "--join-brief") && i + 1 < argc) { g_net_cmd = 2; g_net_online = 1; g_net_brief = argv[++i]; g_direct_test = 1; continue; }
+        if (!strcmp(argv[i], "--guest-port") && i + 1 < argc) { g_net_guest_port = atoi(argv[++i]); continue; }
+        if (!strcmp(argv[i], "--readback") && i + 1 < argc) { g_net_readback = argv[++i]; continue; }
         if (!strcmp(argv[i], "--net-delay") && i + 1 < argc) { g_net_delay = atoi(argv[++i]); continue; }
         if (!strcmp(argv[i], "--coop") && i + 1 < argc) { g_net_coop = atoi(argv[++i]); continue; }
         if (!strcmp(argv[i], "--net-lag") && i + 1 < argc) { g_net_lag = atoi(argv[++i]); continue; }
@@ -698,7 +711,7 @@ static garage_action script_action(void) {
 
 /* Opens the network link to host (join == NULL) or join a match with this
  * player's build. NULL with the reason in err. */
-static net_link *net_open(const char *dir, const char *join, int stage, int delay, int coop_ai, int ai_preset,
+static net_link *net_open(const char *dir, const char *join, int online, int stage, int delay, int coop_ai, int ai_preset,
                           const int parts[SLOT_COUNT], char *err, int err_size) {
     if (stage > 0 && !net_stage_check(dir, stage)) stage = 0;   /* not in this import: the open floor */
     net_setup ns;
@@ -716,6 +729,8 @@ static net_link *net_open(const char *dir, const char *join, int stage, int dela
     ns.lag_ms = g_net_lag;
     ns.jitter_ms = g_net_jitter;
     ns.loss_pct = g_net_loss;
+    ns.online = online;
+    ns.guest_port = g_net_guest_port;
     g_net_host = ns.host;
     return net_link_open(&ns, err, err_size);
 }
@@ -835,17 +850,50 @@ int main(int argc, char **argv) {
     static net_menu nmenu;
     static net_finder *finder = NULL;
     static char net_status[1600];
+    /* Over the internet (briefing codes): the editor is mode 5. */
+    static brief_edit bedit;
+    static int net_online;                    /* the open link uses briefing codes */
+    static int bedit_host;                    /* the editor is player 1 entering a read-back */
+    static int net_readback;                  /* player 1 has entered player 2's read-back */
+    static Uint64 net_open_ms;                /* when the link opened */
+    static char brief_msg[200];
+    static Uint64 brief_msg_until;
+    static char brief_join[64];
     _Static_assert(SLOT_COUNT == NET_PARTS, "the network sends every part slot");
     net_menu_init(&nmenu);
+    if (g_net_cmd == 2 && g_net_brief) {
+        acr_brief b;
+        net_addr a;
+        if (acr_brief_parse(g_net_brief, &b) && acr_brief_decode(&b, ACR_BRIEF_OFFER, a.ip, &a.port)) {
+            SDL_snprintf(brief_join, sizeof brief_join, "%d.%d.%d.%d:%d", a.ip[0], a.ip[1], a.ip[2], a.ip[3], a.port);
+            g_net_join = brief_join;
+        } else {
+            SDL_Log("netplay: --join-brief: that isn't a mission briefing");
+            g_net_join = "";
+        }
+    }
     if (g_net_cmd) {
         int own[SLOT_COUNT];
         memcpy(own, parts, sizeof own);
         if (!g_part_args) hangar_parts(own);
         const int stage = g_net_stage >= 0 ? g_net_stage : g_stage_id > 0 ? g_stage_id : 27;
-        net = net_open(dir, g_net_cmd == 2 ? g_net_join : NULL, stage, g_net_delay, g_net_coop,
+        net = net_open(dir, g_net_cmd == 2 ? g_net_join : NULL, g_net_online, stage, g_net_delay, g_net_coop,
                        g_ai_mode > 0 && g_ai_mode < ACR_GEN1_AI_PRESETS ? g_ai_mode : ACR_GEN1_AI_BALANCED, own,
                        net_status, sizeof net_status);
         mode = net ? 3 : 4;
+        net_online = g_net_online;
+        net_open_ms = SDL_GetTicks();
+        net_readback = 0;
+        if (net && g_net_readback) {
+            acr_brief b;
+            net_addr a;
+            if (acr_brief_parse(g_net_readback, &b) && acr_brief_decode(&b, ACR_BRIEF_REPLY, a.ip, &a.port)) {
+                net_link_punch(net, &a);
+                net_readback = 1;
+            } else {
+                SDL_Log("netplay: --readback: that isn't a read-back");
+            }
+        }
     }
     /* Player 2 starts with the same build; each player can change theirs. */
     memcpy(parts2, parts, sizeof parts2);
@@ -948,6 +996,7 @@ int main(int argc, char **argv) {
         int to_garage = 0;
         garage_action net_action = GA_NONE;   /* the network screens' input this frame */
         int net_action_keys = 0;
+        int net_copy = 0, net_paste = 0;      /* copy / paste a briefing code this frame */
         while (SDL_PollEvent(&e)) {
             if (e.type == SDL_EVENT_QUIT) running = 0;
             if (e.type == SDL_EVENT_GAMEPAD_ADDED) {
@@ -963,10 +1012,22 @@ int main(int argc, char **argv) {
                 garage_action ga = GA_NONE;
                 int from_keys = 0;
                 if (mode == 2 && e.type == SDL_EVENT_TEXT_INPUT) net_menu_text(&nmenu, e.text.text);
+                if (mode == 5 && e.type == SDL_EVENT_TEXT_INPUT) brief_edit_text(&bedit, e.text.text, SDL_GetTicks());
                 if (e.type == SDL_EVENT_KEY_DOWN) {
                     from_keys = 1;
                     const SDL_Scancode k = e.key.scancode;
-                    if (mode == 2 && net_menu_typing(&nmenu)) {
+                    const int ctrl = (e.key.mod & (SDL_KMOD_CTRL | SDL_KMOD_GUI)) != 0;
+                    if (k == SDL_SCANCODE_V && ctrl) net_paste = 1;
+                    if (k == SDL_SCANCODE_C && (ctrl || mode == 3)) net_copy = 1;
+                    if (mode == 5) {
+                        /* the briefing editor: letters jump in the lists */
+                        if (k == SDL_SCANCODE_UP) ga = GA_UP;
+                        else if (k == SDL_SCANCODE_DOWN) ga = GA_DOWN;
+                        else if (k == SDL_SCANCODE_LEFT || k == SDL_SCANCODE_PAGEUP) ga = GA_PREV_TAB;
+                        else if (k == SDL_SCANCODE_RIGHT || k == SDL_SCANCODE_PAGEDOWN) ga = GA_NEXT_TAB;
+                        else if (k == SDL_SCANCODE_RETURN || k == SDL_SCANCODE_KP_ENTER) ga = GA_OK;
+                        else if (k == SDL_SCANCODE_ESCAPE || k == SDL_SCANCODE_BACKSPACE) ga = GA_CANCEL;
+                    } else if (mode == 2 && net_menu_typing(&nmenu)) {
                         /* typing the address: letters are text, not moves */
                         if (k == SDL_SCANCODE_BACKSPACE) net_menu_text(&nmenu, "\b");
                         else if (k == SDL_SCANCODE_UP) ga = GA_UP;
@@ -982,6 +1043,7 @@ int main(int argc, char **argv) {
                 if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) {
                     ga = button_action(e.gbutton.button);
                     if (e.gbutton.button == SDL_GAMEPAD_BUTTON_BACK) ga = GA_CANCEL;
+                    if (e.gbutton.button == SDL_GAMEPAD_BUTTON_WEST && mode == 3) net_copy = 1;
                 }
                 if (ga != GA_NONE) net_action = ga, net_action_keys = from_keys;
                 continue;
@@ -1244,14 +1306,85 @@ int main(int argc, char **argv) {
                 char join_to[256];
                 const net_menu_command c = net_menu_input(&nmenu, net_action, net_action_keys, join_to, sizeof join_to);
                 if (c == NM_BACK) { mode = 0; gui.screen = 0; SDL_StopTextInput(window); }
-                if (c == NM_HOST || c == NM_JOIN) {
+                if (c == NM_JOIN_BRIEF) {
+                    brief_edit_start(&bedit, ACR_BRIEF_OFFER);
+                    bedit_host = 0;
+                    mode = 5;
+                }
+                if (c == NM_HOST || c == NM_JOIN || c == NM_HOST_ONLINE) {
                     int own[SLOT_COUNT];
                     hangar_parts(own);
                     net_status[0] = 0;
-                    net = net_open(dir, c == NM_JOIN ? join_to : NULL, net_menu_stage(&nmenu), nmenu.delay,
+                    net_online = c == NM_HOST_ONLINE;
+                    net = net_open(dir, c == NM_JOIN ? join_to : NULL, net_online, net_menu_stage(&nmenu), nmenu.delay,
                                    nmenu.coop_ai, nmenu.ai_preset, own, net_status, sizeof net_status);
+                    net_open_ms = now_ms;
+                    net_readback = 0;
+                    brief_msg[0] = 0;
                     mode = net ? 3 : 4;
                 }
+            } else if (mode == 5) {
+                /* Entering a briefing (player 2) or a read-back (player 1). */
+                net_addr to;
+                const brief_result r = brief_edit_input(&bedit, net_action, &to);
+                if (net_paste || r == BE_PASTE) {
+                    char *clip = SDL_GetClipboardText();
+                    brief_edit_paste(&bedit, clip);
+                    SDL_free(clip);
+                }
+                if (r == BE_CANCEL) mode = bedit_host ? 3 : 2;
+                if (r == BE_DONE && bedit_host) {
+                    net_link_punch(net, &to);
+                    net_readback = 1;
+                    mode = 3;
+                } else if (r == BE_DONE) {
+                    int own[SLOT_COUNT];
+                    hangar_parts(own);
+                    SDL_snprintf(brief_join, sizeof brief_join, "%d.%d.%d.%d:%d", to.ip[0], to.ip[1], to.ip[2], to.ip[3], to.port);
+                    net_status[0] = 0;
+                    net_online = 1;
+                    net = net_open(dir, brief_join, 1, 0, 0, 0, 0, own, net_status, sizeof net_status);
+                    net_open_ms = now_ms;
+                    brief_msg[0] = 0;
+                    mode = net ? 3 : 4;
+                }
+            }
+            if (mode == 3 && net && net_online) {
+                /* Copying a code, and player 1 opening the read-back editor. */
+                net_addr me;
+                const int stun = net_link_public(net, &me);
+                if (net_copy) {
+                    if (stun == 1 && (g_net_host || now_ms - net_open_ms >= BRIEF_TRY_MS + BRIEF_URGENT_MS)) {
+                        char text[300];
+                        brief_copy_text(&me, g_net_host ? ACR_BRIEF_OFFER : ACR_BRIEF_REPLY, text, sizeof text);
+                        SDL_SetClipboardText(text);
+                        SDL_Log("netplay: copied \"%s\"", text);
+                        SDL_strlcpy(brief_msg, "COPIED TO THE CLIPBOARD.", sizeof brief_msg);
+                    } else {
+                        SDL_strlcpy(brief_msg, "NOTHING TO COPY YET.", sizeof brief_msg);
+                    }
+                    brief_msg_until = now_ms + 3000;
+                }
+                if (g_net_host && stun == 1 && net_action == GA_OK) {
+                    brief_edit_start(&bedit, ACR_BRIEF_REPLY);
+                    bedit_host = 1;
+                    mode = 5;
+                    net_action = GA_NONE;
+                }
+                if (now_ms > brief_msg_until) brief_msg[0] = 0;
+                static net_link *logged;              /* the code is logged once per link (for support) */
+                if (stun == 1 && logged != net && (g_net_host || now_ms - net_open_ms >= BRIEF_TRY_MS)) {
+                    char text[300];
+                    brief_copy_text(&me, g_net_host ? ACR_BRIEF_OFFER : ACR_BRIEF_REPLY, text, sizeof text);
+                    SDL_Log("netplay: %s", text);
+                    logged = net;
+                }
+            }
+            if (mode == 5 && bedit_host && net) {
+                /* Player 1 keeps answering while typing the read-back: player 2
+                 * may get through on their own. */
+                const int st = net_link_connect(net, now_ms, &net_info, net_status, sizeof net_status);
+                if (st != NET_CONNECTING) mode = 3;     /* the mode 3 branch below takes it from here next frame */
             } else if (mode == 3) {
                 if (net_action == GA_CANCEL) {
                     net_link_close(net);
@@ -1354,6 +1487,13 @@ int main(int argc, char **argv) {
             acr_render_begin(pw, ph, 18, 22, 28);
             const float hud_w = acr_render_hud(0, 0, pw, ph);
             if (mode == 2) net_menu_draw(&nmenu, hud_w, elapsed);
+            else if (mode == 5) brief_edit_draw(&bedit, hud_w, elapsed);
+            else if (mode == 3 && net && net_online) {
+                net_addr me;
+                const int stun = net_link_public(net, &me);
+                if (g_net_host) brief_draw_host(hud_w, stun, &me, net_readback, (int)((now_ms - net_open_ms) / 1000), brief_msg, elapsed);
+                else brief_draw_guest(hud_w, stun, &me, now_ms - net_open_ms, brief_msg);
+            }
             else if (mode == 3) net_menu_draw_status(hud_w, "NETWORK MATCH", net_status);
             else {
                 char text[1800];

@@ -27,7 +27,7 @@ typedef int sock_t;
 #endif
 
 #define VERSION 2   /* 2: co-op (mode and AI in WELCOME and the beacon) */
-enum { H_HELLO = 1, H_WELCOME = 2, H_REFUSE = 3, H_READY = 4, H_PING = 5, H_PONG = 6 };
+enum { H_HELLO = 1, H_WELCOME = 2, H_REFUSE = 3, H_READY = 4, H_PING = 5, H_PONG = 6, H_PUNCH = 7 };
 enum { R_DATA = 1, R_VERSION = 2, R_BUSY = 3, R_STAGE = 4 };
 
 #define HELD_MAX 512
@@ -58,6 +58,17 @@ struct net_link {
     uint32_t rng;
     held held[HELD_MAX];
     int held_n;
+    /* over the internet */
+    int online;
+    net_addr stun[4];
+    int stun_n, stun_state;      /* stun_state: 0 asking, 1 answered, -1 nobody answered */
+    uint8_t stun_tid[12];
+    uint64_t stun_last_ms, stun_start_ms;
+    net_addr public_addr;
+    net_addr punch;
+    int have_punch;
+    uint64_t last_punch_ms;
+    int strict;                  /* testing: act like a strict router (ACR_NET_STRICT) */
 };
 
 /* ---------------- sockets ---------------- */
@@ -148,6 +159,90 @@ static int raw_recv(net_link *l, net_addr *from, uint8_t *buf, int cap) {
     return len;
 }
 
+static int hs_header(uint8_t *b, int type);
+
+/* ---------------- STUN (RFC 5389): our address as the internet sees it ---------------- */
+
+#define STUN_COOKIE 0x2112A442u
+
+static void stun_servers(net_link *l) {
+    const char *over = SDL_getenv("ACR_STUN");
+    static const char *const k_servers[] = { "stun.l.google.com:19302", "stun.cloudflare.com:3478",
+                                             "stun1.l.google.com:19302", "stun.nextcloud.com:443" };
+    if (over && over[0]) {
+        if (resolve(over, 3478, &l->stun[0])) l->stun_n = 1;
+        return;
+    }
+    for (int i = 0; i < 4 && l->stun_n < 4; ++i)
+        if (resolve(k_servers[i], 3478, &l->stun[l->stun_n])) ++l->stun_n;
+}
+
+static void stun_ask(net_link *l) {
+    uint8_t b[20] = { 0x00, 0x01, 0, 0, 0x21, 0x12, 0xA4, 0x42 };   /* binding request, no attributes */
+    memcpy(b + 8, l->stun_tid, 12);
+    for (int i = 0; i < l->stun_n; ++i) raw_send(l, &l->stun[i], b, sizeof b);
+}
+
+static int is_stun(const uint8_t *b, int len) {
+    return len >= 20 && b[4] == 0x21 && b[5] == 0x12 && b[6] == 0xA4 && b[7] == 0x42 && (b[0] & 0xC0) == 0;
+}
+
+/* A binding answer: the (XOR-)MAPPED-ADDRESS in it. */
+static void stun_read(net_link *l, const uint8_t *b, int len) {
+    if (l->stun_state == 1 || b[0] != 0x01 || b[1] != 0x01 || memcmp(b + 8, l->stun_tid, 12) != 0) return;
+    int at = 20;
+    const int end = 20 + (b[2] << 8 | b[3]);
+    while (at + 4 <= len && at + 4 <= end) {
+        const int type = b[at] << 8 | b[at + 1], alen = b[at + 2] << 8 | b[at + 3];
+        const uint8_t *v = b + at + 4;
+        if (at + 4 + alen > len) break;
+        if ((type == 0x0020 || type == 0x0001) && alen >= 8 && v[1] == 0x01) {
+            uint16_t port = (uint16_t)(v[2] << 8 | v[3]);
+            uint8_t ip[4] = { v[4], v[5], v[6], v[7] };
+            if (type == 0x0020) {
+                port ^= (uint16_t)(STUN_COOKIE >> 16);
+                for (int i = 0; i < 4; ++i) ip[i] ^= (uint8_t)(STUN_COOKIE >> (24 - 8 * i));
+            }
+            memcpy(l->public_addr.ip, ip, 4);
+            l->public_addr.port = port;
+            l->stun_state = 1;
+            if (type == 0x0020) return;      /* the XOR form is the reliable one */
+        }
+        at += 4 + ((alen + 3) & ~3);
+    }
+}
+
+int net_link_public(const net_link *l, net_addr *out) {
+    if (l->stun_state == 1) *out = l->public_addr;
+    return l->stun_state;
+}
+
+void net_link_punch(net_link *l, const net_addr *to) {
+    l->punch = *to;
+    l->have_punch = 1;
+    l->last_punch_ms = 0;
+}
+
+/* Online upkeep while connecting: ask STUN until it answers, and punch. */
+static void online_upkeep(net_link *l, uint64_t now_ms) {
+    if (!l->online) return;
+    if (l->stun_state == 0) {
+        if (!l->stun_start_ms) l->stun_start_ms = now_ms;
+        if (!l->stun_n || now_ms - l->stun_start_ms > 10000) {
+            l->stun_state = -1;
+        } else if (now_ms - l->stun_last_ms >= 500) {
+            stun_ask(l);
+            l->stun_last_ms = now_ms;
+        }
+    }
+    if (l->host && l->have_punch && !l->have_peer && now_ms - l->last_punch_ms >= 200) {
+        uint8_t b[16];
+        const int n = hs_header(b, H_PUNCH);
+        raw_send(l, &l->punch, b, n);
+        l->last_punch_ms = now_ms;
+    }
+}
+
 net_link *net_link_open(const net_setup *s, char *err, int err_size) {
     if (!sockets_up()) { SDL_snprintf(err, (size_t)err_size, "The network could not be started."); return NULL; }
     net_link *l = (net_link *)SDL_calloc(1, sizeof *l);
@@ -184,7 +279,7 @@ net_link *net_link_open(const net_setup *s, char *err, int err_size) {
     memset(&sa, 0, sizeof sa);
     sa.sin_family = AF_INET;
     sa.sin_addr.s_addr = htonl(INADDR_ANY);
-    sa.sin_port = htons((uint16_t)(s->host ? s->port : 0));
+    sa.sin_port = htons((uint16_t)(s->host ? s->port : s->guest_port));
     if (bind(l->s, (const struct sockaddr *)&sa, sizeof sa) != 0) {
         SDL_snprintf(err, (size_t)err_size, "Could not use port %d (is another copy already hosting on it?).", s->port);
         close_sock(l->s);
@@ -200,6 +295,12 @@ net_link *net_link_open(const net_setup *s, char *err, int err_size) {
             return NULL;
         }
         l->have_peer = 1;
+    }
+    l->online = s->online;
+    if (l->online) {
+        for (int i = 0; i < 12; ++i) l->stun_tid[i] = (uint8_t)rnd(l);
+        stun_servers(l);
+        l->strict = SDL_getenv("ACR_NET_STRICT") != NULL;
     }
     l->state = NET_CONNECTING;
     return l;
@@ -323,7 +424,10 @@ int net_link_connect(net_link *l, uint64_t now_ms, net_match_info *info, char *s
     uint8_t b[PKT_MAX];
     net_addr from;
     int len;
+    online_upkeep(l, now_ms);
     while ((len = raw_recv(l, &from, b, sizeof b)) > 0) {
+        if (is_stun(b, len)) { stun_read(l, b, len); continue; }
+        if (l->online && l->host && l->strict && !(l->have_punch && same_addr(&from, &l->punch))) continue;
         if (l->host && is_match(b, len) && l->have_peer && same_addr(&from, &l->peer)) {
             l->state = NET_STARTED;     /* their READY was lost; their match packets mean the same */
             break;
@@ -438,7 +542,14 @@ int net_link_connect(net_link *l, uint64_t now_ms, net_match_info *info, char *s
                      l->refused_once ? "A PLAYER TRIED TO JOIN BUT COULD NOT:\n" : "", l->refused_once ? (l->error[0] ? l->error : refusal(R_DATA)) : "");
     } else {
         if (now_ms - l->last_send_ms >= 250) { send_hello(l, now_ms); l->last_send_ms = now_ms; }
-        if (waited > 30000) {
+        if (l->online && waited > 300000) {
+            SDL_snprintf(l->error, sizeof l->error,
+                         "The host never answered the briefing.\n\nCheck the briefing with the host. If the host already entered your\n"
+                         "contract, your two routers may block each other: try direct IP\n(the host forwards UDP port %d) or LAN.", NET_PORT_DEFAULT);
+            l->state = NET_FAILED;
+            return NET_FAILED;
+        }
+        if (!l->online && waited > 30000) {
             SDL_snprintf(l->error, sizeof l->error,
                          "No answer from %s.\n\nCheck that the host has started (--host), that the address is right,\n"
                          "and that the host's firewall lets Armored-CoreR use the network.", l->join);

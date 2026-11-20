@@ -13,7 +13,9 @@
  * (or the guest's first match packet).
  *
  * Testing: fake lag (each way), jitter and packet loss on what this side
- * sends, so two copies on one PC can feel a bad connection. */
+ * sends, so two copies on one PC can feel a bad connection; and
+ * ACR_NET_STRICT=1 makes an online host act like a strict router (nothing
+ * gets in from an address it hasn't sent to), to test read-backs. */
 #ifndef NET_LINK_H
 #define NET_LINK_H
 
@@ -41,6 +43,9 @@ typedef struct net_setup {
     int coop_ai;                  /* host: 0 VS (1v1); 1 or 2: co-op against that many AI ACs */
     int ai_preset;                /* host: the AI's style (ACR_GEN1_AI_*) */
     int lag_ms, jitter_ms, loss_pct;   /* testing: fake bad connection on what we send */
+    int guest_port;               /* guest: bind this port (0: any; testing) */
+    int online;                   /* over the internet with briefing codes: find our internet
+                                     address (STUN); the guest waits longer for the host */
 } net_setup;
 
 typedef struct net_match_info {
@@ -75,6 +80,16 @@ void net_link_touch(net_link *l, uint64_t now_ms);
 uint64_t net_link_quiet_ms(const net_link *l, uint64_t now_ms);
 /* Round trip in ms, from the handshake and match pings (0 = not known yet). */
 int net_link_ping_ms(const net_link *l);
+
+/* Over the internet (briefing codes, acr_brief.h). The link asks public
+ * STUN servers (ACR_STUN="host:port" overrides them, for tests) which
+ * internet address and port this link's socket shows to the world.
+ * Returns 1 once known, -1 if no server answered, 0 while asking. */
+int net_link_public(const net_link *l, net_addr *out);
+/* Host: the joiner's address from their reply. The host sends to it a few
+ * times a second until they're connected, so the host's router lets the
+ * joiner's packets in (both sides "punch" a hole at once). */
+void net_link_punch(net_link *l, const net_addr *to);
 
 /* LAN discovery: a host waiting for player 2 announces itself once a
  * second on the local network (UDP broadcast to port NET_BEACON_PORT, and

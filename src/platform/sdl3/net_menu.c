@@ -20,11 +20,12 @@ static const char k_keys[] = "0123456789.:";
 #define KEY_JOIN ((int)sizeof k_keys)
 #define KEYS     ((int)sizeof k_keys + 1)
 
-enum { ROW_HOST, ROW_MODE, ROW_AI, ROW_STAGE, ROW_DELAY, ROW_FOUND };
+enum { ROW_HOST, ROW_HOST_ONLINE, ROW_MODE, ROW_AI, ROW_STAGE, ROW_DELAY, ROW_FOUND };
 
-static int rows(const net_menu *m) { return ROW_FOUND + m->found_n + 2; }
-static int row_address(const net_menu *m) { return ROW_FOUND + m->found_n; }
-static int row_back(const net_menu *m) { return ROW_FOUND + m->found_n + 1; }
+static int rows(const net_menu *m) { return ROW_FOUND + m->found_n + 3; }
+static int row_brief(const net_menu *m) { return ROW_FOUND + m->found_n; }
+static int row_address(const net_menu *m) { return ROW_FOUND + m->found_n + 1; }
+static int row_back(const net_menu *m) { return ROW_FOUND + m->found_n + 2; }
 
 const char *net_menu_stage_name(int stage) {
     switch (stage) {
@@ -101,6 +102,8 @@ net_menu_command net_menu_input(net_menu *m, garage_action a, int keyboard, char
     }
     if (a != GA_OK) return NM_NONE;
     if (m->row == ROW_HOST) return NM_HOST;
+    if (m->row == ROW_HOST_ONLINE) return NM_HOST_ONLINE;
+    if (m->row == row_brief(m)) return NM_JOIN_BRIEF;
     if (m->row == ROW_STAGE) { step_stage(m, 1); return NM_NONE; }
     if (m->row == ROW_DELAY) { m->delay = (m->delay + 1) % 5; return NM_NONE; }
     if (m->row == ROW_MODE) { m->coop_ai = (m->coop_ai + 1) % 3; return NM_NONE; }
@@ -147,7 +150,8 @@ void net_menu_draw(net_menu *m, float hud_w, int elapsed_ms) {
     float y = 48;
 
     acr_hud_text(x, y, "HOST", DIM); y += 14;
-    row_text(x, y, m->row == ROW_HOST, "HOST A MATCH (YOU ARE PLAYER 1)"); y += 18;
+    row_text(x, y, m->row == ROW_HOST, "HOST ON THIS NETWORK (LAN / DIRECT IP)"); y += 18;
+    row_text(x, y, m->row == ROW_HOST_ONLINE, "HOST ONLINE (SEND A MISSION BRIEFING)"); y += 18;
     static const char *const k_mode[3] = { "VS  (YOU AGAINST EACH OTHER)", "CO-OP  (YOU TWO VS 1 AI)", "CO-OP  (YOU TWO VS 2 AI)" };
     SDL_snprintf(line, sizeof line, "MODE          < %s >", k_mode[m->coop_ai]);
     row_text(x, y, m->row == ROW_MODE, line); y += 18;
@@ -172,7 +176,10 @@ void net_menu_draw(net_menu *m, float hud_w, int elapsed_ms) {
     }
     y += 12;
 
-    acr_hud_text(x, y, "JOIN BY ADDRESS (ANOTHER NETWORK, OR NOT LISTED)", DIM); y += 14;
+    acr_hud_text(x, y, "JOIN OVER THE INTERNET", DIM); y += 14;
+    row_text(x, y, m->row == row_brief(m), "JOIN WITH A MISSION BRIEFING"); y += 18;
+    y += 8;
+    acr_hud_text(x, y, "JOIN BY ADDRESS (DIRECT IP, OR NOT LISTED)", DIM); y += 14;
     const int addr_sel = m->row == row_address(m);
     const int blink = (SDL_GetTicks() / 400) % 2;
     SDL_snprintf(line, sizeof line, "ADDRESS  %s%s", m->address, addr_sel && blink ? "_" : "");

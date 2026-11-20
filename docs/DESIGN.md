@@ -88,22 +88,25 @@ servers run by players are optional extras.
   Mountain arenas just appear in a list. PC builds use the same LAN protocol,
   so an Xbox and a PC on one network can play together when their
   simulation versions match.
-- **Over the internet (PC):** peer-to-peer with libjuice, using public STUN
-  servers. Ways to connect, tried in this order:
-  1. **One-way code:** if the host's router allows UPnP port mapping, only the
-     host shares a code and the joiner connects directly.
-  2. **Transmission codes:** otherwise both players exchange a code (host
-     sends, joiner replies). Each code is 9 words picked with the D-pad and
-     shown as AC-style radio chatter (see below). Codes expire after a few
-     minutes.
-  3. **Clickable links:** every code can also be shared as an `acr://` link
-     (for example in Discord); clicking it opens the game and fills in the
-     code.
+- **Over the internet (PC):** peer-to-peer, using public STUN servers to
+  learn each side's internet address (no server of ours). Ways to connect:
+  1. **Mission briefing (one code):** the host's screen shows a mission
+     briefing (see below) holding its address. The joiner enters it and
+     connects straight away whenever the host's router lets them in.
+  2. **Read-back (second code, only when needed):** if nothing comes back
+     within 5 seconds, the joiner's screen flashes URGENT MISSION REQUEST
+     and shows a read-back (the joiner's address, same format). The host
+     enters it and both sides send to each other, so their routers let
+     the match through.
+  3. **Clickable links (later):** every code can also be shared as an
+     `acr://` link (for example in Discord); clicking it opens the game and
+     fills in the code.
   4. **Direct IP:** the host forwards a port on their router once, and
      joiners enter the host's IP and port on an on-screen number pad. Only
      the host's router has to cooperate, so this also works for joiners
      behind strict routers. A host behind carrier-grade NAT cannot forward
      ports and needs someone else to host.
+  UPnP port mapping (later) would make step 1 work for more hosts.
   Players whose routers block all direct connections join through a private
   server (below), which relays for them.
 - **Private servers:** the game has a **dedicated server mode** (the same
@@ -123,27 +126,25 @@ servers run by players are optional extras.
   joins the session as a participant **without an AC**, like a spectator, so
   it never uses one of the 9 player slots. Without rendering, the
   simulation and relaying fit easily in the Xbox's CPU and 64 MB.
-- **Transmission codes:** 72 bits (IPv4 address 32, port 16, session key 16,
-  checksum 8) as 9 slots of 256 words each, 8 bits per word. Each slot has
-  a fixed word type, and the template supplies the grammar, so any code
-  reads sensibly:
-  > "[Callsign] to all units. [Action] the [target] at [location],
-  > [sector]. Arriving at [time] under [weather]. [Order]. I'm [status]."
+- **Briefing codes:** 64 bits (IPv4 address 32, port 16, check 16),
+  scrambled so neighbouring addresses look unrelated, written as a mission
+  briefing: "[Action] [Place] [Place] [area] [structure] [target]. Payout
+  [XX,000] C. Time [HH:MM]. Wingman [name]." Example: *"Destroy Cobalt
+  Reach underground fortress squatters. Payout 48,000 C. Time 03:40.
+  Wingman Vesper."* The fields are a mixed-radix number: word lists of 64,
+  64, 128, 128, 128 and 128 entries (40 bits), payout 1,000-99,000 C (99
+  choices), time (1440) and wingman (256 names), about 65 bits. The
+  joiner's read-back is the same format under a READ-BACK header (the
+  check tells the two kinds apart). Rules for the word lists:
+  - every action works with every target, and so on across the slots;
+  - no word appears in two lists; one word per entry;
+  - original words only, no names from the Armored Core games;
+  - lists are alphabetical, because the menus show them as they are.
 
-  Example: *"CROW to all units. Destroy the supply depot at the sunken docks,
-  sector 12. Arriving at dawn under heavy fog. Engage on sight. I'm fully
-  armed."* The reply uses its own template ("[Callsign] receiving. I'll
-  [action] the [target] with you at ..."). Rules for the word lists:
-  - every word in a slot works with every word in the other slots (actions
-    fit any target, weather fits "under ___", status fits "I'm ___");
-  - no word appears in two slots; entries are one to three words;
-  - no similar-sounding entries, so codes survive being read aloud;
-  - original words only, no names from the Armored Core games.
-
-  Words are picked from a 16x16 grid per slot. A wrong word fails the
-  checksum and shows "TRANSMISSION GARBLED". Because each slot has a fixed
-  type, the same code can be displayed in other styles (corporate order,
-  arena announcer) as a cosmetic option. The word lists are a data table.
+  Each field is picked from a drop-down list with the D-pad (typing jumps
+  in the list on a keyboard), and every code can be copied and pasted
+  whole. A wrong field fails the check and shows "code not recognised".
+  The word lists are a data table (`src/net/acr_brief_words.c`).
 - Both paths use the same messages, the same handshake and the same
   simulation; only discovery differs.
 
