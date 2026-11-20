@@ -183,7 +183,7 @@ typedef struct acr_gen1_shot {
  *   target is), and while hard lock is on their refire wait is ROCKET_ROF_PCT
  *   of normal, cutting their damage per second.
  * Stand-in values to tune in play (mirror matches, modern vs original). */
-#define ACR_GEN1_MODERN_BOX_PCT          30    /* aiming is automatic: a much smaller sight */
+#define ACR_GEN1_MODERN_BOX_PCT          20    /* aiming is automatic: a much smaller sight (and not drawn) */
 #define ACR_GEN1_MODERN_LEAD_PCT         60
 #define ACR_GEN1_MODERN_SIGHT_LAG        2     /* ticks, ~0.1 s; at most 3 */
 #define ACR_GEN1_MODERN_MISSILE_PCT      140
