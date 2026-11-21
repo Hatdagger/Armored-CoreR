@@ -16,6 +16,10 @@ static void start_ai(acr_gen1_match *m, const acr_gen1_match_rules *r) {
 void acr_gen1_match_init(acr_gen1_match *m, const acr_gen1_battle *start, const acr_gen1_match_rules *r) {
     memset(m, 0, sizeof *m);
     m->b = *start;
+    /* Each round starts on a Gen 1 tick boundary, whatever the caller's fight
+     * was doing before (a phase left over from earlier play differs between
+     * PCs and would put the two machines' 22-a-second ticks on different steps). */
+    m->b.tick_phase = 0;
     m->round_ms = r->round_ms;
     m->round = 1;
     acr_gen1_battle_retarget(&m->b);
@@ -24,6 +28,7 @@ void acr_gen1_match_init(acr_gen1_match *m, const acr_gen1_battle *start, const 
 
 static void next_round(acr_gen1_match *m, const acr_gen1_battle *start, const acr_gen1_match_rules *r) {
     m->b = *start;
+    m->b.tick_phase = 0;
     acr_gen1_battle_retarget(&m->b);
     m->round_ms = r->round_ms;
     m->ko_ms = m->over_ms = 0;

@@ -115,7 +115,8 @@ static void play(const char *name, int frames, int delay, const link *l, int cor
     acr_rb_init(&A, 0, delay, &start, &rules);
     static acr_gen1_battle other;
     other = start;
-    other.f[0].ap -= 1;          /* "different data" on the second machine */
+    if (corrupt_at == 1) other.f[0].ap -= 1;   /* "different data" on the second machine */
+    if (corrupt_at == 2) other.tick_phase = 37;  /* a tick phase left over from earlier play: must not matter */
     acr_rb_init(&B, 1, delay, corrupt_at ? &other : &start, &rules);
     acr_rb *rb[2] = { &A, &B };
     pilot pl[2] = { { 0, 0 }, { 0, 0 } };
@@ -167,7 +168,7 @@ static void play(const char *name, int frames, int delay, const link *l, int cor
     printf("%-26s rounds %d  wins %d-%d  rollbacks %u/%u (deepest %u)  waits %u/%u  checks %u/%u  desync %u/%u\n",
            name, ref.round, ref.wins[0], ref.wins[1], A.rollbacks, B.rollbacks, A.deepest > B.deepest ? A.deepest : B.deepest,
            A.waits, B.waits, A.checks_ok, B.checks_ok, A.desync_frame, B.desync_frame);
-    if (corrupt_at) {
+    if (corrupt_at == 1) {
         EXPECT(A.desync_frame != 0 && B.desync_frame != 0);
     } else {
         EXPECT(ha == hr);
@@ -285,6 +286,7 @@ int main(void) {
     play("90 ms + jitter, 5% loss", 3000, 2, &far, 0);
     play("120 ms, 20% loss", 3000, 2, &awful, 0);
     play("different data on purpose", 1500, 1, &home, 1);
+    play("leftover tick phase", 3000, 1, &home, 2);
 
     if (failures) printf("%d failure(s)\n", failures);
     else printf("rollback: all passed\n");
