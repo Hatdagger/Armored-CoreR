@@ -150,6 +150,12 @@ WASD, Enter, Esc; Q / E or LB / RB pick a random stage). Tab / Triangle
 on a prize or a saved part shows its PART SPECS against what you have
 fitted. Enter on the VS screen skips the countdown.
 
+## Custom maps
+
+Maps can be built in Tinkercad: export as .OBJ, drag the zip onto
+`tools/maps/play-tinkercad-map.bat`, and AC TEST opens on it. Size, colours
+for the two starts and limits: [docs/MAPS.md](docs/MAPS.md).
+
 ## More
 
 - [Roadmap](docs/ROADMAP.md)
