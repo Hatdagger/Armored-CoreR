@@ -280,6 +280,12 @@ int demo_stage_load(const char *dir, int id, demo_stage *out) {
             /* 11, the four-pillar hall (P4 Qualifier): facing each other down the
              * middle, clear of the four pillars; the floor is at 3,000. */
             { 11, { { 0, 3000, -8000, 0 }, { 0, 3000, 8000, 2048 } } },
+            /* 1 and 6 are sea maps: their class 1 / 4 ground is the water,
+             * which ACs pass through, and the arena starts sit over it. 1: on
+             * the long ship's deck (-250), facing each other along it; 6: on
+             * the platform in the middle (-500). */
+            { 1, { { -6600, -250, 0, 3072 }, { -9000, -250, 0, 1024 } } },
+            { 6, { { 0, -500, -2500, 0 }, { 0, -500, 2500, 2048 } } },
         };
         for (size_t i = 0; i < sizeof k_mission_starts / sizeof k_mission_starts[0]; ++i)
             if (k_mission_starts[i].id == id) SDL_memcpy(out->start, k_mission_starts[i].start, sizeof out->start);

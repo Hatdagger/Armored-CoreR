@@ -338,23 +338,64 @@ only bigger (14 to 366 areas, up to 87 models). acr-import now writes all of
   (new area records) brings its collision with it.
 - **Starts.** The two start records (chunk 13 records 1 and 2) are the
   arena's; missions don't use them as drops. Stage 0's sit side by side,
-  below the floor. Mission drops will come from mission data (`GG/MS/MIS.T`,
-  410 entries, not read yet). The engine gives maps used by the mission
+  below the floor. MIS.T turned out to be the briefings only (see
+  "Missions" below); the drops are still to find in the mission code. The engine gives maps used by the mission
   tests their own starts (`demo_stage.c`, `k_mission_starts`): 11 so far.
 - **Footing** (an AC set on start 1's floor and walked 400 ticks, game
   collision): 2-5 and 7-19 hold it and stop it at walls; 0 holds it once it
-  stands on the real floor (y 0). **1 and 6 don't:** their ground is class 1
-  and class 4 polygons (stage 1's floor tile, model 0: one class 4 polygon at
-  y 25 and one class 1 at y 0), which the body mask 5 passes through, so the
-  AC sinks. Every battle engine (FDAT 207-211) sets the AC's +0x43 to 5 at
-  the same spot (`li 5; sb 0x43`), and the arena floor probe takes its mask
-  from +0x43 (`0x8007C95C`), so the mask alone doesn't explain it. Still to
-  read: whether the mission engine changes +0x43 later, or treats class 1/4
-  floors differently (the +0x2E "lowest class 1 floor" value).
+  stands on the real floor (y 0).
+- **Maps 1 and 6 are sea maps** (read 2026-11-21). Their ground is the sea:
+  map 1's base tile (model 0) is a class 4 plane at y 25 over a class 1
+  plane at y 0, map 6's outer tiles a class 1 plane at -62.5. Both classes
+  share a bit with the body mask 5, so ACs pass through: that is the water,
+  not a floor bug. Every engine sets +0x43 to 5 the same way, the mission
+  engine (FDAT 207, the one with `#Location Now`) included (`0x80084D54`).
+  The arena start records sit over the water, so an AC dropped there sinks.
+  The solid ground is class 0: on map 1 the ships (the long one along x from
+  about game x 5,600 to 10,500, deck -250, 750 wide; a second near game
+  (-19,000, -7,500), deck -500 / -750), on map 6 the middle platform (deck
+  -500). AC TEST's starts (`k_mission_starts`): map 1 game (6,600, -250, 0)
+  and (9,000, -250, 0) on the long ship facing each other; map 6 (0, -500,
+  +-2,500). Checked: both hold an idle AC; a two-minute computer fight on
+  map 6 stays on the platform, on map 1 one AC walks off the ship into the
+  sea. Still to read: what the mission engine does to an AC in the water
+  (probably lost, as in AC1's sea missions; not read); class 4 vs class 1 (perhaps the
+  surface the splash is drawn at vs the bottom).
 - **Mission map 11** (a square hall, four pillars; the P4 Qualifier test):
   floor at 3,000; starts (0, 3000, -8000) facing 0 and (0, 3000, 8000) facing
   2048. Two computer pilots fight two minutes there without leaving the
   hall (`tests/test_gen1_stage.c`).
+
+## Missions (read 2026-11-21)
+
+`tools/research/moa_missions.py <import>/unpacked` prints all of this.
+
+- **Mission n is played on map n.** Briefing n, map n and mission code n
+  line up: 1 "Escort Submarine" on the R&G steamship route is the open-sea
+  map with ships, 6 "PROGTECH Marine Laboratory" the platform in the sea,
+  11 "Destroy enemy AC (Goldy)" the four-pillar hall, 14 "Hercules in 3
+  minutes", and so on (19 has no briefing).
+- **`GG/MS/MIS.T` (409 entries) is the briefings**, 16 entries a mission:
+  +1 the mail header (sender, requester, reward), the next text entries the
+  pages ("Theater of operations", enemy forces, objective; `%n@1..@0` marks
+  highlighted words), 12,288-byte entries are TIM pictures (the briefing
+  maps), empty entries are unused slots. 384+ hold part descriptions and
+  later mail. No placements or mission rules in it.
+- **Mission code: FDAT `5s+0`** (33-55 KB), loaded at **`0x800A0DD0`**
+  (found from its own calls landing on function starts; checked on missions 0, 1,
+  6 and 11). Header: 16 pointers; slot 0 is the per-frame mission
+  logic (mission 0: radio lines through
+  `0x80058B1C(0, 0, line)`), slots 1-7 small hooks, **slots 9 on are
+  object handlers**. FDAT `5s+1..3` are empty for missions.
+- **Objects: chunk 13 records 3 on.** Record +6 picks the handler
+  (slot 8 + n); +14 a type; +16 on per-object numbers. The counts match the
+  briefings: 6 "MTs x 5" has 5 objects on handler 2; 12 "MTs x 6" 6 on
+  handler 1; 13 "Trucks x 3, MTs x 4" 4 + 3; 14 "Hercules" one object;
+  11 "Goldy" two. Map 1's long ship is objects 7-9 (handler 6, types 1, 49,
+  50) at the ship's tiles, so it is probably the escorted vessel and moves.
+- Still open: which records are the player's drop (records 0-2 or the
+  code), what each handler is (MT, tank, turret, ...) and which model each
+  draws, the objective / failure rules in slot 0.
 
 ## Next
 

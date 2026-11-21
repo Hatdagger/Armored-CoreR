@@ -76,7 +76,8 @@ weapons, damage, two-player test build (see `docs/research/`).
    Mission maps (2026-11-20, branch `gen1-mission-stages`): acr-import
    writes stages 0-19 too; AC TEST's F7 adds mission map 11 (the P4
    Qualifier hall) and `ACR_STAGE=NN` opens any of 0-40 (`ACR_STAGE=open`:
-   the open floor). Maps 1 and 6 still let ACs through their ground.
+   the open floor). Maps 1 and 6 are sea maps: their ground is the water,
+   so AC TEST starts them on a ship deck and the platform.
 
 5. **Battle HUD** (first version, branch `gen1-hud`, 2026-11-19): the
    game's own HUD pictures (RTIM 61, exported to `<import>/hud`) placed as
