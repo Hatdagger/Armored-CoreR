@@ -1,8 +1,9 @@
 /* A map made in Tinkercad and turned into a stage by
  * tools/maps/tinkercad_stage.py (docs/MAPS.md). Run by the custom_stage
- * test (tests/custom_stage.cmake) on tools/maps/make_sample.py's sample;
- * with ACR_CUSTOM_STAGE set to any converted stage's folder it checks that
- * one's starts instead. */
+ * test (tests/custom_stage.cmake) on tools/maps/make_sample.py's sample
+ * map and on its three joined tiles (A1, B1, "A2 rot90"); with
+ * ACR_CUSTOM_STAGE set to any converted stage's folder it checks that one's
+ * starts instead. */
 #include <stdio.h>
 #include <stdlib.h>
 #include <string.h>
@@ -67,7 +68,31 @@ int main(int argc, char **argv) {
     /* The two face each other. */
     EXPECT(((st[0][3] + 2048) & 4095) == st[1][3]);
 
-    if (sample) {
+    const int tiles = sample && strstr(toml, "name = \"Sample Tiles\"") != NULL;
+    if (tiles) {
+        /* 200 mm tiles = 10,000 units; the three middles end up at A1 (-5,000,
+         * -5,000), B1 (5,000, -5,000), A2 (-5,000, 5,000). */
+        EXPECT(st[0][0] == -5000 && st[0][2] == -5000 && st[0][3] == 1024);
+        EXPECT(st[1][0] == 5000 && st[1][2] == -5000 && st[1][3] == 3072);
+        /* The joins: floor on both sides, and nothing to push against. */
+        int32_t fy = 0;
+        EXPECT(acr_gen1_stage_floor(&s, -20, -5000, -300, &fy) && fy == -200);
+        EXPECT(acr_gen1_stage_floor(&s, 20, -5000, -300, &fy) && fy == -200);
+        EXPECT(acr_gen1_stage_floor(&s, -5000, 20, -300, &fy) && fy == -200);
+        int32_t x = 0, z = -5000;
+        EXPECT(!acr_gen1_stage_push(&s, &x, &z, -200, 212, 100, 120));
+        x = -5000; z = 0;
+        EXPECT(!acr_gen1_stage_push(&s, &x, &z, -200, 212, 100, 120));
+        /* A2's pillar, 50 mm north of its middle before the quarter turn, now
+         * 2,500 east of it: faces at x -2,900 / -2,100. */
+        x = -2050; z = 5000;
+        EXPECT(acr_gen1_stage_push(&s, &x, &z, -200, 212, 100, 120));
+        EXPECT(x >= -2000);
+        /* A shot from start 1 to start 2 crosses the join without hitting anything. */
+        const int32_t a[3] = { -5000, -500, -5000 }, b[3] = { 5000, -500, -5000 };
+        int32_t t = 0;
+        EXPECT(!acr_gen1_stage_segment(&s, a, b, &t));
+    } else if (sample) {
         /* make_sample.py: floor top 4 mm = y -200; walls' inner faces at 126 mm
          * = 6,300; pillars 42-58 mm = 2,100-2,900 out; the ledge's top 20 mm. */
         EXPECT(st[0][1] == -200 && st[0][2] == -4500 && st[0][3] == 0);

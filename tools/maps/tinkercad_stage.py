@@ -6,7 +6,16 @@ Then:
 
     python tinkercad_stage.py my-map.zip <import dir> --id 50 --name "My Map"
 
-and start the game with ACR_STAGE=50. See docs/MAPS.md for the rules
+and start the game with ACR_STAGE=50.
+
+A big map can be built in tiles, one Tinkercad design each, named after
+their place on a grid (letters west to east, numbers south to north):
+
+    python tinkercad_stage.py A1.zip B1.zip "A2 B2 rot90.zip" <import dir>
+
+Each tile is --tile mm square (default 200, Tinkercad's workplane), its
+middle set on its grid square's middle. One export can fill several squares
+("A2 B2"); rot90 / rot180 / rot270 turn it clockwise, seen from above. See docs/MAPS.md for the rules
 (scale, colours for the two starts, what makes a good map).
 
 Writes <import dir>/stages/<id>/:
@@ -19,6 +28,7 @@ No packages needed: plain Python 3.
 import argparse
 import math
 import os
+import re
 import sys
 import zipfile
 
@@ -120,6 +130,18 @@ def to_engine(p, up, scale):
     return (x * scale, y * scale, -z * scale)
 
 
+GRID_RE = re.compile(r"(?<![A-Za-z])([A-Z])([1-9][0-9]?)(?![0-9])")
+ROT_RE = re.compile(r"rot(90|180|270)", re.I)
+
+
+def tile_places(path):
+    """Grid squares (column, row from 0) and quarter turns from a file name."""
+    name = os.path.splitext(os.path.basename(path))[0]
+    cells = [(ord(m.group(1)) - ord("A"), int(m.group(2)) - 1) for m in GRID_RE.finditer(name)]
+    rot = ROT_RE.search(name)
+    return cells, (int(rot.group(1)) // 90 if rot else 0)
+
+
 def is_colour(c, hexc):
     return all(abs(c[i] - hexc[i]) <= MARKER_TOL for i in range(3))
 
@@ -165,23 +187,64 @@ def facing_to(src, dst):
 
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
-    ap.add_argument("input", help="Tinkercad .zip (Export -> .OBJ) or an .obj")
-    ap.add_argument("import_dir", help="the folder acr-import wrote (the one holding stages/)")
+    ap.add_argument("inputs", nargs="+", help="Tinkercad .zip export(s) (Export -> .OBJ) or .obj files, "
+                    "then the folder acr-import wrote (the one holding stages/)")
+    ap.add_argument("--import-dir", help="the import folder, if not given last")
     ap.add_argument("--id", type=int, default=50, help="stage number (default 50; 0-40 are the disc's)")
     ap.add_argument("--name", default="Custom Map")
     ap.add_argument("--scale", type=float, default=50.0, help="world units per mm (default 50)")
-    ap.add_argument("--up", choices=["auto", "y", "z"], default="auto", help="the file's up axis")
+    ap.add_argument("--tile", type=float, default=200.0, help="tile size in mm for grid-named files (default 200)")
+    ap.add_argument("--up", choices=["auto", "y", "z"], default="auto", help="the files' up axis")
     args = ap.parse_args()
+    files = list(args.inputs)
+    import_dir = args.import_dir
+    if not import_dir:
+        if len(files) < 2 or not os.path.isdir(files[-1]) and os.path.splitext(files[-1])[1]:
+            sys.exit("Give the import folder last (or --import-dir).")
+        import_dir = files.pop()
     if 0 <= args.id <= 40:
         print(f"warning: stage {args.id} is one of the disc's; it will be overwritten until the next import")
 
-    obj, mtl = read_input(args.input)
-    cols = parse_mtl(mtl)
-    raw, tris = parse_obj(obj, cols)
+    # Every file, in engine units, each set on its grid square(s).
+    tile = args.tile * args.scale
+    pts, tris = [], []
+    tiled = len(files) > 1 or tile_places(files[0])[0]
+    for path in files:
+        obj, mtl = read_input(path)
+        raw, ftris = parse_obj(obj, parse_mtl(mtl))
+        if not ftris:
+            print(f"warning: {os.path.basename(path)} has no faces; skipped")
+            continue
+        up = guess_up(raw, ftris) if args.up == "auto" else args.up
+        fp = [to_engine(p, up, args.scale) for p in raw]
+        cells, turns = tile_places(path)
+        if tiled and not cells:
+            sys.exit(f"{os.path.basename(path)}: name it after its grid square (A1, B1, A2...) to join it to the others.")
+        if not cells:
+            cells = [(0, 0)]
+        # The tile's own middle (its footprint, markers left out), turned.
+        world_i = {i for t in ftris if not (is_colour(t[3], P1_HEX) or is_colour(t[3], P2_HEX)) for i in t[:3]}
+        xs = [fp[i][0] for i in world_i] or [0.0]
+        zs = [fp[i][2] for i in world_i] or [0.0]
+        mx, mz = (min(xs) + max(xs)) / 2, (min(zs) + max(zs)) / 2
+        w, d = max(xs) - min(xs), max(zs) - min(zs)
+        if tiled and (abs(w - tile) > 2 * args.scale or abs(d - tile) > 2 * args.scale):
+            print(f"warning: {os.path.basename(path)} is {w / args.scale:.0f} x {d / args.scale:.0f} mm, "
+                  f"not {args.tile:.0f} x {args.tile:.0f}: it may not meet its neighbours")
+        for col, row in cells:
+            base = len(pts)
+            for p in fp:
+                x, z = p[0] - mx, p[2] - mz
+                for _ in range(turns):        # clockwise from above: north -> east
+                    x, z = z, -x
+                pts.append((x + col * tile, p[1], z + row * tile))
+            tris.extend((a + base, b + base, c + base, col_) for a, b, c, col_ in ftris)
+        print(f"{os.path.basename(path)}: {len(ftris)} faces, up {up}"
+              + (f", at {' '.join(chr(65 + c) + str(r + 1) for c, r in cells)}" if tiled else "")
+              + (f", turned {turns * 90}" if turns else ""))
     if not tris:
-        sys.exit("The file has no faces.")
-    up = guess_up(raw, tris) if args.up == "auto" else args.up
-    pts = [to_engine(p, up, args.scale) for p in raw]
+        sys.exit("The files have no faces.")
+    args.import_dir = import_dir
 
     # Pull out the two start markers.
     marks = {1: [], 2: []}
@@ -284,7 +347,7 @@ def main():
         f.write(f"visual_faces = {len(world)}\ncollision_polygons = {polys}\n")
         f.write(f"start_1 = {st(1)}\nstart_2 = {st(2)}\n")
 
-    print(f"{args.name}: {len(world)} faces, {len(palette)} colours, up axis {up}, "
+    print(f"{args.name}: {len(world)} faces, {len(palette)} colours, "
           f"{width / args.scale:.0f} x {depth / args.scale:.0f} mm = {int(width)} x {int(depth)} units")
     print(f"start 1 {st(1)}  start 2 {st(2)}")
     print(f"written to {out}  ->  run the game with ACR_STAGE={args.id}")

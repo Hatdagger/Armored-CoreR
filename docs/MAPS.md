@@ -28,6 +28,29 @@ Setting up once: copy `tools/maps/play-tinkercad-map.bat` and
 Python 3 from python.org (tick *Add python.exe to PATH*). Nothing else is
 needed.
 
+## Big maps: tiles
+
+Tinkercad's workplane is small, so a big map can be built in pieces that
+join up like Lego: one Tinkercad design per tile, all on a grid.
+
+- **Each tile is 200 × 200 mm** (the default workplane). Give every tile a
+  full 200 × 200 floor plate, and keep everything inside it: the tile's
+  middle is worked out from what's in it, so a short floor shifts it.
+- **Name each export after its grid square** before dragging it on:
+  letters go west to east, numbers south to north. `A1` is the south-west
+  corner, `B1` is east of it, `A2` north of it.
+- **Drag all the zips onto the .bat at once.** They're joined into one map.
+  Where tiles meet, keep the floors at the same height and leave out the
+  walls between them.
+- **Reuse a tile** by putting several squares in its name: `C1 C2 C3 corridor.zip`
+  fills all three.
+- **Turn a tile** with `rot90`, `rot180` or `rot270` in its name (clockwise,
+  seen from above): `D4 rot90 corner.zip`.
+- Put each start marker in a tile that's used only once.
+- Tinkercad's top view: north is the back of the workplane.
+
+A different tile size: `--tile 100` (mm) on the command line below.
+
 ## Size
 
 **1 mm in Tinkercad = 50 game units.** Some measures to build by:
@@ -72,6 +95,7 @@ degrees.
 
 ```
 python tools/maps/tinkercad_stage.py my-map.zip <import folder> --id 50 --name "My Map"
+python tools/maps/tinkercad_stage.py A1.zip B1.zip "A2 rot90.zip" <import folder> --id 51
 ACR_STAGE=50 ./armored-corer
 ```
 
@@ -90,9 +114,9 @@ starts), `visual.obj` / `visual.mtl` (what's drawn) and `collision.obj`
 under it.
 
 `tools/maps/make_sample.py` writes a small sample map the way Tinkercad
-exports one (floor, walls, four pillars, a ledge, both markers). The
-`custom_stage` test converts it and loads it with the engine's parsers
-(`tests/test_custom_stage.c`).
+exports one (floor, walls, four pillars, a ledge, both markers), and with
+`--tiles <folder>` three joining tiles. The `custom_stage` test converts both
+and loads them with the engine's parsers (`tests/test_custom_stage.c`).
 
 ## Not yet
 
