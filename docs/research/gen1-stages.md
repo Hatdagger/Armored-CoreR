@@ -23,7 +23,7 @@ empty): it is an arena-only stage.
 | 27 | Green Silo | | | |
 
 (The arena's stage list, from the fork's hub; the other numbers' names
-aren't known yet.)
+aren't known yet. Stages 0-19 are the mission maps: see "Mission maps".)
 
 ## FDAT 5s+4: chunks
 
@@ -323,6 +323,38 @@ y = -game y). Open them in Blender to look around.
   `ACR_STAGE_DIR=<import>/stages` also Green Silo: the starts stand at
   -662, a walk out stops at the dome, a rise stops at the roof, and two
   computer pilots fight two minutes without leaving the dome).
+
+## Mission maps (stages 0-19, read 2026-11-20)
+
+Stages 0-19 are Master of Arena's mission maps: the same file layout as the
+arenas (FDAT `5s+0..5s+4`, chunks, area records, RTIM <stage> textures),
+only bigger (14 to 366 areas, up to 87 models). acr-import now writes all of
+0-40; stage.toml says `kind = "mission"` for 0-19.
+
+- **Tiles.** Every map is built from tiles on a 2,500-unit grid (half and
+  quarter tiles for trims), each placed by an area record with a quarter
+  turn, and most tiles are used many times (stage 0: 65 tiles, 54 of them
+  reused). Collision is kept per tile, so a new layout of the same tiles
+  (new area records) brings its collision with it.
+- **Starts.** The two start records (chunk 13 records 1 and 2) are the
+  arena's; missions don't use them as drops. Stage 0's sit side by side,
+  below the floor. Mission drops will come from mission data (`GG/MS/MIS.T`,
+  410 entries, not read yet). The engine gives maps used by the mission
+  tests their own starts (`demo_stage.c`, `k_mission_starts`): 11 so far.
+- **Footing** (an AC set on start 1's floor and walked 400 ticks, game
+  collision): 2-5 and 7-19 hold it and stop it at walls; 0 holds it once it
+  stands on the real floor (y 0). **1 and 6 don't:** their ground is class 1
+  and class 4 polygons (stage 1's floor tile, model 0: one class 4 polygon at
+  y 25 and one class 1 at y 0), which the body mask 5 passes through, so the
+  AC sinks. Every battle engine (FDAT 207-211) sets the AC's +0x43 to 5 at
+  the same spot (`li 5; sb 0x43`), and the arena floor probe takes its mask
+  from +0x43 (`0x8007C95C`), so the mask alone doesn't explain it. Still to
+  read: whether the mission engine changes +0x43 later, or treats class 1/4
+  floors differently (the +0x2E "lowest class 1 floor" value).
+- **Mission map 11** (a square hall, four pillars; the P4 Qualifier test):
+  floor at 3,000; starts (0, 3000, -8000) facing 0 and (0, 3000, 8000) facing
+  2048. Two computer pilots fight two minutes there without leaving the
+  hall (`tests/test_gen1_stage.c`).
 
 ## Next
 
