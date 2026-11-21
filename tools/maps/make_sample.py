@@ -1,14 +1,14 @@
 #!/usr/bin/env python3
 """Writes a small sample map the way Tinkercad exports one (a zip with
 tinker.obj + obj.mtl, millimetres, z up): a 260 x 260 mm floor, walls
-round it, four pillars, a ramp up to a ledge, and the two start markers
-(magenta, cyan). Used by the tests; also a starting point to look at.
+round it, four pillars, a ramp up to a ledge, and two players (green) and two
+enemies (red) as teammate pairs. Used by the tests; also a starting point to look at.
 
     python make_sample.py sample.zip
     python make_sample.py --tiles <folder>
 
 --tiles writes a map in three 200 mm tiles instead: "A1.zip" (west end,
-player 1's marker), "B1.zip" (east end, player 2's) and "A2 rot90.zip" (a
+a magenta marker: the older colours), "B1.zip" (east end, cyan) and "A2 rot90.zip" (a
 pillar off its middle, turned a quarter), to check joining.
 """
 import os
@@ -24,7 +24,8 @@ def box(x0, y0, z0, x1, y1, z1, m):
 
 def write(path):
     mats = {"grey": (0.55, 0.55, 0.58), "tan": (0.76, 0.66, 0.48), "orange": (0.9, 0.45, 0.1),
-            "magenta": (1, 0, 1), "cyan": (0, 1, 1)}
+            "magenta": (1, 0, 1), "cyan": (0, 1, 1),
+        "green": (0.2745, 0.7176, 0.2863), "red": (0.9137, 0.1137, 0.1765)}   # Tinkercad's own
 
     obj = ["# sample", "mtllib obj.mtl"]
     faces = []
@@ -55,8 +56,9 @@ def single(path):
         for y in (-50, 50):
             box(x - 8, y - 8, 4, x + 8, y + 8, 60, "orange")     # pillars
     box(70, -20, 4, 126, 20, 20, "grey")                    # a ledge on the east side
-    box(-6, -96, 4, 6, -84, 8, "magenta")                   # start 1 (south, faces north)
-    box(-6, 84, 4, 6, 96, 8, "cyan")                        # start 2 (north)
+    for x in (-10, 10):                                     # 10 mm either side: teammates
+        box(x - 2, -92, 4, x + 2, -88, 8, "green")          # players (south, face north)
+        box(x - 2, 88, 4, x + 2, 92, 8, "red")              # enemies (north)
     write(path)
 
 

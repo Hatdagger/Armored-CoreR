@@ -97,6 +97,15 @@ int main(int argc, char **argv) {
          * = 6,300; pillars 42-58 mm = 2,100-2,900 out; the ledge's top 20 mm. */
         EXPECT(st[0][1] == -200 && st[0][2] == -4500 && st[0][3] == 0);
         EXPECT(st[1][2] == 4500 && st[1][3] == 2048);
+        /* Two green and two red markers, 10 mm (500) either side: teammate pairs. */
+        const char *t1 = strstr(toml, "team_1 = "), *t2 = strstr(toml, "team_2 = ");
+        int32_t m[4][4];
+        EXPECT(t1 && sscanf(t1, "team_1 = [[%d, %d, %d, %d], [%d, %d, %d, %d]]", &m[0][0], &m[0][1], &m[0][2], &m[0][3],
+                            &m[1][0], &m[1][1], &m[1][2], &m[1][3]) == 8);
+        EXPECT(t2 && sscanf(t2, "team_2 = [[%d, %d, %d, %d], [%d, %d, %d, %d]]", &m[2][0], &m[2][1], &m[2][2], &m[2][3],
+                            &m[3][0], &m[3][1], &m[3][2], &m[3][3]) == 8);
+        EXPECT(m[0][0] == -500 && m[1][0] == 500 && m[0][2] == -4500 && m[0][1] == -200);
+        EXPECT(m[2][0] == -500 && m[3][0] == 500 && m[2][2] == 4500 && m[3][3] == 2048);
         int32_t x = 6250, z = 0;   /* half inside the west/east wall */
         EXPECT(acr_gen1_stage_push(&s, &x, &z, -200, 212, 100, 120));
         EXPECT(x <= 6200);

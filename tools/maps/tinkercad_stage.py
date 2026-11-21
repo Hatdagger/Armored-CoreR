@@ -32,10 +32,13 @@ import re
 import sys
 import zipfile
 
-# Marker colours (Tinkercad: shape colour -> custom -> hex).
-P1_HEX = (0xFF, 0x00, 0xFF)   # magenta: player 1's start
-P2_HEX = (0x00, 0xFF, 0xFF)   # cyan: player 2's start
+# Marker colours: any clear green = the players' side (team 1), any clear
+# red = the enemies' side (team 2). Magenta / cyan, the first scheme, still
+# work the same way. One or two markers a side: two are teammates.
+P1_HEX = (0xFF, 0x00, 0xFF)   # magenta: team 1 (older maps)
+P2_HEX = (0x00, 0xFF, 0xFF)   # cyan: team 2 (older maps)
 MARKER_TOL = 24               # per channel, 0-255
+TEAMMATE_SIDE = 500           # the game puts teammates 500 either side of the team's start
 MAX_COLOURS = 15              # the engine's material list holds 16
 
 
@@ -146,6 +149,36 @@ def is_colour(c, hexc):
     return all(abs(c[i] - hexc[i]) <= MARKER_TOL for i in range(3))
 
 
+def marker_team(c):
+    """1 for a players' marker (green), 2 for an enemies' (red), else 0."""
+    r, g, b = c
+    # Clear greens / reds only (Tinkercad's 46B749 / E91D2D and the like):
+    # orange, yellow, lime, pink and browns stay scenery.
+    if is_colour(c, P1_HEX) or (g >= 140 and r <= 120 and b <= 120):
+        return 1
+    if is_colour(c, P2_HEX) or (r >= 170 and g <= 90 and b <= 90):
+        return 2
+    return 0
+
+
+def parts_of(tris):
+    """Separate shapes in a set of faces (Tinkercad puts same-coloured shapes in one object)."""
+    parent = {}
+
+    def find(a):
+        while parent.setdefault(a, a) != a:
+            parent[a] = parent[parent[a]]
+            a = parent[a]
+        return a
+    for t in tris:
+        for i in t[1:3]:
+            parent[find(i)] = find(t[0])
+    groups = {}
+    for i in {i for t in tris for i in t[:3]}:
+        groups.setdefault(find(i), []).append(i)
+    return list(groups.values())
+
+
 def merge_colours(colours):
     """At most MAX_COLOURS: rare colours join the nearest common one."""
     count = {}
@@ -223,7 +256,7 @@ def main():
         if not cells:
             cells = [(0, 0)]
         # The tile's own middle (its footprint, markers left out), turned.
-        world_i = {i for t in ftris if not (is_colour(t[3], P1_HEX) or is_colour(t[3], P2_HEX)) for i in t[:3]}
+        world_i = {i for t in ftris if not marker_team(t[3]) for i in t[:3]}
         xs = [fp[i][0] for i in world_i] or [0.0]
         zs = [fp[i][2] for i in world_i] or [0.0]
         mx, mz = (min(xs) + max(xs)) / 2, (min(zs) + max(zs)) / 2
@@ -246,18 +279,17 @@ def main():
         sys.exit("The files have no faces.")
     args.import_dir = import_dir
 
-    # Pull out the two start markers.
+    # Pull out the markers: green = players (team 1), red = enemies (team 2).
     marks = {1: [], 2: []}
     world = []
     for t in tris:
-        if is_colour(t[3], P1_HEX):
-            marks[1].extend(t[:3])
-        elif is_colour(t[3], P2_HEX):
-            marks[2].extend(t[:3])
+        k = marker_team(t[3])
+        if k:
+            marks[k].append(t)
         else:
             world.append(t)
     if not world:
-        sys.exit("Only start markers in the file: nothing to stand on.")
+        sys.exit("Only markers in the file: nothing to stand on.")
 
     # Centre the map on x / z (heights stay: Tinkercad's workplane is 0).
     xs = [pts[i][0] for t in world for i in t[:3]]
@@ -266,30 +298,46 @@ def main():
     pts = [(p[0] - cx, p[1], p[2] - cz) for p in pts]
     width, depth = (max(xs) - min(xs)), (max(zs) - min(zs))
 
-    starts = {}
+    side_name = {1: "green (players)", 2: "red (enemies)"}
+    spots = {1: [], 2: []}          # each marker: x, y (feet), z
     for k in (1, 2):
-        if marks[k]:
-            mp = [pts[i] for i in marks[k]]
+        for part in parts_of(marks[k]):
+            mp = [pts[i] for i in part]
             x = (min(p[0] for p in mp) + max(p[0] for p in mp)) / 2
             z = (min(p[2] for p in mp) + max(p[2] for p in mp)) / 2
-            starts[k] = [x, min(p[1] for p in mp), z]
+            y = min(p[1] for p in mp)
+            floor = top_y(pts, world, x, z, below=y)
+            if floor is None:
+                print(f"warning: nothing under a {side_name[k]} marker at x {int(x)}, z {int(z)}: that AC will fall")
+            elif y - floor > 600:
+                print(f"warning: a {side_name[k]} marker is {int(y - floor)} units above the floor (it will drop)")
+            else:
+                y = floor
+            spots[k].append([x, y, z])
+        spots[k].sort(key=lambda p: (p[0], p[2]))
+        if len(spots[k]) > 2:
+            print(f"note: {len(spots[k])} {side_name[k]} markers; the game takes up to 2 a side for now")
+    starts = {}
+    for k in (1, 2):
+        if spots[k]:
+            n = len(spots[k])
+            starts[k] = [sum(p[i] for p in spots[k]) / n for i in range(3)]
+            starts[k][1] = max(p[1] for p in spots[k])
         else:
             z = (-0.35 if k == 1 else 0.35) * depth
             y = top_y(pts, world, 0.0, z)
             if y is None:
-                sys.exit(f"No start {k} marker and no floor at the map's middle line to drop it on.")
+                sys.exit(f"No {side_name[k]} marker and no floor at the map's middle line to drop it on.")
             starts[k] = [0.0, y, z]
-            print(f"note: no {'magenta' if k == 1 else 'cyan'} marker; start {k} put at x 0, z {int(z)}")
-    for k in (1, 2):
-        s = starts[k]
-        floor = top_y(pts, world, s[0], s[2], below=s[1])
-        if floor is None:
-            print(f"warning: nothing under start {k}: that AC will fall")
-        elif s[1] - floor > 600:
-            print(f"warning: start {k} is {int(s[1] - floor)} units above the floor below it (it will drop)")
-        else:
-            s[1] = floor
+            print(f"note: no {side_name[k]} marker; that side starts at x 0, z {int(z)}")
     face = {1: facing_to(starts[1], starts[2]), 2: facing_to(starts[2], starts[1])}
+    for k in (1, 2):
+        if len(spots[k]) == 2:
+            a_, b_ = spots[k]
+            half = math.hypot(a_[0] - b_[0], a_[2] - b_[2]) / 2
+            if abs(half - TEAMMATE_SIDE) > 100:
+                print(f"note: the {side_name[k]} pair are {int(half)} units either side of their middle; "
+                      f"the game places teammates {TEAMMATE_SIDE} either side for now")
 
     out = os.path.join(args.import_dir, "stages", f"{args.id:02d}")
     os.makedirs(out, exist_ok=True)
@@ -345,7 +393,12 @@ def main():
                 "# Engine world units; y is down as in the game.\n")
         f.write(f'id = {args.id}\nname = "{args.name}"\nkind = "custom"\n')
         f.write(f"visual_faces = {len(world)}\ncollision_polygons = {polys}\n")
+        f.write("# 1v1: one AC at each side's start. Teams: teammates side by side there.\n")
         f.write(f"start_1 = {st(1)}\nstart_2 = {st(2)}\n")
+        f.write("# Every marker as placed (team 1 green / players, team 2 red / enemies).\n")
+        for k in (1, 2):
+            items = ", ".join(f"[{int(round(p[0]))}, {-int(round(p[1]))}, {int(round(p[2]))}, {face[k]}]" for p in spots[k])
+            f.write(f"team_{k} = [{items}]\n")
 
     print(f"{args.name}: {len(world)} faces, {len(palette)} colours, "
           f"{width / args.scale:.0f} x {depth / args.scale:.0f} mm = {int(width)} x {int(depth)} units")

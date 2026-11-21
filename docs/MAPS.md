@@ -9,16 +9,21 @@ into it, and shots hit it.
 
 1. In Tinkercad, make a new design. Build a floor, walls round it, and any
    cover you want (see **Size** below).
-2. Add the two **start markers**: a small box for each player, sitting on the
-   floor where that AC should drop in. Colour them with a custom hex colour
-   (shape colour → the colour box → type the hex code):
-   - **player 1: `FF00FF`** (magenta)
-   - **player 2: `00FFFF`** (cyan)
+2. Add the **start markers**: a small box where each AC drops in, sitting on
+   the floor.
+   - **Green** = the players' side (team 1).
+   - **Red** = the enemies' side (team 2).
 
-   The markers aren't part of the map. Each AC starts on the floor under its
-   marker's middle, facing the other one. If a marker is missing, that start
-   goes on the map's north-south middle line, near the south edge (player 1)
-   or the north edge (player 2).
+   Tinkercad's own green and red work, as does any clear green or red;
+   orange, yellow, pink and the like stay scenery. One or two markers a side.
+   Two are teammates. The game puts teammates 10 mm (500 units) either side of
+   their side's middle, side by side, so set a pair 20 mm apart. In a 1v1, one
+   AC starts at each side's middle. Each side faces the other.
+
+   The markers aren't part of the map. If a side has no marker, it starts on
+   the map's north-south middle line, near the south edge (players) or the
+   north edge (enemies). Magenta `FF00FF` and cyan `00FFFF`, the first
+   colours, still work as players and enemies.
 3. **Export → .OBJ** (the *Download for 3D Printing* panel). You get a zip.
 4. Drag the zip onto **`play-tinkercad-map.bat`**. The map becomes stage 50
    and the game opens on it. Drag a new export on whenever you change the map.
@@ -46,7 +51,7 @@ join up like Lego: one Tinkercad design per tile, all on a grid.
   fills all three.
 - **Turn a tile** with `rot90`, `rot180` or `rot270` in its name (clockwise,
   seen from above): `D4 rot90 corner.zip`.
-- Put each start marker in a tile that's used only once.
+- Put the markers in tiles that are used only once.
 - Tinkercad's top view: north is the back of the workplane.
 
 A different tile size: `--tile 100` (mm) on the command line below.
