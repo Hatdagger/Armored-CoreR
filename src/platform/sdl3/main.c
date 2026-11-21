@@ -1287,20 +1287,15 @@ int main(int argc, char **argv) {
                 if (c != GC_NONE) gcmd = c;
                 continue;
             }
-            /* Number keys 1-8 work as F1-F8 (laptop F keys often do other
-             * things without Fn). */
-            if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode >= SDL_SCANCODE_1 && e.key.scancode <= SDL_SCANCODE_8)
-                e.key.scancode = (SDL_Scancode)(SDL_SCANCODE_F1 + (e.key.scancode - SDL_SCANCODE_1));
             if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_ESCAPE) {
                 if (g_direct_test) running = 0;
                 else to_garage = 1;
             }
-            if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_F1) show_help = !show_help;
-            if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_F5) g_smooth_anim = !g_smooth_anim;
-            if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && (e.key.scancode == SDL_SCANCODE_F9 || e.key.scancode == SDL_SCANCODE_9))
-                g_hud_frame = !g_hud_frame;
             if (g_net) {
-                /* Online: the controls and screen options only; nothing that changes the fight. */
+                /* Online: the gameplay controls only (the keyboard's fixed
+                 * keys and the mapped pad buttons), plus Esc / Back + Start
+                 * to leave. Every test key (F1-F9, the number keys, the
+                 * Back + button combinations) is off. */
                 if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_TAB) switch_pressed[0] = 1;
                 if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_V) blade_pressed[0] = 1;
                 if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_X) target_pressed[0] = 1;
@@ -1328,6 +1323,14 @@ int main(int argc, char **argv) {
                 }
                 continue;
             }
+            /* Number keys 1-8 work as F1-F8 (laptop F keys often do other
+             * things without Fn). */
+            if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode >= SDL_SCANCODE_1 && e.key.scancode <= SDL_SCANCODE_8)
+                e.key.scancode = (SDL_Scancode)(SDL_SCANCODE_F1 + (e.key.scancode - SDL_SCANCODE_1));
+            if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_F1) show_help = !show_help;
+            if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_F5) g_smooth_anim = !g_smooth_anim;
+            if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && (e.key.scancode == SDL_SCANCODE_F9 || e.key.scancode == SDL_SCANCODE_9))
+                g_hud_frame = !g_hud_frame;
             if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_F3) g_landing_anim = !g_landing_anim;
             int cycle_ai = 0, toggle_autopilot = 0;
             if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_F4) cycle_ai = 1;
@@ -1805,6 +1808,9 @@ int main(int argc, char **argv) {
                         g_ai_mode = 0;
                         g_autopilot = 0;
                         human_plus = 0;
+                        g_plus2 = 0;               /* left over from Rogue Arena: would give P2 Human PLUS on this PC only */
+                        g_landing_anim = 0;        /* a local test toggle: both PCs must run the same rules */
+                        show_help = 0;             /* test readouts off: no test keys online */
                         two_players = 1;
                         g_net = 1;
                         for (int k = 0; k < acr_gen1_battle_fighters(&battle); ++k) {
@@ -1820,6 +1826,7 @@ int main(int argc, char **argv) {
                         SETUP_FIGHTERS();
                         net_start = battle;
                         net_start.rng = net_info.seed;
+                        net_start.tick_phase = 0;  /* left over from earlier play, different on each PC */
                         acr_gen1_match_rules rules;
                         SDL_zero(rules);
                         rules.round_ms = ROUND_MS;
