@@ -100,6 +100,15 @@ add_test(NAME gen1_battle COMMAND test_gen1_battle)
 add_executable(test_gen1_stage tests/test_gen1_stage.c)
 target_link_libraries(test_gen1_stage PRIVATE acr_gen1)
 add_test(NAME gen1_stage COMMAND test_gen1_stage)
+# Maps made in Tinkercad (tools/maps, docs/MAPS.md): needs Python 3 for the converter.
+add_executable(test_custom_stage tests/test_custom_stage.c)
+target_link_libraries(test_custom_stage PRIVATE acr_gen1 acr_model)
+find_package(Python3 COMPONENTS Interpreter QUIET)
+if(Python3_Interpreter_FOUND)
+    add_test(NAME custom_stage COMMAND ${CMAKE_COMMAND} -DPY=${Python3_EXECUTABLE}
+             -DSRC=${CMAKE_CURRENT_SOURCE_DIR} -DBIN=${CMAKE_CURRENT_BINARY_DIR}
+             -DTEST=$<TARGET_FILE:test_custom_stage> -P ${CMAKE_CURRENT_SOURCE_DIR}/tests/custom_stage.cmake)
+endif()
 add_executable(test_gen1_garage tests/test_gen1_garage.c)
 target_link_libraries(test_gen1_garage PRIVATE acr_gen1)
 add_test(NAME gen1_garage COMMAND test_gen1_garage)
