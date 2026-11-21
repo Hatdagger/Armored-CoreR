@@ -374,6 +374,47 @@ int main(void) {
     /* Green Silo from the user's own import, when there is one. */
     const char *dir = getenv("ACR_STAGE_DIR");
     if (dir) {
+        /* The mission maps (stages 0-19) load with the game's collision.
+         * Known: 1 and 6's ground is class 1 / 4 polygons, which the arena's
+         * body mask (5) passes through, so ACs fall through it there
+         * (docs/research/gen1-stages.md, "Mission maps"). */
+        for (int s = 0; s < 20; ++s) {
+            char p1[1024], p2[1024];
+            snprintf(p1, sizeof p1, "%s/%02d/collision.obj", dir, s);
+            snprintf(p2, sizeof p2, "%s/%02d/collision.txt", dir, s);
+            char *o = read_text(p1), *g = read_text(p2);
+            acr_gen1_stage ms;
+            memset(&ms, 0, sizeof ms);
+            EXPECT(o && g && acr_gen1_stage_parse(o, &ms) && acr_gen1_stage_parse_game(g, &ms) && ms.areas > 0);
+            free(o); free(g);
+            acr_gen1_stage_free(&ms);
+        }
+        /* Mission map 11, the four-pillar hall (P4 Qualifier): the test
+         * starts stand on the floor (3,000), and two computer pilots fight
+         * two minutes there without falling or leaving the hall. */
+        {
+            char p1[1024], p2[1024];
+            snprintf(p1, sizeof p1, "%s/11/collision.obj", dir);
+            snprintf(p2, sizeof p2, "%s/11/collision.txt", dir);
+            char *o = read_text(p1), *g = read_text(p2);
+            acr_gen1_stage hall;
+            memset(&hall, 0, sizeof hall);
+            if (o && g && acr_gen1_stage_parse(o, &hall) && acr_gen1_stage_parse_game(g, &hall)) {
+                EXPECT(acr_gen1_stage_floor(&hall, 0, -8000, 2000, &y) && y == 3000);
+                EXPECT(acr_gen1_stage_floor(&hall, 0, 8000, 2000, &y) && y == 3000);
+                const int32_t qs[2][4] = { { 0, 3000, -8000, 0 }, { 0, 3000, 8000, 2048 } };
+                acr_gen1_ac_def hdef = make_def(&hall);
+                int32_t far, low, ap[2];
+                ai_fight(&hall, &hdef, qs, &far, &low, ap);
+                printf("mission map 11: fight reached %d from the middle, lowest feet %d, AP %d / %d\n", far, low,
+                       ap[0], ap[1]);
+                EXPECT(low <= 3000 && far < 12000);
+            } else {
+                EXPECT(!"mission map 11 missing: re-import");
+            }
+            free(o); free(g);
+            acr_gen1_stage_free(&hall);
+        }
         char path[1024];
         snprintf(path, sizeof path, "%s/27/collision.obj", dir);
         char *text = read_text(path);

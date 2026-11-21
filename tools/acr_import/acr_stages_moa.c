@@ -1,4 +1,4 @@
-/* Master of Arena arena stages as readable files. Format notes:
+/* Master of Arena stages (0-19 mission maps, 20-40 arenas) as readable files. Format notes:
  * docs/research/gen1-stages.md. Everything is read from the user's own
  * import folder; nothing from the disc is built into this program. */
 #include "acr_stages_moa.h"
@@ -17,7 +17,7 @@
 #define acr_mkdir(p) mkdir((p), 0755)
 #endif
 
-#define STAGE_FIRST 20u
+#define STAGE_FIRST 0u
 #define STAGE_LAST  40u
 #define CHUNKS      14u
 #define AREAS       512u
@@ -620,7 +620,10 @@ static int write_toml(const char *dir, unsigned stage, const chunk *pts, const a
     fprintf(f, "# Master of Arena stage %u (FDAT %u). Engine world units; y is down as in the\n"
                "# game (the floor of Green Silo is at -662), x mirrored (x = -(game x)).\n",
             stage, stage * 5 + 4);
-    fprintf(f, "id = %u\nname = \"%s\"\n", stage, name ? name : "");
+    if (stage < 20)
+        fprintf(f, "# A mission map. Its two start records are the arena's; missions don't use\n"
+                   "# them as drops (some sit side by side or off the floor).\n");
+    fprintf(f, "id = %u\nname = \"%s\"\nkind = \"%s\"\n", stage, name ? name : "", stage < 20 ? "mission" : "arena");
     fprintf(f, "visual_faces = %u\ncollision_polygons = %u\nareas = %u\n", (unsigned)faces, (unsigned)polys, areas);
     /* Starts: x, y, z, facing (4096 a turn; the engine's facing, which the
      * mirror leaves as it is). */

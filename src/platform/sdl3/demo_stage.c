@@ -270,6 +270,20 @@ int demo_stage_load(const char *dir, int id, demo_stage *out) {
     char *mtl = load_text(path);
     int ok = coll && toml && acr_gen1_stage_parse(coll, &out->collision) &&
              read_start(toml, "start_1", out->start[0]) && read_start(toml, "start_2", out->start[1]);
+    /* Mission maps (stages 0-19) keep the arena's two start records, but
+     * the mission engine doesn't use them as drops: some sit side by side or
+     * off the floor. Maps used by the mission tests get their own starts
+     * here until missions bring their drop points (docs/research/gen1-stages.md,
+     * "Mission maps"). */
+    if (ok) {
+        static const struct { int id; int32_t start[2][4]; } k_mission_starts[] = {
+            /* 11, the four-pillar hall (P4 Qualifier): facing each other down the
+             * middle, clear of the four pillars; the floor is at 3,000. */
+            { 11, { { 0, 3000, -8000, 0 }, { 0, 3000, 8000, 2048 } } },
+        };
+        for (size_t i = 0; i < sizeof k_mission_starts / sizeof k_mission_starts[0]; ++i)
+            if (k_mission_starts[i].id == id) SDL_memcpy(out->start, k_mission_starts[i].start, sizeof out->start);
+    }
     /* The game's own collision (imports from 2026-11-19 on): walls and
      * floors then follow the game's rules instead of the stand-ins. */
     if (ok) {
