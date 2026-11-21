@@ -4,14 +4,15 @@
 #include <stddef.h>
 #include <stdint.h>
 
-/* Master of Arena arena stages as readable files (docs/research/gen1-stages.md):
+/* Master of Arena stages (mission maps and arenas) as readable files (docs/research/gen1-stages.md):
  *
  *   <out>/<NN>/stage.toml      name, start points, area count
  *   <out>/<NN>/visual.obj/.mtl the stage's flat-coloured models (FDAT 5s+4 chunk 4),
  *                              placed by the area records (chunk 8)
  *   <out>/<NN>/collision.obj   the collision polygons (chunk 7), placed the same way
  *
- * NN = stage number (20-40; Green Silo is 27). Both OBJ files are in the
+ * NN = stage number: 0-19 are the mission maps, 20-40 the arena / VS
+ * stages (Green Silo is 27). Both OBJ files are in the
  * engine's world, in world units: x = -(game x), y up = -(game y),
  * z = game z (the game's world is mirrored against the engine's: its
  * facing is (-sin, cos)). Reads <unpacked>/GG/COM/FDAT/NNN.bin. Returns 0
