@@ -394,8 +394,58 @@ only bigger (14 to 366 areas, up to 87 models). acr-import now writes all of
   11 "Goldy" two. Map 1's long ship is objects 7-9 (handler 6, types 1, 49,
   50) at the ship's tiles, so it is probably the escorted vessel and moves.
 - Still open: which records are the player's drop (records 0-2 or the
-  code), what each handler is (MT, tank, turret, ...) and which model each
-  draws, the objective / failure rules in slot 0.
+  code), the objective / failure rules in slot 0, what record +14 and
+  +16 on mean (the five MTs on map 6 carry types 12, 11, 1, 33, 4).
+
+## Mission units (read 2026-11-22)
+
+`tools/research/moa_units.py <import>/unpacked` prints the roster below;
+with `<stage> <slot> <out.png>` it draws one unit in its first pose.
+
+- **Chunk 2 is the mission's unit models** (model set at slot 0x80, the
+  arena loader's `0x8005A9A0(0x80)`; Green Silo's is empty): u16 count, then
+  `[u32 size][entry]`, size < 5 = empty. Slot 0 and often the last are
+  empty; **object handler n draws slot 0x80 + n** (map 6: handler 2's five
+  objects are slot 2, the biped cannon MT; map 12 "MTs x 6" and map 13
+  "MTs x 4" use the same model).
+- **An entry** is an animated model like an AC: an animation block in PA
+  entry 0's layout without its size word (byte 0 = animation count, byte 1
+  = nodes, then the block length, 0x1C, joint table, animation list, end;
+  offsets count from 4 bytes before the entry), then `u32 3, u32 objects`
+  and the AC part mesh table (objects = pieces x 3 LODs). Joint table slot
+  k draws piece k. ACs have 57 animations and 23 jointed pieces (more for
+  quads); MTs 2-30 animations; turrets, vehicles and buildings 1-4.
+- The same unit (same bytes) is reused across maps: 43 different units
+  in maps 0-19.
+
+Roster (handler: objects x unit; names are by eye from the pictures):
+
+| Map | Briefing | Units |
+| --- | --- | --- |
+| 0 | Capture fugitive | 1 box vehicle (U00), 30 tracked gun MTs (U01), 1 AC (U02) |
+| 1 | Escort submarine | 3 helicopters (U03), 2 gun turrets (U04), box structures (U05, U07), 2 dome turrets (U06), 3 model-less objects (the moving ship) |
+| 2 | Destroy all combat MTs | 31 spider MTs (U08) |
+| 3 | Destroy the cannon | 3 jet fighters (U09), 8 small drones (U10), 1 reverse-legged AC (U11) |
+| 4 | Destroy all enemy forces | 5 small hover guns (U12), 1 AC (U13) |
+| 5 | Gun emplacements x 9 | 5 + 4 gun emplacements (U14, U15), 8 tanks (U16), 1 jet (U17), 1 AC (U18) |
+| 6 | MTs x 5 | 1 big humanoid MT (U19), 5 biped cannon MTs (U20), 1 tank-legged AC (U21), 1 model-less |
+| 7 | Destroy the armoured car | 1 helicopter (U22), 2 spiked armoured cars (U23), 1 box vehicle (U00), 5 humanoid MTs (U24), 1 quad AC (U25) |
+| 8 | AC x 1, MTs | 10 heavy humanoid MTs (U26), 6 cannon turrets (U27), 1 AC (U28), 1 model-less |
+| 9 | Recover secret material | 10 tracked gun MTs (U01), 15 light humanoid MTs (U29), 1 tank-legged AC (U30) |
+| 10 | Locate research team | 8 light humanoid MTs (U29), 25 cannon turrets (U27), 1 cannon MT (U31), 1 AC (U32) |
+| 11 | Goldy | 2 quad ACs (U33, U34) |
+| 12 | MTs x 6 | 6 cannon MTs (U20), 3 cannon MTs (U31) |
+| 13 | Trucks x 3, MTs x 4 | 4 drones (U10), 3 trucks (U35), 4 cannon MTs (U20), 1 jet (U36) |
+| 14 | Hercules | 1 AC (U37) |
+| 15 | Tank x 1 | 4 bunkers (U38), 1 long beam (U39), 2 big cannons (U40) |
+| 16 | Destroy all enemies | 6 heavy humanoid MTs (U26), 10 cannon MTs (U20), 1 AC (U02), 1 model-less |
+| 17 | Defend all gates | 6 tall humanoids (U41), 1 AC (U02), 3 model-less |
+| 18 | Reach the factory's core | 3 ACs (U02) |
+| 19 | (no briefing) | 1 AC (U42) |
+
+Not read yet: each handler's behaviour (the mission code), weapons and AP,
+the units' textures (pages and palettes as in the stage's textured models),
+and how the record numbers set them up.
 
 ## Next
 
