@@ -275,7 +275,8 @@ static int write_visual(const char *dir, const chunk *tmd, const area *ar, unsig
 #define VRAM_H 512
 #define MAX_TEX 24
 
-typedef struct vram { uint16_t px[VRAM_H][VRAM_W]; uint8_t set[VRAM_H][VRAM_W / 64]; } vram;
+struct acr_moa_vram { uint16_t px[VRAM_H][VRAM_W]; uint8_t set[VRAM_H][VRAM_W / 64]; };
+typedef struct acr_moa_vram vram;
 
 static int load_tims(const uint8_t *d, size_t n, vram *v) {
     size_t o = 0;
@@ -729,4 +730,41 @@ int acr_export_moa_stages(const char *unpacked_dir, const char *out_dir, uint32_
         ++*stages;
     }
     return 1;
+}
+
+/* ---- VRAM for other exporters (mission units, acr_units_moa.c) ---- */
+
+acr_moa_vram *acr_moa_vram_load(const char *unpacked_dir, unsigned stage) {
+    char path[1200];
+    snprintf(path, sizeof path, "%s/GG/COM/RTIM/%03u.bin", unpacked_dir, stage);
+    size_t n = 0;
+    uint8_t *d = read_all(path, &n);
+    if (!d) return NULL;
+    vram *v = calloc(1, sizeof *v);
+    if (v && !load_tims(d, n, v)) { free(v); v = NULL; }
+    free(d);
+    return v;
+}
+
+void acr_moa_vram_free(acr_moa_vram *v) { free(v); }
+
+int acr_moa_vram_has_page(const acr_moa_vram *v, unsigned tpage) { return page_loaded(v, tpage); }
+
+int acr_moa_vram_semi(const acr_moa_vram *v, unsigned tpage, unsigned clut) {
+    return clut_has_stp(v, (uint16_t)clut, ((tpage >> 7) & 3) ? 256 : 16);
+}
+
+unsigned acr_moa_vram_texel(const acr_moa_vram *v, unsigned tpage, unsigned clut, unsigned u, unsigned t) {
+    const unsigned px = (tpage & 15) * 64, py = ((tpage >> 4) & 1) * 256 + (t & 255), depth = (tpage >> 7) & 3;
+    unsigned idx;
+    if (depth == 0) idx = (v->px[py][px + (u & 255) / 4] >> ((u & 3) * 4)) & 15;
+    else if (depth == 1) idx = (v->px[py][px + (u & 255) / 2] >> ((u & 1) * 8)) & 255;
+    else return v->px[py][(px + (u & 255)) % VRAM_W];
+    const unsigned cx = (clut & 63) * 16 + idx, cy = clut >> 6;
+    return cy < VRAM_H && cx < VRAM_W ? v->px[cy][cx] : 0;
+}
+
+int acr_moa_vram_write_page(const char *path, const acr_moa_vram *v, unsigned tpage, unsigned clut) {
+    const tex_key k = { (uint16_t)(tpage & 0x1FF), (uint16_t)clut, 0 };
+    return write_page(path, v, k);
 }

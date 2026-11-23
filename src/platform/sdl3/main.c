@@ -989,7 +989,7 @@ int main(int argc, char **argv) {
     if (!g_hangar.owned[ACR_GEN1_CAT_OPTION][ACR_GEN1_OPTION_MODERN_BIT])
         g_hangar.owned[ACR_GEN1_CAT_OPTION][ACR_GEN1_OPTION_MODERN_BIT] = 1;
     g_options[0] = g_options[1] = g_part_args ? 0 : g_hangar.options;
-    acr_import_refresh(dir);          /* older imports: the menu sounds, the emblems */
+    acr_import_refresh(dir);          /* older imports: the menu sounds, the emblems, the mission units */
     sfx_open(dir);                    /* the menus' clicks too */
     rogue_init(dir, &g_catalog, g_part_names);
     rogue_set_ac_drawer(rogue_draw_ac);

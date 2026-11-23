@@ -61,6 +61,7 @@ add_library(acr_import_lib STATIC
     tools/acr_import/acr_motion_moa.c
     tools/acr_import/acr_models_moa.c
     tools/acr_import/acr_stages_moa.c
+    tools/acr_import/acr_units_moa.c
     tools/acr_import/acr_hud_moa.c
     tools/acr_import/acr_sfx_moa.c
     tools/acr_import/acr_arena_moa.c)

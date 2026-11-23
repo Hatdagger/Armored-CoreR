@@ -54,11 +54,16 @@ def objects_by_handler(root, s):
 
 
 def split(data):
-    """(animation count, joints, anim block with a dummy size word in front, mesh)."""
+    """(animation count, joints, anim block with a dummy size word in front, mesh).
+    Objects = pieces x LODs, LOD 0 first; pieces = the joint table's slots
+    (the u32 before the object count is not the LOD count: the jets have 2)."""
     code, alen = struct.unpack_from('<2I', data, 0)
     _, nobj = struct.unpack_from('<2I', data, alen)
-    mesh = struct.pack('<6I', len(data), 0, 0xC, nobj // 3, 3, nobj) + data[alen + 8:]
-    return code & 0xFF, (code >> 8) & 0xFF, b'\0\0\0\0' + data, parse(mesh)
+    d = b'\0\0\0\0' + data
+    _, slot, _ = moa_anim.joint_table(d, struct.unpack_from('<7I', d, 0))
+    pieces = max(slot.values()) + 1
+    mesh = struct.pack('<6I', len(data), 0, 0xC, pieces, nobj // pieces, nobj) + data[alen + 8:]
+    return code & 0xFF, (code >> 8) & 0xFF, d, parse(mesh)
 
 
 def anim_records(d, nanim):

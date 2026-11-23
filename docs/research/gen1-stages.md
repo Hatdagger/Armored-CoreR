@@ -411,9 +411,12 @@ with `<stage> <slot> <out.png>` it draws one unit in its first pose.
 - **An entry** is an animated model like an AC: an animation block in PA
   entry 0's layout without its size word (byte 0 = animation count, byte 1
   = nodes, then the block length, 0x1C, joint table, animation list, end;
-  offsets count from 4 bytes before the entry), then `u32 3, u32 objects`
-  and the AC part mesh table (objects = pieces x 3 LODs). Joint table slot
-  k draws piece k. ACs have 57 animations and 23 jointed pieces (more for
+  offsets count from 4 bytes before the entry), then a u32 and `u32
+  objects`, and the AC part mesh table: objects = pieces x LODs, LOD 0
+  first, pieces = the joint table's slots. Joint table slot k draws piece
+  k. Corrected 2026-11-23: the u32 is not the LOD count (1-3; U02 says 1
+  and has 3 LODs); the jets (U09, U17, U36) and the big cannon (U40) have
+  2 LODs, so the first pictures showed only 4 of the jets' 7 pieces. ACs have 57 animations and 23 jointed pieces (more for
   quads); MTs 2-30 animations; turrets, vehicles and buildings 1-4.
 - The same unit (same bytes) is reused across maps: 43 different units
   in maps 0-19.
@@ -443,8 +446,26 @@ Roster (handler: objects x unit; names are by eye from the pictures):
 | 18 | Reach the factory's core | 3 ACs (U02) |
 | 19 | (no briefing) | 1 AC (U42) |
 
+**Textures** (read 2026-11-23): every unit's pages and palettes are in
+its map's RTIM entry, the same VRAM load as the stage's textured models.
+Units used on several maps look the same on each (checked texel by texel
+on the faces' areas).
+
+**Import** (2026-11-23, `tools/acr_import/acr_units_moa.c`): acr-import
+writes `units/UNN/` for all 43 (numbered as above): `pieceK.obj` (LOD 0, at
+its node's bind position as AC parts), `skeleton.toml` and `anims.txt` (the
+AC set layout; a drawing node says `draws = "unit K"`), `unit.mtl` +
+`texture-NN.png`, and `unit.toml` (maps, slots, pieces, LODs). Each mission
+map gets `stages/MM/objects.toml`: records 0-2 as points, then each object
+with its handler, unit, skin, place (engine x), facing, type and all its
+raw words. All 43 load through the engine's parsers (skeleton, animations,
+MTL, OBJ). Imports from older builds get them through `acr_import_refresh`.
+
+Record 0 of each map is a third point next to the arena's two starts
+(map 6: game (-8000, -675, 10500) facing 2048); perhaps the player's drop.
+Not checked.
+
 Not read yet: each handler's behaviour (the mission code), weapons and AP,
-the units' textures (pages and palettes as in the stage's textured models),
 and how the record numbers set them up.
 
 ## Next

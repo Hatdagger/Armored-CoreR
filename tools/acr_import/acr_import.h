@@ -8,6 +8,7 @@
  *   <out>/motion/...toml             animation sets' root motion (acr_motion_moa.c)
  *   <out>/models/...                 AC models, textures, skeletons, animations (acr_models_moa.c)
  *   <out>/arena/...                  arena opponents: builds, names, AI (acr_arena_moa.c)
+ *   <out>/units/UNN/...              mission units; <out>/stages/MM/objects.toml (acr_units_moa.c)
  *
  * A MoA .T archive starts with a u16 entry count followed by count + 1 u16
  * sector offsets (relative to the archive start); entry i covers sectors
@@ -29,6 +30,7 @@ typedef struct acr_import_stats {
     uint32_t model_parts;      /* part models written to <out>/models */
     uint32_t model_sets;       /* skeletons + animations written to <out>/models/sets */
     uint32_t stages;           /* arena stages written to <out>/stages */
+    uint32_t units;            /* mission units written to <out>/units */
     uint32_t opponents;        /* arena opponents written to <out>/arena */
 } acr_import_stats;
 
@@ -48,7 +50,7 @@ uint32_t acr_moa_archive_table(const uint8_t *data, size_t bytes, uint16_t *offs
 
 /* An import made by an older build: adds what newer builds export from the
  * unpacked disc it already holds (the menu sounds, the opponents' emblems),
- * without importing again. Bits of what was added (0 = nothing to do, or
+ * and the mission units, without importing again. Bits of what was added (0 = nothing to do, or
  * no unpacked disc). */
 int acr_import_refresh(const char *out_dir);
 
