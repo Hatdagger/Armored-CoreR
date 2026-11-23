@@ -48,6 +48,7 @@
 #include "../../gen1/acr_gen1_ai.h"
 #include "demo_model.h"
 #include "demo_stage.h"
+#include "demo_units.h"
 #include "../../model/acr_aim.h"
 #include "garage.h"
 #include "rogue.h"
@@ -564,11 +565,15 @@ static int modern_of(int who) { return (g_options[who] & ACR_GEN1_OPTION_MODERN)
 static const char *g_import_dir = "";
 /* The arena: Green Silo (stage 27) when the import has it; F7 cycles Green
  * Silo, Ocean Platform (39), mission map 11 (the four-pillar hall, the P4
- * Qualifier test) and the open test floor. ACR_STAGE=NN picks any stage
+ * Qualifier test), mission map 6 (the sea platform, with its units) and the
+ * open test floor. ACR_STAGE=NN picks any stage
  * 0-40 to start on (0-19 are the mission maps); ACR_STAGE=open (or -1)
  * starts on the open floor. */
 static demo_stage g_stage;
 static int g_stage_id = 27, g_stage_on = 0;
+/* On a mission map (0-19), its mission units where the map's objects stand
+ * (drawn only: their mission code isn't read yet). Loaded when first drawn. */
+static demo_units g_units = { .map = -1 };
 
 /* Places fighter k's AC on the stage's start k (x, y down, z, facing). */
 static void stage_spawn(acr_gen1_ac *ac, const acr_gen1_ac_def *def, int k) {
@@ -1369,10 +1374,11 @@ int main(int argc, char **argv) {
             if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && back_held && e.gbutton.button == SDL_GAMEPAD_BUTTON_DPAD_LEFT) { toggle_stage = 1; back_combo = 1; }
             if (toggle_stage) {
                 /* Green Silo -> Ocean Platform -> mission map 11 (four-pillar
-                 * hall) -> the open test floor -> Green Silo (ACR_STAGE's
+                 * hall) -> mission map 6 (sea platform, its units drawn) ->
+                 * the open test floor -> Green Silo (ACR_STAGE's
                  * stage, if another, goes to the open floor next). A stage
                  * the import lacks is skipped. */
-                static const int k_cycle[] = { 27, 39, 11 };
+                static const int k_cycle[] = { 27, 39, 11, 6 };
                 enum { CYCLE = (int)(sizeof k_cycle / sizeof k_cycle[0]) };
                 int want_id = -1, at = CYCLE;
                 if (!g_stage_on) { want_id = k_cycle[0]; at = 0; }
@@ -2233,6 +2239,13 @@ int main(int argc, char **argv) {
         /* the arena (its sky first, around the eye), or the open floor's grid and walls */
         if (g_stage_on) demo_stage_draw_sky(&g_stage, sky_eye);
         if (g_stage_on) demo_stage_draw(&g_stage, 0);
+        if (g_stage_on && g_stage_id >= 0 && g_stage_id < 20) {
+            if (g_units.map != g_stage_id) {
+                demo_units_free(&g_units);
+                demo_units_load(g_import_dir, g_stage_id, &g_units);
+            }
+            demo_units_draw(&g_units, (float)SDL_GetTicksNS() / (float)ACR_GEN1_TICK_NS, &g_light);
+        }
         for (int g = -ARENA; g <= ARENA && !g_stage_on; g += 2000) {
             line3(v3((float)g, 0, (float)-ARENA), v3((float)g, 0, (float)ARENA), 52, 70, 76);
             line3(v3((float)-ARENA, 0, (float)g), v3((float)ARENA, 0, (float)g), 52, 70, 76);
@@ -2530,7 +2543,7 @@ int main(int argc, char **argv) {
             TEXT(20, 112, "BACK+UP (F4): OPPONENT STILL / AI PRESETS  BACK+DOWN (F6): AI VS AI (WATCH)");
             if (g_stage.ok) TEXT(20, 136, g_stage.collision.bounds ? "BACK+RIGHT (F8): TEST BOUNDARY ON (1,500 PAST THE STARTS)"
                                                                    : "BACK+RIGHT (F8): TEST BOUNDARY OFF");
-            TEXT(20, 124, g_stage.ok ? "BACK+LEFT (F7): GREEN SILO / OCEAN PLATFORM / MISSION MAP 11 / OPEN FLOOR"
+            TEXT(20, 124, g_stage.ok ? "BACK+LEFT (F7): GREEN SILO / OCEAN PLATFORM / MISSION MAPS 11, 6 / OPEN FLOOR"
                                      : "BACK+LEFT (F7): ARENA STAGE (RE-IMPORT THE DISC FOR STAGES)");
         }
         }

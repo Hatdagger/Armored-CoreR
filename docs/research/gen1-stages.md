@@ -463,7 +463,29 @@ MTL, OBJ). Imports from older builds get them through `acr_import_refresh`.
 
 Record 0 of each map is a third point next to the arena's two starts
 (map 6: game (-8000, -675, 10500) facing 2048); perhaps the player's drop.
-Not checked.
+On map 6 it sits on a small structure out at sea, north-east of the
+platform, not on the platform itself. Not checked further.
+
+**In the engine** (2026-11-23, `src/platform/sdl3/demo_units.c`): on any
+mission map (0-19) AC TEST draws every object that has a unit, at its
+record's place and facing, in its animation 0, looping. Drawn only: no
+movement, AP, weapons or collision yet. The skeleton reader takes
+`draws = "unit K"` as `ACR_PART_UNIT`. F7 now cycles Green Silo, Ocean
+Platform, map 11, map 6, the open floor (`ACR_STAGE=NN` starts on any map).
+Checked on map 6 (screenshots and a plan from the files): the five biped
+cannon MTs (U20) and the tank-legged AC (U21) stand on the deck (their
+lowest points at 499 against the deck's 500), all facing 0. The big
+humanoid MT (U19, record 6) is placed at game y +500, 1,000 under the deck
+and 560 under the sea surface, north of the platform: probably raised by
+its mission code. Maps 0, 3, 7, 11, 12 and 14 load and draw all their
+objects (map 0: 32).
+
+Screenshots without a screen (Linux): `LIBGL_ALWAYS_SOFTWARE=1
+SDL_VIDEO_FORCE_EGL=1 SDL_AUDIO_DRIVER=dummy ACR_STAGE=6
+ACR_SHOT=out.bmp ACR_SHOT_MS=4000 xvfb-run -a -s "-screen 0 1280x720x24"
+armored-corer <import> --test` (`ACR_HOLD` holds inputs). Without
+`SDL_VIDEO_FORCE_EGL` SDL gets an OpenGL ES context there and nothing is
+drawn.
 
 Not read yet: each handler's behaviour (the mission code), weapons and AP,
 and how the record numbers set them up.
