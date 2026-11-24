@@ -1,7 +1,8 @@
 /* Mission scripts: each mission map's own rules, as its mission code's
  * slot 0 runs them every tick (FDAT 5s+0, loaded at 0x800A0DD0; see
- * docs/research/gen1-stages.md, "Mission script"). Only map 6 is read so
- * far; the other maps keep the plain rule (won when every enemy is down).
+ * docs/research/gen1-stages.md, "Mission script"). Read so far: maps 2,
+ * 6, 13 and 15; the other maps keep the plain rule (won when every enemy
+ * is down).
  *
  * Part of the battle (acr_gen1_battle.mission), stepped with the units, so
  * netplay stays in step. The game's cutscenes (chunk 5, run by 0x80093844

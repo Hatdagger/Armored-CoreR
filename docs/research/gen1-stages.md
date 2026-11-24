@@ -649,6 +649,39 @@ units in the fight destroyed (testing aid). Checked in AC TEST: the deck
 opens, the tank AC joins; 2026-11-24 screenshots show the big MT leaping
 over the deck edge and standing on the deck.
 
+## Mission scripts, other maps (read 2026-11-24)
+
+The end call is `0x80052490(128)` "accomplished" or `(256)` "failed"
+(radio 153 goes with the first, 158 with the second). Failure is possible
+on maps 1, 3, 12 and 14. A record "left" = its entry (44 bytes from
+`0x801E6748`) has a handler (+10 != -1) and isn't destroyed (state 3),
+made or not.
+
+- **Map 2** (`0x800A39B0`): records 4-63 none left -> a counter starts
+  at 1 and requests at 30 (29 ticks later). Radio 28 at tick 40, 120 / 121
+  from area triggers (`0x801D0C36`, `0x801D0BF6`).
+- **Map 15** (`0x800A29E0`): an intro cutscene (`0x80093844(0x800)`);
+  none left -> the request at once.
+- **Map 13** (`0x800A4FA0`): fewer than 8 left -> radio 93 and records
+  11-14 made (the four drones, U10; list at `0x800AABEC`), once; none left
+  -> as map 2. Records 4-10 trucks and MTs, 15 the jet (U36).
+- **Map 12** (`0x800A4640`, "Objective: Save friendly units"): targets
+  records 4-9 (list `0x800AA0D8`, handler 1, team 2, U20) all destroyed ->
+  the request at once. Records 10-12 (list `0x800AA0F0`, handler 2, U31,
+  **team 4**) are the friendly units: each one lost plays radio 102-104;
+  all three lost -> 20 ticks, radio 59, and once the radio ends
+  (`0x80058480`) radio 158 and **failed**. The player's object is team 1
+  (`0x80084D5C`). The common target routine (`0x8007931C`) takes objects
+  whose team differs from its own; handler 2 uses its own copy
+  (`0x800A2718`) that skips team 5 and itself instead (so, as read, the
+  friendlies may pick the player): not checked in play.
+- Maps 1, 3, 4, 5, 7-11, 14, 16-19: not read yet (timers in 14 "Hercules
+  in 3 minutes"; 3, 12, 14 fail).
+
+**In the engine**: maps 2, 13 and 15 run these rules (records 11-14 of
+map 13 wait hidden); radio and cutscenes are left out. Units the engine
+leaves out (not on a floor) don't count, unlike the game.
+
 ## Mission units (read 2026-11-22)
 
 `tools/research/moa_units.py <import>/unpacked` prints the roster below;

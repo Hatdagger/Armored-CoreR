@@ -353,6 +353,41 @@ int main(void) {
     }
     EXPECT(!acr_gen1_mission_has_script(5) && acr_gen1_mission_wait(5, 4) == ACR_GEN1_WAIT_NONE);
 
+    /* Maps 2, 15 and 13: everything from record 4 down wins, the request
+     * 29 ticks later (2, 13) or at once (15), the ending 100 after it; map 13 makes records 11-14 when fewer
+     * than 8 are left. */
+    for (int map = 0; map < 3; ++map) {
+        const int id = map == 0 ? 2 : map == 1 ? 15 : 13;
+        setup(&b);
+        b.count = 2;
+        b.f[1].team = 1;
+        b.f[1].ap = 0;
+        const int first = 4, last = id == 13 ? 14 : 9;
+        for (int r = first; r <= last; ++r) {
+            u = mt(-4000 + 500 * (r - first), 6000, 2048, ACR_GEN1_BRAIN_NONE);
+            u.record = (uint8_t)r;
+            u.wait = (uint8_t)acr_gen1_mission_wait(id, r);
+            u.active = !u.wait;
+            acr_gen1_battle_add_unit(&b, &u);
+        }
+        acr_gen1_mission_start(&b, id);
+        EXPECT(b.mission.map == id + 1);
+        if (id == 13) {
+            EXPECT(b.unit[7].wait == ACR_GEN1_WAIT_HIDDEN && b.unit[10].wait == ACR_GEN1_WAIT_HIDDEN);
+            for (int k = 0; k < 3; ++k) b.unit[k].down = 1, b.unit[k].ap = 0;      /* 8 left (4 waiting) */
+            acr_gen1_battle_step(&b, none, idle);
+            EXPECT(!b.unit[7].active);
+            b.unit[3].down = 1; b.unit[3].ap = 0;                                  /* 7 left */
+            acr_gen1_battle_step(&b, none, idle);
+            EXPECT(b.unit[7].active && b.unit[10].active && !b.unit[7].wait);
+        }
+        for (int k = 0; k < b.units; ++k) b.unit[k].down = 1, b.unit[k].ap = 0;
+        int ticks = 0;
+        while (acr_gen1_battle_result(&b, 0) == 0 && ticks < 400) { acr_gen1_battle_step(&b, none, idle); ++ticks; }
+        EXPECT(acr_gen1_battle_result(&b, 0) == 1);
+        EXPECT(ticks == (id == 15 ? 101 : 130));      /* counted from the tick all are down */
+    }
+
     if (failures) { printf("%d failure(s)\n", failures); return 1; }
     printf("gen1 units: all passed (first hit after %d steps)\n", steps);
     return 0;

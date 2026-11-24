@@ -55,9 +55,23 @@ static const map6_key k_map6_climb[] = {
 #define MAP6_FADE_TICKS  60     /* the fade before cutscene 4 (slot 0's -10172) */
 #define END_TICKS        100    /* 0x80052490: the ending starts this many ticks after the request */
 
-int acr_gen1_mission_has_script(int map) { return map == 6; }
+/* Maps 2, 13 and 15 (read 2026-11-24, slot 0 at 0x800A39B0 / 0x800A4FA0 /
+ * 0x800A29E0): the plain objective, with the game's own timing. Each
+ * counts records 4-63 whose entry has a handler and isn't destroyed
+ * (state 3), made or not:
+ * - map 2 ("Destroy all combat MTs"): none left -> 29 ticks -> radio 153
+ *   and the accomplished request (the ending 100 ticks later);
+ * - map 15 ("Tank x 1"): none left -> the request at once;
+ * - map 13 ("Trucks x 3, MTs x 4"): fewer than 8 left -> radio 93 and
+ *   records 11-14 (four drones, U10) are made, once; none left -> as map 2.
+ * Radio lines 28, 120, 121 (map 2) and the intro cutscenes are left out. */
+#define MAP13_REINFORCE_BELOW 8
+#define PLAIN_WAIT 29           /* maps 2 and 13: the counter starts at 1 that tick and requests at 30 */
+
+int acr_gen1_mission_has_script(int map) { return map == 2 || map == 6 || map == 13 || map == 15; }
 
 int acr_gen1_mission_wait(int map, int record) {
+    if (map == 13 && record >= 11 && record <= 14) return ACR_GEN1_WAIT_HIDDEN;
     if (map == 6) {
         if (record == MAP6_TANK) return ACR_GEN1_WAIT_HIDDEN;
         if (record == MAP6_BIG_MT) return ACR_GEN1_WAIT_SHOWN;
@@ -149,6 +163,29 @@ static void map6_tick(acr_gen1_battle *b) {
         m->end_ticks = (uint8_t)(m->flags & ACR_GEN1_MISSION_BONUS ? END_TICKS : MAP6_FADE_TICKS + END_TICKS);
 }
 
+/* Records 4 on still standing, made or waiting (slot 0's count). */
+static int remaining(const acr_gen1_battle *b) {
+    int n = 0;
+    for (int u = 0; u < b->units; ++u) {
+        const acr_gen1_unit *un = &b->unit[u];
+        if (un->record >= 4 && !destroyed(un)) ++n;
+    }
+    return n;
+}
+
+static void plain_tick(acr_gen1_battle *b, int map) {
+    acr_gen1_mission *m = &b->mission;
+    const int left = remaining(b);
+    if (map == 13 && m->phase == 0 && left < MAP13_REINFORCE_BELOW) {
+        m->phase = 1;                           /* radio 93; records 11-14 made (0x8007ECEC) */
+        for (int u = 0; u < b->units; ++u)
+            if (b->unit[u].record >= 11 && b->unit[u].record <= 14 && b->unit[u].wait) join(&b->unit[u]);
+        return;
+    }
+    if (left) return;
+    m->end_ticks = (uint8_t)(map == 15 ? END_TICKS : PLAIN_WAIT + END_TICKS);
+}
+
 void acr_gen1_mission_tick(acr_gen1_battle *b) {
     acr_gen1_mission *m = &b->mission;
     if (!m->map || m->result) return;
@@ -158,4 +195,5 @@ void acr_gen1_mission_tick(acr_gen1_battle *b) {
         return;
     }
     if (m->map == 7) map6_tick(b);
+    else plain_tick(b, m->map - 1);
 }
