@@ -36,7 +36,7 @@ From the AC1Recomp mapping (`docs/mapping/arena-prizes.md`,
 | Sub arena | each opponent is beaten once and can't be fought again ("BEATEN") |
 | Ranked list | opens at the top of the sub arena (rank 16) |
 | Winning | anyone above can be challenged; a win moves you **up one rank** |
-| Prize money | every win, the opponent's own amount; credits cap at 99,999,999 |
+| Prize money | the first win over an opponent only (user, 2026-11-24); credits cap at 99,999,999 |
 | Prize parts | 23 parts on the disc; the part goes into the garage (+1 copy, +1 more for paired back weapons) |
 | Champion / Guest | their part comes only once every opponent there is beaten |
 | Ex Arenas 1-4 | need the matching legs (humanoid, four legs, reverse joint, caterpillar) |
@@ -48,7 +48,7 @@ From the AC1Recomp mapping (`docs/mapping/arena-prizes.md`,
 1. **Who drops when you win:** the beaten opponent drops to just below you;
    the ones in between move up one. This keeps the sub arena from ever
    leaving you with only beaten opponents above you.
-2. **Parts only the first time** an opponent is beaten; money every time.
+2. **Parts only the first time** an opponent is beaten (money too: user's call).
 3. **When the Ex Arenas open:** the four leg arenas at main-arena rank 15;
    Champion, Guest and FromSoft at main-arena rank 1; Master once Champion,
    Guest and FromSoft have each been topped. (`ACR_ARENA_UNLOCK=1` opens

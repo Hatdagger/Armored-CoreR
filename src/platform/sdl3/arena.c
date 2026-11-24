@@ -563,11 +563,14 @@ static void draw_ladder(float hud_w, int elapsed_ms) {
             g_draw_ac(parts, f->colours, px + 8, 92, pw - 16, 230, 1.0f, A.spin, 0, 1.0f);
         }
         char c[24];
-        num((long)f->prize_money, c, sizeof c);
-        SDL_snprintf(line, sizeof line, "PRIZE      %s C", c);
-        acr_hud_text(px + 12, 336, line, WHITE);
         const acr_gen1_arena_ladder *l = &A.s.a[A.arena];
         const int d = acr_gen1_arena_holder(&A.s, A.arena, rank);
+        num((long)f->prize_money, c, sizeof c);
+        if (d && l->beaten[d - 1]) acr_hud_text(px + 12, 336, "PRIZE      PAID", DIM);   /* first win only */
+        else {
+            SDL_snprintf(line, sizeof line, "PRIZE      %s C", c);
+            acr_hud_text(px + 12, 336, line, WHITE);
+        }
         int pc, pi;
         if ((A.arena == 5 || A.arena == 6)) {
             const acr_gen1_rogue_foe *top = acr_gen1_arena_foe(&A.w, A.arena, 1);
@@ -623,7 +626,8 @@ static void draw_result(float hud_w) {
         SDL_snprintf(line, sizeof line, "RANK  %d  >  %d", A.pay.old_rank, A.pay.new_rank);
         acr_hud_text(x + 24, y + 86, line, HILITE);
         num((long)A.pay.money, c, sizeof c);
-        SDL_snprintf(line, sizeof line, "PRIZE MONEY   %s C", c);
+        if (A.pay.money) SDL_snprintf(line, sizeof line, "PRIZE MONEY   %s C", c);
+        else SDL_snprintf(line, sizeof line, "PRIZE MONEY   ALREADY PAID");
         acr_hud_text(x + 24, y + 110, line, WHITE);
         if (A.pay.prize_id >= 0) {
             acr_hud_text(x + 24, y + 138, "SPECIAL PARTS OBTAINED", GOOD);

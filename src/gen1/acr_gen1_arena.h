@@ -11,7 +11,7 @@
  *    the player is at the top of the sub arena (rank 16).
  *  - A win over anyone above moves the player up one rank (the ranked list
  *    and the Ex Arenas).
- *  - Every win pays the opponent's prize money (credits, capped at
+ *  - A win pays the opponent's prize money (credits, capped at
  *    99,999,999). Some opponents also give a part (one of 23 prize ids);
  *    the part goes into the garage (+1 copy, +1 more for back weapons).
  *  - Champion (arena 5) and Guest (6) give their part (record 0's) only
@@ -20,8 +20,8 @@
  * Armored-CoreR's own choices where the mapping is silent (docs/ARENA.md):
  *  - The beaten opponent drops to just below the player; the ones between
  *    move up one (so the sub arena never strands the player).
- *  - Prize parts are given the first time an opponent is beaten only;
- *    money every time.
+ *  - Prize money and prize parts are paid the first time an opponent is
+ *    beaten only (user, 2026-11-24).
  *  - Ex Arenas open: 1-4 at main-arena rank 15, 5-7 at main-arena rank 1,
  *    8 (Master) once 5, 6 and 7 have each been topped.
  *  - A draw counts as a loss. Match timer: 2:00, 5:00 or none. */

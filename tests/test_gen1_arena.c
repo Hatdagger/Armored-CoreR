@@ -146,8 +146,7 @@ static void test_prizes(void) {
     acr_gen1_arena_pay(&h, &p);
     EXPECT(h.credits == 100 + 1000 * 47);
     EXPECT(h.owned[ACR_GEN1_CAT_ARMS][8] == 1);
-    /* It dropped to 16 (just below). Climb past it, then beat it again:
-     * money again, no second part. */
+    /* It dropped to 16 (just below). */
     climb(&s, 0, 2);
     int rank_of_3 = 0;
     for (int r = 1; r <= 50; ++r) if (acr_gen1_arena_holder(&s, 0, r) == 3) rank_of_3 = r;
@@ -192,9 +191,13 @@ static void test_second_win_no_part(void) {
      * isn't possible (losses don't move ranks), so check refights from a
      * fresh ladder where it stays above: beaten flag + part_given hold. */
     EXPECT(s.a[0].part_given[8] == 1);
-    s.a[0].beaten[8] = 0;   /* even if beaten were cleared (stock refights) */
-    const int at = 16;
-    EXPECT(acr_gen1_arena_holder(&s, 0, at) == 9);
+    EXPECT(acr_gen1_arena_holder(&s, 0, 16) == 9);
+    /* Put it back above the player (ranks never fall, so only a hand-made
+     * ladder can do this): a second win pays no money and no part. */
+    s.a[0].holder[13] = 9;            /* rank 14 */
+    s.a[0].holder[15] = 14;           /* rank 16 */
+    EXPECT(acr_gen1_arena_result(&s, &g_w, 0, 14, 1, &p));
+    EXPECT(p.won && p.money == 0 && p.prize_id == -1);
 }
 
 static void test_leg_arena_and_champion(void) {

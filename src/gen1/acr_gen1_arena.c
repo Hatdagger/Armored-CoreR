@@ -213,8 +213,8 @@ int acr_gen1_arena_result(acr_gen1_arena *s, const acr_gen1_arena_world *w, int 
     l->holder[me - 1] = (uint8_t)foe_rank;
     p.new_rank = me - 1;
     if (!l->best || p.new_rank < l->best) l->best = (uint8_t)p.new_rank;
-    p.money = f ? f->prize_money : 0;
     const int first = !l->beaten[foe_rank - 1];
+    p.money = f && first ? f->prize_money : 0;   /* the first win over it only */
     l->beaten[foe_rank - 1] = 1;
     if (a == 5 || a == 6) {
         /* Champion and Guest: record 0's part once all are beaten. */
