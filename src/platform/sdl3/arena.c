@@ -566,8 +566,7 @@ static void draw_ladder(float hud_w, int elapsed_ms) {
         const acr_gen1_arena_ladder *l = &A.s.a[A.arena];
         const int d = acr_gen1_arena_holder(&A.s, A.arena, rank);
         num((long)f->prize_money, c, sizeof c);
-        if (d && l->beaten[d - 1]) acr_hud_text(px + 12, 336, "PRIZE      PAID", DIM);   /* first win only */
-        else {
+        if (!(d && l->beaten[d - 1])) {   /* paid on the first win only: nothing shown after */
             SDL_snprintf(line, sizeof line, "PRIZE      %s C", c);
             acr_hud_text(px + 12, 336, line, WHITE);
         }
@@ -625,10 +624,11 @@ static void draw_result(float hud_w) {
     if (A.pay.won) {
         SDL_snprintf(line, sizeof line, "RANK  %d  >  %d", A.pay.old_rank, A.pay.new_rank);
         acr_hud_text(x + 24, y + 86, line, HILITE);
-        num((long)A.pay.money, c, sizeof c);
-        if (A.pay.money) SDL_snprintf(line, sizeof line, "PRIZE MONEY   %s C", c);
-        else SDL_snprintf(line, sizeof line, "PRIZE MONEY   ALREADY PAID");
-        acr_hud_text(x + 24, y + 110, line, WHITE);
+        if (A.pay.money) {   /* a repeat win over the same opponent: no prize line */
+            num((long)A.pay.money, c, sizeof c);
+            SDL_snprintf(line, sizeof line, "PRIZE MONEY   %s C", c);
+            acr_hud_text(x + 24, y + 110, line, WHITE);
+        }
         if (A.pay.prize_id >= 0) {
             acr_hud_text(x + 24, y + 138, "SPECIAL PARTS OBTAINED", GOOD);
             if (A.pay.part_cat >= 0) acr_hud_text(x + 24, y + 154, part_name(A.pay.part_cat, A.pay.part_index), HILITE);
