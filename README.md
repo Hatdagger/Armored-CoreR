@@ -137,6 +137,16 @@ Two players: player 2 uses the second controller (or the only one, leaving
 player 1 the keyboard). Both fly the same build; the match ends when one
 AC's AP reaches 0, and Start starts the next.
 
+## Arena
+
+Main menu -> **ARENA**. Master of Arena's ranked ladders with your own
+garage AC. The main arena starts you at rank 50 in the sub arena; beat
+everyone there to open the ranked list (L1 / R1 flips the pages). Pick an
+opponent above you and challenge; a win moves you up one rank and pays
+their prize money, and some opponents give a part. The Ex Arenas open as
+you climb (four of them need a specific leg type). MATCH TIMER (2:00,
+5:00, none) and STAGE are on the arena list. Rules: `docs/ARENA.md`.
+
 ## Rogue Arena
 
 Main menu -> **ROGUE ARENA**. One AC, one life, 19 rivals from the
