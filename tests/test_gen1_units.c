@@ -294,7 +294,8 @@ int main(void) {
     EXPECT(acr_gen1_battle_result(&b, 0) == 1);
 
     /* Map 6's script: the five MTs (records 7-11) down open the deck; the
-     * tank AC (4) joins and the big MT (6) climbs to the deck and joins;
+     * tank AC (4) joins and the big MT (6) climbs to the deck by cutscene
+     * 3's points and joins;
      * the big MT down wins it, 100 ticks later with the tank AC down first
      * (bonus), 160 with it still up. Nothing else wins it. */
     for (int tank_first = 0; tank_first < 2; ++tank_first) {
@@ -323,9 +324,17 @@ int main(void) {
         b.unit[4].down = 1; b.unit[4].ap = 0;
         for (int t = 0; t < 20; ++t) acr_gen1_battle_step(&b, none, idle);
         EXPECT(b.mission.phase == 1 && !b.unit[5].active);      /* the deck opening */
-        for (int t = 0; t < 200; ++t) acr_gen1_battle_step(&b, none, idle);
+        for (int t = 0; t < 100 && b.mission.phase != -1; ++t) acr_gen1_battle_step(&b, none, idle);
         EXPECT(b.unit[5].active && !b.unit[5].wait);            /* the tank AC is in */
-        EXPECT(b.unit[6].active && b.unit[6].y == -500 * 64);   /* the big MT on the deck */
+        /* cutscene 3's path: point 10 -> 11 (60 ticks from tick 50), -> 12 (34), put at 13 */
+        for (int t = 0; t < 110; ++t) acr_gen1_battle_step(&b, none, idle);
+        EXPECT(!b.unit[6].active && b.unit[6].x == -300 * 64 && b.unit[6].y == 500 * 64 && b.unit[6].z == 8000 * 64);
+        for (int t = 0; t < 34; ++t) acr_gen1_battle_step(&b, none, idle);
+        EXPECT(b.unit[6].y == -1200 * 64 && b.unit[6].z == 6500 * 64);
+        for (int t = 0; t < 126; ++t) acr_gen1_battle_step(&b, none, idle);
+        EXPECT(!b.unit[6].active && b.unit[6].z == 3500 * 64);  /* on the deck, the cutscene's last tick */
+        acr_gen1_battle_step(&b, none, idle);
+        EXPECT(b.unit[6].active && b.unit[6].y == -500 * 64 && b.unit[6].yaw == 2048);   /* the big MT joins */
         EXPECT(acr_gen1_battle_result(&b, 0) == 0);
         if (tank_first) {
             b.unit[5].down = 1; b.unit[5].ap = 0;

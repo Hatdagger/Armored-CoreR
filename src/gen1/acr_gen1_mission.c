@@ -20,11 +20,19 @@
  *   white, cutscene 4 (the tank AC leaves) and the same request.
  * - The player's AP at 0 stops the script (the battle loses the mission).
  *
- * Stand-ins (not read yet): the deck's opening time (node 132's animation)
- * is MAP6_OPEN_TICKS; the cutscene points are run-time stage data, so the
- * big MT climbs straight up at MAP6_RISE a tick to the MTs' deck height
- * (y -500) and joins the fight there. The cutscenes themselves are
- * skipped (the game pauses the fight for them). */
+ * - The climb (cutscene 3's object track, 270 ticks): after 50 ticks the
+ *   big MT is put at point 10 (animation 26), keyed to point 11 over 60
+ *   ticks, then (animation 29) to point 12 over 34, then put at point 13
+ *   facing 2048 (animation 27) for the last 126. The points are chunk 10's
+ *   (copied to 0x801E49D8 by 0x80078DE8; game x, y down, z):
+ *   10 (300, 500, 11000), 11 (300, 500, 8000), 12 (300, -1200, 6500),
+ *   13 (300, -500, 3500), the deck. It joins the fight when it ends.
+ *
+ * Stand-ins (not read yet): the deck's opening time (node 132's animation 4;
+ * cutscene 2 sets nodes 132 / 133 to frame 161, perhaps its end) is
+ * MAP6_OPEN_TICKS; a position key is taken as a straight line over the
+ * wait that follows it (the key interpolation is not read). The fight
+ * doesn't pause for the cutscenes as the game's does. */
 #include "acr_gen1_mission.h"
 
 #include <string.h>
@@ -35,8 +43,15 @@
 #define MAP6_SPARE       5
 #define MAP6_BIG_MT      6
 #define MAP6_OPEN_TICKS  44     /* stand-in: about 2 seconds */
-#define MAP6_RISE        17     /* stand-in: 1,000 in about 60 ticks (cutscene 3's first move) */
-#define MAP6_DECK_Y      (-500) /* the five MTs' records stand here */
+/* Cutscene 3's object track for the big MT: from tick `at`, from point
+ * `from` (or where it is, -1) to point `to` over `ticks`, playing `anim`. */
+typedef struct map6_key { uint16_t at, ticks; int8_t from, to; uint8_t anim; } map6_key;
+static const int16_t k_map6_point[4][3] = {      /* points 10-13, engine x (= -game x), y down, z */
+    { -300, 500, 11000 }, { -300, 500, 8000 }, { -300, -1200, 6500 }, { -300, -500, 3500 } };
+static const map6_key k_map6_climb[] = {
+    { 50, 60, 10, 11, 26 }, { 110, 34, -1, 12, 29 }, { 144, 126, 13, 13, 27 } };
+#define MAP6_CLIMB_TICKS 270    /* cutscene 3's length */
+#define MAP6_CLIMB_YAW   2048   /* its 1002 rotation at point 13 */
 #define MAP6_FADE_TICKS  60     /* the fade before cutscene 4 (slot 0's -10172) */
 #define END_TICKS        100    /* 0x80052490: the ending starts this many ticks after the request */
 
@@ -68,6 +83,45 @@ static void join(acr_gen1_unit *u) {
     u->wait = ACR_GEN1_WAIT_NONE;
 }
 
+static void map6_put(acr_gen1_unit *u, const int16_t *p) {
+    u->x = p[0] * 64; u->y = p[1] * 64; u->z = p[2] * 64;
+}
+
+/* Tick t of cutscene 3 for the big MT (see the top of the file). */
+static void map6_climb(acr_gen1_mission *m, acr_gen1_unit *u, unsigned t) {
+    u->px = u->x; u->py = u->y; u->pz = u->z;
+    if (t >= MAP6_CLIMB_TICKS) {
+        map6_put(u, k_map6_point[3]);
+        u->px = u->x; u->py = u->y; u->pz = u->z;
+        u->yaw = MAP6_CLIMB_YAW;
+        u->anim = 0;
+        join(u);
+        return;
+    }
+    for (int k = (int)(sizeof k_map6_climb / sizeof k_map6_climb[0]) - 1; k >= 0; --k) {
+        const map6_key *key = &k_map6_climb[k];
+        if (t < key->at) continue;
+        const unsigned n = t - key->at;
+        if (n == 0) {                                   /* the key starts */
+            if (key->from >= 0) {
+                map6_put(u, k_map6_point[key->from - 10]);
+                u->px = u->x; u->py = u->y; u->pz = u->z;
+            }
+            if (key->to == 13) u->yaw = MAP6_CLIMB_YAW;
+            u->anim = key->anim;
+            u->anim_frame = 0;
+            m->from[0] = u->x; m->from[1] = u->y; m->from[2] = u->z;
+        }
+        const int16_t *to = k_map6_point[key->to - 10];
+        const int32_t left = (int32_t)key->ticks - (int32_t)n - 1;   /* reached on the key's last tick */
+        u->x = to[0] * 64 + (int32_t)((int64_t)(m->from[0] - to[0] * 64) * left / key->ticks);
+        u->y = to[1] * 64 + (int32_t)((int64_t)(m->from[1] - to[1] * 64) * left / key->ticks);
+        u->z = to[2] * 64 + (int32_t)((int64_t)(m->from[2] - to[2] * 64) * left / key->ticks);
+        ++u->anim_frame;
+        return;
+    }
+}
+
 static void map6_tick(acr_gen1_battle *b) {
     acr_gen1_mission *m = &b->mission;
     acr_gen1_unit *tank = by_record(b, MAP6_TANK), *big = by_record(b, MAP6_BIG_MT);
@@ -85,18 +139,11 @@ static void map6_tick(acr_gen1_battle *b) {
         if (m->timer && --m->timer) return;
         if (tank && tank->wait) join(tank);
         m->phase = -1;
+        m->timer = 0;                           /* counts cutscene 3's ticks */
         return;
     }
-    /* Step -1: the big MT climbs, then the fight runs to its end. */
-    if (big && big->wait == ACR_GEN1_WAIT_SHOWN) {
-        big->py = big->y;
-        big->y -= MAP6_RISE * 64;
-        if (big->y <= MAP6_DECK_Y * 64) {
-            big->y = MAP6_DECK_Y * 64;
-            big->py = big->y;
-            join(big);
-        }
-    }
+    /* Step -1: the big MT climbs (cutscene 3), then the fight runs to its end. */
+    if (big && big->wait == ACR_GEN1_WAIT_SHOWN) map6_climb(m, big, m->timer++);
     if (tank && !tank->wait && destroyed(tank)) m->flags |= ACR_GEN1_MISSION_BONUS;
     if (!m->end_ticks && big && !big->wait && destroyed(big))
         m->end_ticks = (uint8_t)(m->flags & ACR_GEN1_MISSION_BONUS ? END_TICKS : MAP6_FADE_TICKS + END_TICKS);

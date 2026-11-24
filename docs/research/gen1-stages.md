@@ -605,12 +605,29 @@ Map 6 plays 0 at the start, 1 and 2 when the deck has opened, 3 for the big
 MT, 4 in the second ending. Commands read so far (interpreter
 `0x80091D88`): `1003 n` takes record entry n (makes its object if needed);
 `8 / 9 a b c` sets the animation (`0x80054AC8`); `1001 8000 n 0` puts the
-object at point n of the 52-byte table at `0x801E49D8` (the area tree; who
-fills points 10-13 on map 6 is not found); `1002` a rotation; `0 / 2 x y z`
-position / rotation keys; `14 ...` a sound; `100D` defines a point;
+object at point n of the 52-byte table at `0x801E49D8`; `1002` a rotation;
+`0 / 2 x y z` position / rotation keys (`0 8000 n 0`: toward point n; the
+interpreter keeps the previous key at +8 and the new one's place in the
+track at +14; the per-tick interpolation is not read); `14 ...` a sound; `100D` defines a point;
 `1008 / 1009` drive stage nodes (132 and 133 in cutscene 2); `1004 n` radio.
-In cutscene 3 the big MT plays animations 26, 29 and 27 (no root motion in
-any) while it is set to points 10, 11, 12 and 13 over about 184 ticks.
+**The points** (read 2026-11-24) are stage chunk 10: 128 entries of 32
+bytes (s16 x, y, z, s16 at +6, ...), copied by `0x80078DE8` (called from
+the stage loader at `0x800559A8`) into 128 x 52 bytes at `0x801E49D8`.
+Map 6, game x, y down, z: **10 (300, 500, 11000), 11 (300, 500, 8000),
+12 (300, -1200, 6500), 13 (300, -500, 3500)**; 5 / 6 are (100 / 800, -500,
+300), 14 (300, -750, 3700). Cutscene 3 (270 ticks), the big MT's track:
+wait 50; `1003 6`; a sound; put at point 10, animation 26; key to point 11,
+wait 60; a sound, animation 29, key to point 12, wait 34; a sound; put at
+point 13, rotation 2048, animation 27; wait 126. So it walks under water
+from z 11,000 to 8,000, leaps 1,700 up and 1,500 ahead, and lands on the
+deck at z 3,500 facing south.
+
+**The deck** (nodes 132 / 133, animated instance at node +56: +6 frame,
++10 animation): cutscene 2 sets both to frame 161 (`1008 1 0x84 0xA1`,
+`1008 1 0x85 0xA1`), likely the opening's last frame; not confirmed. Map
+6's mission code has its own node controller (`0x800A3F8C` sets the
+controller's +16 state; `0x800A3FDC` takes 0x8100 / 0x8200-2 commands from
+cutscene `1009`) — not read through.
 
 **Motion sets** (chunk 12): u16 count, then per handler `[u32 size]` a
 36-byte header and a motion set in the AC format (`acr_motion_moa.c`),
@@ -625,11 +642,12 @@ and of netplay's hash): units keep their record number; a map with a script
 names the ones that wait (map 6: the tank AC hidden, the big MT drawn under
 the sea), and wins by its objective instead of "everything down" (the
 player's side down still loses). Map 6 runs the steps above with the
-cutscenes skipped; stand-ins: the deck takes 44 ticks to open and the big
-MT climbs straight up 17 a tick to the MTs' deck height (y -500), joining
-the fight there. AC TEST logs each step; `ACR_UNITS_DOWN=1` starts with the
+cutscenes skipped; the deck takes 44 ticks to open (stand-in); the big MT
+follows cutscene 3's points during the fight (keys taken as straight lines)
+and joins at point 13 facing 2048. AC TEST logs each step; `ACR_UNITS_DOWN=1` starts with the
 units in the fight destroyed (testing aid). Checked in AC TEST: the deck
-opens, the tank AC joins; the big MT on the deck not yet seen on screen.
+opens, the tank AC joins; 2026-11-24 screenshots show the big MT leaping
+over the deck edge and standing on the deck.
 
 ## Mission units (read 2026-11-22)
 

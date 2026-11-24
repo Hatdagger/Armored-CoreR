@@ -6,7 +6,8 @@
  * Part of the battle (acr_gen1_battle.mission), stepped with the units, so
  * netplay stays in step. The game's cutscenes (chunk 5, run by 0x80093844
  * while the fight waits) are skipped: what they change happens at once,
- * and the big MT's climb out of the sea is a stand-in (see the .c). */
+ * and the big MT's climb out of the sea follows cutscene 3's path during
+ * the fight (see the .c). */
 #ifndef ACR_GEN1_MISSION_H
 #define ACR_GEN1_MISSION_H
 
@@ -34,6 +35,7 @@ typedef struct acr_gen1_mission {
     uint8_t  flags;
     uint8_t  result;       /* ACR_GEN1_MISSION_*; DONE once the end delay ran out */
     uint8_t  end_ticks;    /* the end delay counting down (0x800A0DC0's 100) */
+    int32_t  from[3];      /* map 6: where the big MT's current cutscene key started (1/64 units) */
 } acr_gen1_mission;
 
 /* 1 if map `map` (0-19) has a script here. */
