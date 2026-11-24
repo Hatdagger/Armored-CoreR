@@ -19,7 +19,7 @@ enum { BATTLE_HUD_MSG_HIT = 1, BATTLE_HUD_MSG_DAMAGED = 2, BATTLE_HUD_MSG_LEAVIN
        BATTLE_HUD_MSG_ARMOR_LOW = 8, BATTLE_HUD_MSG_CHARGING = 16, BATTLE_HUD_MSG_SYSTEM_ERROR = 32 };
 
 #define BATTLE_HUD_MAX_WEAPONS 4
-#define BATTLE_HUD_MAX_OTHERS 3
+#define BATTLE_HUD_MAX_OTHERS 72   /* co-op ACs and mission units */
 
 typedef struct battle_hud_weapon {
     const char *name;

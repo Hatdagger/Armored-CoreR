@@ -256,7 +256,16 @@ int acr_import_refresh(const char *out_dir) {
     char stages[ACR_PATH_MAX + 16];
     snprintf(dir, sizeof dir, "%s/units", out_dir);
     snprintf(stages, sizeof stages, "%s/stages", out_dir);
-    if (!(f = fopen(probe, "rb")) && acr_export_moa_units(unpacked, dir, stages, &n, err, sizeof err) && n) done |= 4;
+    /* Units, and (from 2026-11-24) the objects' body boxes and AP. */
+    int have = (f = fopen(probe, "rb")) != NULL;
     if (f) fclose(f);
+    if (have) {
+        snprintf(probe, sizeof probe, "%s/stages/06/objects.toml", out_dir);
+        char head[4096] = "";
+        if ((f = fopen(probe, "rb"))) { head[fread(head, 1, sizeof head - 1, f)] = 0; fclose(f); }
+        have = !head[0] || strstr(head, "box      = [") != NULL;
+    }
+    f = NULL;
+    if (!have && acr_export_moa_units(unpacked, dir, stages, &n, err, sizeof err) && n) done |= 4;
     return done;
 }

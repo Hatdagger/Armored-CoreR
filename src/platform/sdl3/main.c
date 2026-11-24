@@ -1122,6 +1122,9 @@ int main(int argc, char **argv) {
             acr_gen1_ac_spawn(P, def, 0, -2500 * 64, 0);                                  \
             acr_gen1_ac_spawn(T, def2, target_side() * 64, (target_dist() - 2500) * 64, 2048); \
         }                                                                                 \
+        /* Mission maps: their units join the fight (team 1, with the target AC). */  \
+        demo_units_join(&g_units, g_import_dir, g_stage_on && !g_rogue_fight ? g_stage_id : -1, &battle,  \
+                        g_stage_on ? &g_stage.collision : NULL);                          \
         acr_gen1_battle_retarget(&battle);                                                \
         memset(battle.shot, 0, sizeof battle.shot);                                       \
         fx_reset();                                                                       \
@@ -2244,7 +2247,7 @@ int main(int argc, char **argv) {
                 demo_units_free(&g_units);
                 demo_units_load(g_import_dir, g_stage_id, &g_units);
             }
-            demo_units_draw(&g_units, (float)SDL_GetTicksNS() / (float)ACR_GEN1_TICK_NS, &g_light);
+            demo_units_draw(&g_units, battle.units ? &battle : NULL, (float)SDL_GetTicksNS() / (float)ACR_GEN1_TICK_NS, &g_light);
         }
         for (int g = -ARENA; g <= ARENA && !g_stage_on; g += 2000) {
             line3(v3((float)g, 0, (float)-ARENA), v3((float)g, 0, (float)ARENA), 52, 70, 76);
@@ -2367,6 +2370,12 @@ int main(int argc, char **argv) {
         /* Weapon, ammo, AP, lock box and the target's marker. */
         {
             const acr_gen1_fighter *me = &battle.f[view], *tg = &battle.f[tgi];
+            /* A mission unit aimed at: its marker, AP and radar dot instead. */
+            const int tany = acr_gen1_battle_target_any(&battle, view);
+            const acr_gen1_unit *tun = tany >= ACR_GEN1_MAX_FIGHTERS ? &battle.unit[tany - ACR_GEN1_MAX_FIGHTERS] : NULL;
+            const int tg_alive = tun ? tun->ap > 0 && !tun->down : tg->ap > 0;
+            float mk[3] = { tx, ty + 100, tz };
+            if (tun) { mk[0] = (float)tun->x / 64.0f; mk[1] = -(float)tun->y / 64.0f + tun->height * 0.5f; mk[2] = (float)tun->z / 64.0f; }
             if (me->weapons) {
                 const acr_gen1_weapon *w = &me->weapon[me->current];
                 if (w->stance && !me->human_plus) {
@@ -2443,8 +2452,8 @@ int main(int argc, char **argv) {
                     }
                 }
                 float sx, sy;
-                if (tg->ap > 0 && acr_gen1_in_lock_box(&battle, view, w) &&
-                    to_hud(proj, viewm, v3(tx, ty + 100, tz), g_vw, &sx, &sy)) {
+                if (tg_alive && acr_gen1_in_lock_box(&battle, view, w) &&
+                    to_hud(proj, viewm, v3(mk[0], mk[1], mk[2]), g_vw, &sx, &sy)) {
                     if (me->locked) {
                         acr_hud_rect(sx - 18, sy - 18, 36, 36, 255, 60, 50, 255, 0);
                         {
@@ -2480,7 +2489,7 @@ int main(int argc, char **argv) {
                 hs.energy_max = st->energy_capacity;
                 hs.red_zone = st->red_zone;
                 hs.drained = ac.drained;
-                hs.enemy_ap = tg->ap > 0 ? tg->ap : 0;
+                hs.enemy_ap = tun ? (tg_alive ? tun->ap : 0) : tg->ap > 0 ? tg->ap : 0;
                 hs.heading = ac.syaw;
                 for (int k = 0; k < me->weapons && hs.weapons < BATTLE_HUD_MAX_WEAPONS; ++k) {
                     const acr_gen1_weapon *wk = &me->weapon[k];
@@ -2492,15 +2501,23 @@ int main(int argc, char **argv) {
                     ++hs.weapons;
                 }
                 hs.radar_range = ac_data[view].radar_range;
-                hs.enemy_dx = (T->sx - ac.sx) / 64;
-                hs.enemy_dz = (T->sz - ac.sz) / 64;
-                hs.enemy_on_radar = tg->ap > 0;
+                hs.enemy_dx = tun ? (tun->x - ac.sx) / 64 : (T->sx - ac.sx) / 64;
+                hs.enemy_dz = tun ? (tun->z - ac.sz) / 64 : (T->sz - ac.sz) / 64;
+                hs.enemy_on_radar = tg_alive;
                 /* Co-op: every other AC on the radar too, teammates in their own colour. */
                 for (int j = 0; j < nf && hs.others < BATTLE_HUD_MAX_OTHERS; ++j) {
-                    if (j == view || j == tgi || battle.f[j].ap <= 0) continue;
+                    if (j == view || (j == tgi && !tun) || battle.f[j].ap <= 0) continue;
                     hs.other[hs.others].dx = (battle.f[j].ac.sx - ac.sx) / 64;
                     hs.other[hs.others].dz = (battle.f[j].ac.sz - ac.sz) / 64;
                     hs.other[hs.others].ally = acr_gen1_battle_team(&battle, j) == acr_gen1_battle_team(&battle, view);
+                    ++hs.others;
+                }
+                for (int u = 0; u < battle.units && hs.others < BATTLE_HUD_MAX_OTHERS; ++u) {   /* mission units */
+                    const acr_gen1_unit *un = &battle.unit[u];
+                    if (!un->active || un->down || un == tun) continue;
+                    hs.other[hs.others].dx = (un->x - ac.sx) / 64;
+                    hs.other[hs.others].dz = (un->z - ac.sz) / 64;
+                    hs.other[hs.others].ally = (un->team & 1) == acr_gen1_battle_team(&battle, view);
                     ++hs.others;
                 }
                 /* HIT: this AC landed one; DAMAGED: it took one. ARMOR LOW

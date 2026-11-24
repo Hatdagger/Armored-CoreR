@@ -133,11 +133,21 @@ int demo_units_load(const char *import_dir, int map, demo_units *u) {
         if (header && !SDL_strncmp(p, "[[object]]", 10) && u->objects < DEMO_UNIT_OBJECTS) {
             o = &u->object[u->objects++];
             SDL_memset(o, 0, sizeof *o);
+            o->unit = -1;
             id[0] = skin[0] = 0;
         } else if (o) {
             if ((v = value(p, e, "record"))) o->record = SDL_atoi(v);
             else if ((v = value(p, e, "handler"))) o->handler = SDL_atoi(v);
             else if ((v = value(p, e, "type"))) o->type = SDL_atoi(v);
+            else if ((v = value(p, e, "ap"))) o->ap = SDL_atoi(v);
+            else if ((v = value(p, e, "attack"))) o->attack = SDL_atoi(v);
+            else if ((v = value(p, e, "energy_n"))) o->energy_n = SDL_atoi(v);
+            else if ((v = value(p, e, "box")) && *v == '[') {
+                char *q = (char *)v + 1;
+                o->half = (int)SDL_strtol(q, &q, 10);
+                while (*q == ',' || *q == ' ') ++q;
+                o->height = (int)SDL_strtol(q, &q, 10);
+            }
             else if ((v = value(p, e, "facing"))) o->yaw = (float)(SDL_atoi(v) & 4095) * (6.2831853f / 4096.0f);
             else if ((v = value(p, e, "unit"))) quoted(v, e, id, sizeof id);
             else if ((v = value(p, e, "skin"))) quoted(v, e, skin, sizeof skin);
@@ -168,18 +178,39 @@ int demo_units_load(const char *import_dir, int map, demo_units *u) {
 static acr_vtx g_out[MAX_UNIT_TRIS * 3], g_batch[MAX_UNIT_TRIS * 3];
 static uint8_t g_mat[MAX_UNIT_TRIS];
 
-/* Animation 0 looping: the frames' holds, then the last one eases back into the first. */
-static float loop_tick(const acr_anim_set *set, float tick) {
-    const acr_anim *a = &set->anim[0];
+/* Animation `n` looping: the frames' holds, then the last one eases back into the first. */
+static float loop_tick(const acr_anim_set *set, int n, float tick) {
+    const acr_anim *a = &set->anim[n];
     if (a->frames < 2) return 0.0f;
     unsigned last = set->frame[a->first_frame + a->frames - 1].hold;
     const float period = (float)a->ticks + (float)(last ? last : 1);
     return period > 0 ? fmodf(tick, period) : 0.0f;
 }
 
-static void draw_object(const demo_unit_model *m, const demo_unit_object *o, float tick, const acr_lighting *light) {
+/* The animation an MT state plays: the first of each state's three in map
+ * 6's MT behaviour (0x800A3430, through 0x800A32AC); idle and turning as
+ * there (7 / 19). Units with too few animations play 0. */
+static int state_anim(const demo_unit_model *m, const acr_gen1_unit *un) {
+    static const uint8_t k_anim[11] = { 0, 2, 4, 6, 13, 15, 17, 9, 11, 19, 19 };
+    if (!un || un->brain != ACR_GEN1_BRAIN_MT || un->state > 10) return 0;
+    const int a = k_anim[un->state];
+    return a < ACR_ANIM_MAX && m->anims.anim[a].frames ? a : 0;
+}
+
+static void draw_object(const demo_unit_model *m, const demo_unit_object *o, const acr_gen1_unit *un, float tick,
+                        const acr_lighting *light) {
     acr_pose pose;
-    acr_pose_play_smooth(&m->skel, &m->anims, 0, loop_tick(&m->anims, tick), 1, &pose);
+    const int an = state_anim(m, un);
+    acr_pose_play_smooth(&m->skel, &m->anims, an, loop_tick(&m->anims, an, tick), 1, &pose);
+    demo_unit_object at = *o;
+    if (un) {                                       /* where the battle has it */
+        at.pos[0] = (float)un->x / 64.0f;
+        at.pos[1] = -(float)un->y / 64.0f;
+        at.pos[2] = (float)un->z / 64.0f;
+        at.yaw = (float)un->yaw * (6.2831853f / 4096.0f);
+    }
+    o = &at;
+    const int flash = un && (un->hit_flash & 2);   /* hit: a bright blink */
     float mat[ACR_SKEL_MAX_NODES][12];
     acr_pose_matrices(&m->skel, &pose, mat);
     const float s = sinf(o->yaw), c = cosf(o->yaw);
@@ -207,6 +238,7 @@ static void draw_object(const demo_unit_model *m, const demo_unit_object *o, flo
                 uint8_t col[3];
                 acr_light_color(light, (int32_t)((nx * c + nz * s) * 4096.0f), (int32_t)(ny * 4096.0f),
                                 (int32_t)((-nx * s + nz * c) * 4096.0f), base[0], base[1], base[2], col);
+                if (flash) for (int k = 0; k < 3; ++k) col[k] = (uint8_t)(col[k] + (255 - col[k]) / 2);
                 acr_vtx *out = &g_out[n * 3 + j];
                 out->x = o->pos[0] + lx * c + lz * s;
                 out->y = o->pos[1] + ly;
@@ -232,9 +264,54 @@ static void draw_object(const demo_unit_model *m, const demo_unit_object *o, flo
         }
 }
 
-void demo_units_draw(const demo_units *u, float tick, const acr_lighting *light) {
+void demo_units_draw(const demo_units *u, const acr_gen1_battle *b, float tick, const acr_lighting *light) {
     for (int i = 0; i < u->objects; ++i) {
         const demo_unit_object *o = &u->object[i];
-        if (o->model >= 0) draw_object(&u->model[o->model], o, tick, light);
+        if (o->model < 0) continue;
+        const acr_gen1_unit *un = b && o->unit >= 0 && o->unit < b->units ? &b->unit[o->unit] : NULL;
+        if (un && (!un->active || un->down)) continue;    /* destroyed: the explosion takes its place */
+        draw_object(&u->model[o->model], o, un, tick, light);
     }
+}
+
+int demo_units_join(demo_units *u, const char *import_dir, int map, acr_gen1_battle *b, const acr_gen1_stage *stage) {
+    b->units = 0;
+    SDL_memset(b->unit, 0, sizeof b->unit);
+    for (int i = 0; i < u->objects; ++i) u->object[i].unit = -1;
+    if (map < 0 || map >= 20) return 0;
+    if (u->map != map) {
+        demo_units_free(u);
+        demo_units_load(import_dir, map, u);
+    }
+    int dormant = 0;
+    for (int i = 0; i < u->objects; ++i) {
+        demo_unit_object *o = &u->object[i];
+        if (o->model < 0 || o->ap <= 0) continue;
+        const demo_unit_model *m = &u->model[o->model];
+        acr_gen1_unit n;
+        SDL_memset(&n, 0, sizeof n);
+        /* drawn world (y up) -> the battle's (y down, 1/64) */
+        const int32_t x = (int32_t)o->pos[0], y = (int32_t)-o->pos[1], z = (int32_t)o->pos[2];
+        n.half = (uint16_t)(o->half > 0 ? o->half : 100);
+        n.height = (uint16_t)(o->height > 0 ? o->height : 200);
+        if (stage) {     /* standing on something? (map 6's big MT waits under the sea for its script) */
+            const int32_t pos[3] = { x, y, z };
+            int32_t fy = 0;
+            if (!acr_gen1_stage_floor_probe(stage, pos, ACR_GEN1_STAGE_PROBE_HALF, n.height, ACR_GEN1_STAGE_AC_MASK, &fy) ||
+                fy - y > ACR_GEN1_STAGE_GROUNDED || fy < y - 1) { ++dormant; continue; }
+        }
+        n.active = 1;
+        n.team = 1;
+        n.x = x * 64; n.y = y * 64; n.z = z * 64;
+        n.yaw = (uint16_t)((int)(o->yaw * (4096.0f / 6.2831853f) + 0.5f) & 4095);
+        n.ap = n.ap_max = o->ap;
+        n.attack = (uint16_t)(o->attack > 0 ? o->attack : 0);
+        n.energy_n = (int8_t)o->energy_n;
+        int anims = 0;
+        for (int k = 0; k < ACR_ANIM_MAX; ++k) anims += m->anims.anim[k].frames > 0;
+        n.brain = (uint8_t)(anims >= 10 ? ACR_GEN1_BRAIN_MT : n.attack ? ACR_GEN1_BRAIN_TURRET : ACR_GEN1_BRAIN_NONE);
+        o->unit = acr_gen1_battle_add_unit(b, &n);
+    }
+    SDL_Log("mission map %02d: %d units in the fight, %d waiting (not on a floor)", map, b->units, dormant);
+    return b->units;
 }

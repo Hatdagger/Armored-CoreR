@@ -678,6 +678,31 @@ static int export_unit(unit *u, unsigned index, map_file *maps, const char *unpa
 
 /* ---- a map's objects ---------------------------------------------------------- */
 
+/* Chunk 12 (mission engine loader 0x800795A8): u16 count, then entries
+ * [u32 size][36-byte header][size - 36 bytes of data]; entry k belongs to
+ * object handler k + 1. The object takes its body box from the data's
+ * halfwords 2 and 3, each / 4 (0x8007EB00: object +0x28 / +0x2A, the AC's
+ * stage box fields): half width either side, and height. */
+static int handler_box(const map_file *m, int handler, unsigned *half, unsigned *height) {
+    const chunk *c = &m->ch[12];
+    if (handler < 1 || c->n < 4) return 0;
+    const unsigned count = u16(c->p);
+    size_t o = 4;
+    for (unsigned k = 0; k < count; ++k) {
+        if (o + 4 > c->n) return 0;
+        const uint32_t n = u32(c->p + o);
+        if (n > c->n - o - 4) return 0;
+        if (k + 1 == (unsigned)handler) {
+            if (n < 36 + 8) return 0;
+            *half = u16(c->p + o + 4 + 36 + 4) >> 2;
+            *height = u16(c->p + o + 4 + 36 + 6) >> 2;
+            return *half && *height;
+        }
+        o += 4 + n;
+    }
+    return 0;
+}
+
 static int write_objects(const map_file *m, const unit *units, unsigned map, const char *stages_dir) {
     char dir[1200], path[1400];
     snprintf(dir, sizeof dir, "%s/%02u", stages_dir, map);
@@ -691,7 +716,9 @@ static int write_objects(const map_file *m, const unit *units, unsigned map, con
                "# position: engine x = -(game x), y down and z as in the game (as stage.toml).\n"
                "# facing: 4096 a turn. handler K = mission code slot 8 + K, which draws\n"
                "# chunk 2 slot K: unit (units/UNN), skin = the unit's .mtl for this map.\n"
-               "# Not read yet: type (+14) and +16 on; raw = all twenty s16 words.\n"
+               "# box: the body (chunk 12: half width, height). ap = record +22, attack =\n"
+               "# its gun's attack (+24), energy_n = +16 bits 8-11 (energy damage taken\n"
+               "# x (8 - n) / 8). Not read yet: type (+14); raw = all twenty s16 words.\n"
                "# Records 0-2 are kept as points (1 and 2 are the arena's starts).\n"
                "map = %u\n", map, 5 * map + 4, map);
     const unsigned count = c->n / POINT_SIZE;
@@ -718,7 +745,14 @@ static int write_objects(const map_file *m, const unit *units, unsigned map, con
         }
         fprintf(f, "position = [%d, %d, %d]\nfacing   = %u\n", -s16(r), s16(r + 2), s16(r + 4),
                 (unsigned)(u16(r + 10) & 4095));
-        if (i >= 3) fprintf(f, "type     = %d\n", s16(r + 14));
+        if (i >= 3) {
+            fprintf(f, "type     = %d\n", s16(r + 14));
+            unsigned half = 0, height = 0;
+            if (handler_box(m, handler, &half, &height))
+                fprintf(f, "box      = [%u, %u]   # half width, height (chunk 12 entry %d)\n", half, height, handler - 1);
+            fprintf(f, "ap       = %d\nattack   = %d\nenergy_n = %d\n", u16(r + 22), u16(r + 24),
+                    (int)(((u16(r + 16) >> 8) & 15) ^ 8) - 8);
+        }
         fprintf(f, "raw      = [");
         for (unsigned k = 0; k < POINT_SIZE / 2; ++k) fprintf(f, "%s%d", k ? ", " : "", s16(r + 2 * k));
         fprintf(f, "]\n");
