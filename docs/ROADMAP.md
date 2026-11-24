@@ -4,6 +4,52 @@ Where the Gen 1 (Master of Arena) game goes next, in order, with the
 decisions behind it. Earlier work: movement, fitting rules, lock-on,
 weapons, damage, two-player test build (see `docs/research/`).
 
+## At a glance (2026-11-23)
+
+Green = a first version is in; yellow = started; grey = not started. Each
+box's details are in the numbered steps below.
+
+```mermaid
+flowchart LR
+    subgraph Foundation
+        R0["0 Renderer"]:::done
+        R1["1 Model formats"]:::done
+        R2["2 Model import"]:::done
+    end
+    subgraph Play
+        R3["3 Garage, shop,<br/>AC TEST"]:::done
+        R5["5 Battle HUD"]:::done
+        RA["Rogue Arena 19+1"]:::done
+        MC["Modern controls"]:::done
+    end
+    subgraph Online
+        R6["6 Netplay<br/>rollback 1v1 + co-op"]:::done
+        CO["Rogue Arena co-op"]:::todo
+    end
+    subgraph Content
+        R4["4 / 7 Arena<br/>2 stages, walls"]:::doing
+        MS["Missions<br/>P4 playable"]:::doing
+        TM["Tinkercad maps"]:::doing
+        ST["Campaign / story"]:::todo
+    end
+    subgraph Platforms
+        R8["8 UI<br/>main menu in"]:::doing
+        R9["9 Android"]:::todo
+    end
+
+    Foundation --> Play --> Online --> Content --> Platforms
+    R6 --> CO
+    MS --> ST
+
+    classDef done fill:#2d4a2d,stroke:#7fbf7f,color:#fff
+    classDef doing fill:#4a3d12,stroke:#e0c050,color:#fff
+    classDef todo fill:#333,stroke:#888,color:#ddd
+```
+
+Design docs for what comes after: [STORY.md](STORY.md) (campaign),
+[GHOSTS.md](GHOSTS.md) (ghost rivals, contracts, affinity),
+[MISSIONS.md](MISSIONS.md), [ROGUE-ARENA-COOP.md](ROGUE-ARENA-COOP.md).
+
 ## Decisions
 
 - **Model files**: `acr-import` writes each part as **OBJ + PNG textures +
