@@ -287,8 +287,46 @@ int demo_stage_load(const char *dir, int id, demo_stage *out) {
             { 1, { { -6600, -250, 0, 3072 }, { -9000, -250, 0, 1024 } } },
             { 6, { { 0, -500, -2500, 0 }, { 0, -500, 2500, 2048 } } },
         };
+        int fixed = 0;
         for (size_t i = 0; i < sizeof k_mission_starts / sizeof k_mission_starts[0]; ++i)
-            if (k_mission_starts[i].id == id) SDL_memcpy(out->start, k_mission_starts[i].start, sizeof out->start);
+            if (k_mission_starts[i].id == id) {
+                SDL_memcpy(out->start, k_mission_starts[i].start, sizeof out->start);
+                fixed = 1;
+            }
+        /* The other mission maps: the player at the map's record 0, which
+         * stands on the floor on 15 of the 20 maps and over it on 3 and 5
+         * (a drop from the air), so it is very likely the mission's drop
+         * (docs/research/gen1-stages.md, "Missions"); the target 2,500
+         * ahead, facing back. Not 13 (record 0 is outside the map). Imports
+         * from before 2026-11-23 have no objects.toml and keep the arena's. */
+        if (!fixed && id >= 0 && id < 20 && id != 13) {
+            SDL_snprintf(path, sizeof path, "%s/objects.toml", sdir);
+            char *objs = load_text(path);
+            const char *r0 = objs ? SDL_strstr(objs, "[[point]]\nrecord   = 0\n") : NULL;
+            int32_t p[4] = { 0, 0, 0, 0 };
+            const char *pos = r0 ? SDL_strstr(r0, "position") : NULL;
+            int got = 0;
+            if (pos && (pos = SDL_strchr(pos, '['))) {
+                char *q = (char *)pos + 1, *e;
+                for (; got < 3; ++got) {
+                    p[got] = (int32_t)SDL_strtol(q, &e, 10);
+                    if (e == q) break;
+                    q = e;
+                    while (*q == ',' || *q == ' ') ++q;
+                }
+            }
+            if (got == 3) {
+                const char *f = SDL_strstr(r0, "facing");
+                p[3] = f && (f = SDL_strchr(f, '=')) ? (int32_t)SDL_atoi(f + 1) & 4095 : 0;
+                const float a = (float)p[3] * (6.2831853f / 4096.0f);
+                SDL_memcpy(out->start[0], p, sizeof p);
+                out->start[1][0] = p[0] + (int32_t)(sinf(a) * 2500.0f);
+                out->start[1][1] = p[1];
+                out->start[1][2] = p[2] + (int32_t)(cosf(a) * 2500.0f);
+                out->start[1][3] = (p[3] + 2048) & 4095;
+            }
+            SDL_free(objs);
+        }
     }
     /* The game's own collision (imports from 2026-11-19 on): walls and
      * floors then follow the game's rules instead of the stand-ins. */

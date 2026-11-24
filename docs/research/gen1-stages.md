@@ -397,6 +397,56 @@ only bigger (14 to 366 areas, up to 87 models). acr-import now writes all of
   code), the objective / failure rules in slot 0, what record +14 and
   +16 on mean (the five MTs on map 6 carry types 12, 11, 1, 33, 4).
 
+## Mission objects in the mission engine (read 2026-11-23)
+
+The mission engine is FDAT 207 (loaded at `0x80050DD8`, as the others).
+Its stage loader (`0x80055850`-`0x800559F4`) reads the chunks in the
+arena's order; chunk 12 goes to `0x800795A8`, chunk 13 to `0x80079774`.
+
+- **Record table:** `0x80079774` copies chunk 13's first 64 records into
+  44-byte entries at `0x801E6748`: byte 0 a state (1 = object made), byte
+  1 the object's number, +2 a working copy of record +22, +4 the 40-byte
+  record. A small bytecode script (interpreter around `0x80091D88`,
+  opcodes `0x8000`, `0x8001`, `0x8004`, `0x8005`...) refers to entries by
+  number: the mission's script, not read yet.
+- **Objects** are 376 bytes, the AC object's size, in a block at
+  `0x801E7248`; object 0 is the player's AC. `0x8007EB00(object, entry)`
+  builds one: +0 = the entry, +4 = the chunk 12 entry of its handler,
+  **+360 / +362 / +364 = record +22** (+360 is where an AC keeps its AP),
+  +0x72 and +0x28 = the chunk 12 entry's first word (the height missiles
+  aim at, for ACs).
+- **AP = record +22** (map 6: the MTs 5,000, the big MT 18,000). The hit
+  routine `0x8007AF00` takes damage off +360 and stops at 0. For a unit
+  (not object 0) the damage is `0x8007AEA4`: a solid shot takes its
+  attack (shot +2); an energy shot (shot byte 0 bits 4-5 = 2) takes
+  attack x (8 - n) / 8 + 1, n = bits 8-11 of record +16 (a signed
+  nibble). Map 6: the five MTs n = 2, the big MT 3, the tank AC 0. The
+  player's AC goes through `0x8007AE34` (x 2) instead: ACs keep AP x 4,
+  so the scales differ; not compared yet.
+- **Handlers** (mission code slots 9 on) only set an object up: map 6's
+  MT handler (`0x800A3E48`) sets +0x36 = 2, four routines at +0x58
+  (behaviour, called each frame with the state), +0x5C (start), +0x60,
+  +0x64, +364 x 4, +0x4C = a random number (`0x80079508` = the boot
+  program's rand), then runs the start routine and the behaviour once.
+  The tank AC's (`0x800A3F24`) plays its animation 2 (`0x80054AC8`,
+  object +108 = the animation, as for ACs).
+- **Behaviour:** the MT's (`0x800A3430`) is a 12-state machine on object
+  +69; each state plays a few of the unit's animations through
+  `0x800A32AC(object, a, b, c, next)`. 7000 appears as a range there.
+  Movement, aiming and firing: still to read (calls into the engine at
+  `0x8007C104`, `0x8007C134`, `0x8007C20C`, `0x8007E238`, `0x8007D50C`,
+  `0x80079828`).
+
+**Record 0 is the player's drop** (2026-11-23): on 15 of the 20 maps it
+stands exactly on the collision floor, facing along the map (map 2 in the
+hangar facing the bay, map 8 in the tunnel, map 12 down the street); on
+maps 3 and 5 it is above the floor (a drop from the air: map 3 at -10,500
+over -5,000, map 5 at -3,840 over 1,525); on map 1 it is in the sea (the
+submarine escort: the player may start aboard something); on map 13 it is
+outside the map's collision. AC TEST now starts the player there on every
+mission map but 1, 6, 11 (their own starts) and 13, with the target 2,500
+ahead facing back.
+
 ## Mission units (read 2026-11-22)
 
 `tools/research/moa_units.py <import>/unpacked` prints the roster below;
