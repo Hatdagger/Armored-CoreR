@@ -361,7 +361,7 @@ int demo_units_join(demo_units *u, const char *import_dir, int map, acr_gen1_bat
                 fy - y > ACR_GEN1_STAGE_GROUNDED || fy < y - 1) { ++dormant; continue; }
         }
         n.active = !n.wait;      /* waiting ones join when the script says */
-        n.team = 1;
+        n.team = (uint8_t)acr_gen1_mission_team(map, o->record);
         n.x = x * 64; n.y = y * 64; n.z = z * 64;
         n.yaw = (uint16_t)((int)(o->yaw * (4096.0f / 6.2831853f) + 0.5f) & 4095);
         n.ap = n.ap_max = o->ap;

@@ -68,7 +68,32 @@ static const map6_key k_map6_climb[] = {
 #define MAP13_REINFORCE_BELOW 8
 #define PLAIN_WAIT 29           /* maps 2 and 13: the counter starts at 1 that tick and requests at 30 */
 
-int acr_gen1_mission_has_script(int map) { return map == 2 || map == 6 || map == 13 || map == 15; }
+/* Map 12, "Save friendly units" (read 2026-11-25, slot 0 at 0x800A4640).
+ * Records 4-9 (list 0x800AA0D8) are the targets (handler 1, game team 2),
+ * 10-12 (list 0x800AA0F0) the friendly MTs (handler 2, game team 4: the
+ * player's side here). Its state 0x800AA100, each tick:
+ * - 0: every target destroyed -> 1. Otherwise the friendlies: each one
+ *   destroyed plays radio 102-104 once (flags 0x800AA110); none left -> 2.
+ * - 1: radio 153 and the accomplished request (0x80052490(128)). -> -1.
+ * - 2: a counter (0x800AA10C) = 20. -> -1. The counter counts down that
+ *   tick too; at 0, radio 59 (counter -2); once the radio is done
+ *   (0x80058480), radio 158 and the failed request (0x80052490(256)).
+ * Radio 101 at tick 20 and the friendlies' radio are left out. Stand-in:
+ * radio 59's length (MAP12_RADIO_TICKS; the radio's own timing is not
+ * read). A record the engine left out (not on a floor) counts as down for
+ * the targets and as standing for the friendlies, so it decides nothing. */
+#define MAP12_FIRST_TARGET 4
+#define MAP12_LAST_TARGET  9
+#define MAP12_FIRST_FRIEND 10
+#define MAP12_LAST_FRIEND  12
+#define MAP12_FAIL_WAIT    19   /* 20, counted down the tick it is set */
+#define MAP12_RADIO_TICKS  66   /* stand-in: radio 59, about 3 seconds */
+
+int acr_gen1_mission_has_script(int map) { return map == 2 || map == 6 || map == 12 || map == 13 || map == 15; }
+
+int acr_gen1_mission_team(int map, int record) {
+    return map == 12 && record >= MAP12_FIRST_FRIEND && record <= MAP12_LAST_FRIEND ? 0 : 1;
+}
 
 int acr_gen1_mission_wait(int map, int record) {
     if (map == 13 && record >= 11 && record <= 14) return ACR_GEN1_WAIT_HIDDEN;
@@ -186,14 +211,45 @@ static void plain_tick(acr_gen1_battle *b, int map) {
     m->end_ticks = (uint8_t)(map == 15 ? END_TICKS : PLAIN_WAIT + END_TICKS);
 }
 
+static void map12_tick(acr_gen1_battle *b) {
+    acr_gen1_mission *m = &b->mission;
+    if (m->phase == -2) {                       /* the failed request after radio 59 */
+        if (m->timer && --m->timer) return;
+        m->flags |= ACR_GEN1_MISSION_FAIL;
+        m->end_ticks = END_TICKS;
+        m->phase = -3;
+        return;
+    }
+    if (m->phase) return;
+    int targets = 0, friends = 0;
+    for (int r = MAP12_FIRST_TARGET; r <= MAP12_LAST_TARGET; ++r) {
+        const acr_gen1_unit *u = by_record(b, r);
+        targets += u && !destroyed(u);
+    }
+    if (!targets) {                             /* radio 153, accomplished */
+        m->end_ticks = END_TICKS;
+        m->phase = -1;
+        return;
+    }
+    for (int r = MAP12_FIRST_FRIEND; r <= MAP12_LAST_FRIEND; ++r) {
+        const acr_gen1_unit *u = by_record(b, r);
+        friends += !u || !destroyed(u);
+    }
+    if (friends) return;
+    m->phase = -2;                              /* 20 ticks, radio 59, then failed */
+    m->timer = MAP12_FAIL_WAIT + MAP12_RADIO_TICKS;
+}
+
 void acr_gen1_mission_tick(acr_gen1_battle *b) {
     acr_gen1_mission *m = &b->mission;
     if (!m->map || m->result) return;
     if (b->f[0].ap <= 0) return;                /* the player is down: the script stops */
     if (m->end_ticks) {
-        if (!--m->end_ticks) m->result = ACR_GEN1_MISSION_DONE;
+        if (!--m->end_ticks)
+            m->result = m->flags & ACR_GEN1_MISSION_FAIL ? ACR_GEN1_MISSION_FAILED : ACR_GEN1_MISSION_DONE;
         return;
     }
     if (m->map == 7) map6_tick(b);
+    else if (m->map == 13) map12_tick(b);
     else plain_tick(b, m->map - 1);
 }

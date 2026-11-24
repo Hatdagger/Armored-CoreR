@@ -1,8 +1,8 @@
 /* Mission scripts: each mission map's own rules, as its mission code's
  * slot 0 runs them every tick (FDAT 5s+0, loaded at 0x800A0DD0; see
  * docs/research/gen1-stages.md, "Mission script"). Read so far: maps 2,
- * 6, 13 and 15; the other maps keep the plain rule (won when every enemy
- * is down).
+ * 6, 12, 13 and 15; the other maps keep the plain rule (won when every
+ * enemy is down).
  *
  * Part of the battle (acr_gen1_battle.mission), stepped with the units, so
  * netplay stays in step. The game's cutscenes (chunk 5, run by 0x80093844
@@ -24,17 +24,18 @@ enum {
 };
 
 /* acr_gen1_mission.result */
-enum { ACR_GEN1_MISSION_OPEN = 0, ACR_GEN1_MISSION_DONE = 1 };
+enum { ACR_GEN1_MISSION_OPEN = 0, ACR_GEN1_MISSION_DONE = 1, ACR_GEN1_MISSION_FAILED = 2 };
 
 /* acr_gen1_mission.flags */
 #define ACR_GEN1_MISSION_BONUS 0x01   /* map 6: the tank AC was brought down (event 18) */
+#define ACR_GEN1_MISSION_FAIL  0x02   /* the ending running is "mission failed" (0x80052490(256)) */
 
 typedef struct acr_gen1_mission {
     uint8_t  map;          /* 1 + the mission map with a script, 0 = none (plain rule) */
     int8_t   phase;        /* the script's own step (map 6: the game's 0x800AD838) */
     uint16_t timer;        /* ticks left in a timed step */
     uint8_t  flags;
-    uint8_t  result;       /* ACR_GEN1_MISSION_*; DONE once the end delay ran out */
+    uint8_t  result;       /* ACR_GEN1_MISSION_*; DONE / FAILED once the end delay ran out */
     uint8_t  end_ticks;    /* the end delay counting down (0x800A0DC0's 100) */
     int32_t  from[3];      /* map 6: where the big MT's current cutscene key started (1/64 units) */
 } acr_gen1_mission;
@@ -43,6 +44,9 @@ typedef struct acr_gen1_mission {
 int acr_gen1_mission_has_script(int map);
 /* How chunk 13 record `record` of map `map` waits (ACR_GEN1_WAIT_*). */
 int acr_gen1_mission_wait(int map, int record);
+/* The battle team of record `record` of map `map`: 1 the enemy side, 0
+ * the player's (map 12's friendly units, the game's team 4). */
+int acr_gen1_mission_team(int map, int record);
 /* Starts map `map`'s script on battle b (after its units joined); a map
  * without one clears it. */
 void acr_gen1_mission_start(struct acr_gen1_battle *b, int map);

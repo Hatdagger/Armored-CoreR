@@ -388,6 +388,45 @@ int main(void) {
         EXPECT(ticks == (id == 15 ? 101 : 130));      /* counted from the tick all are down */
     }
 
+    /* Map 12: records 4-9 the targets, 10-12 the friendly MTs (the player's
+     * side). The targets go for the friendlies too, the friendlies for the
+     * targets; the friendlies don't keep the player's side up. Every
+     * target down wins (the ending 100 ticks later); every friendly down
+     * fails: 20 ticks, radio 59 (stand-in length), the ending 100 later. */
+    EXPECT(acr_gen1_mission_team(12, 10) == 0 && acr_gen1_mission_team(12, 12) == 0);
+    EXPECT(acr_gen1_mission_team(12, 9) == 1 && acr_gen1_mission_team(6, 10) == 1);
+    for (int fail = 0; fail < 2; ++fail) {
+        setup(&b);
+        b.count = 2;
+        b.f[1].team = 1;
+        b.f[1].ap = 0;
+        for (int r = 4; r <= 12; ++r) {
+            const int friend_ = r >= 10;
+            u = mt(friend_ ? -3000 + 3000 * (r - 10) : -4000 + 1000 * (r - 4), friend_ ? 3000 : 9000,
+                   friend_ ? 0 : 2048, ACR_GEN1_BRAIN_MT);
+            u.record = (uint8_t)r;
+            u.team = (uint8_t)acr_gen1_mission_team(12, r);
+            acr_gen1_battle_add_unit(&b, &u);
+        }
+        b.f[0].ac.z = -20000 * 64;                               /* the player far behind */
+        acr_gen1_mission_start(&b, 12);
+        EXPECT(b.mission.map == 13);
+        acr_gen1_battle_step(&b, none, idle);
+        EXPECT(b.unit[0].target >= ACR_GEN1_UNIT(6) && b.unit[0].target <= ACR_GEN1_UNIT(8));   /* a friendly */
+        EXPECT(b.unit[6].target >= ACR_GEN1_UNIT(0) && b.unit[6].target <= ACR_GEN1_UNIT(5));   /* a target */
+        EXPECT(acr_gen1_battle_result(&b, 0) == 0);
+        /* some down first (two friendlies, or three targets): nothing yet */
+        for (int k = 0; k < (fail ? 2 : 3); ++k) b.unit[fail ? 6 + k : k].down = 1, b.unit[fail ? 6 + k : k].ap = 0;
+        for (int t = 0; t < 30; ++t) acr_gen1_battle_step(&b, none, idle);
+        EXPECT(acr_gen1_battle_result(&b, 0) == 0 && !b.mission.end_ticks && b.mission.phase == 0);
+        for (int k = fail ? 8 : 0; k <= (fail ? 8 : 5); ++k) b.unit[k].down = 1, b.unit[k].ap = 0;
+        int ticks = 0;
+        while (acr_gen1_battle_result(&b, 0) == 0 && ticks < 400) { acr_gen1_battle_step(&b, none, idle); ++ticks; }
+        EXPECT(acr_gen1_battle_result(&b, 0) == (fail ? 2 : 1));
+        EXPECT(b.mission.result == (fail ? ACR_GEN1_MISSION_FAILED : ACR_GEN1_MISSION_DONE));
+        EXPECT(ticks == (fail ? 19 + 66 + 101 : 101));
+    }
+
     if (failures) { printf("%d failure(s)\n", failures); return 1; }
     printf("gen1 units: all passed (first hit after %d steps)\n", steps);
     return 0;

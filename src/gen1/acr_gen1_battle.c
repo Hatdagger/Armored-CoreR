@@ -1272,16 +1272,18 @@ int acr_gen1_battle_result(const acr_gen1_battle *b, int time_up) {
         const acr_gen1_unit *un = &b->unit[u];
         if (!un->active) continue;
         const int t = un->team & 1;
+        if (!t) continue;               /* units on the player's side (map 12's) fight beside it, don't keep it up */
         if (!members[t]) ++members[t];
         if (un->ap > 0 && !un->down) ++standing[t];
     }
     const int down0 = members[0] && !standing[0], down1 = members[1] && !standing[1];
     /* A map with a script: its objective wins it (map 6: the big MT, the
      * tank AC is a bonus), whatever else stands; the player's side down
-     * still loses. */
+     * still loses, and so does the script's "failed" (map 12: the friendly
+     * units all lost). */
     if (b->mission.map) {
         if (down0) return 2;
-        return b->mission.result == ACR_GEN1_MISSION_DONE ? 1 : 0;
+        return b->mission.result == ACR_GEN1_MISSION_DONE ? 1 : b->mission.result == ACR_GEN1_MISSION_FAILED ? 2 : 0;
     }
     if (down0 || down1) return down0 && down1 ? 3 : down0 ? 2 : 1;
     if (!time_up) return 0;
@@ -1476,14 +1478,14 @@ static void unit_fire(acr_gen1_battle *b, int ui) {
 }
 
 /* The gun, one tick (0x800A38B4): aim, start a burst, fire its odd ticks. */
-static void unit_gun_tick(acr_gen1_battle *b, int ui, const acr_gen1_ac *t) {
+static void unit_gun_tick(acr_gen1_battle *b, int ui, const tview *t) {
     acr_gen1_unit *u = &b->unit[ui];
     if (u->cooldown) { --u->cooldown; return; }
     int32_t to_yaw = 0, to_pitch = 0, in_cone = 0;
     const int32_t mx = u->x / 64, my = u->y / 64 - u->height * 2 / 3, mz = u->z / 64;
     int32_t tx = 0, ty = 0, tz = 0;
     if (t) {
-        tx = t->x / 64; ty = (t->y - CENTRE_UP) / 64; tz = t->z / 64;
+        tx = t->x / 64; ty = (t->y - t->up) / 64; tz = t->z / 64;
         const int64_t dx = tx - mx, dy = ty - my, dz = tz - mz;
         uint16_t yaw;
         int16_t pitch;
@@ -1527,18 +1529,23 @@ static void unit_tick(acr_gen1_battle *b, int ui) {
         return;
     }
     if (u->brain == ACR_GEN1_BRAIN_NONE) return;
-    /* Target: the nearest enemy fighter (0x8007931C). */
+    /* Target: the nearest enemy (0x8007931C: any object of another team),
+     * ACs and units alike, so map 12's MTs go for its friendly units too. */
     const int n = acr_gen1_battle_fighters(b);
     int64_t best = -1;
     u->target = -1;
-    for (int j = 0; j < n; ++j) {
-        const acr_gen1_fighter *f = &b->f[j];
-        if (f->ap <= 0 || !f->def || acr_gen1_battle_team(b, j) == (u->team & 1)) continue;
-        const int64_t dx = (f->ac.x - u->x) / 64 / 2, dz = (f->ac.z - u->z) / 64 / 2;
+    for (int j = 0; j < n + b->units; ++j) {
+        const int id = j < n ? j : ACR_GEN1_UNIT(j - n);
+        if (id == ACR_GEN1_UNIT(ui) || team_of(b, id) == (u->team & 1)) continue;
+        if (j < n && !b->f[j].def) continue;
+        tview v;
+        if (!view_of(b, id, &v) || !v.alive) continue;
+        const int64_t dx = (v.x - u->x) / 64 / 2, dz = (v.z - u->z) / 64 / 2;
         const int64_t d = (int64_t)isqrt64((uint64_t)(dx * dx + dz * dz)) * 4;
-        if (best < 0 || d < best) { best = d; u->target = (int8_t)j; }
+        if (best < 0 || d < best) { best = d; u->target = (int8_t)id; }
     }
-    const acr_gen1_ac *t = u->target >= 0 ? &b->f[u->target].ac : NULL;
+    tview tv, *t = NULL;
+    if (u->target >= 0 && view_of(b, u->target, &tv)) t = &tv;
     if (u->brain == ACR_GEN1_BRAIN_MT) {
         if (!u->state_ticks || !--u->state_ticks) {
             if (t) unit_decide(b, u, best);

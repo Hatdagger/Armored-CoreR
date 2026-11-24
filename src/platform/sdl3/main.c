@@ -1122,14 +1122,17 @@ int main(int argc, char **argv) {
             acr_gen1_ac_spawn(P, def, 0, -2500 * 64, 0);                                  \
             acr_gen1_ac_spawn(T, def2, target_side() * 64, (target_dist() - 2500) * 64, 2048); \
         }                                                                                 \
-        /* Mission maps: their units join the fight (team 1, with the target AC). */  \
+        /* Mission maps: their units join the fight (team 1, with the target AC; \
+         * map 12's friendly units team 0, with the player). */                 \
         demo_units_join(&g_units, g_import_dir, g_stage_on && !g_rogue_fight ? g_stage_id : -1, &battle,  \
                         g_stage_on ? &g_stage.collision : NULL);                          \
-        /* Testing aid: ACR_UNITS_DOWN=1 starts with the units in the fight     \
-         * destroyed, so a map's script moves on (map 6: the deck opens). */    \
-        if (SDL_getenv("ACR_UNITS_DOWN"))                                                 \
-            for (int u_ = 0; u_ < battle.units; ++u_)                                     \
-                if (battle.unit[u_].active) battle.unit[u_].ap = 0, battle.unit[u_].down = 1; \
+        /* Testing aids: ACR_UNITS_DOWN=1 starts with the enemy units in the    \
+         * fight destroyed, so a map's script moves on (map 6: the deck opens); \
+         * ACR_FRIENDS_DOWN=1 the friendly ones (map 12: the mission fails). */ \
+        for (int u_ = 0; u_ < battle.units; ++u_)                                         \
+            if (battle.unit[u_].active &&                                                 \
+                SDL_getenv(battle.unit[u_].team & 1 ? "ACR_UNITS_DOWN" : "ACR_FRIENDS_DOWN")) \
+                battle.unit[u_].ap = 0, battle.unit[u_].down = 1;                         \
         acr_gen1_battle_retarget(&battle);                                                \
         memset(battle.shot, 0, sizeof battle.shot);                                       \
         fx_reset();                                                                       \
@@ -2106,7 +2109,8 @@ int main(int argc, char **argv) {
                     int up = 0;
                     for (int u_ = 0; u_ < battle.units; ++u_) up += battle.unit[u_].active && !battle.unit[u_].down;
                     SDL_Log("mission %02d script: step %d, flags %d, ending in %d ticks%s (%d units in the fight)",
-                            m_->map - 1, m_->phase, m_->flags, m_->end_ticks, m_->result ? ", DONE" : "", up);
+                            m_->map - 1, m_->phase, m_->flags, m_->end_ticks,
+                            m_->result == ACR_GEN1_MISSION_FAILED ? ", FAILED" : m_->result ? ", DONE" : "", up);
                 }
                 last_m = *m_;
             }
@@ -2611,7 +2615,10 @@ int main(int argc, char **argv) {
             const int time_up = round_ms <= 0 && (two_players || g_ai_mode);
             int out = 0;
             for (int j = 0; j < acr_gen1_battle_fighters(&battle); ++j) out |= acr_gen1_battle_out_of_area(&battle, j) == 2;
-            const char *why = out ? "OUT OF AREA" : "KNOCKED OUT";
+            /* A map's script decides by its objective: the game's own words. */
+            const char *why = battle.mission.result == ACR_GEN1_MISSION_FAILED ? "MISSION FAILED"
+                            : battle.mission.result == ACR_GEN1_MISSION_DONE   ? "MISSION ACCOMPLISHED"
+                            : out ? "OUT OF AREA" : "KNOCKED OUT";
             if (time_up) battle_hud_word(full_w, g_hud_frame, BATTLE_HUD_TIME_UP, 140, 255, 230, 120);
             else battle_hud_text(full_w, g_hud_frame, 0, 160.0f - 3.0f * (float)SDL_strlen(why), 140, why, 1, 255, 230, 120);
             {

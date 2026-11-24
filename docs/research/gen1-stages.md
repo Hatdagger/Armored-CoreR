@@ -666,21 +666,48 @@ made or not.
   11-14 made (the four drones, U10; list at `0x800AABEC`), once; none left
   -> as map 2. Records 4-10 trucks and MTs, 15 the jet (U36).
 - **Map 12** (`0x800A4640`, "Objective: Save friendly units"): targets
-  records 4-9 (list `0x800AA0D8`, handler 1, team 2, U20) all destroyed ->
-  the request at once. Records 10-12 (list `0x800AA0F0`, handler 2, U31,
-  **team 4**) are the friendly units: each one lost plays radio 102-104;
-  all three lost -> 20 ticks, radio 59, and once the radio ends
-  (`0x80058480`) radio 158 and **failed**. The player's object is team 1
-  (`0x80084D5C`). The common target routine (`0x8007931C`) takes objects
-  whose team differs from its own; handler 2 uses its own copy
-  (`0x800A2718`) that skips team 5 and itself instead (so, as read, the
-  friendlies may pick the player): not checked in play.
+  records 4-9 (list `0x800AA0D8`, handler 1 = slot 9 `0x800A263C`, team 2,
+  U20); records 10-12 (list `0x800AA0F0`, handler 2 = slot 10
+  `0x800A3724`, U31, **team 4**: each handler's set-up writes its team to
+  object +54) are the friendly units. The player's object is team 1
+  (object 0 at `0x801E7248`; its AP, +360, stops the script at 0). Read
+  through 2026-11-25; its state is `0x800AA100`, each tick:
+  - radio 101 at tick 20 (`0x800A0DB0` +18);
+  - **0:** every target destroyed (record state 3) -> 1. Otherwise each
+    friendly destroyed plays radio 102-104 once (flags `0x800AA110`); none
+    left -> 2;
+  - **1:** radio 153, `0x80052490(128)` accomplished -> -1;
+  - **2:** a counter (`0x800AA10C`) = 20 -> -1. The counter counts down
+    the same tick; at 0 radio 59 (counter -2); once the radio is done
+    (`0x80058480`) radio 158 and `0x80052490(256)` **failed** (counter -3).
+  **Targets.** Handler 1's think routine (`0x800A2290`) calls the common
+  `0x8007931C` (objects of another team: the player and the friendlies).
+  Handler 2's (`0x800A3378`) calls its own copy `0x800A2718(self, 0x7FFFFFFF)`:
+  over the 16 objects of 376 bytes from `0x801E7248`, it skips empty ones,
+  **team 5**, itself, and object 0 (the player) while `0x800A0DBC` has
+  0x400; the rest (the targets, but also **the player and the other
+  friendlies**, as read) score by half-distance x 2, and when there are 2
+  or more team-5 objects the score is scaled by (1 + team-5 objects
+  already aiming at it, object +80) / (team-5 objects): a spread for a
+  team-5 squad. On map 12 nothing is team 5, so it is "the nearest object
+  but itself". So, as read, the friendlies may aim at the player and at
+  each other; whether their shots hurt them (the shot side, in the EXE)
+  is not read. **To check in the game.**
 - Maps 1, 3, 4, 5, 7-11, 14, 16-19: not read yet (timers in 14 "Hercules
   in 3 minutes"; 3, 12, 14 fail).
 
-**In the engine**: maps 2, 13 and 15 run these rules (records 11-14 of
-map 13 wait hidden); radio and cutscenes are left out. Units the engine
-leaves out (not on a floor) don't count, unlike the game.
+**In the engine**: maps 2, 12, 13 and 15 run these rules (records 11-14
+of map 13 wait hidden); radio and cutscenes are left out. Units the engine
+leaves out (not on a floor) don't count, unlike the game. Map 12
+(2026-11-25): the friendlies are on the player's side (battle team 0);
+every unit now aims at the nearest enemy AC **or unit**, so the targets go
+for the friendlies and the friendlies for the targets (not for the player
+or each other, unlike the read above: a stand-in until it is checked in
+the game). Friendly units don't keep the player's side standing. The
+failed ending is a result of its own (`ACR_GEN1_MISSION_FAILED`, the
+battle's 2), shown as "MISSION FAILED"; radio 59's length is a stand-in
+(66 ticks, about 3 s). AC TEST: `ACR_FRIENDS_DOWN=1` starts with the
+friendly units destroyed (`ACR_UNITS_DOWN=1` now only the enemy ones).
 
 ## Mission units (read 2026-11-22)
 
