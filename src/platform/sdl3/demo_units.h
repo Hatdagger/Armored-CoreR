@@ -38,11 +38,24 @@ typedef struct demo_unit_object {
     int unit;                           /* its unit in the joined battle, -1 none */
 } demo_unit_object;
 
+#define DEMO_UNIT_MOTION_KEYS 512
+
+/* A handler's root motion (stages/MM/motion-HH.toml): how its animations
+ * move it. anim[] points into track[] (NULL = no such animation). */
+typedef struct demo_unit_motion {
+    int handler;
+    acr_gen1_root_track track[ACR_GEN1_UNIT_ANIMS];
+    const acr_gen1_root_track *anim[ACR_GEN1_UNIT_ANIMS];
+    acr_gen1_root_key keys[DEMO_UNIT_MOTION_KEYS];
+} demo_unit_motion;
+
 typedef struct demo_units {
     int map;                            /* -1 = nothing loaded */
     int models, objects, drawn;         /* drawn: objects with a model */
     demo_unit_model model[DEMO_UNIT_MODELS];
     demo_unit_object object[DEMO_UNIT_OBJECTS];
+    int motions;                        /* handlers' motion sets loaded (the battle's units point here) */
+    demo_unit_motion motion[DEMO_UNIT_MODELS];
 } demo_units;
 
 /* Loads mission map `map`'s objects and their units; returns the number of
@@ -54,7 +67,8 @@ void demo_units_free(demo_units *u);
  * those the map's script raises later (acr_gen1_mission.h) as waiting. A
  * unit with 10 or more animations gets the MT brain, an armed one with
  * fewer the turret brain. Clears b's units first; map -1: none. Returns
- * the number joined. */
+ * the number joined. A unit whose handler has a motion set
+ * (motion-HH.toml, imports from 2026-11-24 on) walks by it. */
 int  demo_units_join(demo_units *u, const char *import_dir, int map, acr_gen1_battle *b, const acr_gen1_stage *stage);
 /* Draws every object, `tick` game ticks in: joined ones where battle b has
  * them, in their state's animation (MTs) or animation 0, blinking when hit

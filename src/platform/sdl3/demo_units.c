@@ -101,6 +101,7 @@ static int load_model(const char *import_dir, const char *id, const char *skin, 
 
 void demo_units_free(demo_units *u) {
     for (int i = 0; i < u->models; ++i) free_model(&u->model[i]);
+    u->motions = 0;
     SDL_memset(u, 0, sizeof *u);
     u->map = -1;
 }
@@ -187,13 +188,14 @@ static float loop_tick(const acr_anim_set *set, int n, float tick) {
     return period > 0 ? fmodf(tick, period) : 0.0f;
 }
 
-/* The animation an MT state plays: the first of each state's three in map
- * 6's MT behaviour (0x800A3430, through 0x800A32AC); idle and turning as
- * there (7 / 19). Units with too few animations play 0. */
+/* The animation an MT plays: the battle's (start, then walk) when it walks
+ * by its motion set; otherwise its state's walk in map 6's MT behaviour
+ * (0x800A3430 -> 0x800A32AC: states 1-8 walk 2, 4, 6, 9, 11, 13, 15, 17)
+ * and turning as there (19). Units with too few animations play 0. */
 static int state_anim(const demo_unit_model *m, const acr_gen1_unit *un) {
-    static const uint8_t k_anim[11] = { 0, 2, 4, 6, 13, 15, 17, 9, 11, 19, 19 };
+    static const uint8_t k_anim[11] = { 0, 2, 4, 6, 9, 11, 13, 15, 17, 19, 19 };
     if (!un || un->brain != ACR_GEN1_BRAIN_MT || un->state > 10) return 0;
-    const int a = k_anim[un->state];
+    const int a = un->motion && un->anim ? un->anim : k_anim[un->state];
     return a < ACR_ANIM_MAX && m->anims.anim[a].frames ? a : 0;
 }
 
@@ -201,7 +203,12 @@ static void draw_object(const demo_unit_model *m, const demo_unit_object *o, con
                         const acr_lighting *light) {
     acr_pose pose;
     const int an = state_anim(m, un);
-    acr_pose_play_smooth(&m->skel, &m->anims, an, loop_tick(&m->anims, an, tick), 1, &pose);
+    /* walking by its motion set: the frame the battle is on, so the feet
+     * match the ground it covers */
+    const float at_tick = un && un->motion && un->anim == an && an
+                              ? loop_tick(&m->anims, an, (float)un->anim_frame + (tick - floorf(tick)))
+                              : loop_tick(&m->anims, an, tick);
+    acr_pose_play_smooth(&m->skel, &m->anims, an, at_tick, 1, &pose);
     demo_unit_object at = *o;
     if (un) {                                       /* where the battle has it */
         at.pos[0] = (float)un->x / 64.0f;
@@ -276,6 +283,54 @@ void demo_units_draw(const demo_units *u, const acr_gen1_battle *b, float tick, 
     }
 }
 
+/* Handler h's motion set: loaded once per map; NULL if the import has none. */
+static const acr_gen1_root_track *const *unit_motion(demo_units *u, const char *import_dir, int map, int h) {
+    for (int i = 0; i < u->motions; ++i)
+        if (u->motion[i].handler == h) return u->motion[i].handler > 0 ? u->motion[i].anim : NULL;
+    if (u->motions >= DEMO_UNIT_MODELS) return NULL;
+    demo_unit_motion *mo = &u->motion[u->motions++];
+    SDL_memset(mo, 0, sizeof *mo);
+    mo->handler = -h;                                     /* negative: tried, nothing there */
+    char path[1100];
+    SDL_snprintf(path, sizeof path, "%s/stages/%02d/motion-%02d.toml", import_dir, map, h);
+    char *t = load_text(path);
+    if (!t) return NULL;
+    int used = 0, index = -1, any = 0;
+    for (const char *p = t; *p; ) {
+        const char *e = line_end(p), *v;
+        if (!SDL_strncmp(p, "[[anim]]", 8)) index = -1;
+        else if ((v = value(p, e, "index"))) index = SDL_atoi(v);
+        else if (index >= 0 && index < ACR_GEN1_UNIT_ANIMS && (v = value(p, e, "length")))
+            mo->track[index].length = (uint16_t)SDL_atoi(v);
+        else if (index >= 0 && index < ACR_GEN1_UNIT_ANIMS && (v = value(p, e, "keys")) && *v == '[') {
+            acr_gen1_root_track *tr = &mo->track[index];
+            tr->keys = &mo->keys[used];
+            tr->count = 0;
+            for (const char *q = v + 1; q < e; ++q) {
+                if (*q != '[') continue;
+                long k[4] = { 0, 0, 0, 0 };
+                char *r = (char *)q + 1;
+                for (int j = 0; j < 4; ++j) {
+                    k[j] = SDL_strtol(r, &r, 10);
+                    while (*r == ',' || *r == ' ') ++r;
+                }
+                if (used < DEMO_UNIT_MOTION_KEYS) {
+                    mo->keys[used++] = (acr_gen1_root_key){ (uint16_t)k[0], (int16_t)k[1], (int16_t)k[2], (int16_t)k[3] };
+                    ++tr->count;
+                }
+                q = r;
+            }
+            mo->anim[index] = tr;
+            any = 1;
+        }
+        p = *e ? e + 1 : e;
+    }
+    SDL_free(t);
+    if (!any) return NULL;
+    mo->handler = h;
+    return mo->anim;
+}
+
 int demo_units_join(demo_units *u, const char *import_dir, int map, acr_gen1_battle *b, const acr_gen1_stage *stage) {
     b->units = 0;
     SDL_memset(b->unit, 0, sizeof b->unit);
@@ -315,6 +370,7 @@ int demo_units_join(demo_units *u, const char *import_dir, int map, acr_gen1_bat
         int anims = 0;
         for (int k = 0; k < ACR_ANIM_MAX; ++k) anims += m->anims.anim[k].frames > 0;
         n.brain = (uint8_t)(anims >= 10 ? ACR_GEN1_BRAIN_MT : n.attack ? ACR_GEN1_BRAIN_TURRET : ACR_GEN1_BRAIN_NONE);
+        if (n.brain == ACR_GEN1_BRAIN_MT && o->handler > 0) n.motion = unit_motion(u, import_dir, map, o->handler);
         o->unit = acr_gen1_battle_add_unit(b, &n);
     }
     acr_gen1_mission_start(b, map);

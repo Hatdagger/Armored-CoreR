@@ -70,16 +70,21 @@ static int write_list(FILE *f, const uint8_t *menu, size_t size, uint32_t ptr) {
     return o < size;
 }
 
-static int write_model(const char *path, unsigned id, const uint8_t *set, size_t size) {
+int acr_write_root_motion(const char *path, unsigned id, const uint8_t *set, size_t size, int unit) {
     if (size < 16) return 0;
     const uint32_t count = u32(set);
     if (count == 0 || count > 256 || 12 + 2 * (size_t)count > size) return 0;
     FILE *f = fopen(path, "wb");
     if (!f) return 0;
-    fprintf(f, "# Master of Arena animation set %u (root motion only), imported from your disc.\n", id);
-    fprintf(f, "# keys: [frame, x, y, z] = how far the AC has moved since the animation began,\n");
-    fprintf(f, "# in 1/4 world units (z forward is negative, y up is negative).\n");
-    fprintf(f, "model = %u\n", id);
+    if (unit)
+        fprintf(f, "# Master of Arena mission unit motion (chunk 12 entry %u, handler %u; root motion\n"
+                   "# only), imported from your disc.\n", id - 1, id);
+    else
+        fprintf(f, "# Master of Arena animation set %u (root motion only), imported from your disc.\n", id);
+    fprintf(f, "# keys: [frame, x, y, z] = how far the %s has moved since the animation began,\n",
+            unit ? "unit" : "AC");
+    fprintf(f, "# in 1/4 world units (z forward is negative, +x is to its left, y up is negative).\n");
+    fprintf(f, "%s = %u\n", unit ? "handler" : "model", id);
     int ok = 1;
     for (uint32_t i = 0; ok && i < count; ++i) {
         const size_t a = 12 + (size_t)u16(set + 12 + 2 * i);
@@ -87,7 +92,7 @@ static int write_model(const char *path, unsigned id, const uint8_t *set, size_t
         const unsigned keys = u16(set + a + 6) & 0x7FFF;
         if (a + 8 + 8 * (size_t)keys > size) { ok = 0; break; }
         fprintf(f, "\n[[anim]]\nindex  = %u\n", (unsigned)i);
-        if (anim_name(i)) fprintf(f, "name   = \"%s\"\n", anim_name(i));
+        if (!unit && anim_name(i)) fprintf(f, "name   = \"%s\"\n", anim_name(i));
         fprintf(f, "length = %u\nheader = [%u, %u]\nkeys   = [", (unsigned)u16(set + a + 4),
                 (unsigned)u16(set + a), (unsigned)u16(set + a + 2));
         for (unsigned k = 0; k < keys; ++k) {
@@ -139,7 +144,7 @@ int acr_export_moa_motion(const char *menu_module, const char *unpacked_dir, con
         uint8_t *data = read_all(src, &size);
         if (!data) continue;   /* a missing set is skipped, not fatal */
         snprintf(dst, sizeof dst, "%s/model-%02u.toml", out_dir, i);
-        if (size > 4 && write_model(dst, i, data + 4, size - 4)) ++*count;
+        if (size > 4 && acr_write_root_motion(dst, i, data + 4, size - 4, 0)) ++*count;
         free(data);
     }
     return 1;

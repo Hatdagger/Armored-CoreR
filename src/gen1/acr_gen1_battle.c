@@ -1307,10 +1307,20 @@ int acr_gen1_battle_result(const acr_gen1_battle *b, int time_up) {
  *   with no burst running, 2,622 in 32,768 a tick a burst starts (328 of
  *   those skip the line-of-sight test 0x8007DEA4); a burst is 6 ticks, a
  *   shot on each odd one (3 shots), the muzzles taking turns.
- * Stand-ins (the MTs walk by their animations, not read): the step lasts
- * UNIT_STEP_TICKS; the MT walks UNIT_WALK a tick (UNIT_SIDE sideways or
- * back) and faces its target at UNIT_FACE a tick while walking; a step
- * that would leave the floor or meet a wall is turned around as a hit is. */
+ * - Walking (0x800A3430 -> 0x800A32AC): each step state plays a start
+ *   animation, then loops its walk; from another state's walk it goes
+ *   straight into the new walk; after one of two linking animations it
+ *   waits for that to end. The root track moves it (0x80055138, one frame
+ *   a tick, the AC's stepper; the direction fixed at each key span):
+ *     state   1   2   3   4   5   6   7   8
+ *     walk    2   4   6   9  11  13  15  17
+ *     start   1   3   5   8  10  12  14  16
+ *   Map 6's MT: walk 2 is 646 / 4 forward in 24 frames; the big MT's 2,075.
+ * Stand-ins: a decision every UNIT_STEP_TICKS (who sends events 0-4 is not
+ * read); 0x800A3194 (may it start the step?) taken as yes; it faces its
+ * target at UNIT_FACE a tick while walking; a unit without a motion set
+ * walks UNIT_WALK a tick (UNIT_SIDE sideways or back); a step that would
+ * leave the floor or meet a wall is turned around as a hit is. */
 #define UNIT_STEP_TICKS 24
 #define UNIT_WALK       16
 #define UNIT_SIDE       11
@@ -1318,6 +1328,11 @@ int acr_gen1_battle_result(const acr_gen1_battle *b, int time_up) {
 #define UNIT_GUN_TURN   16
 
 static const uint8_t k_unit_swap[11] = { 0, 6, 8, 7, 5, 4, 1, 3, 2, 9, 10 };
+
+static const uint8_t k_unit_walk[9]  = { 0, 2, 4, 6, 9, 11, 13, 15, 17 };
+static const uint8_t k_unit_start[9] = { 0, 1, 3, 5, 8, 10, 12, 14, 16 };
+static const uint8_t k_unit_link[9][2] = { { 0, 0 }, { 3, 5 }, { 1, 5 }, { 1, 3 }, { 255, 255 },
+                                           { 255, 255 }, { 14, 16 }, { 12, 16 }, { 12, 14 } };
 
 static void unit_hit_turn(acr_gen1_unit *u) {
     if (u->brain == ACR_GEN1_BRAIN_MT && u->state < 11) u->state = k_unit_swap[u->state];
@@ -1335,6 +1350,8 @@ int acr_gen1_battle_add_unit(acr_gen1_battle *b, const acr_gen1_unit *u) {
     n->down = 0;
     n->target = -1;
     n->turn = 0;
+    n->anim = 0;
+    n->anim_frame = n->span_left = 0;
     if (!n->ap_max) n->ap_max = n->ap;
     return b->units++;
 }
@@ -1354,10 +1371,10 @@ static void unit_decide(acr_gen1_battle *b, acr_gen1_unit *u, int64_t measure) {
     u->state_ticks = UNIT_STEP_TICKS;
 }
 
-/* Walks a step: the stage stops it at walls (the game's box move) and it
- * won't step off its floor; either turns the step around. */
-static void unit_walk(acr_gen1_battle *b, acr_gen1_unit *u, uint16_t way, int32_t speed) {
-    int32_t step[3] = { acr_gen1_sin(way) * speed / 4096, 0, acr_gen1_cos(way) * speed / 4096 };
+/* Moves it (dx, dz) world units: the stage stops it at walls (the game's
+ * box move) and it won't step off its floor; either turns the step around. */
+static void unit_move(acr_gen1_battle *b, acr_gen1_unit *u, int32_t dx, int32_t dz) {
+    int32_t step[3] = { dx, 0, dz };
     if (!step[0] && !step[2]) return;
     const int32_t pos[3] = { u->x / 64, u->y / 64, u->z / 64 };
     if (b->stage) {
@@ -1374,6 +1391,65 @@ static void unit_walk(acr_gen1_battle *b, acr_gen1_unit *u, uint16_t way, int32_
     }
     u->x += step[0] * 64;
     u->z += step[2] * 64;
+}
+
+static void unit_walk(acr_gen1_battle *b, acr_gen1_unit *u, uint16_t way, int32_t speed) {
+    unit_move(b, u, acr_gen1_sin(way) * speed / 4096, acr_gen1_cos(way) * speed / 4096);
+}
+
+static const acr_gen1_root_track *unit_track(const acr_gen1_unit *u, unsigned a) {
+    return u->motion && a < ACR_GEN1_UNIT_ANIMS ? u->motion[a] : NULL;
+}
+
+static void unit_set_anim(acr_gen1_unit *u, uint8_t a) {
+    u->anim = a;
+    u->anim_frame = u->span_left = 0;
+}
+
+static int32_t unit_div_round(int32_t a, int32_t b) {
+    return a >= 0 ? (a + b / 2) / b : -((-a + b / 2) / b);
+}
+
+/* One tick of a step state by the animations (0x800A32AC, then the root
+ * motion of 0x80055138). Returns 0 when the state's walk has no track. */
+static int unit_anim_walk(acr_gen1_battle *b, acr_gen1_unit *u) {
+    const int st = u->state;
+    const uint8_t walk = k_unit_walk[st], start = k_unit_start[st];
+    if (!unit_track(u, walk)) return 0;
+    const acr_gen1_root_track *cur = unit_track(u, u->anim);
+    int cur_is_walk = 0;
+    for (int k = 1; k <= 8; ++k) cur_is_walk |= u->anim == k_unit_walk[k];
+    if (cur_is_walk) {
+        if (u->anim != walk) unit_set_anim(u, walk);            /* walk to walk: straight in */
+    } else if (u->anim && (u->anim == start || u->anim == k_unit_link[st][0] || u->anim == k_unit_link[st][1])) {
+        if (!cur || u->anim_frame >= cur->length) unit_set_anim(u, walk);
+    } else {
+        unit_set_anim(u, unit_track(u, start) ? start : walk);
+    }
+    const acr_gen1_root_track *t = unit_track(u, u->anim);
+    if (!t) return 1;
+    if (!u->span_left) {
+        if (u->anim_frame >= t->length) {
+            if (u->anim != walk) return 1;                      /* a start that ran out: walk next tick */
+            u->anim_frame = 0;
+        }
+        int32_t d[3];
+        unsigned frames;
+        if (!acr_gen1_root_span(t, u->anim_frame, d, &frames)) { ++u->anim_frame; return 1; }
+        /* tracks: z negative forward, +x to its left; forward = (sin, cos), right = (cos, -sin) */
+        const int32_t s = acr_gen1_sin(u->yaw), c = acr_gen1_cos(u->yaw);
+        const int32_t fwd = -d[2], left = d[0];
+        const int32_t wx = (int32_t)(((int64_t)fwd * s - (int64_t)left * c) / 4096);
+        const int32_t wz = (int32_t)(((int64_t)fwd * c + (int64_t)left * s) / 4096);
+        acr_gen1_stepper_init(&u->step[0], (int)frames, unit_div_round(wx, 4));
+        acr_gen1_stepper_init(&u->step[1], (int)frames, unit_div_round(wz, 4));
+        u->span_left = (uint16_t)frames;
+    }
+    const int32_t dx = acr_gen1_stepper_next(&u->step[0]), dz = acr_gen1_stepper_next(&u->step[1]);
+    ++u->anim_frame;
+    --u->span_left;
+    unit_move(b, u, dx, dz);
+    return 1;
 }
 
 static void unit_fire(acr_gen1_battle *b, int ui) {
@@ -1476,6 +1552,7 @@ static void unit_tick(acr_gen1_battle *b, int ui) {
             if (v < -24) v = -24;
             u->turn = (int16_t)v;
             u->yaw = (uint16_t)((u->yaw + u->turn) & 4095);
+            if (u->anim) unit_set_anim(u, 0);
         } else if (u->state != ACR_GEN1_UNIT_IDLE) {
             if (t) {
                 uint16_t yaw;
@@ -1483,8 +1560,11 @@ static void unit_tick(acr_gen1_battle *b, int ui) {
                 dir_of((t->x - u->x) / 64, 0, (t->z - u->z) / 64, &yaw, &pitch);
                 u->yaw = (uint16_t)(turn_toward(u->yaw, yaw, UNIT_FACE) & 4095);
             }
-            unit_walk(b, u, (uint16_t)((u->yaw + k_way[u->state]) & 4095),
-                      u->state == ACR_GEN1_UNIT_AHEAD ? UNIT_WALK : UNIT_SIDE);
+            if (!unit_anim_walk(b, u))
+                unit_walk(b, u, (uint16_t)((u->yaw + k_way[u->state]) & 4095),
+                          u->state == ACR_GEN1_UNIT_AHEAD ? UNIT_WALK : UNIT_SIDE);
+        } else if (u->anim) {
+            unit_set_anim(u, 0);
         }
     } else if (u->brain == ACR_GEN1_BRAIN_TURRET && t) {
         uint16_t yaw;

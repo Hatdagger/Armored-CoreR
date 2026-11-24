@@ -473,13 +473,30 @@ decision code with its own tables, so it is the missions' common MT.
   Events 1-2: a third of the time state 1 or 6 at even odds. **Event 5**
   (sent by the hit routine `0x8007AF00` and the wall code) swaps the state
   for its pair: 1-6, 2-8, 3-7, 4-5, so the pairs are opposite steps.
-- **Behaviour** (`0x800A3430`): states 1-8 each play a set of three
-  animations (`0x800A32AC`: 2/1/3, 4/3/1, 6/5/1, 13/12/14, 15/14/12,
-  17/16/12, 9/8, 11/10); 9 and 10 turn (`0x800A30F4` / `0x800A3144`: the
-  turn speed +0xD4 grows by 8 a tick, at most 24, added to the facing);
-  0 idles (animation 7 or 18 via `0x8007C9B8`); 11 (`0x8007D50C`) not read.
-  The MT walks by its animations (`0x80055138` moves the object along the
-  animation each frame): its speeds are not read.
+- **Behaviour** (`0x800A3430`, jump table `0x800A1100`): states 1-8 call
+  `0x800A32AC` with a walk, a start and two linking animations:
+  state 1 walk 2 / start 1 (links 3, 5), 2: 4 / 3 (1, 5), 3: 6 / 5 (1, 3),
+  4: 9 / 8, 5: 11 / 10 (no links), 6: 13 / 12 (14, 16), 7: 15 / 14
+  (12, 16), 8: 17 / 16 (12, 14). (Read 2026-11-24; the order noted before,
+  13/15/17 for states 4-6, was the code's order, not the states'.) In
+  `0x800A32AC`: already in any walk (2, 4, 6, 9, 11, 13, 15, 17, table
+  `0x800A10C0`) it plays the new walk straight away; in the start or a link
+  it waits for that to end (`0x80054C04`), then plays the walk; otherwise,
+  if `0x800A3194` agrees (not read), the start. 9 and 10 turn
+  (`0x800A30F4` / `0x800A3144`: the turn speed +0xD4 grows by 8 a tick, at
+  most 24, added to the facing); 0 idles (animation 7 or 18 via
+  `0x8007C9B8`); 11 (`0x8007D50C`) not read.
+- **Walking speed** = the animations' root tracks (`0x80055138` moves the
+  object along the animation each frame; chunk 12's motion sets, below).
+  The tracks' +x is the unit's left, so the states walk: 1 ahead, 2 ahead
+  left, 3 ahead right, 4 left, 5 right, 6 back, 7 back left, 8 back right,
+  and the hit pairs (1-6, 2-8, 3-7, 4-5) are opposites. Map 6's MT (handler
+  2): starts 8 frames (168 / 4 ahead), walks 24 frames: ahead 646, sideways
+  646, diagonals 446 x 445, back 592, back diagonals 446 x 446 (1/4 units),
+  i.e. 161.5 units a loop, about 6.7 a tick. The big MT (handler 1): walk 2
+  is 2,075 in 24 frames, 12-frame starts. acr-import writes them as
+  `stages/MM/motion-HH.toml` (HH = handler, the AC format); the engine walks
+  by them (acr_gen1_battle.c).
 - **Gun** (`0x800A38B4` / `0x800A3714`): `0x80079828` gives the angles to
   the target for a gun at joint 7 with range 7,000, +-256 up / down and
   +-1,024 to the sides; the gun's angles (+0x7E / +0x80) turn 16 a tick
@@ -705,8 +722,8 @@ armored-corer <import> --test` (`ACR_HOLD` holds inputs). Without
 drawn.
 
 Read since: AP, weapons and the MT's behaviour ("Mission unit behaviour").
-Still open: the walking speeds (animation-driven), state 11, which code
-sends events 0-4, the mission script and slot 0 (objectives, the big MT's rise).
+Still open: state 11, which code sends events 0-4 (the decision timing),
+`0x800A3194`, the mission script and slot 0 (objectives, the big MT's rise).
 
 ## Next
 

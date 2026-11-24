@@ -140,6 +140,45 @@ int main(void) {
     for (int t = 0; t < 40; ++t) acr_gen1_battle_step(&b, none, idle);
     EXPECT(b.unit[0].z / 64 > 300);
 
+    /* Walking by the motion set (map 6's MT, chunk 12 handler 2): state 1
+     * starts with animation 1 (168 / 4 forward in 8 frames), then loops
+     * walk 2 (646 / 4 in 24 frames, keys as on the disc). Facing +z. */
+    {
+        static const acr_gen1_root_key k_start[] = { { 8, 0, 0, -168 } };
+        static const acr_gen1_root_key k_walk[] = { { 3, 0, 0, -27 }, { 6, 0, 0, -111 }, { 8, 0, 0, -223 },
+                                                    { 18, 0, 0, -434 }, { 20, 0, 0, -546 }, { 24, 0, 0, -646 } };
+        static const acr_gen1_root_key k_side[] = { { 24, 646, 0, 0 } };
+        static acr_gen1_root_track tr[ACR_GEN1_UNIT_ANIMS];
+        static const acr_gen1_root_track *motion[ACR_GEN1_UNIT_ANIMS];
+        tr[1] = (acr_gen1_root_track){ 8, 1, k_start };
+        tr[2] = (acr_gen1_root_track){ 24, 6, k_walk };
+        tr[9] = (acr_gen1_root_track){ 24, 1, k_side };
+        motion[1] = &tr[1]; motion[2] = &tr[2]; motion[9] = &tr[9];
+        setup(&b);
+        b.f[0].ac.z = 20000 * 64;                              /* ahead of it, far: it keeps walking in */
+        b.f[1].ac.z = 20000 * 64;
+        u = mt(0, 0, 0, ACR_GEN1_BRAIN_MT);
+        u.attack = 0;
+        u.motion = motion;
+        acr_gen1_battle_add_unit(&b, &u);
+        b.unit[0].state = ACR_GEN1_UNIT_AHEAD;
+        b.unit[0].state_ticks = 250;
+        for (int t = 0; t < 8; ++t) acr_gen1_battle_step(&b, none, idle);
+        EXPECT(b.unit[0].anim == 1);
+        EXPECT(b.unit[0].z / 64 == 42);                        /* 168 / 4 */
+        for (int t = 0; t < 24; ++t) acr_gen1_battle_step(&b, none, idle);
+        EXPECT(b.unit[0].anim == 2);
+        EXPECT(b.unit[0].z / 64 == 42 + 162);                  /* + 646 / 4, rounded as the game */
+        EXPECT(b.unit[0].x == 0);
+        for (int t = 0; t < 24; ++t) acr_gen1_battle_step(&b, none, idle);
+        EXPECT(b.unit[0].z / 64 == 42 + 2 * 162);
+        /* walk to walk: straight into the new one, no start (state 4, walk 9: +x is its left) */
+        b.unit[0].state = ACR_GEN1_UNIT_LEFT;
+        for (int t = 0; t < 24; ++t) acr_gen1_battle_step(&b, none, idle);
+        EXPECT(b.unit[0].anim == 9);
+        EXPECT(b.unit[0].x / 64 == -162);                      /* facing +z, its left is -x */
+    }
+
     /* A hit turns the MT's step around (event 5). */
     setup(&b);
     u = mt(0, 3000, 2048, ACR_GEN1_BRAIN_MT);
@@ -147,7 +186,7 @@ int main(void) {
     b.unit[0].state = ACR_GEN1_UNIT_AHEAD_L;
     b.unit[0].state_ticks = 200;
     while (b.unit[0].ap == 5000 && steps < 400) { acr_gen1_battle_step(&b, none, fire); ++steps; }
-    EXPECT(b.unit[0].state == ACR_GEN1_UNIT_BACK_L);
+    EXPECT(b.unit[0].state == ACR_GEN1_UNIT_BACK_R);
 
     /* The same fight twice: the same result (netplay needs it). */
     static acr_gen1_battle r1, r2;

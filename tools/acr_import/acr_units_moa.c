@@ -18,6 +18,7 @@
 #include "acr_units_moa.h"
 #include "acr_models_moa.h"
 #include "acr_stages_moa.h"
+#include "acr_motion_moa.h"
 
 #include <errno.h>
 #include <stdio.h>
@@ -703,10 +704,34 @@ static int handler_box(const map_file *m, int handler, unsigned *half, unsigned 
     return 0;
 }
 
+/* Each chunk 12 entry's motion set (the data after its 36-byte header, in
+ * the AC format) as <stages>/MM/motion-HH.toml, HH = its handler: how the
+ * unit's animations move it (an MT walks by them). Entries without a usable
+ * set are skipped. */
+static int write_motions(const map_file *m, const char *dir) {
+    const chunk *c = &m->ch[12];
+    if (c->n < 4) return 1;
+    const unsigned count = u16(c->p);
+    size_t o = 4;
+    for (unsigned k = 0; k < count; ++k) {
+        if (o + 4 > c->n) break;
+        const uint32_t n = u32(c->p + o);
+        if (n > c->n - o - 4) break;
+        if (n > 36 + 16) {
+            char path[1400];
+            snprintf(path, sizeof path, "%s/motion-%02u.toml", dir, k + 1);
+            if (!acr_write_root_motion(path, k + 1, c->p + o + 4 + 36, n - 36, 1)) remove(path);
+        }
+        o += 4 + n;
+    }
+    return 1;
+}
+
 static int write_objects(const map_file *m, const unit *units, unsigned map, const char *stages_dir) {
     char dir[1200], path[1400];
     snprintf(dir, sizeof dir, "%s/%02u", stages_dir, map);
     if (!make_dirs(dir)) return 0;
+    write_motions(m, dir);
     snprintf(path, sizeof path, "%s/objects.toml", dir);
     FILE *f = fopen(path, "wb");
     if (!f) return 0;

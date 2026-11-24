@@ -268,13 +268,14 @@ typedef struct acr_gen1_modern_tuning {
 enum { ACR_GEN1_BRAIN_NONE, ACR_GEN1_BRAIN_MT, ACR_GEN1_BRAIN_TURRET };
 /* MT states (object +74; pairs a hit swaps: 1-6, 2-8, 3-7, 4-5). */
 enum { ACR_GEN1_UNIT_IDLE, ACR_GEN1_UNIT_AHEAD, ACR_GEN1_UNIT_AHEAD_L, ACR_GEN1_UNIT_AHEAD_R,
-       ACR_GEN1_UNIT_LEFT, ACR_GEN1_UNIT_RIGHT, ACR_GEN1_UNIT_BACK, ACR_GEN1_UNIT_BACK_R,
-       ACR_GEN1_UNIT_BACK_L, ACR_GEN1_UNIT_TURN_L, ACR_GEN1_UNIT_TURN_R };
+       ACR_GEN1_UNIT_LEFT, ACR_GEN1_UNIT_RIGHT, ACR_GEN1_UNIT_BACK, ACR_GEN1_UNIT_BACK_L,
+       ACR_GEN1_UNIT_BACK_R, ACR_GEN1_UNIT_TURN_L, ACR_GEN1_UNIT_TURN_R };
 #define ACR_GEN1_UNIT_RANGE     7000    /* the MT gun's range (aim routine 0x800A3714, shot table) */
 #define ACR_GEN1_UNIT_SHOT      700     /* its shot speed, world units a tick (shot table +4) */
 #define ACR_GEN1_UNIT_FAR       2500    /* decision distances (game's measure, see .c) */
 #define ACR_GEN1_UNIT_NEAR      1000
 #define ACR_GEN1_UNIT_DOWN_TICKS 20     /* a destroyed unit stays this long (the explosion) */
+#define ACR_GEN1_UNIT_ANIMS     32      /* animations a unit's motion set may have */
 
 typedef struct acr_gen1_unit {
     uint8_t  active;                           /* in the fight (0: dormant, drawn only) */
@@ -297,6 +298,13 @@ typedef struct acr_gen1_unit {
     uint8_t  hit_flash;                        /* ticks of the hit blink */
     uint8_t  record;                           /* its chunk 13 record (the script's name for it), 0 = none */
     uint8_t  wait;                             /* ACR_GEN1_WAIT_*: waiting for the map's script (active 0) */
+    /* Root motion (chunk 12's motion set, stages/MM/motion-HH.toml): an MT
+     * walks by its animations' tracks, ACR_GEN1_UNIT_ANIMS of them (entries
+     * may be NULL). NULL: the stand-in speeds in acr_gen1_battle.c. */
+    const acr_gen1_root_track *const *motion;
+    uint8_t  anim;                             /* the animation it plays (+0x6C), 0 = none / idle */
+    uint16_t anim_frame, span_left;
+    acr_gen1_stepper step[2];                  /* x and z of the key span it is in */
 } acr_gen1_unit;
 
 typedef struct acr_gen1_battle {
