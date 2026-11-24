@@ -269,7 +269,9 @@ void demo_units_draw(const demo_units *u, const acr_gen1_battle *b, float tick, 
         const demo_unit_object *o = &u->object[i];
         if (o->model < 0) continue;
         const acr_gen1_unit *un = b && o->unit >= 0 && o->unit < b->units ? &b->unit[o->unit] : NULL;
-        if (un && (!un->active || un->down)) continue;    /* destroyed: the explosion takes its place */
+        /* destroyed: the explosion takes its place; waiting for the script:
+         * drawn only if already made (map 6's big MT under the sea, climbing) */
+        if (un && (un->down || (!un->active && un->wait != ACR_GEN1_WAIT_SHOWN))) continue;
         draw_object(&u->model[o->model], o, un, tick, light);
     }
 }
@@ -278,6 +280,7 @@ int demo_units_join(demo_units *u, const char *import_dir, int map, acr_gen1_bat
     b->units = 0;
     SDL_memset(b->unit, 0, sizeof b->unit);
     for (int i = 0; i < u->objects; ++i) u->object[i].unit = -1;
+    acr_gen1_mission_start(b, -1);
     if (map < 0 || map >= 20) return 0;
     if (u->map != map) {
         demo_units_free(u);
@@ -294,13 +297,15 @@ int demo_units_join(demo_units *u, const char *import_dir, int map, acr_gen1_bat
         const int32_t x = (int32_t)o->pos[0], y = (int32_t)-o->pos[1], z = (int32_t)o->pos[2];
         n.half = (uint16_t)(o->half > 0 ? o->half : 100);
         n.height = (uint16_t)(o->height > 0 ? o->height : 200);
-        if (stage) {     /* standing on something? (map 6's big MT waits under the sea for its script) */
+        n.record = (uint8_t)o->record;
+        n.wait = (uint8_t)acr_gen1_mission_wait(map, o->record);
+        if (stage && !n.wait) {     /* standing on something? (map 6's big MT waits under the sea for its script) */
             const int32_t pos[3] = { x, y, z };
             int32_t fy = 0;
             if (!acr_gen1_stage_floor_probe(stage, pos, ACR_GEN1_STAGE_PROBE_HALF, n.height, ACR_GEN1_STAGE_AC_MASK, &fy) ||
                 fy - y > ACR_GEN1_STAGE_GROUNDED || fy < y - 1) { ++dormant; continue; }
         }
-        n.active = 1;
+        n.active = !n.wait;      /* waiting ones join when the script says */
         n.team = 1;
         n.x = x * 64; n.y = y * 64; n.z = z * 64;
         n.yaw = (uint16_t)((int)(o->yaw * (4096.0f / 6.2831853f) + 0.5f) & 4095);
@@ -312,6 +317,10 @@ int demo_units_join(demo_units *u, const char *import_dir, int map, acr_gen1_bat
         n.brain = (uint8_t)(anims >= 10 ? ACR_GEN1_BRAIN_MT : n.attack ? ACR_GEN1_BRAIN_TURRET : ACR_GEN1_BRAIN_NONE);
         o->unit = acr_gen1_battle_add_unit(b, &n);
     }
-    SDL_Log("mission map %02d: %d units in the fight, %d waiting (not on a floor)", map, b->units, dormant);
+    acr_gen1_mission_start(b, map);
+    int scripted = 0;
+    for (int k = 0; k < b->units; ++k) scripted += b->unit[k].wait != 0;
+    SDL_Log("mission map %02d: %d units, %d waiting for the script%s, %d left out (not on a floor)", map,
+            b->units, scripted, b->mission.map ? "" : " (no script)", dormant);
     return b->units;
 }

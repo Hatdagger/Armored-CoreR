@@ -153,7 +153,10 @@ uint32_t acr_gen1_match_hash(const acr_gen1_match *m) {
         const acr_gen1_unit *un = &b->unit[u];
         H(un->active); H(un->x); H(un->z); H(un->yaw); H(un->ap); H(un->state); H(un->state_ticks);
         H(un->burst); H(un->gun_yaw); H(un->gun_pitch); H(un->down); H(un->target);
+        H(un->y); H(un->wait);
     }
+    H(b->mission.phase); H(b->mission.timer); H(b->mission.flags); H(b->mission.result);
+    H(b->mission.end_ticks);
 #undef H
     return h;
 }

@@ -1265,7 +1265,8 @@ int acr_gen1_battle_result(const acr_gen1_battle *b, int time_up) {
     /* Missions: a unit in the fight keeps its side standing, so the
      * mission is won when every enemy target is down (ACs and units), and
      * a side of units alone still counts (no AC on it). Dormant units
-     * (not active) wait for the script and don't count. Time-up AP stays
+     * (not active) wait for the script and don't count; a map with a script
+ * (acr_gen1_mission.h) is won by its objective instead. Time-up AP stays
      * the ACs' (units keep theirs in other units). */
     for (int u = 0; u < b->units; ++u) {
         const acr_gen1_unit *un = &b->unit[u];
@@ -1275,6 +1276,13 @@ int acr_gen1_battle_result(const acr_gen1_battle *b, int time_up) {
         if (un->ap > 0 && !un->down) ++standing[t];
     }
     const int down0 = members[0] && !standing[0], down1 = members[1] && !standing[1];
+    /* A map with a script: its objective wins it (map 6: the big MT, the
+     * tank AC is a bonus), whatever else stands; the player's side down
+     * still loses. */
+    if (b->mission.map) {
+        if (down0) return 2;
+        return b->mission.result == ACR_GEN1_MISSION_DONE ? 1 : 0;
+    }
     if (down0 || down1) return down0 && down1 ? 3 : down0 ? 2 : 1;
     if (!time_up) return 0;
     return ap[0] > ap[1] ? 1 : ap[1] > ap[0] ? 2 : 3;
@@ -1488,9 +1496,11 @@ static void unit_tick(acr_gen1_battle *b, int ui) {
 }
 
 static void units_step(acr_gen1_battle *b, int ticks) {
-    for (int k = 0; k < ticks; ++k)
+    for (int k = 0; k < ticks; ++k) {
         for (int u = 0; u < b->units; ++u)
             if (b->unit[u].active) unit_tick(b, u);
+        acr_gen1_mission_tick(b);
+    }
 }
 
 /* Bodies: an AC can't stand inside a unit. The unit's body is a square,

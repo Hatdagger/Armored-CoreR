@@ -16,6 +16,7 @@
 #include <stdint.h>
 
 #include "acr_gen1_sim.h"
+#include "acr_gen1_mission.h"
 
 enum { ACR_GEN1_GUN, ACR_GEN1_MISSILE, ACR_GEN1_BLADE };
 enum { ACR_GEN1_MOUNT_HAND, ACR_GEN1_MOUNT_BACK, ACR_GEN1_MOUNT_ARMS };
@@ -294,6 +295,8 @@ typedef struct acr_gen1_unit {
     uint8_t  down;                             /* ticks since destroyed, 0 = alive */
     int8_t   target;                           /* fighter it aims at, -1 none */
     uint8_t  hit_flash;                        /* ticks of the hit blink */
+    uint8_t  record;                           /* its chunk 13 record (the script's name for it), 0 = none */
+    uint8_t  wait;                             /* ACR_GEN1_WAIT_*: waiting for the map's script (active 0) */
 } acr_gen1_unit;
 
 typedef struct acr_gen1_battle {
@@ -311,6 +314,7 @@ typedef struct acr_gen1_battle {
     uint32_t rng;                              /* the battle's own random numbers (0 = default seed) */
     const acr_gen1_stage *stage;               /* the arena (NULL = open floor): stops shots */
     acr_gen1_modern_tuning modern;             /* 0 fields = the defaults below */
+    acr_gen1_mission mission;                  /* the mission map's script (0 = none: the plain rule) */
 } acr_gen1_battle;
 
 typedef struct acr_gen1_actions {

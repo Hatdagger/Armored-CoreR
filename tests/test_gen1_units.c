@@ -254,6 +254,57 @@ int main(void) {
     b.unit[0].ap = 0; b.unit[0].down = 1;
     EXPECT(acr_gen1_battle_result(&b, 0) == 1);
 
+    /* Map 6's script: the five MTs (records 7-11) down open the deck; the
+     * tank AC (4) joins and the big MT (6) climbs to the deck and joins;
+     * the big MT down wins it, 100 ticks later with the tank AC down first
+     * (bonus), 160 with it still up. Nothing else wins it. */
+    for (int tank_first = 0; tank_first < 2; ++tank_first) {
+        setup(&b);
+        b.count = 2;
+        b.f[1].team = 1;
+        for (int r = 7; r <= 11; ++r) {
+            u = mt(-4000 + 1000 * (r - 7), 6000, 2048, ACR_GEN1_BRAIN_NONE);
+            u.record = (uint8_t)r;
+            acr_gen1_battle_add_unit(&b, &u);
+        }
+        u = mt(1710, 340, 0, ACR_GEN1_BRAIN_NONE);
+        u.record = 4; u.wait = (uint8_t)acr_gen1_mission_wait(6, 4); u.active = 0;
+        acr_gen1_battle_add_unit(&b, &u);
+        u = mt(300, 10000, 0, ACR_GEN1_BRAIN_NONE);
+        u.record = 6; u.wait = (uint8_t)acr_gen1_mission_wait(6, 6); u.active = 0;
+        u.y = 500 * 64; u.ap = u.ap_max = 18000;
+        acr_gen1_battle_add_unit(&b, &u);
+        acr_gen1_mission_start(&b, 6);
+        EXPECT(b.unit[5].wait == ACR_GEN1_WAIT_HIDDEN && b.unit[6].wait == ACR_GEN1_WAIT_SHOWN);
+        b.f[1].ap = 0;                                          /* the target AC doesn't decide it */
+        for (int t = 0; t < 4; ++t) b.unit[t].down = 1, b.unit[t].ap = 0;
+        for (int t = 0; t < 200; ++t) acr_gen1_battle_step(&b, none, idle);
+        EXPECT(acr_gen1_battle_result(&b, 0) == 0);
+        EXPECT(!b.unit[5].active && !b.unit[6].active);         /* one MT still stands */
+        b.unit[4].down = 1; b.unit[4].ap = 0;
+        for (int t = 0; t < 20; ++t) acr_gen1_battle_step(&b, none, idle);
+        EXPECT(b.mission.phase == 1 && !b.unit[5].active);      /* the deck opening */
+        for (int t = 0; t < 200; ++t) acr_gen1_battle_step(&b, none, idle);
+        EXPECT(b.unit[5].active && !b.unit[5].wait);            /* the tank AC is in */
+        EXPECT(b.unit[6].active && b.unit[6].y == -500 * 64);   /* the big MT on the deck */
+        EXPECT(acr_gen1_battle_result(&b, 0) == 0);
+        if (tank_first) {
+            b.unit[5].down = 1; b.unit[5].ap = 0;
+            acr_gen1_battle_step(&b, none, idle);
+            acr_gen1_battle_step(&b, none, idle);
+            EXPECT(b.mission.flags & ACR_GEN1_MISSION_BONUS);
+        }
+        b.unit[6].down = 1; b.unit[6].ap = 0;
+        int ticks = 0;
+        while (acr_gen1_battle_result(&b, 0) == 0 && ticks < 400) { acr_gen1_battle_step(&b, none, idle); ++ticks; }
+        EXPECT(acr_gen1_battle_result(&b, 0) == 1);
+        EXPECT(tank_first ? ticks >= 95 && ticks <= 110 : ticks >= 155 && ticks <= 170);
+        EXPECT(!!(b.mission.flags & ACR_GEN1_MISSION_BONUS) == tank_first);
+        b.f[0].ap = 0;
+        EXPECT(acr_gen1_battle_result(&b, 0) == 2);             /* the player down loses */
+    }
+    EXPECT(!acr_gen1_mission_has_script(5) && acr_gen1_mission_wait(5, 4) == ACR_GEN1_WAIT_NONE);
+
     if (failures) { printf("%d failure(s)\n", failures); return 1; }
     printf("gen1 units: all passed (first hit after %d steps)\n", steps);
     return 0;

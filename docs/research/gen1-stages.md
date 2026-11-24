@@ -36,14 +36,14 @@ A run of `[u32 size][data]` chunks, read in this order:
 | 2 | 0x8 | `0x8005A9A0(0x80)` | model set |
 | 3 | 0xCCC | `0x8005A9A0(0xA0)` | model set |
 | 4 | 0x3A6C | `0x8005E9F0(0, ...)` | **the stage's area models**: one PlayStation TMD (id 0x41), one object per model number |
-| 5 | 0 | stored at `0x801F0E30` | ? |
+| 5 | 0 | stored at `0x801F0E30` | ? (missions: **the cutscenes**, pointer at `0x801F8E90`; see "Mission script") |
 | 6 | 0xC3C0 | `0x80052DF8` | ? (starts `1, 0xE20, "pBAV"`: sound bank?) |
 | 7 | 0x3688 | copied to `0x801B2018`, then `0x80074154` | **collision**, per model number |
 | 8 | 0x863C | `0x800783B0` | **area records** (512 x 52 bytes, 64 in RAM at `0x801C2018`), then neighbour lists |
 | 9 | 0x34 | `0x80079908` | ? |
 | 10 | 0x4000 | `0x80079798` | ? |
 | 11 | 0x3800 | `0x8005DB5C` | ? |
-| 12 | 0x4 | | ? |
+| 12 | 0x4 | | ? (missions: per object handler a 36-byte header and **its motion set**, the AC format; see "Mission script") |
 | 13 | 0x2800 | `0x80079E08` | **points / objects**, 40-byte records |
 
 Chunk 4's models are a flat, see-through green copy of chunk 1's (same
@@ -494,8 +494,7 @@ decision code with its own tables, so it is the missions' common MT.
 - **Destroyed**: +0x49 leaves 255, `0x8007B0D8` plays the explosion, then
   `0x8007EE04` removes the object.
 - **Big MT (U19):** placed 1,000 under the deck; nothing in its handler
-  moves it, so its rise is the mission's own logic (slot 0 or the script),
-  still not read.
+  moves it: slot 0 brings it up with cutscene 3 (see "Mission script").
 
 **In the engine** (2026-11-24): `acr_gen1_battle` has up to 64 units beside
 the fighters (`acr_gen1_unit`, target number `ACR_GEN1_UNIT(u)`), stepped
@@ -551,6 +550,69 @@ submarine escort: the player may start aboard something); on map 13 it is
 outside the map's collision. AC TEST now starts the player there on every
 mission map but 1, 6, 11 (their own starts) and 13, with the target 2,500
 ahead facing back.
+
+## Mission script (map 6, read 2026-11-25)
+
+Slot 0 of the mission code (map 6: `0x800A641C`) runs every tick. It does
+nothing once the ending is requested (`0x800A0DBC` & `0x381`) or while the
+player's AP (object 0 +360) is 0. Its own state is `0x800AD838` (start 0).
+Record-table entries (44 bytes from `0x801E6748`, byte 0 the state: 1 made,
+3 destroyed) are named by chunk 13 record number. Map 6: **4 the tank-legged
+AC, 5 a model-less object beside it, 6 the big MT, 7-11 the five MTs.**
+
+- **0:** once every entry from 4 on except 4, 5 and 6 is destroyed (or has
+  no handler), stage nodes 132 and 133 (64-byte entries from `0x801CFAB0`,
+  controller pointer at +56) get +6 = 0, +10 = 4: their animation 4, the
+  deck opening. -> 1.
+- **1:** waits for node 132's controller (+44) byte +16. Then object 5 is
+  removed, **the tank AC is made** (`0x8007ECEC`, it isn't there before),
+  cutscenes 1 and 2 run, the big MT gets a per-tick hook (`+0x60` =
+  `0x800A5F5C`: water splashes at joints 8 and 11 while y > 0, camera shake
+  and a sound near the surface) and **cutscene 3 brings it up**; radio line
+  37. -> -1.
+- **-1:** the tank AC destroyed (state 3, or its y past 30,000) gives radio
+  123 and **event flag 18** (`0x800907D0`: a byte in the progress block; a
+  bonus, the mission doesn't need it).
+- **The big MT destroyed ends it.** Tank AC already down: radio 153 and
+  `0x80052490(128)`, the "mission accomplished" request (the ending starts
+  100 ticks later, `0x800A0DB0` +12 / +16). Tank AC still up: a 60-tick
+  fade to white, the player moved, cutscene 4 (radio 153 in it), then the
+  same request.
+
+**Cutscenes** (chunk 5): u16 offsets to each; a cutscene is u16 0, u8 track
+count, u8, u16 length in ticks, then u16 offsets to its tracks. A track is
+u16 words: a type (0 general, 1 camera, 2 objects), then commands, `FFF0 n`
+wait n ticks, `FFFF` end. `0x80093844(code, hook)` plays one while the fight
+waits: code bits 0-7 the cutscene, 0x100 a per-tick hook (second argument).
+Map 6 plays 0 at the start, 1 and 2 when the deck has opened, 3 for the big
+MT, 4 in the second ending. Commands read so far (interpreter
+`0x80091D88`): `1003 n` takes record entry n (makes its object if needed);
+`8 / 9 a b c` sets the animation (`0x80054AC8`); `1001 8000 n 0` puts the
+object at point n of the 52-byte table at `0x801E49D8` (the area tree; who
+fills points 10-13 on map 6 is not found); `1002` a rotation; `0 / 2 x y z`
+position / rotation keys; `14 ...` a sound; `100D` defines a point;
+`1008 / 1009` drive stage nodes (132 and 133 in cutscene 2); `1004 n` radio.
+In cutscene 3 the big MT plays animations 26, 29 and 27 (no root motion in
+any) while it is set to points 10, 11, 12 and 13 over about 184 ticks.
+
+**Motion sets** (chunk 12): u16 count, then per handler `[u32 size]` a
+36-byte header and a motion set in the AC format (`acr_motion_moa.c`),
+pointer at entry +40 (`0x800795A8`); the object's animation state (+108)
+takes it (+136). Map 6 (1/4 world units): the MT's walk (anim 2) is z -646
+in 24 frames (about 161 world units, against the engine's stand-in of 16 a
+tick), its diagonals 3-5; the big MT's walk z -2,075 in 24. `tools/research/
+moa_unit_motion.py` prints them. Not used by the engine yet (next).
+
+**In the engine** (`src/gen1/acr_gen1_mission.{h,c}`, part of the battle
+and of netplay's hash): units keep their record number; a map with a script
+names the ones that wait (map 6: the tank AC hidden, the big MT drawn under
+the sea), and wins by its objective instead of "everything down" (the
+player's side down still loses). Map 6 runs the steps above with the
+cutscenes skipped; stand-ins: the deck takes 44 ticks to open and the big
+MT climbs straight up 17 a tick to the MTs' deck height (y -500), joining
+the fight there. AC TEST logs each step; `ACR_UNITS_DOWN=1` starts with the
+units in the fight destroyed (testing aid). Checked in AC TEST: the deck
+opens, the tank AC joins; the big MT on the deck not yet seen on screen.
 
 ## Mission units (read 2026-11-22)
 

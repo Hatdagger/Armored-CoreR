@@ -27,6 +27,7 @@ add_library(acr_gen1 STATIC
     src/gen1/acr_gen1_sim.c
     src/gen1/acr_gen1_pose.c
     src/gen1/acr_gen1_battle.c
+    src/gen1/acr_gen1_mission.c
     src/gen1/acr_gen1_garage.c
     src/gen1/acr_gen1_ai.c
     src/gen1/acr_gen1_stage.c

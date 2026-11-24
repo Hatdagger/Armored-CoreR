@@ -50,7 +50,8 @@ typedef struct demo_units {
 int  demo_units_load(const char *import_dir, int map, demo_units *u);
 void demo_units_free(demo_units *u);
 /* Puts map `map`'s units into battle b (loading them first if needed) as
- * team 1: those with a model, AP and floor under them (stage given). A
+ * team 1: those with a model, AP and floor under them (stage given), and
+ * those the map's script raises later (acr_gen1_mission.h) as waiting. A
  * unit with 10 or more animations gets the MT brain, an armed one with
  * fewer the turret brain. Clears b's units first; map -1: none. Returns
  * the number joined. */

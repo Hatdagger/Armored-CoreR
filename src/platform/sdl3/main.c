@@ -1125,6 +1125,11 @@ int main(int argc, char **argv) {
         /* Mission maps: their units join the fight (team 1, with the target AC). */  \
         demo_units_join(&g_units, g_import_dir, g_stage_on && !g_rogue_fight ? g_stage_id : -1, &battle,  \
                         g_stage_on ? &g_stage.collision : NULL);                          \
+        /* Testing aid: ACR_UNITS_DOWN=1 starts with the units in the fight     \
+         * destroyed, so a map's script moves on (map 6: the deck opens). */    \
+        if (SDL_getenv("ACR_UNITS_DOWN"))                                                 \
+            for (int u_ = 0; u_ < battle.units; ++u_)                                     \
+                if (battle.unit[u_].active) battle.unit[u_].ap = 0, battle.unit[u_].down = 1; \
         acr_gen1_battle_retarget(&battle);                                                \
         memset(battle.shot, 0, sizeof battle.shot);                                       \
         fx_reset();                                                                       \
@@ -2093,6 +2098,18 @@ int main(int argc, char **argv) {
             /* The arena's floors and walls (the defs are reloaded on part changes). */
             def->stage = def2->stage = battle.stage = g_stage_on ? &g_stage.collision : NULL;
             acr_gen1_battle_step(&battle, in2, act);
+            if (battle.mission.map) {      /* the map's script: log each step it takes */
+                static acr_gen1_mission last_m;
+                const acr_gen1_mission *m_ = &battle.mission;
+                if (m_->phase != last_m.phase || m_->result != last_m.result || (m_->flags & ~last_m.flags) ||
+                    (m_->end_ticks && !last_m.end_ticks)) {
+                    int up = 0;
+                    for (int u_ = 0; u_ < battle.units; ++u_) up += battle.unit[u_].active && !battle.unit[u_].down;
+                    SDL_Log("mission %02d script: step %d, flags %d, ending in %d ticks%s (%d units in the fight)",
+                            m_->map - 1, m_->phase, m_->flags, m_->end_ticks, m_->result ? ", DONE" : "", up);
+                }
+                last_m = *m_;
+            }
             for (int k = 0; k < 2; ++k) { in2[k].boost_tapped = 0; boost_released[k] = !in2[k].boost; }
             /* the open floor's square walls (the shown position too, so drawing stops there) */
             const int32_t lim = ARENA * 64;
