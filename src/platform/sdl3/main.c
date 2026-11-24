@@ -2048,6 +2048,17 @@ int main(int argc, char **argv) {
                     round_result = res;
                     break;
                 }
+            } else if (battle.units) {
+                /* A mission map in AC TEST: no clock; won once every enemy
+                 * target (the target AC and the units in the fight) is
+                 * down, lost when the player is down or out of the area. */
+                const int res = acr_gen1_battle_result(&battle, 0);
+                if (!res) ko_ms = 0;
+                if (res && (ko_ms += battle.step_ms) >= 12 * 1000 / 22) {
+                    round_over = 1;
+                    round_result = res;
+                    break;
+                }
             } else if (g_stage_on && acr_gen1_stage_has_area_rule(&g_stage.collision)) {
                 /* Against the still target there is no clock, but leaving
                  * the area (outside both inner boxes) still loses. */

@@ -507,7 +507,7 @@ is gone after 20 ticks. Brains: **MT** (10 or more animations) as above;
 none for the unarmed (trucks, bunkers). Stand-ins: a step lasts 24 ticks,
 the MT walks 16 a tick ahead (11 sideways or back) and turns to face its
 target 24 a tick while walking; a step into a wall or off its floor is
-turned around as a hit is; the blade does not hit units yet. AC TEST joins
+turned around as a hit is. AC TEST joins
 every unit of a mission map that has a model, AP and a floor under it
 (map 6: 6 of 7; the big MT waits under the sea) as team 1, with the target
 AC; the HUD shows the locked unit's AP, its marker and every unit on the
@@ -518,6 +518,29 @@ Checked in AC TEST on map 6: the five MTs and the tank AC fire bursts, a
 default AC standing still loses about 500 AP in 6 seconds and is down in
 about 20 (the MTs aim at where it is, without leading, so moving spoils
 their aim); a rifle shot takes 218 off an MT (5,000 -> 4,782 on the HUD).
+
+**Blade, bodies and the mission win** (2026-11-25; ours, the game's own
+code for these is still to be read):
+- Blade: the swing's seek (3,000 ahead, +-45 degrees) and both arc
+  crossings take units as well as ACs. A unit is reached at its near side
+  (its middle less its half width, past an AC's radius of 75, so an
+  AC-sized unit reads as an AC); a hit goes through the unit damage rule
+  (the blade is energy: 738 -> 554 on map 6's MT), turns the MT's step as
+  any hit does and ends the lunge, without knockback. The lunge also stops
+  at a unit's body (half width + 75 ahead).
+- Bodies: a unit's body is a square of its half width either side of its
+  middle, turned with it, its height tall; an AC (hit cylinder 75 / 212)
+  overlapping it is pushed straight out after the units move, so an MT
+  walking into an AC shoves it. ACs still pass through each other (only
+  the blade's lunge stops at them), as before.
+- Result: a live unit in the fight keeps its side standing, so a mission
+  map is won when the last enemy target, AC or unit, is down; a side made
+  of units alone counts too. Dormant units (map 6's big MT under the sea)
+  don't count until the script raises them. Time-up AP compares the ACs
+  only. AC TEST on a mission map now ends this way (no clock): WIN once
+  everything is down, LOSE when the player is.
+- Tests: blade hit / miss on a unit, the lunge stopping at it, push-out
+  (side, corner, clear, above), and the results.
 
 **Record 0 is the player's drop** (2026-11-23): on 15 of the 20 maps it
 stands exactly on the collision floor, facing along the map (map 2 in the

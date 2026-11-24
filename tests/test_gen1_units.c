@@ -24,6 +24,15 @@ static acr_gen1_weapon rifle(void) {
     return w;
 }
 
+static acr_gen1_weapon blade(void) {
+    acr_gen1_weapon w;
+    memset(&w, 0, sizeof w);
+    w.kind = ACR_GEN1_BLADE;
+    strcpy(w.name, "LS-2001");
+    w.attack = 738; w.energy = 1; w.range = ACR_GEN1_BLADE_REACH; w.charge_drain = 2050;
+    return w;
+}
+
 /* The player at the origin facing +z with a rifle; the other AC far behind. */
 static void setup(acr_gen1_battle *b) {
     memset(b, 0, sizeof *b);
@@ -157,6 +166,93 @@ int main(void) {
     int hurt = 0;
     for (int k = 0; k < r1.units; ++k) hurt += r1.unit[k].ap < r1.unit[k].ap_max;
     EXPECT(hurt > 0);
+
+    /* Blade: a press seeks the unit ahead, lunges, stops at its body and hits
+     * it (energy: 738 x 6 / 8 + 1 = 554 a hit, up to two a swing). */
+    setup(&b);
+    b.f[0].weapons = 2;
+    b.f[0].weapon[1] = blade();
+    u = mt(150, 800, 2048, ACR_GEN1_BRAIN_NONE);
+    acr_gen1_battle_add_unit(&b, &u);
+    acr_gen1_battle_retarget(&b);
+    acr_gen1_actions slash[2] = { { 0 } };
+    slash[0].blade = 1;
+    acr_gen1_battle_step(&b, none, slash);
+    for (int t = 0; t < 40; ++t) acr_gen1_battle_step(&b, none, idle);
+    EXPECT(b.unit[0].ap == 5000 - 554 || b.unit[0].ap == 5000 - 2 * 554);
+    EXPECT(b.f[0].ac.yaw > 0 && b.f[0].ac.yaw < 512);             /* turned toward it */
+    {   /* the lunge stopped short of its body */
+        const int64_t dx = (b.unit[0].x - b.f[0].ac.x) / 64, dz = (b.unit[0].z - b.f[0].ac.z) / 64;
+        EXPECT(dx * dx + dz * dz >= (int64_t)(125 + ACR_GEN1_HIT_RADIUS - 2) * (125 + ACR_GEN1_HIT_RADIUS - 2));
+    }
+    /* Out of reach: the swing misses. */
+    setup(&b);
+    b.f[0].weapons = 2;
+    b.f[0].weapon[1] = blade();
+    u = mt(0, 2500, 2048, ACR_GEN1_BRAIN_NONE);
+    acr_gen1_battle_add_unit(&b, &u);
+    acr_gen1_battle_step(&b, none, slash);
+    for (int t = 0; t < 40; ++t) acr_gen1_battle_step(&b, none, idle);
+    EXPECT(b.unit[0].ap == 5000);
+
+    /* Bodies: an AC inside a unit is pushed out of its square. */
+    setup(&b);
+    u = mt(0, 100, 0, ACR_GEN1_BRAIN_NONE);
+    acr_gen1_battle_add_unit(&b, &u);
+    acr_gen1_battle_step(&b, none, idle);
+    {
+        const int64_t az = b.f[0].ac.z / 64, ax = b.f[0].ac.x / 64;
+        EXPECT(az <= 100 - 125 - ACR_GEN1_HIT_RADIUS + 1 && ax == 0);   /* out the near side */
+    }
+    /* Corner contact pushes out diagonally; clear of it, nothing moves. */
+    setup(&b);
+    u = mt(150 + 125, 150 + 125, 0, ACR_GEN1_BRAIN_NONE);         /* its corner 150 / 150 from the AC */
+    acr_gen1_battle_add_unit(&b, &u);
+    acr_gen1_battle_step(&b, none, idle);
+    EXPECT(b.f[0].ac.x == 0 && b.f[0].ac.z == 0);
+    setup(&b);
+    u = mt(40 + 125, 40 + 125, 0, ACR_GEN1_BRAIN_NONE);
+    acr_gen1_battle_add_unit(&b, &u);
+    acr_gen1_battle_step(&b, none, idle);
+    {
+        const int64_t ax = b.f[0].ac.x / 64, az = b.f[0].ac.z / 64;
+        EXPECT(ax < 0 && az < 0);
+        const int64_t ex = 40 - ax, ez = 40 - az;               /* to the corner */
+        EXPECT(ex * ex + ez * ez >= (int64_t)(ACR_GEN1_HIT_RADIUS - 2) * (ACR_GEN1_HIT_RADIUS - 2));
+    }
+    /* A unit above the AC's head (or below its feet) doesn't touch it. */
+    setup(&b);
+    u = mt(0, 100, 0, ACR_GEN1_BRAIN_NONE);
+    u.y = -400 * 64;
+    acr_gen1_battle_add_unit(&b, &u);
+    acr_gen1_battle_step(&b, none, idle);
+    EXPECT(b.f[0].ac.z == 0);
+
+    /* Missions: units keep their side standing; the win comes when the last
+     * enemy target (AC or unit) is down. */
+    setup(&b);
+    b.count = 2;
+    b.f[1].team = 1;
+    u = mt(0, 3000, 2048, ACR_GEN1_BRAIN_NONE);
+    acr_gen1_battle_add_unit(&b, &u);
+    u = mt(0, 4000, 2048, ACR_GEN1_BRAIN_NONE);
+    u.active = 0;                                               /* dormant: waits for its script */
+    acr_gen1_battle_add_unit(&b, &u);
+    EXPECT(acr_gen1_battle_result(&b, 0) == 0);
+    b.f[1].ap = 0;
+    EXPECT(acr_gen1_battle_result(&b, 0) == 0);                 /* the unit still stands */
+    b.unit[0].ap = 0; b.unit[0].down = 1;
+    EXPECT(acr_gen1_battle_result(&b, 0) == 1);
+    b.f[0].ap = 0;
+    EXPECT(acr_gen1_battle_result(&b, 0) == 3);
+    /* A side of units only (no AC on it) still counts. */
+    setup(&b);
+    b.count = 1;
+    u = mt(0, 3000, 2048, ACR_GEN1_BRAIN_NONE);
+    acr_gen1_battle_add_unit(&b, &u);
+    EXPECT(acr_gen1_battle_result(&b, 0) == 0);
+    b.unit[0].ap = 0; b.unit[0].down = 1;
+    EXPECT(acr_gen1_battle_result(&b, 0) == 1);
 
     if (failures) { printf("%d failure(s)\n", failures); return 1; }
     printf("gen1 units: all passed (first hit after %d steps)\n", steps);
