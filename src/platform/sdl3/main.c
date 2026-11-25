@@ -2910,6 +2910,18 @@ int main(int argc, char **argv) {
             running = 0;
         }
         SDL_GL_SwapWindow(window);
+        {   /* Testing aid: ACR_FPS=30 caps the frame rate (two copies on one
+             * slow machine, or a window without vsync, would otherwise run
+             * flat out and starve each other). */
+            static int fps_cap = -1;
+            static Uint64 frame_due;
+            if (fps_cap < 0) fps_cap = SDL_getenv("ACR_FPS") ? SDL_atoi(SDL_getenv("ACR_FPS")) : 0;
+            if (fps_cap > 0) {
+                const Uint64 now_fc = SDL_GetTicksNS(), step_fc = 1000000000ull / (Uint64)fps_cap;
+                if (frame_due > now_fc) SDL_DelayNS(frame_due - now_fc);
+                frame_due = (frame_due > now_fc ? frame_due : now_fc) + step_fc;
+            }
+        }
     }
 
     if (net && g_net) {

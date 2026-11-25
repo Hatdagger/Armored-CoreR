@@ -449,7 +449,8 @@ static rogue_command coop_input(garage_action a) {
             if (!C.run.stash_n) { C.screen = CS_HUB; C.cur = CH_STASH; return RC_NONE; }
             C.screen = CS_STASH;
             if (C.cur >= C.run.stash_n) C.cur = C.run.stash_n - 1;
-            net_hold(C.cur);
+            /* Back on the list: quietly, so "EQUIPPED." stays up. */
+            net_hold(C.run.hold[1 - N.local] == C.cur ? -1 : C.cur);
             return RC_NONE;
         }
         if (a == GA_OK) {

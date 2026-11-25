@@ -7,7 +7,8 @@ battles, AI pilots inside matches and online joining (see
 
 **Status (2026-11-25):** the rules and the whole run work **on one PC
 with two controllers** (branch `rogue-coop`) and **online** (branch
-`rogue-coop-online`, on top of it). Next: a play-test on two PCs.
+`rogue-coop-online`, on top of it), play-tested with two copies on one
+machine (below). Next: a play-test on two real PCs.
 
 ## A run
 
@@ -192,7 +193,38 @@ flowchart TD
 6. From a terminal: `armored-corer --host --rogue-coop` and
    `armored-corer --join 127.0.0.1` (two copies on one PC). With
    `ACR_ROGUE_AUTOWIN=1` on the host, the host wins each fight after 1.5 s
-   (`ACR_ROGUE_DOWN=2` marks player 2 destroyed).
+   (`ACR_ROGUE_DOWN=2` marks player 2 destroyed). On a slow machine (or
+   with software rendering) add `ACR_FPS=20` to both: it caps the frame
+   rate so the two copies don't starve each other.
+
+### Two-copy play-test (2026-11-25)
+
+Two copies on one machine (software rendering, the user's Master of Arena
+disc data), host `--host --rogue-coop`, guest `--join 127.0.0.1` with its
+own garage names (HAWK / SECOND). All worked:
+
+- Connecting; the guest waits while the host chooses NEW ARENA / CONTINUE.
+- READY on both hubs starts the fight 3 s later; each PC flies its own AC
+  full screen; the host's win (player 2 destroyed) reaches the guest.
+- At the same time: the guest's HAWK REJOINS screen (KEEP / NEW RANDOM AC)
+  while the host is on RAVEN PRIZE; the guest's NEW RANDOM AC and its PASS
+  went through the host (both at 2 P, then 3 P after the next win). The hub
+  shows "RAVEN IS ON THE PRIZE SCREEN" and so on.
+- A second fight at rank 19 after both READY again.
+- Resume: a new session on the host's saved run put the guest straight
+  back on its pending rejoin choice.
+- The final duel (run file edited to rank 1's pair beaten): both READY, a
+  1v1, the guest's CLEARED screen (RANK 1 RAVEN, RANK 2 HAWK, the host
+  chooses).
+- The stash over the link: a part the host highlights shows PARTNER ON IT
+  on the guest's SWAP PARTS; the guest equipping player 1's saved FCS
+  reached the host's run and garage.
+- Leaving: the other PC says THE OTHER PLAYER LEFT; the host's run stays.
+
+Found and fixed on the way: without a frame cap two copies on a 2-CPU
+machine stalled each other for seconds (ACR_FPS added for testing); after
+equipping a stash part, the "partner is on that part" line hid
+"EQUIPPED.".
 
 ## Work to do
 
@@ -214,4 +246,5 @@ flowchart TD
    results; host / join like NETWORK; player 2's own names online~~
    (done). Still to do: each player's GARAGE in co-op; co-op VS and victory
    screens in solo's style (3D ACs, emblems).
-5. **Play-test** on one PC with two controllers, then on two PCs.
+5. **Play-test** on one PC with two controllers, then on two PCs (two
+   copies on one machine: done 2026-11-25, above).
