@@ -115,6 +115,22 @@ jobs:
           cp android/app/build/outputs/apk/release/app-release.apk out/armored-corer-android.apk
           cp docs/ANDROID.md out/
 
+      - name: Check the APK
+        run: |
+          apk=out/armored-corer-android.apk
+          unzip -l "$apk" | tee apk.txt
+          grep -q 'lib/arm64-v8a/libmain.so' apk.txt
+          grep -q 'lib/arm64-v8a/libSDL3.so' apk.txt
+          bt=$(ls -d "$ANDROID_HOME"/build-tools/* | sort -V | tail -1)
+          "$bt/apksigner" verify --print-certs "$apk" | tee sig.txt
+          grep -q 'Armored-CoreR test build' sig.txt
+          "$bt/aapt" dump badging "$apk" | grep -E "^(package|sdkVersion|targetSdkVersion|launchable-activity)" | tee badging.txt
+          mkdir -p x && unzip -q -o "$apk" 'lib/arm64-v8a/*' -d x
+          readelf=$(ls "$ANDROID_NDK_LATEST_HOME"/toolchains/llvm/prebuilt/*/bin/llvm-readelf)
+          "$readelf" -Ws x/lib/arm64-v8a/libmain.so | grep -q ' SDL_main$'
+          "$readelf" -d x/lib/arm64-v8a/libmain.so | grep NEEDED | tee needed.txt
+          echo "::notice title=APK::$(ls -l $apk | awk '{print $5}') bytes; $(tr '\n' ' ' < badging.txt); needs: $(grep -o '\[.*\]' needed.txt | tr '\n' ' ')"
+
       - uses: actions/upload-artifact@v4
         with:
           name: armored-corer-android
