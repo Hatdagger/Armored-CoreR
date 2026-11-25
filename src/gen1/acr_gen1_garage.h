@@ -16,6 +16,7 @@
 #include <stdint.h>
 
 #include "acr_gen1_fit.h"
+#include "acr_gen1_perf.h"
 
 #define ACR_GEN1_PART_MAX   64    /* part numbers per category */
 #define ACR_GEN1_NO_PART    255
@@ -40,6 +41,7 @@ typedef struct acr_gen1_catalog_part {
     uint16_t flags;        /* ACR_GEN1_FIT_* */
     uint32_t price;
     acr_gen1_part stats;   /* fitting and compile stats */
+    acr_gen1_perf_part perf;   /* what the PERFORMANCE page reads */
 } acr_gen1_catalog_part;
 
 typedef struct acr_gen1_catalog {
@@ -120,6 +122,11 @@ void acr_gen1_garage_build(const acr_gen1_hangar *h, const acr_gen1_catalog *c, 
 /* VS START / AC TEST check of the fitted build (ACR_GEN1_FAIL_* mask; 0 = legal). */
 unsigned acr_gen1_garage_check(const acr_gen1_hangar *h, const acr_gen1_catalog *c,
                                acr_gen1_fit_numbers *out);
+
+/* The fitted build as the PERFORMANCE page takes it (acr_gen1_perf.h).
+ * `human_plus`: Human PLUS is on (the garage has no Human PLUS yet: 0). */
+void acr_gen1_garage_perf_build(const acr_gen1_hangar *h, const acr_gen1_catalog *c,
+                                int human_plus, acr_gen1_perf_build *out);
 
 /* ---- save file ----
  * Plain text in the same style as acr-import's part files. `format` is the

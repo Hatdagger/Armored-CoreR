@@ -143,6 +143,26 @@ void acr_gen1_garage_build(const acr_gen1_hangar *h, const acr_gen1_catalog *c, 
     out->parts.option_mask = h->options;
 }
 
+void acr_gen1_garage_perf_build(const acr_gen1_hangar *h, const acr_gen1_catalog *c,
+                                int human_plus, acr_gen1_perf_build *out) {
+    memset(out, 0, sizeof *out);
+    for (int s = 0; s < ACR_GEN1_SLOT_COUNT; ++s) {
+        const acr_gen1_catalog_part *p = find(c, acr_gen1_slot_category((acr_gen1_slot)s), h->fitted[s]);
+        if (!p) continue;
+        out->part[s] = &p->perf;
+        out->weight[s] = p->stats.weight;
+        out->price[s] = p->price;
+        if (s == ACR_GEN1_SLOT_ARMS && (p->flags & ACR_GEN1_FIT_ARM_WEAPON)) out->weapon_arms = 1;
+        if (s == ACR_GEN1_SLOT_LEGS && (p->flags & ACR_GEN1_FIT_CATERPILLAR)) out->caterpillar = 1;
+    }
+    for (unsigned b = 0; b < ACR_GEN1_OPTION_MAX; ++b) {
+        const acr_gen1_catalog_part *o = (h->options & (1u << b)) ? find(c, ACR_GEN1_CAT_OPTION, b) : NULL;
+        if (o) out->option_price += o->price;
+    }
+    out->options = h->options;
+    out->human_plus = (uint8_t)(human_plus != 0);
+}
+
 unsigned acr_gen1_garage_check(const acr_gen1_hangar *h, const acr_gen1_catalog *c,
                                acr_gen1_fit_numbers *out) {
     acr_gen1_fit_build b;
