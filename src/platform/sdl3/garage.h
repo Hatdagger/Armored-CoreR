@@ -21,6 +21,7 @@ typedef enum garage_command {
     GC_TEST,        /* AC TEST with the current build (it passed the check) */
     GC_NETWORK,     /* the NETWORK screen (host or join a match; the build passed the check) */
     GC_ROGUE,       /* ROGUE ARENA */
+    GC_ARENA,       /* ARENA: the ranked ladders */
     GC_CONTROLS,    /* SYSTEM > SETTINGS > CONTROLS: the controller mapping page */
     GC_SAVE,        /* SYSTEM > SAVE */
     GC_LOAD,        /* SYSTEM > LOAD: back to the saved garage */

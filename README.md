@@ -137,6 +137,16 @@ Two players: player 2 uses the second controller (or the only one, leaving
 player 1 the keyboard). Both fly the same build; the match ends when one
 AC's AP reaches 0, and Start starts the next.
 
+## Arena
+
+Main menu -> **ARENA**. Master of Arena's ranked ladders with your own
+garage AC. The main arena starts you at rank 50 in the sub arena; beat
+everyone there to open the ranked list (L1 / R1 flips the pages). Pick an
+opponent above you and challenge; a win moves you up one rank and pays
+their prize money the first time, and some opponents give a part. The Ex Arenas open as
+you climb (four of them need a specific leg type). MATCH TIMER (2:00,
+5:00, none) and STAGE are on the arena list. Rules: `docs/ARENA.md`.
+
 ## Rogue Arena
 
 Main menu -> **ROGUE ARENA**. One AC, one life, 19 rivals from the
@@ -160,6 +170,10 @@ for the two starts and limits: [docs/MAPS.md](docs/MAPS.md).
 
 - [Roadmap](docs/ROADMAP.md)
 - [Design notes](docs/DESIGN.md)
+- [Story map](docs/STORY.md): the Gen 1 campaign, arcs and endings, with diagrams
+- [Ghost rivals and dynamic missions](docs/GHOSTS.md)
+- [Missions](docs/MISSIONS.md): ideas, mockup sorties, progress
+- [Rogue Arena co-op](docs/ROGUE-ARENA-COOP.md)
 - [Full design plan](https://claude.ai/artifact/PAAEo6cvjUi7qxFQqSGPrf)
 - [AC1Recomp fork](https://github.com/Hatdagger/AC1Recomp), used as the
   reference for how the original plays; its `docs/mapping/` is the main

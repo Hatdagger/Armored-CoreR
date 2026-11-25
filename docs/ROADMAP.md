@@ -4,6 +4,52 @@ Where the Gen 1 (Master of Arena) game goes next, in order, with the
 decisions behind it. Earlier work: movement, fitting rules, lock-on,
 weapons, damage, two-player test build (see `docs/research/`).
 
+## At a glance (2026-11-23)
+
+Green = a first version is in; yellow = started; grey = not started. Each
+box's details are in the numbered steps below.
+
+```mermaid
+flowchart LR
+    subgraph Foundation
+        R0["0 Renderer"]:::done
+        R1["1 Model formats"]:::done
+        R2["2 Model import"]:::done
+    end
+    subgraph Play
+        R3["3 Garage, shop,<br/>AC TEST"]:::done
+        R5["5 Battle HUD"]:::done
+        RA["Rogue Arena 19+1"]:::done
+        MC["Modern controls"]:::done
+    end
+    subgraph Online
+        R6["6 Netplay<br/>rollback 1v1 + co-op"]:::done
+        CO["Rogue Arena co-op"]:::todo
+    end
+    subgraph Content
+        R4["4 / 7 Arena<br/>2 stages, walls"]:::doing
+        MS["Missions<br/>P4 playable"]:::doing
+        TM["Tinkercad maps"]:::doing
+        ST["Campaign / story"]:::todo
+    end
+    subgraph Platforms
+        R8["8 UI<br/>main menu in"]:::doing
+        R9["9 Android"]:::todo
+    end
+
+    Foundation --> Play --> Online --> Content --> Platforms
+    R6 --> CO
+    MS --> ST
+
+    classDef done fill:#2d4a2d,stroke:#7fbf7f,color:#fff
+    classDef doing fill:#4a3d12,stroke:#e0c050,color:#fff
+    classDef todo fill:#333,stroke:#888,color:#ddd
+```
+
+Design docs for what comes after: [STORY.md](STORY.md) (campaign),
+[GHOSTS.md](GHOSTS.md) (ghost rivals, contracts, affinity),
+[MISSIONS.md](MISSIONS.md), [ROGUE-ARENA-COOP.md](ROGUE-ARENA-COOP.md).
+
 ## Decisions
 
 - **Model files**: `acr-import` writes each part as **OBJ + PNG textures +
@@ -186,13 +232,18 @@ Fixes after the first play-test (2026-11-19):
    check, desync check, fake lag for testing. Next: in-game host / join
    screen with LAN discovery, co-op against the AI.
 7. **Arena**: finish step 4 (the stages' own area boxes, the other stages,
-   stage lights, rankings, opponents and rewards).
+   stage lights, rankings, opponents and rewards). **Ranked ladder done**
+   (branch `arena-ladder`, 2026-11-24; `docs/ARENA.md`): main menu > ARENA
+   with the main arena (ranked + sub arena) and the eight Ex Arenas,
+   challenge rules, prize money and parts into the garage, the Champion /
+   Guest rule, match timer 2:00 / 5:00 / none. Still to do: the stages'
+   area boxes, Garden Plaza and Night City, stage lights.
 8. **UI**: the game's menus and garage screens to Master of Arena's design
    (and the split-screen HUD). **Main menu** (first version done,
    2026-11-19, user's layout): GARAGE (ASSEMBLY, AC TEST), SHOP, ARENA,
    MISSIONS, NETWORK, ROGUE ARENA, SYSTEM (SAVE, LOAD, SETTINGS: CONTROLS,
    VIDEO, AUDIO; EXIT GAME). NETWORK and SHOP are their own entries, not
-   inside the garage. ARENA, MISSIONS, VIDEO and AUDIO show dimmed ("NOT
+   inside the garage. MISSIONS, VIDEO and AUDIO show dimmed ("NOT
    AVAILABLE YET.") until they exist. The game saves by itself after every
    change; SAVE writes it now, LOAD goes back to the saved garage.
 9. **Android**: SDL3 already runs there; needs an OpenGL ES version of the

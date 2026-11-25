@@ -46,6 +46,9 @@ typedef struct acr_gen1_rogue_foe {
     uint8_t  karasawa;         /* carries the KARASAWA */
     acr_gen1_ai_profile ai;    /* ai.rebel = its Human PLUS level */
     char     pilot[ACR_GEN1_ROGUE_NAME], ac[ACR_GEN1_ROGUE_NAME];
+    /* The Arena (acr_gen1_arena.h); Rogue Arena doesn't use them. */
+    uint32_t prize_money;      /* credits for a win */
+    uint8_t  prize_part;       /* the game's prize id (0-22), 255 none */
 } acr_gen1_rogue_foe;
 
 /* What the prize rules need to know about a part beyond the catalogue. */
