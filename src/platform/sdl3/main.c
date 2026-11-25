@@ -2353,11 +2353,12 @@ int main(int argc, char **argv) {
             for (int c = 0; c < 3; ++c) cam_fwd[c] = fwd[c];
             for (int k = 0; k < 4; ++k) viewm[4 * k] = -viewm[4 * k];
         }
-        const acr_fog fog = { 30000.0f, 60000.0f, 18, 22, 28 };
+        acr_fog fog = { 30000.0f, 60000.0f, 18, 22, 28 };
+        if (g_stage_on) demo_stage_fog(&g_stage, &fog);   /* our backdrop's horizon haze */
         acr_render_view3d(vx, 0, vpw, ph, proj, viewm, &fog);
 
         /* the arena (its sky first, around the eye), or the open floor's grid and walls */
-        if (g_stage_on) demo_stage_draw_sky(&g_stage, sky_eye);
+        if (g_stage_on) demo_stage_draw_sky(&g_stage, sky_eye, (float)SDL_GetTicks() / 1000.0f);
         if (g_stage_on) demo_stage_draw(&g_stage, 0);
         if (g_stage_on && g_stage_id >= 0 && g_stage_id < 20) {
             if (g_units.map != g_stage_id) {

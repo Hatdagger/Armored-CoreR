@@ -290,6 +290,166 @@ static int build_edges(demo_stage *s, const char *obj) {
 
 static void demo_stage_free_draw(demo_stage *s);
 
+/* ---- our backdrop (made up, not from the disc; ARENA.md "Backgrounds") ---- */
+
+/* Per stage: zenith, horizon and cloud colours, cloud cover. Green Silo
+ * has the game's starfield instead; Night City is black in the game, so
+ * its sky stays dark. */
+static const struct { int id; uint8_t zenith[3], horizon[3], cloud[3]; float cover; } k_backdrops[] = {
+    { 25, { 62, 104, 168 }, { 186, 196, 204 }, { 236, 236, 240 }, 0.45f },   /* Garden Plaza */
+    { 36, { 2, 3, 8 }, { 18, 22, 40 }, { 40, 44, 62 }, 0.55f },              /* Night City */
+    { 39, { 38, 86, 156 }, { 168, 192, 212 }, { 240, 242, 246 }, 0.35f },   /* Ocean Platform */
+};
+
+#define DOME_R      1000.0f
+#define DOME_RINGS  12
+#define DOME_SEGS   32
+#define CLOUD_TEX   128
+#define CLOUD_CELL  2400.0f     /* one texture repeat, sky units */
+#define CLOUD_CELLS 8           /* each way */
+#define CLOUD_H     420.0f      /* above the eye, sky units */
+
+/* Tileable value noise (lattice wraps every `per`). */
+static float lattice(int x, int y, int per, uint32_t seed) {
+    uint32_t h = (uint32_t)(((x % per) + per) % per) * 374761393u + (uint32_t)(((y % per) + per) % per) * 668265263u + seed;
+    h = (h ^ (h >> 13)) * 1274126177u;
+    return (float)((h ^ (h >> 16)) & 0xFFFF) / 65535.0f;
+}
+static float vnoise(float x, float y, int per, uint32_t seed) {
+    const int x0 = (int)SDL_floorf(x), y0 = (int)SDL_floorf(y);
+    float fx = x - x0, fy = y - y0;
+    fx = fx * fx * (3 - 2 * fx);
+    fy = fy * fy * (3 - 2 * fy);
+    const float a = lattice(x0, y0, per, seed), b = lattice(x0 + 1, y0, per, seed);
+    const float c = lattice(x0, y0 + 1, per, seed), d = lattice(x0 + 1, y0 + 1, per, seed);
+    return (a + (b - a) * fx) + ((c + (d - c) * fx) - (a + (b - a) * fx)) * fy;
+}
+
+static uint32_t make_cloud_texture(float cover) {
+    uint8_t *px = SDL_malloc(CLOUD_TEX * CLOUD_TEX * 4);
+    if (!px) return 0;
+    for (int y = 0; y < CLOUD_TEX; ++y)
+        for (int x = 0; x < CLOUD_TEX; ++x) {
+            float n = 0, amp = 0.5f, sum = 0;
+            for (int o = 0, per = 4; o < 5; ++o, per *= 2, amp *= 0.5f) {
+                n += amp * vnoise(x * per / (float)CLOUD_TEX, y * per / (float)CLOUD_TEX, per, 17u + (uint32_t)o * 101u);
+                sum += amp;
+            }
+            n /= sum;
+            const float lo = 0.62f - cover * 0.3f, hi = lo + 0.25f;
+            float a = (n - lo) / (hi - lo);
+            a = a < 0 ? 0 : a > 1 ? 1 : a;
+            a = a * a * (3 - 2 * a);
+            uint8_t *p = px + 4 * (y * CLOUD_TEX + x);
+            const uint8_t shade = (uint8_t)(200 + 55 * a);   /* thicker = lighter */
+            p[0] = p[1] = p[2] = shade;
+            p[3] = (uint8_t)(a * 230);
+        }
+    const uint32_t tex = acr_render_texture(px, CLOUD_TEX, CLOUD_TEX, 0);
+    SDL_free(px);
+    return tex;
+}
+
+static void mix(const uint8_t a[3], const uint8_t b[3], float t, uint8_t out[3]) {
+    for (int k = 0; k < 3; ++k) out[k] = (uint8_t)(a[k] + (b[k] - a[k]) * t + 0.5f);
+}
+
+/* A sphere around the eye: the horizon colour below the horizon and at it,
+ * blending to the zenith colour overhead (eased, so the haze band is wide). */
+static int build_dome(demo_stage *s) {
+    const int n = DOME_RINGS * DOME_SEGS * 6 + DOME_SEGS * 6;
+    s->dome = SDL_malloc(sizeof *s->dome * (size_t)n);
+    if (!s->dome) return 0;
+    int k = 0;
+    for (int r = -1; r < DOME_RINGS; ++r) {
+        /* ring -1: from straight down to the horizon */
+        const float e0 = r < 0 ? -1.5707963f : 1.5707963f * r / DOME_RINGS;
+        const float e1 = r < 0 ? 0.0f : 1.5707963f * (r + 1) / DOME_RINGS;
+        uint8_t c0[3], c1[3];
+        const float t0 = r < 0 ? 0 : SDL_powf(e0 / 1.5707963f, 0.6f), t1 = SDL_powf(e1 / 1.5707963f, 0.6f);
+        mix(s->horizon, s->zenith, t0, c0);
+        mix(s->horizon, s->zenith, t1, c1);
+        for (int g = 0; g < DOME_SEGS; ++g) {
+            const float a0 = 6.2831853f * g / DOME_SEGS, a1 = 6.2831853f * (g + 1) / DOME_SEGS;
+            float p[4][3];
+            const float e[4] = { e0, e0, e1, e1 }, a[4] = { a0, a1, a1, a0 };
+            for (int i = 0; i < 4; ++i) {
+                p[i][0] = DOME_R * SDL_cosf(e[i]) * SDL_cosf(a[i]);
+                p[i][1] = DOME_R * SDL_sinf(e[i]);
+                p[i][2] = DOME_R * SDL_cosf(e[i]) * SDL_sinf(a[i]);
+            }
+            const int idx[6] = { 0, 1, 2, 0, 2, 3 };
+            for (int i = 0; i < 6; ++i) {
+                const uint8_t *c = idx[i] < 2 ? c0 : c1;
+                s->dome[k++] = vtx(p[idx[i]], c[0], c[1], c[2], 255);
+            }
+        }
+    }
+    s->dome_count = k;
+    return 1;
+}
+
+static void setup_backdrop(demo_stage *s) {
+    if (s->skies) return;                                   /* the game's own sky */
+    for (size_t i = 0; i < SDL_arraysize(k_backdrops); ++i) {
+        if (k_backdrops[i].id != s->id) continue;
+        SDL_memcpy(s->zenith, k_backdrops[i].zenith, 3);
+        SDL_memcpy(s->horizon, k_backdrops[i].horizon, 3);
+        SDL_memcpy(s->cloud, k_backdrops[i].cloud, 3);
+        s->cloud_cover = k_backdrops[i].cover;
+        if (!build_dome(s)) return;
+        s->cloud_tex = make_cloud_texture(s->cloud_cover);
+        s->backdrop = 1;
+    }
+}
+
+/* far.obj: built like a stage, then every batch copied into a grid of
+ * tiles out to the horizon, a little under the stage so the stage's own
+ * ground wins where both are. Drawn solid (the game's is see-through). */
+static void load_far(demo_stage *s, const char *sdir) {
+    char path[1200];
+    SDL_snprintf(path, sizeof path, "%s/far.obj", sdir);
+    char *obj = load_text(path);
+    SDL_snprintf(path, sizeof path, "%s/far.mtl", sdir);
+    char *mtl = load_text(path);
+    demo_stage tmp;
+    SDL_memset(&tmp, 0, sizeof tmp);
+    if (obj && build_faces(&tmp, obj, mtl, sdir, 0)) {
+        float lo = 1e9f, hi = -1e9f;
+        for (int i = 0; i < tmp.batches; ++i)
+            for (int j = 0; j < tmp.batch[i].count; ++j) {
+                lo = SDL_min(lo, tmp.batch[i].v[j].x);
+                hi = SDL_max(hi, tmp.batch[i].v[j].x);
+            }
+        const float size = hi - lo;
+        const int reach = size > 1000.0f ? (int)SDL_ceilf(40000.0f / size) : 0;
+        const int tiles = (2 * reach + 1) * (2 * reach + 1);
+        for (int i = 0; i < tmp.batches && s->fars < 4 && reach; ++i) {
+            const int n = tmp.batch[i].count;
+            if (!n) continue;
+            acr_vtx *v = SDL_malloc(sizeof *v * (size_t)n * (size_t)tiles);
+            if (!v) break;
+            int k = 0;
+            for (int tz = -reach; tz <= reach; ++tz)
+                for (int tx = -reach; tx <= reach; ++tx)
+                    for (int j = 0; j < n; ++j) {
+                        v[k] = tmp.batch[i].v[j];
+                        v[k].x += tx * size;
+                        v[k].z += tz * size;
+                        v[k].y -= 6.0f;
+                        v[k].a = 255;
+                        ++k;
+                    }
+            s->far[s->fars].v = v;
+            s->far[s->fars].count = k;
+            s->far[s->fars].texture = tmp.batch[i].texture;
+            ++s->fars;
+        }
+    }
+    demo_stage_free_draw(&tmp);
+    SDL_free(obj); SDL_free(mtl);
+}
+
 int demo_stage_load(const char *dir, int id, demo_stage *out) {
     SDL_memset(out, 0, sizeof *out);
     char path[1024];
@@ -419,6 +579,8 @@ int demo_stage_load(const char *dir, int id, demo_stage *out) {
         SDL_free(sky); SDL_free(sky_mtl);
         out->ok = 1;
         out->id = id;
+        load_far(out, sdir);
+        setup_backdrop(out);
         const char *n = SDL_strstr(toml, "name = \"");
         if (n) {
             n += 8;
@@ -444,6 +606,12 @@ static void demo_stage_free_draw(demo_stage *s) {
     s->batches = 0;
     for (int i = 0; i < s->skies; ++i) SDL_free(s->sky[i].v);
     s->skies = 0;
+    for (int i = 0; i < s->fars; ++i) SDL_free(s->far[i].v);
+    s->fars = 0;
+    SDL_free(s->dome);
+    s->dome = NULL;
+    s->dome_count = 0;
+    s->backdrop = 0;
     s->textured = 0;
 }
 
@@ -456,6 +624,7 @@ void demo_stage_free(demo_stage *s) {
 void demo_stage_draw(const demo_stage *s, int pass) {
     if (!s->ok) return;
     if (pass == 0) {
+        for (int i = 0; i < s->fars; ++i) acr_render_mesh(s->far[i].v, s->far[i].count, s->far[i].texture, ACR_MESH_PS1_TEXEL);
         for (int i = 0; i < s->batches; ++i)
             if (s->batch[i].count && !s->batch[i].semi)
                 acr_render_mesh(s->batch[i].v, s->batch[i].count, s->batch[i].texture,
@@ -472,7 +641,45 @@ void demo_stage_draw(const demo_stage *s, int pass) {
     }
 }
 
-void demo_stage_draw_sky(const demo_stage *s, const float eye[3]) {
+void demo_stage_draw_sky(const demo_stage *s, const float eye[3], float t) {
     if (!s->ok) return;
     for (int i = 0; i < s->skies; ++i) acr_render_sky(s->sky[i].v, s->sky[i].count, s->sky[i].texture, eye);
+    if (!s->backdrop) return;
+    acr_render_sky(s->dome, s->dome_count, 0, eye);
+    if (!s->cloud_tex) return;
+    /* The cloud layer: a grid of texture repeats overhead, drifting, fading
+     * out toward the horizon. */
+    static acr_vtx v[CLOUD_CELLS * CLOUD_CELLS * 6];
+    const float half = CLOUD_CELL * CLOUD_CELLS / 2, drift = SDL_fmodf(t * 18.0f, CLOUD_CELL);
+    int k = 0;
+    for (int cz = 0; cz < CLOUD_CELLS; ++cz)
+        for (int cx = 0; cx < CLOUD_CELLS; ++cx) {
+            const float x0 = -half + cx * CLOUD_CELL + drift - CLOUD_CELL / 2, z0 = -half + cz * CLOUD_CELL;
+            const float px[4] = { x0, x0 + CLOUD_CELL, x0 + CLOUD_CELL, x0 };
+            const float pz[4] = { z0, z0, z0 + CLOUD_CELL, z0 + CLOUD_CELL };
+            const float u[4] = { 0, 1, 1, 0 }, w[4] = { 0, 0, 1, 1 };
+            const int idx[6] = { 0, 1, 2, 0, 2, 3 };
+            for (int i = 0; i < 6; ++i) {
+                const int c = idx[i];
+                const float d = SDL_sqrtf(px[c] * px[c] + pz[c] * pz[c]) / half;
+                const float fade = d >= 1 ? 0 : 1 - d * d;
+                const float p[3] = { px[c], CLOUD_H, pz[c] };
+                v[k] = vtx(p, (uint8_t)(s->cloud[0] / 2), (uint8_t)(s->cloud[1] / 2), (uint8_t)(s->cloud[2] / 2),
+                           (uint8_t)(255 * fade));
+                v[k].u = u[c];
+                v[k].v = w[c];
+                ++k;
+            }
+        }
+    acr_render_sky(v, k, s->cloud_tex, eye);
+}
+
+int demo_stage_fog(const demo_stage *s, acr_fog *out) {
+    if (!s->ok || !s->backdrop) return 0;
+    out->start = 18000.0f;
+    out->end = 39000.0f;
+    out->r = s->horizon[0];
+    out->g = s->horizon[1];
+    out->b = s->horizon[2];
+    return 1;
 }
