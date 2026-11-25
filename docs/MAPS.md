@@ -88,8 +88,8 @@ degrees.
   do no harm.
 - **Colours:** up to 15. Extra, rarely used colours are merged into the
   nearest one. Tinkercad has no textures, so maps are plain colours. The
-  game's stage lighting isn't read yet, so all stages have the same fixed
-  light.
+  game's stage lights are read but not applied yet, so all stages have the
+  same fixed light.
 - **Round shapes** (cylinders, spheres) are fine. Raise their *Sides* setting
   for smoother walls. Very high side counts make big files.
 - **Walls and floors** on these maps follow the engine's stand-in rules (the

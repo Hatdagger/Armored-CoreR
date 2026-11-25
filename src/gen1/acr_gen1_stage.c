@@ -603,5 +603,5 @@ int acr_gen1_stage_has_area_rule(const acr_gen1_stage *s) {
     uint8_t have = 0;
     for (unsigned i = 0; i < s->bounds && i < ACR_GEN1_STAGE_BOUNDS; ++i)
         if (s->bound[i].bit < 8) have |= (uint8_t)(1u << s->bound[i].bit);
-    return (have & ACR_GEN1_AREA_INNER) != 0;
+    return (have & 1) && (have & ACR_GEN1_AREA_INNER) != 0;
 }

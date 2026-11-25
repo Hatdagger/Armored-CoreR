@@ -609,10 +609,76 @@ static int write_collision_game(const char *dir, const chunk *c, const area *ar,
     return 1;
 }
 
+/* ---- out-of-area boxes (stage objects, chunk 10, and the stage code) ----
+ * Chunk 10 holds the stage objects the arena engine sets up at load
+ * (0x80079798): records of 32 bytes, s16 x, y, z, s16 kind at +6 (-1 =
+ * none), and 16 bytes at +0x10 that land at the object's +0x22 in RAM. A
+ * kind k calls the stage code's creator (FDAT 5s+2, loaded at 0x8009EFE8;
+ * word 40 + k of its table). On Garden Plaza, Night City and Ocean Platform
+ * one kind's creator starts the box handler (0x8009F364 / 0x8009F490): the
+ * box is the object's position plus signed bytes x 256 at +0x22..+0x24
+ * (min) and +0x25..+0x27 (max), worked out in 16 bits, and the byte at
+ * +0x28 is the bit an AC inside it sets in its player block +0x08 (ends
+ * included). The engine's end check (0x800528E4) takes "+0x08 & 7 == 1" as
+ * out of area: inside box 0, outside boxes 1 and 2. Green Silo's code has no
+ * box handler (enclosed: nothing to leave). The handler is found by its
+ * code: the six box bytes and the bit read from the object, then both
+ * player blocks (0x80045198). */
+
+#define CODE_BASE    0x8009EFE8u
+#define OBJ_RECORDS  128u
+#define OBJ_SIZE     32u
+
+typedef struct oa_box { int lo[3], hi[3]; unsigned bit; } oa_box;
+
+static int is_box_handler(const uint8_t *code, size_t n, uint32_t addr) {
+    if (addr < CODE_BASE || addr - CODE_BASE >= n) return 0;
+    unsigned seen = 0;
+    for (size_t o = addr - CODE_BASE; o + 4 <= n && o < addr - CODE_BASE + 0x200; o += 4) {
+        const uint32_t w = u32(code + o);
+        if (w >= 0x92220022u && w <= 0x92220027u) seen |= 1u << (w - 0x92220022u);   /* lbu v0, 0x22..0x27(s1) */
+        if (w == 0x92260028u) seen |= 0x40;                                             /* lbu a2, 0x28(s1) */
+        if (w == 0x26105198u) seen |= 0x80;                                             /* addiu s0, s0, 0x5198 */
+        if (w == 0x03E00008u) break;                                                    /* jr ra */
+    }
+    return seen == 0xFF;
+}
+
+/* The task a creator starts: lui v1, 0x800A then addiu v1, v1, imm. */
+static uint32_t creator_task(const uint8_t *code, size_t n, uint32_t addr) {
+    if (addr < CODE_BASE || addr - CODE_BASE >= n) return 0;
+    for (size_t o = addr - CODE_BASE; o + 8 <= n && o < addr - CODE_BASE + 0x40; o += 4)
+        if (u32(code + o) == 0x3C03800Au && (u32(code + o + 4) & 0xFFFF0000u) == 0x24630000u)
+            return 0x800A0000u + (uint32_t)(int32_t)(int16_t)(u32(code + o + 4) & 0xFFFF);
+    return 0;
+}
+
+static unsigned read_out_of_area(const uint8_t *code, size_t code_n, const chunk *objs, oa_box *out, unsigned max) {
+    if (!code || code_n < 0x200 || objs->n < OBJ_RECORDS * OBJ_SIZE) return 0;
+    unsigned n = 0;
+    for (unsigned r = 0; r < OBJ_RECORDS && n < max; ++r) {
+        const uint8_t *p = objs->p + r * OBJ_SIZE;
+        const int kind = s16(p + 6);
+        if (kind < 0 || 40u + (unsigned)kind >= 64u) continue;
+        const uint32_t creator = u32(code + (40u + (unsigned)kind) * 4u);
+        if (!creator || !is_box_handler(code, code_n, creator_task(code, code_n, creator))) continue;
+        int lo[3], hi[3];
+        for (int k = 0; k < 3; ++k) {
+            const uint16_t c = u16(p + 2 * k);
+            lo[k] = (int16_t)(uint16_t)(c + (int8_t)p[16 + k] * 256);
+            hi[k] = (int16_t)(uint16_t)(c + (int8_t)p[19 + k] * 256);
+        }
+        /* Engine axes: x mirrored. */
+        oa_box b = { { -hi[0], lo[1], lo[2] }, { -lo[0], hi[1], hi[2] }, p[22] };
+        out[n++] = b;
+    }
+    return n;
+}
+
 /* ---- points (chunk 13): 40-byte records; 1 and 2 are the two starts ---- */
 
 static int write_toml(const char *dir, unsigned stage, const chunk *pts, const area *ar, unsigned areas,
-                      uint32_t faces, uint32_t polys) {
+                      uint32_t faces, uint32_t polys, const oa_box *oa, unsigned noa) {
     char path[1200];
     snprintf(path, sizeof path, "%s/stage.toml", dir);
     FILE *f = fopen(path, "w");
@@ -639,6 +705,15 @@ static int write_toml(const char *dir, unsigned stage, const chunk *pts, const a
         fprintf(f, "  [%d, %d, %d, %d, %d, %d, %d, %u],\n", -ar[a].max[0], ar[a].min[1], ar[a].min[2],
                 -ar[a].min[0], ar[a].max[1], ar[a].max[2], ar[a].model, ar[a].quarter);
     fprintf(f, "]\n");
+    /* Out-of-area boxes (engine x): min x, y, z, max x, y, z, bit. Out of
+     * area = inside the bit 0 box and outside the bit 1 and bit 2 boxes. */
+    if (noa) {
+        fprintf(f, "out_of_area = [\n");
+        for (unsigned i = 0; i < noa; ++i)
+            fprintf(f, "  [%d, %d, %d, %d, %d, %d, %u],\n", oa[i].lo[0], oa[i].lo[1], oa[i].lo[2],
+                    oa[i].hi[0], oa[i].hi[1], oa[i].hi[2], oa[i].bit);
+        fprintf(f, "]\n");
+    }
     fclose(f);
     return 1;
 }
@@ -704,11 +779,21 @@ int acr_export_moa_stages(const char *unpacked_dir, const char *out_dir, uint32_
         char dir[1200];
         snprintf(dir, sizeof dir, "%s/%02u", out_dir, s);
         uint32_t faces = 0, polys = 0, tfaces = 0, textures = 0;
+        oa_box oa[8];
+        unsigned noa = 0;
+        {
+            char cpath[1200];
+            snprintf(cpath, sizeof cpath, "%s/GG/COM/FDAT/%03u.bin", unpacked_dir, s * 5 + 2);
+            size_t cn = 0;
+            uint8_t *code = read_all(cpath, &cn);
+            noa = read_out_of_area(code, cn, &ch[10], oa, 8);
+            free(code);
+        }
         if (!make_dir(dir) || !write_visual(dir, &ch[4], ar, areas, &faces) ||
             !write_textured(dir, "visual", unpacked_dir, s, &ch[1], ar, areas, &tfaces, &textures) ||
             !write_collision(dir, &ch[7], ar, areas, &polys) ||
             !write_collision_game(dir, &ch[7], ar, areas) ||
-            !write_toml(dir, s, &ch[13], ar, areas, tfaces ? tfaces : faces, polys)) {
+            !write_toml(dir, s, &ch[13], ar, areas, tfaces ? tfaces : faces, polys, oa, noa)) {
             free(d);
             set_err(err, err_size, "cannot write the stage files in", dir);
             return 0;

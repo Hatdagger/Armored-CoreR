@@ -63,8 +63,10 @@ typedef struct acr_gen1_stage_bound {
 
 #define ACR_GEN1_STAGE_BOUNDS 8
 /* Box 0 is the whole level; boxes 1 and 2 overlap to make the arena floor.
- * Outside box 1 only: a warning. Outside both: that side loses (measured
- * in the recomp: bits 7 inside, 5 warning, 1 lost). */
+ * Inside box 0 and outside one inner box: a warning. Inside box 0 and
+ * outside both: that side loses (bits 0-2 exactly 1, the arena engine's
+ * end check 0x800528E4; measured in the recomp: bits 7 inside, 5 warning,
+ * 1 lost). Read from the disc by acr-import (stage.toml out_of_area). */
 #define ACR_GEN1_AREA_INNER 6
 
 typedef struct acr_gen1_stage {
