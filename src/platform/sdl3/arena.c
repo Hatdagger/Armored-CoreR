@@ -334,7 +334,7 @@ static void vs_start(void) {
 int arena_vs_due(void) { return A.screen == AS_VS && vs_due(); }
 
 const rogue_fight *arena_fight_info(void) { return &A.fight; }
-int32_t arena_round_ms(void) { return acr_gen1_arena_timer_ms(A.s.timer); }
+int32_t arena_round_ms(void) { return 0; }   /* no clock in the Arena */
 
 int arena_fight_over(int result) {
     const acr_gen1_rogue_foe *f = acr_gen1_arena_foe(&A.w, A.fight_arena,
@@ -359,7 +359,9 @@ static int step(int cur, int n, garage_action a) {
     return cur;
 }
 
-enum { PR_TIMER = ACR_GEN1_ARENA_COUNT, PR_STAGE, PR_BACK, PR_COUNT };
+/* No match timer: an Arena fight goes on until one side is down or out of
+ * the area, or the player gives up (a loss) (user, 2026-11-25). */
+enum { PR_STAGE = ACR_GEN1_ARENA_COUNT, PR_BACK, PR_COUNT };
 
 static void cycle_stage(int dir) {
     if (!A.nstages) { say("RE-IMPORT YOUR DISC: NO STAGES FOUND."); return; }
@@ -376,11 +378,6 @@ static arena_command input(garage_action a) {
         if (!A.ok) { if (a == GA_OK || a == GA_CANCEL) return AC_LEAVE; return AC_NONE; }
         A.cur = step(A.cur, PR_COUNT, a);
         if (a == GA_CANCEL) return AC_LEAVE;
-        if (A.cur == PR_TIMER && (a == GA_LEFT || a == GA_RIGHT || a == GA_OK)) {
-            A.s.timer = (uint8_t)((A.s.timer + (a == GA_LEFT ? ACR_GEN1_ARENA_TIMERS - 1 : 1)) % ACR_GEN1_ARENA_TIMERS);
-            save();
-            return AC_NONE;
-        }
         if (A.cur == PR_STAGE && (a == GA_LEFT || a == GA_RIGHT || a == GA_OK)) {
             cycle_stage(a == GA_LEFT ? -1 : 1);
             return AC_NONE;
@@ -463,7 +460,7 @@ arena_command arena_input(garage_action a) {
         else if (a == GA_OK) k = SFX_UI_OK;
         else if (a == GA_CANCEL) k = SFX_UI_BACK;
         else if (A.screen != screen || A.cur != cur || A.lcur != lcur || A.page != page || A.ask != ask) k = SFX_UI_CURSOR;
-        else if (a == GA_LEFT || a == GA_RIGHT) k = SFX_UI_CURSOR;   /* timer, stage */
+        else if (a == GA_LEFT || a == GA_RIGHT) k = SFX_UI_CURSOR;   /* stage */
     }
     if (k >= 0) sfx_ui(k);
     return c;
@@ -520,7 +517,7 @@ static void draw_pick(float hud_w) {
     text_right(x + w - 120, 64, "RANK", DIM);
     text_right(x + w, 64, "STATUS", DIM);
     for (int i = 0; i < PR_COUNT; ++i) {
-        const float y = 86 + 22.0f * (float)i + (i >= PR_TIMER ? 10 : 0);
+        const float y = 86 + 22.0f * (float)i + (i >= PR_STAGE ? 10 : 0);
         const int sel = A.cur == i;
         if (sel) row_bar(x, y, w + 12);
         char line[64];
@@ -542,10 +539,6 @@ static void draw_pick(float hud_w) {
             const char *st = why == ACR_GEN1_ARENA_NO_DATA ? "NO DATA" : !open ? "LOCKED"
                            : acr_gen1_arena_rank(&A.s, i) == 1 ? "CHAMPION" : "OPEN";
             if (open) text_right(x + w, y, st, GOOD); else text_right(x + w, y, st, DIM);
-        } else if (i == PR_TIMER) {
-            acr_hud_text(x, y, "MATCH TIMER", sel ? 255 : 220, sel ? 220 : 230, sel ? 120 : 235);
-            SDL_snprintf(line, sizeof line, "< %s >", acr_gen1_arena_timer_name(A.s.timer));
-            text_right(x + w, y, line, WHITE);
         } else if (i == PR_STAGE) {
             acr_hud_text(x, y, "STAGE", sel ? 255 : 220, sel ? 220 : 230, sel ? 120 : 235);
             SDL_snprintf(line, sizeof line, "< %s >", A.nstages ? stage_name(stage_now()) : "NONE");
@@ -570,7 +563,7 @@ static void draw_pick(float hud_w) {
                      l->best ? l->best : acr_gen1_arena_rank(&A.s, A.cur));
         acr_hud_text(x, ry + 26, line, DIM);
     }
-    hints(hud_w, "UP/DOWN: CHOOSE   LEFT/RIGHT: TIMER, STAGE   A: ENTER   B: BACK");
+    hints(hud_w, "UP/DOWN: CHOOSE   LEFT/RIGHT: STAGE   A: ENTER   B: BACK");
 }
 
 static void status_of(int rank, const char **text, uint8_t c[3]) {
@@ -698,7 +691,7 @@ static void draw_ask(float hud_w, int elapsed_ms) {
     const float x = hud_w * 0.5f - w * 0.5f, y = 180;
     panel(x, y, w, 96);
     acr_hud_text(x + 24, y + 14, line, WHITE);
-    SDL_snprintf(line, sizeof line, "STAGE %s   TIMER %s", stage_name(stage_now()), acr_gen1_arena_timer_name(A.s.timer));
+    SDL_snprintf(line, sizeof line, "STAGE %s   NO TIME LIMIT", stage_name(stage_now()));
     acr_hud_text(x + 24, y + 32, line, DIM);
     for (int k = 0; k < 2; ++k) {
         const float bx = x + w * 0.5f + (k ? 20 : -100);

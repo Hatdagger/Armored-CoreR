@@ -28,7 +28,10 @@
  *    beaten only (user, 2026-11-24).
  *  - Ex Arenas open: 1-4 at main-arena rank 15, 5-7 at main-arena rank 1,
  *    8 (Master) once 5, 6 and 7 have each been topped.
- *  - A draw counts as a loss. Match timer: 2:00, 5:00 or none. */
+ *  - A draw (both down at once) counts as a loss.
+ *  - No match timer in the Arena (user, 2026-11-25): a fight goes on until
+ *    one side is down or out of the area, or the player gives up (a loss).
+ *    The timer setting below stays in the save file but isn't used. */
 #ifndef ACR_GEN1_ARENA_H
 #define ACR_GEN1_ARENA_H
 

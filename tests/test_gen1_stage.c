@@ -367,6 +367,12 @@ int main(void) {
             /* Both out: a draw. */
             b.f[1].ac.x = -2000 * 64;
             EXPECT(acr_gen1_battle_result(&b, 0) == 3);
+            /* Outside box 0 as well (bits 0): not out of area, as in the
+             * game's check (bits 0-2 exactly 1). */
+            b.f[0].ac.x = -4000 * 64;
+            EXPECT(acr_gen1_stage_area_bits(&g, -4000, b.f[0].ac.y / 64, 0) == 0);
+            EXPECT(acr_gen1_battle_out_of_area(&b, 0) == 0);
+            EXPECT(acr_gen1_battle_result(&b, 0) == 1);    /* only fighter 1 is out now: 0 wins */
         }
         acr_gen1_stage_free(&g);
     }
@@ -508,6 +514,75 @@ int main(void) {
         }
         free(text);
         free(game);
+
+        /* The stages' own out-of-area boxes (stage.toml out_of_area, from the
+         * stage objects and the stage code): the starts are inside; a walk
+         * straight out from start 1 ends out of area (or at a wall). Green
+         * Silo has none. */
+        for (int si = 0; si < 4; ++si) {
+            static const int ids[4] = { 25, 27, 36, 39 };
+            char p1[1024], p2[1024], p3[1024];
+            snprintf(p1, sizeof p1, "%s/%02d/collision.obj", dir, ids[si]);
+            snprintf(p2, sizeof p2, "%s/%02d/collision.txt", dir, ids[si]);
+            snprintf(p3, sizeof p3, "%s/%02d/stage.toml", dir, ids[si]);
+            char *o = read_text(p1), *g = read_text(p2), *t = read_text(p3);
+            acr_gen1_stage sg;
+            memset(&sg, 0, sizeof sg);
+            EXPECT(o && g && t && acr_gen1_stage_parse(o, &sg) && acr_gen1_stage_parse_game(g, &sg));
+            int32_t start[2][4] = { { 0 } };
+            for (int k = 0; t && k < 2; ++k) {
+                char key[16];
+                snprintf(key, sizeof key, "start_%d = [", k + 1);
+                const char *p = strstr(t, key);
+                EXPECT(p && sscanf(p + strlen(key), "%d, %d, %d, %d", &start[k][0], &start[k][1], &start[k][2],
+                                   &start[k][3]) == 4);
+            }
+            const char *p = t ? strstr(t, "\nout_of_area = [") : NULL;
+            if (p) {
+                p = strchr(p, '\n') + 1;
+                p = strchr(p, '\n') + 1;
+                int v[7];
+                while (sg.bounds < ACR_GEN1_STAGE_BOUNDS &&
+                       sscanf(p, " [%d, %d, %d, %d, %d, %d, %d]", &v[0], &v[1], &v[2], &v[3], &v[4], &v[5], &v[6]) == 7) {
+                    acr_gen1_stage_bound *b = &sg.bound[sg.bounds++];
+                    for (int k = 0; k < 3; ++k) { b->lo[k] = v[k]; b->hi[k] = v[3 + k]; }
+                    b->bit = (uint8_t)v[6];
+                    p = strchr(p, '\n') + 1;
+                }
+            }
+            printf("stage %d: %u out-of-area boxes\n", ids[si], (unsigned)sg.bounds);
+            EXPECT(ids[si] == 27 ? sg.bounds == 0 : sg.bounds == 3 && acr_gen1_stage_has_area_rule(&sg));
+            if (sg.bounds) {
+                acr_gen1_ac_def sdef = make_def(&sg);
+                static acr_gen1_battle b;
+                memset(&b, 0, sizeof b);
+                b.stage = &sg;
+                b.step_ms = 45;
+                for (int i = 0; i < 2; ++i) {
+                    b.f[i].def = &sdef;
+                    b.f[i].ap = b.f[i].ap_max = 8000;
+                    b.f[i].intercept_shot = -1; b.f[i].swing_target = -1; b.f[i].last_missile = -1;
+                    acr_gen1_ac_spawn(&b.f[i].ac, &sdef, start[i][0] * 64, start[i][2] * 64, start[i][3]);
+                    b.f[i].ac.y = b.f[i].ac.py = b.f[i].ac.sy = start[i][1] * 64;
+                    EXPECT(acr_gen1_battle_out_of_area(&b, i) == 0);
+                }
+                /* Face away from the middle and walk out. */
+                acr_gen1_ac_set_yaw(&b.f[0].ac, (uint16_t)((start[0][3] + 2048) & 4095));
+                int warned = 0, tk = 0;
+                for (; tk < 2000 && !acr_gen1_battle_result(&b, 0); ++tk) {
+                    acr_gen1_input in[2] = { { 1, 0, 0, 0, 0, 0, 0 }, { 0, 0, 0, 0, 0, 0, 0 } };
+                    acr_gen1_actions act[2];
+                    memset(act, 0, sizeof act);
+                    acr_gen1_battle_step(&b, in, act);
+                    if (acr_gen1_battle_out_of_area(&b, 0) == 1) warned = 1;
+                }
+                printf("stage %d: walking out from start 1 -> %d, %d, %d after %d ticks, warned %d, result %d\n",
+                       ids[si], b.f[0].ac.x / 64, b.f[0].ac.y / 64, b.f[0].ac.z / 64, tk, warned,
+                       acr_gen1_battle_result(&b, 0));
+            }
+            free(o); free(g); free(t);
+            acr_gen1_stage_free(&sg);
+        }
     }
 
     acr_gen1_stage_free(&st);

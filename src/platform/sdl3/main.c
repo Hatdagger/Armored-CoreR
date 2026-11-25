@@ -75,6 +75,7 @@ static int g_net_port = NET_PORT_DEFAULT;
 static const char *g_net_join;            /* the host's address */
 static int g_net_delay = 1;               /* input delay in steps (host decides) */
 static int g_net_lag, g_net_jitter, g_net_loss;   /* testing: fake bad connection */
+static int g_test_boundary;               /* AC TEST: F8's test boundary in place of the stage's own boxes */
 static int g_net_stage = -1;              /* host: --stage N (-1: ACR_STAGE or Green Silo) */
 static int g_net_coop;                    /* host: --coop N, co-op against N AI ACs (0 = VS) */
 static int g_net_online;                  /* --host-online / --join-brief: over the internet with briefing codes */
@@ -1379,11 +1380,15 @@ int main(int argc, char **argv) {
                 /* Test boundary: out-of-area boxes shrunk to just around the
                  * two starts (box 1 1,500 past them, box 2 500 wider on x and
                  * 500 narrower on z), so the warning and the loss can be
-                 * tried on any stage. The stages' own boxes aren't imported
-                 * yet. */
+                 * tried on any stage, Green Silo too (it has no boxes of its
+                 * own). Pressed again: back to the stage's own boxes. */
                 acr_gen1_stage *cs = &g_stage.collision;
-                if (cs->bounds) cs->bounds = 0;
-                else {
+                if (g_test_boundary) {
+                    g_test_boundary = 0;
+                    SDL_memcpy(cs->bound, g_stage.own_bound, sizeof cs->bound);
+                    cs->bounds = g_stage.own_bounds;
+                } else {
+                    g_test_boundary = 1;
                     const int32_t *a = g_stage.start[0], *c = g_stage.start[1];
                     const int32_t x0 = SDL_min(a[0], c[0]) - 1500, x1 = SDL_max(a[0], c[0]) + 1500;
                     const int32_t z0 = SDL_min(a[2], c[2]) - 1500, z1 = SDL_max(a[2], c[2]) + 1500;
@@ -1419,7 +1424,7 @@ int main(int argc, char **argv) {
                     demo_stage tmp;
                     if (demo_stage_load(dir, want_id, &tmp)) {
                         if (g_stage.ok) demo_stage_free(&g_stage);
-                        g_stage = tmp;
+                        g_stage = tmp; g_test_boundary = 0;
                         g_stage_id = want_id;
                         g_stage_on = 1;
                         break;
@@ -1602,7 +1607,7 @@ int main(int argc, char **argv) {
                     demo_stage tmp;
                     if (demo_stage_load(dir, af->stage, &tmp)) {
                         if (g_stage.ok) demo_stage_free(&g_stage);
-                        g_stage = tmp;
+                        g_stage = tmp; g_test_boundary = 0;
                         g_stage_id = af->stage;
                     }
                 }
@@ -1653,7 +1658,7 @@ int main(int argc, char **argv) {
                     demo_stage tmp;
                     if (demo_stage_load(dir, rf->stage, &tmp)) {
                         if (g_stage.ok) demo_stage_free(&g_stage);
-                        g_stage = tmp;
+                        g_stage = tmp; g_test_boundary = 0;
                         g_stage_id = rf->stage;
                     }
                 }
@@ -1901,7 +1906,7 @@ int main(int argc, char **argv) {
                             demo_stage tmp;
                             if (demo_stage_load(dir, net_info.stage, &tmp)) {
                                 if (g_stage.ok) demo_stage_free(&g_stage);
-                                g_stage = tmp;
+                                g_stage = tmp; g_test_boundary = 0;
                                 g_stage_id = net_info.stage;
                             }
                         }
@@ -2670,8 +2675,9 @@ int main(int argc, char **argv) {
             TEXT(20, 88, "BACK+A (H): HUMAN PLUS  (T): STEP RATE");
             TEXT(20, 100, "BACK+LB (F2): TWO PLAYERS  BACK+R3 (F3): LANDING PAUSE GUESS/ANIMATION");
             TEXT(20, 112, "BACK+UP (F4): OPPONENT STILL / AI PRESETS  BACK+DOWN (F6): AI VS AI (WATCH)");
-            if (g_stage.ok) TEXT(20, 136, g_stage.collision.bounds ? "BACK+RIGHT (F8): TEST BOUNDARY ON (1,500 PAST THE STARTS)"
-                                                                   : "BACK+RIGHT (F8): TEST BOUNDARY OFF");
+            if (g_stage.ok) TEXT(20, 136, g_test_boundary ? "BACK+RIGHT (F8): TEST BOUNDARY ON (1,500 PAST THE STARTS)"
+                                          : g_stage.own_bounds ? "BACK+RIGHT (F8): TEST BOUNDARY OFF (THE STAGE'S OWN AREA)"
+                                                               : "BACK+RIGHT (F8): TEST BOUNDARY OFF (NO OUT OF AREA HERE)");
             TEXT(20, 124, g_stage.ok ? "BACK+LEFT (F7): GREEN SILO / OCEAN PLATFORM / MISSION MAPS 11, 6 / OPEN FLOOR"
                                      : "BACK+LEFT (F7): ARENA STAGE (RE-IMPORT THE DISC FOR STAGES)");
         }
