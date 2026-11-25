@@ -30,6 +30,8 @@ void missions_draw(float hud_w, int elapsed_ms);
  * Nest examiner), the mission map, and the time limit in ms (0 none). */
 const rogue_fight *missions_fight_info(void);
 int32_t missions_round_ms(void);
+/* The opponent's option bits. */
+uint16_t missions_foe_options(void);
 /* The sortie is over: 1 won, anything else failed. The player's AP left
  * and AP max, and the ammunition bill (acr_gen1_mission_ammo_cost). Pays
  * the report into the garage and books the record; returns 1 (the garage

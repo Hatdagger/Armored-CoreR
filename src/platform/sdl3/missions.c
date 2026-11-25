@@ -135,21 +135,29 @@ void missions_open(void) {
 
 const rogue_fight *missions_fight_info(void) { return &M.fight; }
 int32_t missions_round_ms(void) { return M.list.m[M.fight_row].time_ms; }
+uint16_t missions_foe_options(void) {
+    const acr_gen1_mission_info *m = &M.list.m[M.fight_row];
+    return m->foe_set ? m->foe_options : (M.h ? M.h->options : 0);
+}
 
 static int prepare_sortie(void) {
     const acr_gen1_mission_info *m = &M.list.m[M.cur];
     if (!m->playable || !M.h) return 0;
     rogue_fight *g = &M.fight;
     SDL_zero(*g);
-    /* P4's examiner: the mockup gives a "balanced mid-weight build, no
-     * Human PLUS" but no parts yet, so it flies the player's own build, as
-     * AC TEST's target does (main.c gives it the balanced AI). */
-    for (int s = 0; s < SLOT_COUNT; ++s) g->parts[0][s] = g->parts[1][s] = M.h->fitted[s];
+    /* The mission's opponent (P4: the examiner from the user's card, flown
+     * by the balanced AI in main.c); without one, a copy of the player's AC. */
+    for (int s = 0; s < SLOT_COUNT; ++s) {
+        g->parts[0][s] = M.h->fitted[s];
+        g->parts[1][s] = m->foe_set ? m->foe_parts[s] : M.h->fitted[s];
+    }
     memcpy(g->colours[0], M.h->colours, sizeof g->colours[0]);
-    memcpy(g->colours[1], M.h->colours, sizeof g->colours[1]);
+    if (m->foe_set) memcpy(g->colours[1], m->foe_colours, sizeof g->colours[1]);
+    else memcpy(g->colours[1], M.h->colours, sizeof g->colours[1]);
     g->stage = m->map;
     SDL_snprintf(g->name[0], sizeof g->name[0], "%s / %s", M.h->ac_name, M.h->pilot_name);
-    SDL_strlcpy(g->name[1], "NEST EXAMINER", sizeof g->name[1]);
+    if (m->foe_ac[0]) SDL_snprintf(g->name[1], sizeof g->name[1], "%s / %s", m->foe_ac, m->foe_pilot);
+    else SDL_strlcpy(g->name[1], m->foe_pilot[0] ? m->foe_pilot : "OPPONENT", sizeof g->name[1]);
     M.fight_row = M.cur;
     return 1;
 }

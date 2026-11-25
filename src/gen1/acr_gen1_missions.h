@@ -60,6 +60,13 @@ typedef struct acr_gen1_mission_info {
     uint8_t  playable;                  /* the engine can run it today */
     int32_t  time_ms;                   /* own missions: the time limit; 0 none */
     uint8_t  pages, pictures;
+    /* The opponent AC (own missions with one): parts by acr_gen1_slot
+     * (ACR_GEN1_NO_PART none), option bits, 4 colours (0..63), names. */
+    uint8_t  foe_set;
+    uint8_t  foe_parts[ACR_GEN1_SLOT_COUNT];
+    uint16_t foe_options;
+    uint8_t  foe_colours[4][3];
+    char     foe_pilot[20], foe_ac[20];
     /* Text pages with the disc's markup: "@1".."@0" highlight, "%n" picture n. */
     char     page[ACR_GEN1_MISSION_PAGES][ACR_GEN1_MISSION_TEXT];
 } acr_gen1_mission_info;

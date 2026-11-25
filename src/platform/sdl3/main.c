@@ -1204,7 +1204,7 @@ int main(int argc, char **argv) {
     while (running) {
         if (!g_net) {      /* offline: player 2 is built like player 1 */
             g_options[0] = g_part_args ? 0 : g_hangar.options;
-            g_options[1] = g_options[0];
+            g_options[1] = g_rogue_fight == 3 ? missions_foe_options() : g_options[0];   /* a mission's own opponent */
         }
         SDL_Event e;
         garage_command gcmd = GC_NONE;
@@ -1655,15 +1655,13 @@ int main(int argc, char **argv) {
             if (mcmd == MC_LEAVE) { mode = 0; gui.screen = 0; }
             if (mcmd == MC_SORTIE) {
                 /* The garage's AC on the mission map against the mission's
-                 * opponent (P4: the Nest examiner, flown by the balanced AI
-                 * as in AC TEST), with the mission's time limit. */
+                 * opponent (P4: the Nest examiner, the user's card build,
+                 * flown by the balanced AI), with the mission's time limit. */
                 const rogue_fight *mf = missions_fight_info();
                 LOAD_PLAYER_BUILD(mf->parts[0]);
                 memcpy(parts2, mf->parts[1], sizeof parts2);
                 demo_load(dir, parts2, &ac_data[1], err, sizeof err);
-                g_paint_on[0] = 1;
-                memcpy(g_paint[0], mf->colours[0], sizeof g_paint[0]);
-                g_paint_on[1] = 0;
+                for (int k = 0; k < 2; ++k) { g_paint_on[k] = 1; memcpy(g_paint[k], mf->colours[k], sizeof g_paint[k]); }
                 g_ai_mode = ACR_GEN1_AI_BALANCED; g_autopilot = 0; two_players = 0;
                 human_plus = 0; g_plus2 = 0;
                 if (!(g_stage.ok && g_stage_id == mf->stage)) {

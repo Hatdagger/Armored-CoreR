@@ -15,7 +15,23 @@
  * won by destruction or by more AP left when time runs out. The last page
  * follows MoA's "Theater of operations" page with the mockup's own facts.
  * The other variants (Alternate layout, Altered circumstances) and the
- * 40/40/20 roll come later; until then the Standard one always runs. */
+ * 40/40/20 roll come later; until then the Standard one always runs.
+ *
+ * The examiner's AC is the user's AI Battle card (Raven Card Builder,
+ * format 4, checksum good; docs/missions/p4-examiner-card.png, 2026-11-25):
+ * XCA-00, HD-REDEYE, AN-201, LN-1001, WG-MGA1, LS-200G, WC-CN35 (back
+ * left), WM-X201 (back right), COMDEX-G0, GBG-10000, B-HP25, no options,
+ * no Human PLUS, the BALANCED AI. Colours are the card's paint as the arena
+ * record takes it (record bytes 16-27). The card's names are the builder's
+ * defaults ("PILOT", "AC"); the user will name them, so the mockup's
+ * "Nest examiner" stands in. */
+static const uint8_t k_p4_foe[ACR_GEN1_SLOT_COUNT] = {
+    [ACR_GEN1_SLOT_CORE] = 0, [ACR_GEN1_SLOT_BOOSTER] = 6, [ACR_GEN1_SLOT_HEAD] = 3, [ACR_GEN1_SLOT_ARMS] = 1,
+    [ACR_GEN1_SLOT_BLADE] = 1, [ACR_GEN1_SLOT_HAND] = 2, [ACR_GEN1_SLOT_BACK_L] = 28, [ACR_GEN1_SLOT_BACK_R] = 7,
+    [ACR_GEN1_SLOT_GENERATOR] = 5, [ACR_GEN1_SLOT_FCS] = 1, [ACR_GEN1_SLOT_LEGS] = 0,
+};
+static const uint8_t k_p4_foe_colours[4][3] = { { 37, 37, 35 }, { 26, 23, 23 }, { 43, 21, 12 }, { 10, 12, 15 } };
+
 static void add_own(acr_gen1_mission_list *l) {
     acr_gen1_mission_info *m = &l->m[l->count++];
     memset(m, 0, sizeof *m);
@@ -40,6 +56,12 @@ static void add_own(acr_gen1_mission_list *l) {
                        "Objective: Defeat Examiner\n"
                        "Time limit: 3:00");
     m->pages = 3;
+    m->foe_set = 1;
+    memcpy(m->foe_parts, k_p4_foe, sizeof m->foe_parts);
+    m->foe_options = 0;
+    memcpy(m->foe_colours, k_p4_foe_colours, sizeof m->foe_colours);
+    strcpy(m->foe_pilot, "NEST EXAMINER");
+    strcpy(m->foe_ac, "");
 }
 
 /* ---- missions.toml ---- */

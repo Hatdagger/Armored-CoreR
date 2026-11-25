@@ -22,6 +22,7 @@ static void test_list(void) {
     static acr_gen1_mission_list l;
     EXPECT(acr_gen1_missions_build(&l, NULL) == 0);
     EXPECT(l.count == 1 && l.m[0].own && l.m[0].playable);   /* the own mission is always there */
+    EXPECT(l.m[0].foe_set && l.m[0].foe_parts[ACR_GEN1_SLOT_CORE] != ACR_GEN1_NO_PART);   /* with its opponent */
     EXPECT(acr_gen1_missions_build(&l, k_toml) == 2);
     EXPECT(l.count == 3);
     const acr_gen1_mission_info *a = &l.m[1], *b = &l.m[2];
