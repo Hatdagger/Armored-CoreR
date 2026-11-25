@@ -82,3 +82,40 @@ jobs:
           path: |
             src/platform/xbox/bin/default.xbe
             src/platform/xbox/*.iso
+
+  # Android: an APK for tablets and phones (arm64), installed directly
+  # (docs/ANDROID.md). Signed with the repo's fixed test key so each new
+  # build installs over the last one.
+  android:
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '17'
+
+      - name: Get SDL (the release CMakeLists.txt uses) and its Gradle wrapper
+        run: |
+          git clone --depth 1 --branch release-3.2.10 https://github.com/libsdl-org/SDL.git "$RUNNER_TEMP/SDL"
+          cp -r "$RUNNER_TEMP/SDL/android-project/gradle" "$RUNNER_TEMP/SDL/android-project/gradlew" android/
+          chmod +x android/gradlew
+
+      - name: Build the APK
+        working-directory: android
+        run: |
+          export ACR_NDK_VERSION="$(basename "$ANDROID_NDK_LATEST_HOME")"
+          echo "NDK $ACR_NDK_VERSION"
+          ./gradlew --no-daemon assembleRelease -PsdlDir="$RUNNER_TEMP/SDL"
+
+      - name: Collect
+        run: |
+          mkdir -p out
+          cp android/app/build/outputs/apk/release/app-release.apk out/armored-corer-android.apk
+          cp docs/ANDROID.md out/
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: armored-corer-android
+          path: out/

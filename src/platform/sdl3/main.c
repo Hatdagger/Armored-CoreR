@@ -83,6 +83,7 @@ static const char *g_net_readback;
 static int g_net_guest_port;              /* --guest-port N: the guest's own port (testing) */        /* --readback "TEXT": host enters player 2's read-back (testing) */
 static int g_part_args;                   /* parts were given on the command line */
 #include "acr_import.h"
+#include "disc_pick.h"
 #include "../../render/acr_render.h"
 #include "../../render/acr_light.h"
 
@@ -905,19 +906,36 @@ int main(int argc, char **argv) {
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD)) return 1;
 
     char default_dir[1024];
+#ifdef SDL_PLATFORM_ANDROID
+    /* Android: the import lives in the app's own storage, with the saves. */
+    char *pref_dir = SDL_GetPrefPath("Hatdagger", "Armored-CoreR");
+    SDL_snprintf(default_dir, sizeof default_dir, "%simport", pref_dir ? pref_dir : "");
+    SDL_free(pref_dir);
+#else
     SDL_snprintf(default_dir, sizeof default_dir, "%simport", SDL_GetBasePath() ? SDL_GetBasePath() : "");
+#endif
     const char *dir = default_dir;
     int parts[SLOT_COUNT];
     parse_args(argc, argv, &dir, parts);
 
     /* OpenGL 2.1 at the screen's own resolution, 4x anti-aliasing when the
-     * driver offers it. */
+     * driver offers it (the GLES build: OpenGL ES 3.0, else 2.0). */
+#ifdef ACR_GLES
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+#else
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 1);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_COMPATIBILITY);
+#endif
     SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
     SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+#ifdef SDL_PLATFORM_ANDROID
+    const SDL_WindowFlags wflags = SDL_WINDOW_OPENGL | SDL_WINDOW_FULLSCREEN | SDL_WINDOW_HIGH_PIXEL_DENSITY;
+#else
     const SDL_WindowFlags wflags = SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY;
+#endif
     SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 1);
     SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, 4);
     /* ACR_WINDOW=WxH: the window's size (screenshots at other shapes). */
@@ -932,9 +950,21 @@ int main(int argc, char **argv) {
         window = SDL_CreateWindow("Armored-CoreR test build", win_w, win_h, wflags);
         gl = window ? SDL_GL_CreateContext(window) : NULL;
     }
+#ifdef ACR_GLES
+    if (!gl) {
+        if (window) SDL_DestroyWindow(window);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
+        window = SDL_CreateWindow("Armored-CoreR test build", win_w, win_h, wflags);
+        gl = window ? SDL_GL_CreateContext(window) : NULL;
+    }
+#endif
     if (!gl || !acr_render_init(gl_proc)) {
         SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Armored-CoreR",
+#ifdef ACR_GLES
+                                 "This device's graphics driver does not offer OpenGL ES 2.0.", window);
+#else
                                  "This computer's graphics driver does not offer OpenGL 2.1.", window);
+#endif
         SDL_Quit();
         return 1;
     }
@@ -959,14 +989,44 @@ int main(int argc, char **argv) {
         char text[1600];
         SDL_snprintf(text, sizeof text,
                      "ARMORED-CORER TEST BUILD\n\n"
+#ifdef SDL_PLATFORM_ANDROID
+                     "PRESS A (OR TAP THE SCREEN) TO CHOOSE YOUR\n"
+                     "MASTER OF ARENA DISC IMAGE (THE .BIN FILE).\n"
+                     "IT IS IMPORTED INTO THE APP (ABOUT 1 GB).\n\n"
+                     "BACK: QUIT\n\n%s", err);
+#else
                      "DROP YOUR MASTER OF ARENA DISC (.CUE OR .BIN)\n"
-                     "ON THIS WINDOW TO IMPORT IT.\n\n"
+                     "ON THIS WINDOW TO IMPORT IT,\n"
+                     "OR PRESS A / ENTER TO CHOOSE IT.\n\n"
                      "ESC / BACK: QUIT\n\n%s", err);
+#endif
         show_message(window, text);
         SDL_Event e;
         if (!SDL_WaitEvent(&e)) continue;
+        /* the system's file picker: A, Enter or a tap opens it */
+        if (e.type == SDL_EVENT_GAMEPAD_ADDED && !pad) pad = SDL_OpenGamepad(e.gdevice.which);
+        if ((e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && e.gbutton.button == SDL_GAMEPAD_BUTTON_SOUTH) ||
+            (e.type == SDL_EVENT_KEY_DOWN && (e.key.scancode == SDL_SCANCODE_RETURN || e.key.scancode == SDL_SCANCODE_SPACE)) ||
+            e.type == SDL_EVENT_FINGER_UP || (e.type == SDL_EVENT_MOUSE_BUTTON_UP && e.button.which != SDL_TOUCH_MOUSEID)) {
+            disc_pick_open(window);
+            continue;
+        }
+        char picked[2048];
+        const int pick = disc_pick_poll(picked, sizeof picked);
+        if (pick == 1) {
+            disc_pick_file keep;
+            char local[1200];
+            err[0] = 0;
+            if (disc_pick_local(picked, &keep, local, sizeof local, err, sizeof err)) {
+                dir = default_dir;
+                if (import_disc(window, local, dir, err, sizeof err))
+                    loaded = demo_load(dir, parts, &ac_data[0], err, sizeof err);
+                disc_pick_close(&keep);
+            }
+            continue;
+        }
         if (e.type == SDL_EVENT_QUIT ||
-            (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_ESCAPE) ||
+            (e.type == SDL_EVENT_KEY_DOWN && (e.key.scancode == SDL_SCANCODE_ESCAPE || e.key.scancode == SDL_SCANCODE_AC_BACK)) ||
             (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && e.gbutton.button == SDL_GAMEPAD_BUTTON_BACK)) {
             SDL_Quit();
             return 0;
