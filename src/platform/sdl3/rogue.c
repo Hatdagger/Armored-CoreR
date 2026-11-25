@@ -21,7 +21,9 @@
 /* ---- state ---- */
 
 enum { RS_MENU, RS_HUB, RS_STAGES, RS_SWAP, RS_SWAP_ASK, RS_VS, RS_RESULT, RS_PRIZE, RS_PRIZE_ASK,
-       RS_REROLL_ASK, RS_LOST, RS_CLEARED, RS_SPECS };
+       RS_REROLL_ASK, RS_LOST, RS_CLEARED, RS_SPECS,
+       RS_MODE,                                  /* SOLO / CO-OP */
+       RS_COOP };                                /* co-op's screens (rogue_coop.inc) */
 
 /* The VS screen's strip of small boxes (AC1Recomp: MOA_VS_*). */
 enum { VM_DOWN, VM_YOU, VM_NEXT, VM_AHEAD };
@@ -77,7 +79,18 @@ static struct {
     char vic_rank[16], vic_pay[12], vic_beaten[64], vic_line[2][48];
     int vic_ghost;
     uint32_t soft_tex;                        /* a soft round dot: smoke and sparks */
+    /* Co-op borrows the prize screen: `run` is a player's side while it
+     * shows, the solo run waits in `solo`. */
+    acr_gen1_rogue *borrow;
+    acr_gen1_rogue solo;
+    char whose[24];
 } R;
+
+/* Co-op's screens (rogue_coop.inc, included at the end). */
+static void coop_open(void);
+static rogue_command coop_input(garage_action a);
+static void coop_draw(float hud_w, int elapsed_ms);
+static void coop_prize_done(void);
 
 static rogue_ac_drawer g_draw_ac;
 void rogue_set_ac_drawer(rogue_ac_drawer fn) { g_draw_ac = fn; }
@@ -122,7 +135,7 @@ static void file_path(const char *name, char *out, size_t size) {
 }
 
 static void save_run(void) {
-    if (!R.live) return;
+    if (!R.live || R.borrow) return;
     static char text[32768];
     char path[1200];
     size_t n = acr_gen1_rogue_write(&R.run, text, sizeof text);
@@ -201,7 +214,7 @@ int rogue_init(const char *import_dir, const acr_gen1_catalog *cat,
     for (int i = 0; i < NSTAGE && R.nstages < 16; ++i) if (stage_exists(k_stage[i].id)) R.stages[R.nstages++] = i;
     R.ok = R.foes >= SLOTS;
     R.live = R.ok && load_run();
-    R.screen = RS_MENU;
+    R.screen = RS_MODE;
     return R.ok;
 }
 
@@ -213,6 +226,14 @@ static uint64_t fresh_seed(void) {
 }
 
 static void to_hub(void) {
+    if (R.borrow && !acr_gen1_rogue_prize_due(&R.run)) {   /* a co-op player's prize screen is done */
+        *R.borrow = R.run;
+        R.run = R.solo;
+        R.borrow = NULL;
+        R.screen = RS_COOP;
+        coop_prize_done();
+        return;
+    }
     R.screen = acr_gen1_rogue_prize_due(&R.run) ? RS_PRIZE : RS_HUB;
     R.cur = R.top = 0;
     R.alt = 0;
@@ -239,7 +260,7 @@ static void new_arena(void) {
 void rogue_open(const char *pilot, const char *ac) {
     SDL_strlcpy(R.pilot, pilot && pilot[0] ? pilot : "RAVEN", sizeof R.pilot);
     SDL_strlcpy(R.ac, ac && ac[0] ? ac : "AC", sizeof R.ac);
-    R.screen = RS_MENU;
+    R.screen = RS_MODE;
     R.cur = 0;
     R.message[0] = 0;
 }
@@ -401,13 +422,22 @@ static int victory_typed(void);
 static rogue_command input(garage_action a) {
     const acr_gen1_rogue_world w = world();
     switch (R.screen) {
+    case RS_MODE:
+        if (!R.ok) { if (a == GA_OK || a == GA_CANCEL) return RC_LEAVE; return RC_NONE; }
+        R.cur = step(R.cur, 3, a);
+        if (a == GA_CANCEL || (a == GA_OK && R.cur == 2)) { R.cur = 0; return RC_LEAVE; }
+        if (a == GA_OK && R.cur == 0) { R.screen = RS_MENU; R.cur = 0; }
+        else if (a == GA_OK) coop_open();
+        return RC_NONE;
+    case RS_COOP:
+        return coop_input(a);
     case RS_MENU: {
         int ids[4];
         const int n = menu_rows(ids);
         if (!R.ok) { if (a == GA_OK || a == GA_CANCEL) return RC_LEAVE; return RC_NONE; }
         R.cur = step(R.cur, n, a);
         if (R.cur >= n) R.cur = 0;
-        if (a == GA_CANCEL) return RC_LEAVE;
+        if (a == GA_CANCEL) { R.screen = RS_MODE; R.cur = 0; return RC_NONE; }
         if (a != GA_OK) return RC_NONE;
         switch (ids[R.cur]) {
         case MI_CONTINUE: to_hub(); break;
@@ -415,7 +445,7 @@ static rogue_command input(garage_action a) {
             if (acr_gen1_rogue_retry(&R.run, &w)) { save_run(); to_hub(); }
             break;
         case MI_NEW: new_arena(); break;
-        default: return RC_LEAVE;
+        default: R.screen = RS_MODE; R.cur = 0; return RC_NONE;
         }
         return RC_NONE;
     }
@@ -1539,10 +1569,37 @@ void rogue_draw(float hud_w, int elapsed_ms) {
     char line[128], title[64];
     if (R.message_ms > 0) R.message_ms -= elapsed_ms;
     const int belt = acr_gen1_rogue_belt(R.run.wins);
-    background(hud_w, R.live ? belt : 0);
+    background(hud_w, R.live || R.borrow ? belt : 0);
     const float lx = 24, cw = hud_w - 48;
 
     switch (R.screen) {
+    case RS_MODE:
+        header(hud_w, "ROGUE ARENA");
+        panel(lx, 40, cw, 300);
+        if (!R.ok) {
+            acr_hud_text(lx + 16, 60, "THIS IMPORT HAS NO ARENA OPPONENTS YET.", BAD);
+            acr_hud_text(lx + 16, 80, "IMPORT YOUR MASTER OF ARENA DISC AGAIN TO PLAY ROGUE ARENA.", WHITE);
+            acr_hud_text(lx + 16, 100, "(DROP THE .CUE ON THE WINDOW, OR RUN ACR-IMPORT.)", DIM);
+            break;
+        }
+        {
+            static const char *const k_mode[3] = { "SOLO", "CO-OP (2 PLAYERS)", "BACK" };
+            static const char *const k_mode_said[3] = {
+                "ONE AC. ONE LIFE. 19 RIVALS.",
+                "TWO PLAYERS, ONE LADDER: 19 PAIRS OF RIVALS, 2 AGAINST 2.",
+                "BACK TO THE GARAGE." };
+            for (int i = 0; i < 3; ++i) row(lx + 24, 70 + i * 22.0f, 260, k_mode[i], i == R.cur, 0);
+            acr_hud_text(lx + 16, 150, k_mode_said[R.cur < 3 ? R.cur : 0], WHITE);
+            if (R.cur == 1) {
+                acr_hud_text(lx + 16, 170, "ON THIS PC: PLAYER 1 ON THE KEYBOARD OR CONTROLLER 1, PLAYER 2 ON", DIM);
+                acr_hud_text(lx + 16, 184, "CONTROLLER 2, SPLIT SCREEN. ONLINE CO-OP COMES LATER.", DIM);
+            }
+        }
+        acr_hud_text(lx + 16, 320, "UP / DOWN  CHOOSE    ENTER / A  OK    ESC / B  BACK", DIM);
+        break;
+    case RS_COOP:
+        coop_draw(hud_w, elapsed_ms);
+        break;
     case RS_MENU: {
         header(hud_w, "ROGUE ARENA");
         panel(lx, 40, cw, 300);
@@ -1659,7 +1716,8 @@ void rogue_draw(float hud_w, int elapsed_ms) {
     case RS_SPECS:
     case RS_PRIZE: case RS_PRIZE_ASK: case RS_REROLL_ASK: {
         if (R.screen == RS_SPECS && R.specs_back == RS_SWAP) goto hub_screens;
-        SDL_snprintf(title, sizeof title, "PRIZE  RANK %d", rank_now());
+        if (R.borrow) SDL_snprintf(title, sizeof title, "%s PRIZE  RANK %d", R.whose, rank_now());
+        else SDL_snprintf(title, sizeof title, "PRIZE  RANK %d", rank_now());
         header(hud_w, title);
         static const char *const k_tier[3] = { "CHEAP", "MID", "EXPENSIVE" };
         panel(lx, 40, cw, 300);
@@ -1746,3 +1804,7 @@ void rogue_draw(float hud_w, int elapsed_ms) {
 int rogue_vs_due(void) {
     return R.screen == RS_VS && R.vs_shut >= VS_FADE_AT + VS_FADE_LEN;
 }
+
+/* ---- co-op ---- */
+
+#include "rogue_coop.inc"
