@@ -24,7 +24,7 @@ flowchart LR
     end
     subgraph Online
         R6["6 Netplay<br/>rollback 1v1 + co-op"]:::done
-        CO["Rogue Arena co-op"]:::todo
+        CO["Rogue Arena co-op<br/>local 2P"]:::doing
     end
     subgraph Content
         R4["4 / 7 Arena<br/>2 stages, walls"]:::doing
@@ -160,8 +160,9 @@ rows read back from each opponent's 36-byte AI record).
   (Green Silo, Ocean Platform, Garden Plaza, Night City: the user's four
   for now), GARAGE (assembly only), QUIT; the ladder beside it; the
   background is the belt tile of the player's rank (AC1Recomp's tiles).
-- Fights: two minutes, the opponent flown by our Gen 1 brain with its own
-  AI rows and Human PLUS level, in its own colours. Esc twice gives up (a
+- Fights: no time limit since 2026-11-25 (was two minutes; user), the
+  opponent flown by our Gen 1 brain with its own AI rows and Human PLUS
+  level, in its own colours. Esc twice gives up (a
   loss). A draw counts as a loss.
 - One loss: RETRY ARENA (same ladder, new random AC at 0 P; the losing AC,
   prize parts and all, stays as a ghost at the rank it held, with the AI of
@@ -221,6 +222,17 @@ Fixes after the first play-test (2026-11-19):
   carries up to 4 (arm weapon, back left, back right, blade); a two-slot
   unit is one weapon.
 - **AP turns red below 1,000**, and a weapon out of ammo shows its name and count in red.
+
+## Rogue Arena co-op (branch `rogue-coop`, 2026-11-25)
+
+Design and progress in [ROGUE-ARENA-COOP.md](ROGUE-ARENA-COOP.md). Done:
+the rules (`src/gen1/acr_gen1_coop.{h,c}`, tests in
+`tests/test_gen1_coop.c`) and the whole run on **one PC with two
+controllers**: ROGUE ARENA > CO-OP, 19 pairs from the disc, 2v2 fights on
+the split screen with no time limit, the rejoin choice, each player's
+prize screen, the shared stash, the final duel, RETRY with a ghost pair.
+Next: online (the host keeps the run, rollback fights), then a two-PC
+play-test.
 
 ## Next, in order (agreed 2026-11-19)
 
