@@ -547,6 +547,11 @@ static void roster_file(roster_walk *w, const char *path) {
             f->parts[s] = (uint8_t)(v >= 0 && v < ACR_GEN1_PART_MAX ? v : ACR_GEN1_NO_PART);
         }
         f->options = (uint16_t)get_int(t, e, "options", 0);
+        /* The Arena's prizes (acr-import writes them from the reward records). */
+        const long money = get_int(t, e, "prize_money", 0);
+        f->prize_money = (uint32_t)(money > 0 && money < 100000000L ? money : 0);
+        const long prize = get_int(t, e, "prize_part", -1);
+        f->prize_part = (uint8_t)(prize >= 0 && prize < 23 ? prize : 255);
         for (int k = 0; k < 12; ++k) {
             const long c = list_at(t, e, "colours", k, 32);
             f->colours[k / 3][k % 3] = (uint8_t)(c >= 0 && c <= 63 ? c : 32);

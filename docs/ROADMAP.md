@@ -231,13 +231,18 @@ Fixes after the first play-test (2026-11-19):
    check, desync check, fake lag for testing. Next: in-game host / join
    screen with LAN discovery, co-op against the AI.
 7. **Arena**: finish step 4 (the stages' own area boxes, the other stages,
-   stage lights, rankings, opponents and rewards).
+   stage lights, rankings, opponents and rewards). **Ranked ladder done**
+   (branch `arena-ladder`, 2026-11-24; `docs/ARENA.md`): main menu > ARENA
+   with the main arena (ranked + sub arena) and the eight Ex Arenas,
+   challenge rules, prize money and parts into the garage, the Champion /
+   Guest rule, match timer 2:00 / 5:00 / none. Still to do: the stages'
+   area boxes, Garden Plaza and Night City, stage lights.
 8. **UI**: the game's menus and garage screens to Master of Arena's design
    (and the split-screen HUD). **Main menu** (first version done,
    2026-11-19, user's layout): GARAGE (ASSEMBLY, AC TEST), SHOP, ARENA,
    MISSIONS, NETWORK, ROGUE ARENA, SYSTEM (SAVE, LOAD, SETTINGS: CONTROLS,
    VIDEO, AUDIO; EXIT GAME). NETWORK and SHOP are their own entries, not
-   inside the garage. ARENA, MISSIONS, VIDEO and AUDIO show dimmed ("NOT
+   inside the garage. MISSIONS, VIDEO and AUDIO show dimmed ("NOT
    AVAILABLE YET.") until they exist. The game saves by itself after every
    change; SAVE writes it now, LOAD goes back to the saved garage.
 9. **Android**: SDL3 already runs there; needs an OpenGL ES version of the

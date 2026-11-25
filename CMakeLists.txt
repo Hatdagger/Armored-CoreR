@@ -31,6 +31,7 @@ add_library(acr_gen1 STATIC
     src/gen1/acr_gen1_ai.c
     src/gen1/acr_gen1_stage.c
     src/gen1/acr_gen1_rogue.c
+    src/gen1/acr_gen1_arena.c
     src/gen1/acr_gen1_match.c)
 target_include_directories(acr_gen1 PUBLIC src/gen1)
 
@@ -118,6 +119,9 @@ add_test(NAME gen1_ai COMMAND test_gen1_ai)
 add_executable(test_gen1_rogue tests/test_gen1_rogue.c)
 target_link_libraries(test_gen1_rogue PRIVATE acr_gen1)
 add_test(NAME gen1_rogue COMMAND test_gen1_rogue)
+add_executable(test_gen1_arena tests/test_gen1_arena.c)
+target_link_libraries(test_gen1_arena PRIVATE acr_gen1)
+add_test(NAME gen1_arena COMMAND test_gen1_arena)
 add_executable(test_rollback tests/test_rollback.c)
 target_link_libraries(test_rollback PRIVATE acr_net)
 add_test(NAME rollback COMMAND test_rollback)
@@ -148,7 +152,7 @@ if(ACR_BUILD_GAME)
         GIT_SHALLOW TRUE)
     FetchContent_MakeAvailable(SDL3)
     add_executable(armored-corer WIN32 src/platform/sdl3/main.c src/platform/sdl3/demo_data.c src/platform/sdl3/demo_model.c
-                   src/platform/sdl3/demo_stage.c src/platform/sdl3/garage.c src/platform/sdl3/rogue.c src/platform/sdl3/controls.c
+                   src/platform/sdl3/demo_stage.c src/platform/sdl3/garage.c src/platform/sdl3/rogue.c src/platform/sdl3/arena.c src/platform/sdl3/controls.c
                    src/platform/sdl3/battle_hud.c src/platform/sdl3/net_link.c
                    src/platform/sdl3/net_menu.c src/platform/sdl3/net_brief_ui.c
                    src/platform/sdl3/fx.c src/platform/sdl3/sfx.c src/platform/sdl3/rogue_sound.c)
