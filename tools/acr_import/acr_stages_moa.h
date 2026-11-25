@@ -24,4 +24,18 @@ int acr_export_moa_stages(const char *unpacked_dir, const char *out_dir, uint32_
 /* Name of a stage number (the arena's stage list), or NULL. */
 const char *acr_moa_stage_name(unsigned stage);
 
+/* The VRAM a stage loads before its file (RTIM <stage>: 8-bit TIMs), for
+ * exporters that texture other models of the stage (mission units).
+ * tpage / clut are a TMD face's tsb (page) and cba (palette) words. */
+typedef struct acr_moa_vram acr_moa_vram;
+acr_moa_vram *acr_moa_vram_load(const char *unpacked_dir, unsigned stage);   /* NULL: none */
+void acr_moa_vram_free(acr_moa_vram *v);
+int acr_moa_vram_has_page(const acr_moa_vram *v, unsigned tpage);
+/* 1 if the palette has see-through colours (bit 15): semi faces blend. */
+int acr_moa_vram_semi(const acr_moa_vram *v, unsigned tpage, unsigned clut);
+/* The 15-bit colour (with bit 15) a face sees at texel (u, t) of its page. */
+unsigned acr_moa_vram_texel(const acr_moa_vram *v, unsigned tpage, unsigned clut, unsigned u, unsigned t);
+/* The page (256 x 256 texels) with its palette as an indexed PNG. */
+int acr_moa_vram_write_page(const char *path, const acr_moa_vram *v, unsigned tpage, unsigned clut);
+
 #endif

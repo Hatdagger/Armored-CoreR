@@ -4,6 +4,7 @@
 #include "acr_motion_moa.h"
 #include "acr_models_moa.h"
 #include "acr_stages_moa.h"
+#include "acr_units_moa.h"
 #include "acr_hud_moa.h"
 #include "acr_sfx_moa.h"
 #include "acr_arena_moa.h"
@@ -202,6 +203,9 @@ static int import_disc(const char *disc_path, const char *out_dir, acr_import_st
         if (!make_dirs(stages_dir, 1) ||
             !acr_export_moa_stages(unpacked, stages_dir, &stats->stages, err, err_size))
             return 0;
+        char units_dir[ACR_PATH_MAX];
+        snprintf(units_dir, sizeof units_dir, "%s/units", out_dir);
+        if (!acr_export_moa_units(unpacked, units_dir, stages_dir, &stats->units, err, err_size)) return 0;
         char hud_dir[ACR_PATH_MAX];
         snprintf(hud_dir, sizeof hud_dir, "%s/hud", out_dir);
         if (!make_dirs(hud_dir, 1) || !acr_export_moa_hud(unpacked, hud_dir, err, err_size)) return 0;
@@ -248,5 +252,20 @@ int acr_import_refresh(const char *out_dir) {
     uint32_t n = 0;
     if (!(f = fopen(probe, "rb")) && acr_export_moa_arena(menu, unpacked, dir, &n, err, sizeof err)) done |= 2;
     if (f) fclose(f);
+    snprintf(probe, sizeof probe, "%s/units/U00/unit.toml", out_dir);
+    char stages[ACR_PATH_MAX + 16];
+    snprintf(dir, sizeof dir, "%s/units", out_dir);
+    snprintf(stages, sizeof stages, "%s/stages", out_dir);
+    /* Units, and (from 2026-11-24) the objects' body boxes and AP. */
+    int have = (f = fopen(probe, "rb")) != NULL;
+    if (f) fclose(f);
+    if (have) {
+        snprintf(probe, sizeof probe, "%s/stages/06/objects.toml", out_dir);
+        char head[4096] = "";
+        if ((f = fopen(probe, "rb"))) { head[fread(head, 1, sizeof head - 1, f)] = 0; fclose(f); }
+        have = !head[0] || strstr(head, "box      = [") != NULL;
+    }
+    f = NULL;
+    if (!have && acr_export_moa_units(unpacked, dir, stages, &n, err, sizeof err) && n) done |= 4;
     return done;
 }

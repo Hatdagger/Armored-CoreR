@@ -92,6 +92,12 @@ int main(int argc, char **argv) {
     CHECK(sk.node[1].rot[1] == 1024 && sk.node[2].pos[1] == 20);
     acr_skeleton bad;
     CHECK(!acr_skeleton_parse("[[node]]\nid = 1\nparent = 9\n", &bad));   /* missing parent */
+    /* mission units (units/UNN/skeleton.toml): draws = "unit K" */
+    acr_skeleton unit;
+    CHECK(acr_skeleton_parse("[[node]]\nid = 0\nparent = -1\n[[node]]\nid = 2\nparent = 0\nslot = 4\n"
+                             "draws = \"unit 4\"\nposition = [0, -100, 0]\n", &unit));
+    CHECK(unit.count == 2 && unit.node[0].draw_kind == ACR_PART_NONE);
+    CHECK(unit.node[1].draw_kind == ACR_PART_UNIT && unit.node[1].draw_piece == 4 && unit.node[1].pos[1] == -100);
 
     /* ---- animations and hold times ---- */
     acr_anim_set as;

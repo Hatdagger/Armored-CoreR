@@ -140,36 +140,86 @@ int acr_gen1_battle_fighters(const acr_gen1_battle *b) {
 
 int acr_gen1_battle_team(const acr_gen1_battle *b, int i) { return b->count ? (b->f[i].team & 1) : i; }
 
+/* ---- targets: fighters 0..3, units ACR_GEN1_UNIT(u) ---- */
+
+static int is_unit(int t) { return t >= ACR_GEN1_MAX_FIGHTERS; }
+static int unit_ok(const acr_gen1_battle *b, int t) {
+    return is_unit(t) && t - ACR_GEN1_MAX_FIGHTERS < b->units && b->unit[t - ACR_GEN1_MAX_FIGHTERS].active;
+}
+static int team_of(const acr_gen1_battle *b, int t) {
+    return is_unit(t) ? b->unit[t - ACR_GEN1_MAX_FIGHTERS].team & 1 : acr_gen1_battle_team(b, t);
+}
 static int enemies(const acr_gen1_battle *b, int i, int j) {
-    return i != j && acr_gen1_battle_team(b, i) != acr_gen1_battle_team(b, j);
+    return i != j && team_of(b, i) != team_of(b, j);
+}
+
+/* A target as the sights see it: feet and the tick before (1/64 units), how
+ * far up its middle is (1/64), alive. */
+typedef struct tview { int32_t x, y, z, px, py, pz, up; int alive; uint8_t jammer; } tview;
+static int view_of(const acr_gen1_battle *b, int t, tview *v) {
+    memset(v, 0, sizeof *v);
+    if (t < 0) return 0;
+    if (is_unit(t)) {
+        if (!unit_ok(b, t)) return 0;
+        const acr_gen1_unit *u = &b->unit[t - ACR_GEN1_MAX_FIGHTERS];
+        v->x = u->x; v->y = u->y; v->z = u->z;
+        v->px = u->px; v->py = u->py; v->pz = u->pz;
+        v->up = u->height / 2 * 64;
+        v->alive = u->ap > 0 && !u->down;
+        return 1;
+    }
+    if (t >= acr_gen1_battle_fighters(b)) return 0;
+    const acr_gen1_fighter *f = &b->f[t];
+    v->x = f->ac.x; v->y = f->ac.y; v->z = f->ac.z;
+    v->px = f->ac.px; v->py = f->ac.py; v->pz = f->ac.pz;
+    v->up = CENTRE_UP;
+    v->alive = f->ap > 0;
+    v->jammer = f->jammer;
+    return 1;
+}
+
+int acr_gen1_battle_target_any(const acr_gen1_battle *b, int i) {
+    if (!b->count && !b->units) return 1 - i;
+    const int t = b->f[i].target;
+    if (t < 0) return -1;
+    if (is_unit(t)) return unit_ok(b, t) && enemies(b, i, t) ? t : -1;
+    return t < acr_gen1_battle_fighters(b) && enemies(b, i, t) ? t : -1;
 }
 
 int acr_gen1_battle_target(const acr_gen1_battle *b, int i) {
-    if (!b->count) return 1 - i;
-    const int t = b->f[i].target;
-    return t >= 0 && t < acr_gen1_battle_fighters(b) && enemies(b, i, t) ? t : -1;
+    const int t = acr_gen1_battle_target_any(b, i);
+    return is_unit(t) ? -1 : t;
 }
 
-/* An AC's middle seen from fighter i's weapon (VS sight sweep 0x80078230):
+int acr_gen1_battle_target_at(const acr_gen1_battle *b, int t, int32_t mid[3], int32_t *height) {
+    tview v;
+    if (!view_of(b, t, &v)) return 0;
+    mid[0] = v.x / 64; mid[1] = (v.y - v.up) / 64; mid[2] = v.z / 64;
+    if (height) *height = v.up * 2 / 64;
+    return 1;
+}
+
+/* A target's middle seen from fighter i's weapon (VS sight sweep 0x80078230):
  * distance, and its angles off the facing (+ right) and the view tilt (+ up). */
 static uint32_t sight_angles_to(const acr_gen1_battle *b, int i, int t, int32_t *dyaw, int32_t *dpitch) {
-    const acr_gen1_ac *me = &b->f[i].ac, *it = &b->f[t].ac;
+    tview it;
+    view_of(b, t, &it);
     int32_t m[3];
     muzzle_at(b, i, m);
-    const int64_t dx = (it->x - m[0]) / 64, dy = (it->y - CENTRE_UP - m[1]) / 64, dz = (it->z - m[2]) / 64;
+    const int64_t dx = (it.x - m[0]) / 64, dy = (it.y - it.up - m[1]) / 64, dz = (it.z - m[2]) / 64;
     uint16_t yaw;
     int16_t pitch;
     dir_of(dx, dy, dz, &yaw, &pitch);
-    (void)me;
     *dyaw = wrap((int32_t)yaw - view_yaw(&b->f[i]));
     *dpitch = wrap((int32_t)pitch - view_pitch(&b->f[i]));
     return isqrt64((uint64_t)(dx * dx + dy * dy + dz * dz));
 }
 
-/* Is AC t inside fighter i's lock box (angles either side, 4096 a turn) and
+/* Is target t inside fighter i's lock box (angles either side, 4096 a turn) and
  * the range? Modern controls: no FCS without hard lock, and a smaller box. */
 static int in_box_of(const acr_gen1_battle *b, int i, int t, int32_t range, uint16_t box_w, uint16_t box_h) {
-    if (t < 0 || b->f[t].ap <= 0 || !box_w) return 0;
+    tview tv;
+    if (!view_of(b, t, &tv) || !tv.alive || !box_w) return 0;
     if (b->f[i].modern && !b->f[i].hard_lock) return 0;
     const unsigned pct = b->f[i].modern ? MT(b, box_pct, BOX_PCT) : 100u;
     int32_t ay, ap;
@@ -183,7 +233,7 @@ static int in_box_of(const acr_gen1_battle *b, int i, int t, int32_t range, uint
 }
 
 static int in_box(const acr_gen1_battle *b, int i, int32_t range, uint16_t box_w, uint16_t box_h) {
-    return in_box_of(b, i, acr_gen1_battle_target(b, i), range, box_w, box_h);
+    return in_box_of(b, i, acr_gen1_battle_target_any(b, i), range, box_w, box_h);
 }
 
 static int32_t sight_range(const acr_gen1_weapon *w) { return w->lock_range ? w->lock_range : w->range; }
@@ -196,27 +246,34 @@ static void drop_locks(acr_gen1_fighter *f) {
     f->cursor_yaw = f->cursor_pitch = 0;
 }
 
-static int64_t dist2(const acr_gen1_ac *a, const acr_gen1_ac *o) {
-    const int64_t dx = (o->x - a->x) / 64, dy = (o->y - a->y) / 64, dz = (o->z - a->z) / 64;
+static int64_t dist2(const acr_gen1_battle *b, const acr_gen1_ac *a, int t) {
+    tview o;
+    view_of(b, t, &o);
+    const int64_t dx = (o.x - a->x) / 64, dy = (o.y - a->y) / 64, dz = (o.z - a->z) / 64;
     return dx * dx + dy * dy + dz * dz;
 }
 
 /* See "Teams and targets" in the header. */
 void acr_gen1_battle_retarget_acts(acr_gen1_battle *b, const acr_gen1_actions act[]) {
-    if (!b->count) return;
+    if (!b->count && !b->units) return;
     const int n = acr_gen1_battle_fighters(b);
+    /* Everything that can be aimed at: the fighters, then the units. */
+    int all[ACR_GEN1_MAX_FIGHTERS + ACR_GEN1_MAX_UNITS], na = 0;
+    for (int j = 0; j < n; ++j) all[na++] = j;
+    for (int u = 0; u < b->units; ++u) if (b->unit[u].active) all[na++] = ACR_GEN1_UNIT(u);
     for (int i = 0; i < n; ++i) {
         acr_gen1_fighter *f = &b->f[i];
-        const int old = b->targeted ? acr_gen1_battle_target(b, i) : -1;   /* first pick: nothing held */
+        const int old = b->targeted ? acr_gen1_battle_target_any(b, i) : -1;   /* first pick: nothing held */
         if (f->volley_ticks && old >= 0) continue;          /* a volley keeps its target */
         const acr_gen1_weapon *w = f->weapons && f->current < f->weapons ? &f->weapon[f->current] : NULL;
         const int boxed = w && w->kind != ACR_GEN1_BLADE && w->box_w;
         /* Enemies inside the lock box, near to far (equal: lower number first). */
-        int in[ACR_GEN1_MAX_FIGHTERS], k = 0;
-        int64_t d[ACR_GEN1_MAX_FIGHTERS];
-        for (int j = 0; boxed && j < n; ++j) {
+        int in[ACR_GEN1_MAX_FIGHTERS + ACR_GEN1_MAX_UNITS], k = 0;
+        int64_t d[ACR_GEN1_MAX_FIGHTERS + ACR_GEN1_MAX_UNITS];
+        for (int c = 0; boxed && c < na; ++c) {
+            const int j = all[c];
             if (!enemies(b, i, j) || !in_box_of(b, i, j, sight_range(w), w->box_w, w->box_h)) continue;
-            const int64_t dj = dist2(&f->ac, &b->f[j].ac);
+            const int64_t dj = dist2(b, &f->ac, j);
             int at = k++;
             while (at > 0 && d[at - 1] > dj) { in[at] = in[at - 1]; d[at] = d[at - 1]; --at; }
             in[at] = j;
@@ -231,19 +288,22 @@ void acr_gen1_battle_retarget_acts(acr_gen1_battle *b, const acr_gen1_actions ac
         const int sw = act && (act[i].switch_target || (act[i].next_weapon && cycled <= 1));
         int pick = -1;
         if (held >= 0) pick = sw ? in[(held + 1) % k] : old;
-        else if (f->modern && f->hard_lock && old >= 0 && b->f[old].ap > 0) pick = sw && k ? in[0] : old;   /* hard lock holds on */
+        else if (f->modern && f->hard_lock && old >= 0 && !is_unit(old) && b->f[old].ap > 0) pick = sw && k ? in[0] : old;   /* hard lock holds on */
         else if (k) pick = in[0];
         if (pick < 0) {
             int64_t best = -1;
-            for (int j = 0; j < n; ++j) {
-                if (!enemies(b, i, j) || b->f[j].ap <= 0) continue;
-                const int64_t dj = dist2(&f->ac, &b->f[j].ac);
+            for (int c = 0; c < na; ++c) {
+                const int j = all[c];
+                tview tj;
+                if (!enemies(b, i, j) || !view_of(b, j, &tj) || !tj.alive) continue;
+                const int64_t dj = dist2(b, &f->ac, j);
                 if (best < 0 || dj < best) { best = dj; pick = j; }
             }
         }
         if (pick < 0 && old >= 0) pick = old;                 /* every enemy down: keep looking at one */
         if (pick < 0)
             for (int j = 0; j < n && pick < 0; ++j) if (enemies(b, i, j)) pick = j;
+        if (pick < 0 && !b->count) pick = 1 - i;             /* the old two-AC test: the other AC */
         if (pick != old) drop_locks(f);
         f->target = (int8_t)pick;
     }
@@ -264,13 +324,14 @@ int acr_gen1_aim(const acr_gen1_battle *b, int i, int16_t aim[3]) {
     if (w->kind == ACR_GEN1_BLADE || w->aim_table == 255) return -1;
     const acr_gen1_ac *me = &f->ac;
     aim[0] = (int16_t)-me->pitch;
-    const int t = acr_gen1_battle_target(b, i);
+    const int t = acr_gen1_battle_target_any(b, i);
     if (t >= 0 && !w->straight && acr_gen1_in_lock_box(b, i, w)) {
-        const acr_gen1_ac *it = &b->f[t].ac;
+        tview it;
+        view_of(b, t, &it);
         uint16_t yaw;
         int16_t pitch;
         if (w->kind == ACR_GEN1_GUN && f->locked) { yaw = f->lead_yaw; pitch = f->lead_pitch; }   /* where the shots go */
-        else dir_of((it->x - me->x) / 64, (it->y - me->y) / 64, (it->z - me->z) / 64, &yaw, &pitch);
+        else dir_of((it.x - me->x) / 64, (it.y - me->y) / 64, (it.z - me->z) / 64, &yaw, &pitch);
         aim[0] = (int16_t)-pitch;
         aim[w->aim_y ? 1 : 2] = (int16_t)wrap((int32_t)yaw - me->yaw);
     }
@@ -302,12 +363,35 @@ static void spawn_shot(acr_gen1_battle *b, int i, int wi, int32_t side, int32_t 
     s->vz = (int32_t)((int64_t)dirz * sp / 4096);
 }
 
+/* 0x8007AEA4: a unit's loss from a hit. Energy: attack x (8 - n) / 8 + 1
+ * (n the signed nibble of record +16 bits 8-11); solid: the attack. */
+int32_t acr_gen1_unit_damage(uint16_t attack, int energy, int8_t n) {
+    if (!energy || !attack) return attack;
+    return (int32_t)attack * (8 - n) / 8 + 1;
+}
+
+static void unit_hit_turn(acr_gen1_unit *u);
+
+static void damage_by(acr_gen1_battle *b, int target, int attacker, uint16_t attack, int energy) {
+    if (is_unit(target)) {
+        acr_gen1_unit *u = &b->unit[target - ACR_GEN1_MAX_FIGHTERS];
+        if (u->ap <= 0 || u->down) return;
+        u->ap -= acr_gen1_unit_damage(attack, energy, u->energy_n);
+        u->hit_flash = 8;
+        if (u->ap <= 0) { u->ap = 0; u->down = 1; }
+        else unit_hit_turn(u);                          /* event 5: the MT turns its step around */
+    } else {
+        acr_gen1_fighter *t = &b->f[target];
+        if (t->ap <= 0) return;
+        t->ap -= acr_gen1_hit_ap(attack, energy ? t->energy_factor : t->shell_factor);
+        if (t->ap < 0) t->ap = 0;
+    }
+    if (!is_unit(attacker) && enemies(b, attacker, target))
+        b->f[attacker].hit_flash = 40;                  /* attacker's "HIT" blink, counts down a tick */
+}
+
 static void damage(acr_gen1_battle *b, int target, int attacker, const acr_gen1_weapon *w) {
-    acr_gen1_fighter *t = &b->f[target];
-    if (t->ap <= 0) return;
-    t->ap -= acr_gen1_hit_ap(w->attack, w->energy ? t->energy_factor : t->shell_factor);
-    if (t->ap < 0) t->ap = 0;
-    if (enemies(b, attacker, target)) b->f[attacker].hit_flash = 40;   /* attacker's "HIT" blink, counts down a tick */
+    damage_by(b, target, attacker, w->attack, w->energy);
 }
 
 /* Blade lunge distance per Gen 1 tick from ACR_GEN1_BLADE_LUNGE_MS (measured: 516 in all). */
@@ -350,8 +434,35 @@ static void lunge_move(acr_gen1_battle *b, int i, int from, int to) {
             f->lunge_done = 1;
         }
     }
+    for (int u = 0; u < b->units; ++u) {                            /* and any unit standing there */
+        const acr_gen1_unit *un = &b->unit[u];
+        if (!un->active || un->down) continue;
+        int64_t ahead, side;
+        offset(me->yaw, (un->x - me->x) / 64, (un->z - me->z) / 64, &ahead, &side);
+        const int64_t reach = (int64_t)un->half + ACR_GEN1_HIT_RADIUS, gap = ahead - reach;
+        if ((side < 0 ? -side : side) < reach && ahead > 0 && d / 64 >= gap) {
+            d = gap > 0 ? gap * 64 : 0;
+            f->lunge_done = 1;
+        }
+    }
     acr_gen1_ac_shift(me, (int32_t)(f->lunge_x * d / 4096), (int32_t)(f->lunge_z * d / 4096));
     me->vx = me->vz = 0;
+}
+
+/* How far the blade must reach to touch target t from `me` (flat): its
+ * middle for an AC, its near side for a unit (an AC-sized unit, half 75,
+ * reads as an AC). Fills ahead / side; 0 when t is gone. */
+static int blade_gap(const acr_gen1_battle *b, const acr_gen1_ac *me, int t, int64_t *ahead, int64_t *side, int64_t *dist) {
+    tview v;
+    if (!view_of(b, t, &v) || !v.alive) return 0;
+    const int64_t dx = (v.x - me->x) / 64, dz = (v.z - me->z) / 64;
+    offset(me->yaw, dx, dz, ahead, side);
+    *dist = (int64_t)isqrt64((uint64_t)(dx * dx + dz * dz));
+    if (is_unit(t)) {
+        const int64_t extra = (int64_t)b->unit[t - ACR_GEN1_MAX_FIGHTERS].half - ACR_GEN1_HIT_RADIUS;
+        if (extra > 0) *dist = *dist > extra ? *dist - extra : 0;
+    }
+    return 1;
 }
 
 /* Blade: a press starts a swing (see acr_gen1_battle.h). */
@@ -374,14 +485,12 @@ static void blade_step(acr_gen1_battle *b, int i, int blade, int pressed) {
         /* 0x80078230: an AC up to 3,000 ahead within +-45 degrees (enemies
          * only; the nearest). */
         f->swing_target = -1;
-        uint32_t best = 0xFFFFFFFFu;
-        for (int j = 0; j < n; ++j) {
-            if (!enemies(b, i, j) || b->f[j].ap <= 0) continue;
-            const acr_gen1_ac *it = &b->f[j].ac;
-            int64_t ahead, side;
-            const int64_t dx = (it->x - me->x) / 64, dz = (it->z - me->z) / 64;
-            offset(me->yaw, dx, dz, &ahead, &side);
-            const uint32_t dist = isqrt64((uint64_t)(dx * dx + dz * dz));
+        int64_t best = INT64_MAX;
+        for (int j = 0; j < ACR_GEN1_UNIT(b->units); ++j) {      /* ACs, then the units */
+            if (j >= n && j < ACR_GEN1_MAX_FIGHTERS) continue;
+            if (!enemies(b, i, j)) continue;
+            int64_t ahead, side, dist;
+            if (!blade_gap(b, me, j, &ahead, &side, &dist)) continue;
             if (ahead > 0 && dist <= ACR_GEN1_BLADE_SEEK && (side < 0 ? -side : side) <= ahead && dist < best) {
                 best = dist;
                 f->swing_target = (int8_t)j;
@@ -391,9 +500,10 @@ static void blade_step(acr_gen1_battle *b, int i, int blade, int pressed) {
     if (!f->swing) return;
     const int t0 = f->swing - 1, t1 = t0 + step_ms;                 /* this step's ms window */
     /* Turn toward the target at the AC's top turn rate until the lunge. */
-    if (f->swing_target >= 0 && f->swing_target < n && t1 <= tick_ms(ACR_GEN1_BLADE_STEER_TICKS)) {
-        const acr_gen1_ac *it = &b->f[f->swing_target].ac;
-        const int64_t dx = (it->x - me->x) / 64, dz = (it->z - me->z) / 64;
+    tview sv;
+    if (f->swing_target >= 0 && view_of(b, f->swing_target, &sv) && sv.alive &&
+        t1 <= tick_ms(ACR_GEN1_BLADE_STEER_TICKS)) {
+        const int64_t dx = (sv.x - me->x) / 64, dz = (sv.z - me->z) / 64;
         int32_t rate = (int32_t)((int64_t)f->def->motion.turn_max * rate_n(b) / rate_d(b));
         if (f->modern) rate = (int32_t)(rate * (int32_t)MT(b, steer_pct, STEER_PCT) / 100);
         if (rate < 1) rate = 1;
@@ -427,6 +537,15 @@ static void blade_step(acr_gen1_battle *b, int i, int blade, int pressed) {
             if (!kx && !kz) fwd_vec(me->yaw, &kx, &kz);
             acr_gen1_ac_shift(it, kx * ACR_GEN1_BLADE_KNOCK * 64 / 4096, kz * ACR_GEN1_BLADE_KNOCK * 64 / 4096);
         }
+        for (int u = 0; u < b->units; ++u) {         /* units in the arc: hit, not knocked back */
+            const int t = ACR_GEN1_UNIT(u);
+            int64_t ahead, side, dist;
+            if (!blade_gap(b, me, t, &ahead, &side, &dist)) continue;
+            if (ahead <= 0 || (side < 0 ? -side : side) > ahead + b->unit[u].half || dist > r) continue;
+            damage(b, t, i, w);
+            ++f->swing_hits;
+            f->lunge_done = 1;
+        }
     }
     f->swing = (uint16_t)(t1 + 1);
     if (t1 >= ACR_GEN1_BLADE_SWING_MS) {
@@ -442,11 +561,12 @@ static void blade_step(acr_gen1_battle *b, int i, int blade, int pressed) {
 static void launch_missile(acr_gen1_battle *b, int i, int wi, int32_t side) {
     acr_gen1_fighter *f = &b->f[i];
     const acr_gen1_weapon *w = &f->weapon[wi];
-    const int t = acr_gen1_battle_target(b, i);
-    if (t < 0) return;
+    const int t = acr_gen1_battle_target_any(b, i);
+    tview it;
+    if (!view_of(b, t, &it)) return;
     acr_gen1_shot *s = free_shot(b);
     if (!s) return;
-    const acr_gen1_ac *me = &f->ac, *it = &b->f[t].ac;
+    const acr_gen1_ac *me = &f->ac;
     s->target = (int8_t)t;
     f->last_missile = (int16_t)(s - b->shot);
     s->active = 1;
@@ -459,7 +579,7 @@ static void launch_missile(acr_gen1_battle *b, int i, int wi, int32_t side) {
     s->y = me->y - MUZZLE_UP;
     s->z = me->z - side * fx / 4096 * 64;
     /* Start: toward the target plus a random spread, at 100 plus the launcher's own motion. */
-    dir_of((it->x - s->x) / 64, (it->y - CENTRE_UP - s->y) / 64, (it->z - s->z) / 64, &s->yaw, &s->pitch);
+    dir_of((it.x - s->x) / 64, (it.y - it.up - s->y) / 64, (it.z - s->z) / 64, &s->yaw, &s->pitch);
     if (w->spread_yaw) s->yaw = (uint16_t)((s->yaw + rnd(b) % (w->spread_yaw + 1) - w->spread_yaw / 2) & 4095);
     if (w->spread_pitch) s->pitch = (int16_t)wrap(s->pitch + rnd(b) % (w->spread_pitch + 1) - w->spread_pitch / 2);
     int32_t ux, uy, uz;
@@ -476,14 +596,13 @@ static void launch_missile(acr_gen1_battle *b, int i, int wi, int32_t side) {
 static void missile_tick(acr_gen1_battle *b, int k) {
     acr_gen1_shot *s = &b->shot[k];
     const acr_gen1_flight *fl = &s->flight;
-    const int target = s->target >= 0 && s->target < acr_gen1_battle_fighters(b) ? s->target : s->owner;
-    const acr_gen1_ac *t = &b->f[target].ac;
-    const int alive = target != s->owner && b->f[target].ap > 0;
+    tview t;
+    const int alive = s->target != s->owner && view_of(b, s->target, &t) && t.alive;
     ++s->age;
     if (s->age >= fl->life) { s->active = 0; return; }
     uint16_t tyaw = s->yaw;
     int16_t tpitch = s->pitch;
-    if (alive) dir_of((t->x - s->x) / 64, (t->y - CENTRE_UP - s->y) / 64, (t->z - s->z) / 64, &tyaw, &tpitch);
+    if (alive) dir_of((t.x - s->x) / 64, (t.y - t.up - s->y) / 64, (t.z - s->z) / 64, &tyaw, &tpitch);
     if (s->age < s->ignition) {                              /* coasting, unlit */
         s->vy += ACR_GEN1_GRAVITY;
         if (fl->kind == 4 && alive) {
@@ -546,8 +665,9 @@ static void missile_tick(acr_gen1_battle *b, int k) {
  * target stays in the outer one. */
 static void missile_lock_tick(acr_gen1_battle *b, int i, const acr_gen1_weapon *w, uint16_t ammo) {
     acr_gen1_fighter *f = &b->f[i];
-    const int ti = acr_gen1_battle_target(b, i);
-    const acr_gen1_fighter *t = &b->f[ti < 0 ? i : ti];
+    tview tv;
+    view_of(b, acr_gen1_battle_target_any(b, i), &tv);
+    const tview *t = &tv;
     const int outer = in_box(b, i, sight_range(w), w->box_w, w->box_h);
     const int inner = in_box(b, i, sight_range(w), w->inner_w ? w->inner_w : w->box_w, w->inner_h ? w->inner_h : w->box_h);
     if (!outer || (!f->locks && !inner) || (t->jammer && f->locks && rnd(b) < 1639)) {
@@ -562,7 +682,7 @@ static void missile_lock_tick(acr_gen1_battle *b, int i, const acr_gen1_weapon *
     if (f->locks >= cap) return;
     uint16_t tyaw;
     int16_t tpitch;
-    dir_of((t->ac.x - f->ac.x) / 64, (t->ac.y - f->ac.y) / 64, (t->ac.z - f->ac.z) / 64, &tyaw, &tpitch);
+    dir_of((t->x - f->ac.x) / 64, (t->y - f->ac.y) / 64, (t->z - f->ac.z) / 64, &tyaw, &tpitch);
     const int32_t ry = wrap(tyaw - view_yaw(f)), rp = wrap(tpitch - view_pitch(f));
     const int32_t sp = w->lock_value * 3 / 16 > 0 ? w->lock_value * 3 / 16 : 1;
     f->cursor_yaw = (int16_t)turn_toward(f->cursor_yaw, ry, sp);
@@ -642,14 +762,16 @@ static void intercept_tick(acr_gen1_battle *b, int i) {
 /* The chase camera's swing, one tick (VS 0x8008774C; see the header). */
 static void camera_tick(acr_gen1_battle *b, int i) {
     acr_gen1_fighter *f = &b->f[i];
-    const int ti = acr_gen1_battle_target(b, i);
-    const acr_gen1_fighter *t = &b->f[ti < 0 ? i : ti];
+    const int ti = acr_gen1_battle_target_any(b, i);
+    tview tv;
+    view_of(b, ti, &tv);
+    const tview *it = &tv;
     f->cam_pitch_prev = f->cam_pitch;
     f->cam_yaw_prev = f->cam_yaw;
     int32_t to_pitch = 0, to_yaw = 0, step = 20;
-    if (ti >= 0 && t->ap > 0 && f->ap > 0 && f->weapons && f->current < f->weapons) {
+    if (ti >= 0 && tv.alive && f->ap > 0 && f->weapons && f->current < f->weapons) {
         const acr_gen1_weapon *w = &f->weapon[f->current];
-        const acr_gen1_ac *me = &f->ac, *it = &t->ac;
+        const acr_gen1_ac *me = &f->ac;
         const int16_t lm = f->last_missile;
         const int missile_out = lm >= 0 && lm < ACR_GEN1_MAX_SHOTS && b->shot[lm].active &&
                                 b->shot[lm].missile && b->shot[lm].owner == i;
@@ -673,15 +795,15 @@ static void camera_tick(acr_gen1_battle *b, int i) {
         /* The free camera: its own heading; with hard lock also the target's height. */
         to_yaw = wrap((int32_t)f->look_yaw - f->ac.yaw);
         to_pitch = 0;
-        if (f->hard_lock && t->ap > 0) {
+        if (f->hard_lock && tv.alive) {
             uint16_t yaw;
             int16_t pitch;
-            dir_of((t->ac.x - f->ac.x) / 64, (t->ac.y - f->ac.y) / 64, (t->ac.z - f->ac.z) / 64, &yaw, &pitch);
+            dir_of((tv.x - f->ac.x) / 64, (tv.y - f->ac.y) / 64, (tv.z - f->ac.z) / 64, &yaw, &pitch);
             to_pitch = wrap((int32_t)pitch - f->ac.pitch);
         }
         f->cam_yaw = (int16_t)to_yaw;
         /* Hard lock pins the target to the middle of the screen. */
-        f->cam_pitch = (int16_t)(f->hard_lock && t->ap > 0 ? to_pitch : turn_toward(f->cam_pitch, to_pitch, 64));
+        f->cam_pitch = (int16_t)(f->hard_lock && tv.alive ? to_pitch : turn_toward(f->cam_pitch, to_pitch, 64));
         return;
     }
     f->cam_pitch = (int16_t)turn_toward(f->cam_pitch, to_pitch, step);
@@ -735,11 +857,13 @@ static void gun_lock_tick(acr_gen1_battle *b, int i, const acr_gen1_weapon *w) {
         f->lock_wait = f->lock_lead = 0;
         return;
     }
-    const acr_gen1_ac *t = &b->f[acr_gen1_battle_target(b, i)].ac;   /* in the box: a target */
+    tview tv;                                               /* in the box: a target */
+    view_of(b, acr_gen1_battle_target_any(b, i), &tv);
+    const tview *t = &tv;
     int32_t m[3];
     muzzle_at(b, i, m);
     /* The target's middle and its movement over the last tick. */
-    const int64_t px = t->x / 64, py = (t->y - CENTRE_UP) / 64, pz = t->z / 64;
+    const int64_t px = t->x / 64, py = (t->y - t->up) / 64, pz = t->z / 64;
     const int64_t vx = (t->x - t->px) / 64, vy = (t->y - t->py) / 64, vz = (t->z - t->pz) / 64;
     const int64_t mx = m[0] / 64, my = m[1] / 64, mz = m[2] / 64;
     const uint32_t speed = isqrt64((uint64_t)(vx * vx + vy * vy + vz * vz));
@@ -870,12 +994,34 @@ static int segment_hits_ac(int64_t x0, int64_t y0, int64_t z0, int64_t x1, int64
     return py <= fy && py >= fy - ACR_GEN1_HIT_HEIGHT;
 }
 
+/* The same for a unit's box: `half` either side of (fx, fz) on the world
+ * axes (as the game's object boxes), `height` up from the feet. The test is
+ * at the segment's closest approach to the box's middle line. */
+static int segment_hits_box(int64_t x0, int64_t y0, int64_t z0, int64_t x1, int64_t y1, int64_t z1,
+                            int64_t fx, int64_t fy, int64_t fz, int64_t half, int64_t height) {
+    const int64_t dx = x1 - x0, dz = z1 - z0, dy = y1 - y0;
+    const int64_t len2 = dx * dx + dz * dz;
+    int64_t t = 1024;
+    if (len2 > 0) {
+        t = ((fx - x0) * dx + (fz - z0) * dz) * 1024 / len2;
+        if (t < 0) t = 0;
+        if (t > 1024) t = 1024;
+    }
+    const int64_t px = x0 + dx * t / 1024 - fx, pz = z0 + dz * t / 1024 - fz, py = y0 + dy * t / 1024;
+    if (px < -half || px > half || pz < -half || pz > half) return 0;
+    return py <= fy && py >= fy - height;
+}
+
+static void units_step(acr_gen1_battle *b, int ticks);
+static void bodies_step(acr_gen1_battle *b);
+
 static void shots_step(acr_gen1_battle *b, int ticks) {
     for (int k = 0; k < ACR_GEN1_MAX_SHOTS; ++k) {
         acr_gen1_shot *s = &b->shot[k];
         if (!s->active) continue;
-        const acr_gen1_fighter *owner = &b->f[s->owner];
-        const acr_gen1_weapon *w = &owner->weapon[s->weapon];
+        const int from_unit = is_unit(s->owner);
+        const acr_gen1_fighter *owner = &b->f[from_unit ? 0 : s->owner];
+        const acr_gen1_weapon *w = from_unit ? NULL : &owner->weapon[s->weapon];
         const int32_t x0 = s->x, y0 = s->y, z0 = s->z;
         if (s->missile) {
             for (int t = 0; t < ticks && s->active; ++t) missile_tick(b, k);
@@ -887,8 +1033,8 @@ static void shots_step(acr_gen1_battle *b, int ticks) {
             s->x += s->vx;
             s->y += s->vy;
             s->z += s->vz;
-            int32_t sp = per_step(b, w->speed);
-            if (owner->modern && w->straight) sp = (int32_t)((int64_t)sp * MT(b, rocket_speed_pct, ROCKET_SPEED_PCT) / 100);
+            int32_t sp = per_step(b, w ? w->speed : ACR_GEN1_UNIT_SHOT);
+            if (w && owner->modern && w->straight) sp = (int32_t)((int64_t)sp * MT(b, rocket_speed_pct, ROCKET_SPEED_PCT) / 100);
             s->travelled += sp / 64;                    /* same range at the slower speed */
         }
         /* Any AC but the shooter (friendly fire); the nearest along the way. */
@@ -904,6 +1050,18 @@ static void shots_step(acr_gen1_battle *b, int ticks) {
             const int64_t tt = slen2 ? ((int64_t)(t->x / 64 - x0 / 64) * sdx + (int64_t)(t->z / 64 - z0 / 64) * sdz) * 1024 / slen2 : 0;
             if (target < 0 || tt < target_t) { target = j; target_t = tt; }
         }
+        /* Units: their box (a unit's shots pass its own team's units, as the
+         * game's shots only test the other side's objects). */
+        for (int u = 0; u < b->units; ++u) {
+            const acr_gen1_unit *un = &b->unit[u];
+            if (!un->active || un->down || ACR_GEN1_UNIT(u) == s->owner) continue;
+            if (from_unit && (b->unit[s->owner - ACR_GEN1_MAX_FIGHTERS].team & 1) == (un->team & 1)) continue;
+            if (!segment_hits_box(x0 / 64, y0 / 64, z0 / 64, s->x / 64, s->y / 64, s->z / 64,
+                                  un->x / 64, un->y / 64, un->z / 64, un->half, un->height))
+                continue;
+            const int64_t tt = slen2 ? ((int64_t)(un->x / 64 - x0 / 64) * sdx + (int64_t)(un->z / 64 - z0 / 64) * sdz) * 1024 / slen2 : 0;
+            if (target < 0 || tt < target_t) { target = ACR_GEN1_UNIT(u); target_t = tt; }
+        }
         const int hits_ac = target >= 0;
         /* The arena stops shots (VS 0x80074FA4 tests the stage before the
          * ACs); here the nearer of the two along the way wins. */
@@ -913,16 +1071,18 @@ static void shots_step(acr_gen1_battle *b, int ticks) {
             const int32_t a[3] = { x0 / 64, y0 / 64, z0 / 64 }, e[3] = { s->x / 64, s->y / 64, s->z / 64 };
             hits_wall = acr_gen1_stage_segment(b->stage, a, e, &wall_t);
         }
+        const uint16_t attack = w ? w->attack : s->attack;
+        const int energy = w ? w->energy : 0;
         if (hits_ac && hits_wall) {
             /* How far along the way the AC's middle is, against the wall. */
-            if (target_t <= wall_t) damage(b, target, s->owner, w);
+            if (target_t <= wall_t) damage_by(b, target, s->owner, attack, energy);
             s->active = 0;
         } else if (hits_ac) {
-            damage(b, target, s->owner, w);
+            damage_by(b, target, s->owner, attack, energy);
             s->active = 0;
         } else if (hits_wall) {
             s->active = 0;                              /* into the arena */
-        } else if ((!s->missile && s->travelled > w->range) || (!b->stage && s->y > 0)) {
+        } else if ((!s->missile && s->travelled > (w ? w->range : ACR_GEN1_UNIT_RANGE)) || (!b->stage && s->y > 0)) {
             s->active = 0;                              /* out of range or into the floor */
         }
     }
@@ -1078,6 +1238,8 @@ void acr_gen1_battle_step(acr_gen1_battle *b, const acr_gen1_input in[], const a
     }
     acr_gen1_battle_retarget_acts(b, act);
     for (int i = 0; i < n; ++i) fighter_step(b, i, act[i], ticks);
+    units_step(b, ticks);
+    bodies_step(b);
     shots_step(b, ticks);
 }
 
@@ -1100,8 +1262,372 @@ int acr_gen1_battle_result(const acr_gen1_battle *b, int time_up) {
         ++members[t];
         if (b->f[i].ap > 0 && acr_gen1_battle_out_of_area(b, i) != 2) { ++standing[t]; ap[t] += b->f[i].ap; }
     }
+    /* Missions: a unit in the fight keeps its side standing, so the
+     * mission is won when every enemy target is down (ACs and units), and
+     * a side of units alone still counts (no AC on it). Dormant units
+     * (not active) wait for the script and don't count; a map with a script
+ * (acr_gen1_mission.h) is won by its objective instead. Time-up AP stays
+     * the ACs' (units keep theirs in other units). */
+    for (int u = 0; u < b->units; ++u) {
+        const acr_gen1_unit *un = &b->unit[u];
+        if (!un->active) continue;
+        const int t = un->team & 1;
+        if (!t) continue;               /* units on the player's side (map 12's) fight beside it, don't keep it up */
+        if (!members[t]) ++members[t];
+        if (un->ap > 0 && !un->down) ++standing[t];
+    }
     const int down0 = members[0] && !standing[0], down1 = members[1] && !standing[1];
+    /* A map with a script: its objective wins it (map 6: the big MT, the
+     * tank AC is a bonus), whatever else stands; the player's side down
+     * still loses, and so does the script's "failed" (map 12: the friendly
+     * units all lost). */
+    if (b->mission.map) {
+        if (down0) return 2;
+        return b->mission.result == ACR_GEN1_MISSION_DONE ? 1 : b->mission.result == ACR_GEN1_MISSION_FAILED ? 2 : 0;
+    }
     if (down0 || down1) return down0 && down1 ? 3 : down0 ? 2 : 1;
     if (!time_up) return 0;
     return ap[0] > ap[1] ? 1 : ap[1] > ap[0] ? 2 : 3;
+}
+
+/* ---- Units ----
+ * Read from mission 6's MT (handler 0x800A3E48; docs/research/gen1-stages.md,
+ * "Mission unit behaviour"); the same decision code sits in its big MT's
+ * handler, so it is taken as the missions' common MT. Each tick:
+ * - Target (0x8007931C): the nearest enemy, measured as 2 x the flat
+ *   distance (it halves x and z before the square root and returns x 4).
+ * - Decision (event routine 0x800A3A9C), when a step ends: measure > 2,500
+ *   -> AHEAD; < 1,000 -> BACK; else a random number below 80 picks AHEAD
+ *   (6 in 80), the six diagonals and side steps (2 each), TURN_L / TURN_R
+ *   (4 each) or nothing (44): it keeps what it does.
+ * - A hit (event 5) turns the step around: 1-6, 2-8, 3-7, 4-5.
+ * - Turning (states 9 / 10, 0x800A30F4): the turn speed grows by 8 a tick
+ *   up to 24 and is added to the facing.
+ * - Gun (0x800A38B4 / 0x800A3714): it aims while the target is within
+ *   7,000, +-1,024 of the facing and +-256 up or down; the gun turns 16 a
+ *   tick (0x800136E0) and is on aim once a tick's turn reaches it. On aim
+ *   with no burst running, 2,622 in 32,768 a tick a burst starts (328 of
+ *   those skip the line-of-sight test 0x8007DEA4); a burst is 6 ticks, a
+ *   shot on each odd one (3 shots), the muzzles taking turns.
+ * - Walking (0x800A3430 -> 0x800A32AC): each step state plays a start
+ *   animation, then loops its walk; from another state's walk it goes
+ *   straight into the new walk; after one of two linking animations it
+ *   waits for that to end. The root track moves it (0x80055138, one frame
+ *   a tick, the AC's stepper; the direction fixed at each key span):
+ *     state   1   2   3   4   5   6   7   8
+ *     walk    2   4   6   9  11  13  15  17
+ *     start   1   3   5   8  10  12  14  16
+ *   Map 6's MT: walk 2 is 646 / 4 forward in 24 frames; the big MT's 2,075.
+ * Stand-ins: a decision every UNIT_STEP_TICKS (who sends events 0-4 is not
+ * read); 0x800A3194 (may it start the step?) taken as yes; it faces its
+ * target at UNIT_FACE a tick while walking; a unit without a motion set
+ * walks UNIT_WALK a tick (UNIT_SIDE sideways or back); a step that would
+ * leave the floor or meet a wall is turned around as a hit is. */
+#define UNIT_STEP_TICKS 24
+#define UNIT_WALK       16
+#define UNIT_SIDE       11
+#define UNIT_FACE       24
+#define UNIT_GUN_TURN   16
+
+static const uint8_t k_unit_swap[11] = { 0, 6, 8, 7, 5, 4, 1, 3, 2, 9, 10 };
+
+static const uint8_t k_unit_walk[9]  = { 0, 2, 4, 6, 9, 11, 13, 15, 17 };
+static const uint8_t k_unit_start[9] = { 0, 1, 3, 5, 8, 10, 12, 14, 16 };
+static const uint8_t k_unit_link[9][2] = { { 0, 0 }, { 3, 5 }, { 1, 5 }, { 1, 3 }, { 255, 255 },
+                                           { 255, 255 }, { 14, 16 }, { 12, 16 }, { 12, 14 } };
+
+static void unit_hit_turn(acr_gen1_unit *u) {
+    if (u->brain == ACR_GEN1_BRAIN_MT && u->state < 11) u->state = k_unit_swap[u->state];
+}
+
+int acr_gen1_battle_add_unit(acr_gen1_battle *b, const acr_gen1_unit *u) {
+    if (b->units >= ACR_GEN1_MAX_UNITS) return -1;
+    acr_gen1_unit *n = &b->unit[b->units];
+    *n = *u;
+    n->px = n->x; n->py = n->y; n->pz = n->z;
+    n->state = ACR_GEN1_UNIT_IDLE;
+    n->state_ticks = (uint8_t)(1 + (b->units * 7) % UNIT_STEP_TICKS);   /* +76: not all at once */
+    n->burst = n->cooldown = 0;
+    n->gun_yaw = n->gun_pitch = 0;
+    n->down = 0;
+    n->target = -1;
+    n->turn = 0;
+    n->anim = 0;
+    n->anim_frame = n->span_left = 0;
+    if (!n->ap_max) n->ap_max = n->ap;
+    return b->units++;
+}
+
+static void unit_decide(acr_gen1_battle *b, acr_gen1_unit *u, int64_t measure) {
+    static const uint8_t k_pick[36] = { 1, 1, 1, 1, 1, 1, 2, 2, 3, 3, 4, 4, 5, 5, 6, 6, 7, 7, 8, 8,
+                                        0, 0, 0, 0, 0, 0, 0, 0, 9, 9, 9, 9, 10, 10, 10, 10 };
+    int next = -1;
+    if (measure > ACR_GEN1_UNIT_FAR) next = ACR_GEN1_UNIT_AHEAD;
+    else if (measure < ACR_GEN1_UNIT_NEAR) next = ACR_GEN1_UNIT_BACK;
+    else {
+        const int r = rnd(b) * 80 / 32768;
+        if (r < 36 && k_pick[r]) next = k_pick[r];
+    }
+    if (next >= 0) u->state = (uint8_t)next;
+    if (u->state != ACR_GEN1_UNIT_TURN_L && u->state != ACR_GEN1_UNIT_TURN_R) u->turn = 0;
+    u->state_ticks = UNIT_STEP_TICKS;
+}
+
+/* Moves it (dx, dz) world units: the stage stops it at walls (the game's
+ * box move) and it won't step off its floor; either turns the step around. */
+static void unit_move(acr_gen1_battle *b, acr_gen1_unit *u, int32_t dx, int32_t dz) {
+    int32_t step[3] = { dx, 0, dz };
+    if (!step[0] && !step[2]) return;
+    const int32_t pos[3] = { u->x / 64, u->y / 64, u->z / 64 };
+    if (b->stage) {
+        const int32_t want[3] = { step[0], step[1], step[2] };
+        acr_gen1_stage_move(b->stage, pos, step, u->half, u->height, ACR_GEN1_STAGE_AC_MASK);
+        const int32_t to[3] = { pos[0] + step[0], pos[1], pos[2] + step[2] };
+        int32_t floor_y = 0;
+        const int blocked = step[0] != want[0] || step[2] != want[2];
+        const int grounded = acr_gen1_stage_floor_probe(b->stage, to, ACR_GEN1_STAGE_PROBE_HALF, u->height,
+                                                        ACR_GEN1_STAGE_AC_MASK, &floor_y) &&
+                             floor_y - to[1] < ACR_GEN1_STAGE_GROUNDED && floor_y >= to[1] - 1;
+        if (!grounded || (blocked && !step[0] && !step[2])) { unit_hit_turn(u); return; }
+        if (blocked) unit_hit_turn(u);
+    }
+    u->x += step[0] * 64;
+    u->z += step[2] * 64;
+}
+
+static void unit_walk(acr_gen1_battle *b, acr_gen1_unit *u, uint16_t way, int32_t speed) {
+    unit_move(b, u, acr_gen1_sin(way) * speed / 4096, acr_gen1_cos(way) * speed / 4096);
+}
+
+static const acr_gen1_root_track *unit_track(const acr_gen1_unit *u, unsigned a) {
+    return u->motion && a < ACR_GEN1_UNIT_ANIMS ? u->motion[a] : NULL;
+}
+
+static void unit_set_anim(acr_gen1_unit *u, uint8_t a) {
+    u->anim = a;
+    u->anim_frame = u->span_left = 0;
+}
+
+static int32_t unit_div_round(int32_t a, int32_t b) {
+    return a >= 0 ? (a + b / 2) / b : -((-a + b / 2) / b);
+}
+
+/* One tick of a step state by the animations (0x800A32AC, then the root
+ * motion of 0x80055138). Returns 0 when the state's walk has no track. */
+static int unit_anim_walk(acr_gen1_battle *b, acr_gen1_unit *u) {
+    const int st = u->state;
+    const uint8_t walk = k_unit_walk[st], start = k_unit_start[st];
+    if (!unit_track(u, walk)) return 0;
+    const acr_gen1_root_track *cur = unit_track(u, u->anim);
+    int cur_is_walk = 0;
+    for (int k = 1; k <= 8; ++k) cur_is_walk |= u->anim == k_unit_walk[k];
+    if (cur_is_walk) {
+        if (u->anim != walk) unit_set_anim(u, walk);            /* walk to walk: straight in */
+    } else if (u->anim && (u->anim == start || u->anim == k_unit_link[st][0] || u->anim == k_unit_link[st][1])) {
+        if (!cur || u->anim_frame >= cur->length) unit_set_anim(u, walk);
+    } else {
+        unit_set_anim(u, unit_track(u, start) ? start : walk);
+    }
+    const acr_gen1_root_track *t = unit_track(u, u->anim);
+    if (!t) return 1;
+    if (!u->span_left) {
+        if (u->anim_frame >= t->length) {
+            if (u->anim != walk) return 1;                      /* a start that ran out: walk next tick */
+            u->anim_frame = 0;
+        }
+        int32_t d[3];
+        unsigned frames;
+        if (!acr_gen1_root_span(t, u->anim_frame, d, &frames)) { ++u->anim_frame; return 1; }
+        /* tracks: z negative forward, +x to its left; forward = (sin, cos), right = (cos, -sin) */
+        const int32_t s = acr_gen1_sin(u->yaw), c = acr_gen1_cos(u->yaw);
+        const int32_t fwd = -d[2], left = d[0];
+        const int32_t wx = (int32_t)(((int64_t)fwd * s - (int64_t)left * c) / 4096);
+        const int32_t wz = (int32_t)(((int64_t)fwd * c + (int64_t)left * s) / 4096);
+        acr_gen1_stepper_init(&u->step[0], (int)frames, unit_div_round(wx, 4));
+        acr_gen1_stepper_init(&u->step[1], (int)frames, unit_div_round(wz, 4));
+        u->span_left = (uint16_t)frames;
+    }
+    const int32_t dx = acr_gen1_stepper_next(&u->step[0]), dz = acr_gen1_stepper_next(&u->step[1]);
+    ++u->anim_frame;
+    --u->span_left;
+    unit_move(b, u, dx, dz);
+    return 1;
+}
+
+static void unit_fire(acr_gen1_battle *b, int ui) {
+    acr_gen1_unit *u = &b->unit[ui];
+    acr_gen1_shot *s = free_shot(b);
+    if (!s) return;
+    const uint16_t yaw = (uint16_t)((u->yaw + u->gun_yaw) & 4095);
+    int32_t dx, dy, dz;
+    vec_of(yaw, u->gun_pitch, &dx, &dy, &dz);
+    const int32_t side = (u->side & 2 ? 1 : -1) * (int32_t)u->half / 2;
+    int32_t fx, fz;
+    fwd_vec(u->yaw, &fx, &fz);
+    const int32_t sp = per_step(b, ACR_GEN1_UNIT_SHOT);
+    s->active = 1;
+    s->owner = (uint8_t)ACR_GEN1_UNIT(ui);
+    s->attack = u->attack;
+    s->x = u->x + side * fz / 4096 * 64 + fx * u->half / 4096 * 64;
+    s->y = u->y - (int32_t)u->height * 2 / 3 * 64;
+    s->z = u->z - side * fx / 4096 * 64 + fz * u->half / 4096 * 64;
+    s->vx = (int32_t)((int64_t)dx * sp / 4096);
+    s->vy = (int32_t)((int64_t)dy * sp / 4096);
+    s->vz = (int32_t)((int64_t)dz * sp / 4096);
+    u->side ^= 2;
+}
+
+/* The gun, one tick (0x800A38B4): aim, start a burst, fire its odd ticks. */
+static void unit_gun_tick(acr_gen1_battle *b, int ui, const tview *t) {
+    acr_gen1_unit *u = &b->unit[ui];
+    if (u->cooldown) { --u->cooldown; return; }
+    int32_t to_yaw = 0, to_pitch = 0, in_cone = 0;
+    const int32_t mx = u->x / 64, my = u->y / 64 - u->height * 2 / 3, mz = u->z / 64;
+    int32_t tx = 0, ty = 0, tz = 0;
+    if (t) {
+        tx = t->x / 64; ty = (t->y - t->up) / 64; tz = t->z / 64;
+        const int64_t dx = tx - mx, dy = ty - my, dz = tz - mz;
+        uint16_t yaw;
+        int16_t pitch;
+        dir_of(dx, dy, dz, &yaw, &pitch);
+        to_yaw = wrap((int32_t)yaw - u->yaw);
+        to_pitch = pitch;
+        in_cone = isqrt64((uint64_t)(dx * dx + dy * dy + dz * dz)) <= ACR_GEN1_UNIT_RANGE &&
+                  to_yaw >= -1024 && to_yaw <= 1024 && to_pitch >= -256 && to_pitch <= 256;
+    }
+    if (!in_cone) {                                      /* back to the middle */
+        u->gun_yaw = (int16_t)turn_toward(u->gun_yaw, 0, UNIT_GUN_TURN);
+        u->gun_pitch = (int16_t)turn_toward(u->gun_pitch, 0, UNIT_GUN_TURN);
+        return;
+    }
+    const int32_t oy = u->gun_yaw, op = u->gun_pitch;
+    u->gun_yaw = (int16_t)turn_toward(u->gun_yaw, to_yaw, UNIT_GUN_TURN);
+    u->gun_pitch = (int16_t)turn_toward(u->gun_pitch, to_pitch, UNIT_GUN_TURN);
+    const int32_t sy = u->gun_yaw - oy, spt = u->gun_pitch - op;
+    if (sy >= UNIT_GUN_TURN || sy <= -UNIT_GUN_TURN || spt >= UNIT_GUN_TURN || spt <= -UNIT_GUN_TURN) return;   /* still turning */
+    if (!u->attack) return;
+    if (!u->burst) {
+        if (rnd(b) >= 2622) return;
+        if (rnd(b) >= 328 && b->stage) {                 /* line of sight */
+            const int32_t a[3] = { mx, my, mz }, e[3] = { tx, ty, tz };
+            int32_t hit_t;
+            if (acr_gen1_stage_segment(b->stage, a, e, &hit_t)) return;
+        }
+        u->burst = 6;
+        return;
+    }
+    if (u->burst & 1) unit_fire(b, ui);
+    --u->burst;
+}
+
+static void unit_tick(acr_gen1_battle *b, int ui) {
+    acr_gen1_unit *u = &b->unit[ui];
+    u->px = u->x; u->py = u->y; u->pz = u->z;
+    if (u->hit_flash) --u->hit_flash;
+    if (u->down) {                                       /* destroyed: the explosion, then gone */
+        if (++u->down >= ACR_GEN1_UNIT_DOWN_TICKS) u->active = 0;
+        return;
+    }
+    if (u->brain == ACR_GEN1_BRAIN_NONE) return;
+    /* Target: the nearest enemy (0x8007931C: any object of another team),
+     * ACs and units alike, so map 12's MTs go for its friendly units too. */
+    const int n = acr_gen1_battle_fighters(b);
+    int64_t best = -1;
+    u->target = -1;
+    for (int j = 0; j < n + b->units; ++j) {
+        const int id = j < n ? j : ACR_GEN1_UNIT(j - n);
+        if (id == ACR_GEN1_UNIT(ui) || team_of(b, id) == (u->team & 1)) continue;
+        if (j < n && !b->f[j].def) continue;
+        tview v;
+        if (!view_of(b, id, &v) || !v.alive) continue;
+        const int64_t dx = (v.x - u->x) / 64 / 2, dz = (v.z - u->z) / 64 / 2;
+        const int64_t d = (int64_t)isqrt64((uint64_t)(dx * dx + dz * dz)) * 4;
+        if (best < 0 || d < best) { best = d; u->target = (int8_t)id; }
+    }
+    tview tv, *t = NULL;
+    if (u->target >= 0 && view_of(b, u->target, &tv)) t = &tv;
+    if (u->brain == ACR_GEN1_BRAIN_MT) {
+        if (!u->state_ticks || !--u->state_ticks) {
+            if (t) unit_decide(b, u, best);
+            else { u->state = ACR_GEN1_UNIT_IDLE; u->state_ticks = UNIT_STEP_TICKS; }
+        }
+        static const int16_t k_way[9] = { 0, 0, -512, 512, -1024, 1024, 2048, 2048 + 512, 2048 - 512 };
+        if (u->state == ACR_GEN1_UNIT_TURN_L || u->state == ACR_GEN1_UNIT_TURN_R) {
+            const int32_t d = u->state == ACR_GEN1_UNIT_TURN_R ? 8 : -8;
+            int32_t v = u->turn + d;
+            if (v > 24) v = 24;
+            if (v < -24) v = -24;
+            u->turn = (int16_t)v;
+            u->yaw = (uint16_t)((u->yaw + u->turn) & 4095);
+            if (u->anim) unit_set_anim(u, 0);
+        } else if (u->state != ACR_GEN1_UNIT_IDLE) {
+            if (t) {
+                uint16_t yaw;
+                int16_t pitch;
+                dir_of((t->x - u->x) / 64, 0, (t->z - u->z) / 64, &yaw, &pitch);
+                u->yaw = (uint16_t)(turn_toward(u->yaw, yaw, UNIT_FACE) & 4095);
+            }
+            if (!unit_anim_walk(b, u))
+                unit_walk(b, u, (uint16_t)((u->yaw + k_way[u->state]) & 4095),
+                          u->state == ACR_GEN1_UNIT_AHEAD ? UNIT_WALK : UNIT_SIDE);
+        } else if (u->anim) {
+            unit_set_anim(u, 0);
+        }
+    } else if (u->brain == ACR_GEN1_BRAIN_TURRET && t) {
+        uint16_t yaw;
+        int16_t pitch;
+        dir_of((t->x - u->x) / 64, 0, (t->z - u->z) / 64, &yaw, &pitch);
+        if (best <= 2 * ACR_GEN1_UNIT_RANGE) u->yaw = (uint16_t)(turn_toward(u->yaw, yaw, UNIT_GUN_TURN) & 4095);
+    }
+    unit_gun_tick(b, ui, t);
+}
+
+static void units_step(acr_gen1_battle *b, int ticks) {
+    for (int k = 0; k < ticks; ++k) {
+        for (int u = 0; u < b->units; ++u)
+            if (b->unit[u].active) unit_tick(b, u);
+        acr_gen1_mission_tick(b);
+    }
+}
+
+/* Bodies: an AC can't stand inside a unit. The unit's body is a square,
+ * half a side either way of its middle and turned with it, height tall;
+ * the AC is its hit cylinder. An overlap pushes the AC out (units are the
+ * heavier: an MT walking into an AC shoves it). Ours: the game's own body
+ * test (object +0x72 / +0x74 against chunk 12) is still to be read. */
+static void bodies_step(acr_gen1_battle *b) {
+    const int n = acr_gen1_battle_fighters(b);
+    for (int u = 0; u < b->units; ++u) {
+        const acr_gen1_unit *un = &b->unit[u];
+        if (!un->active || un->down || !un->half) continue;
+        for (int i = 0; i < n; ++i) {
+            acr_gen1_ac *ac = &b->f[i].ac;
+            if (!b->f[i].def) continue;
+            /* y is down: the AC spans [y - 212, y], the unit [uy - height, uy] */
+            if (ac->y / 64 - ACR_GEN1_HIT_HEIGHT >= un->y / 64 || un->y / 64 - un->height >= ac->y / 64) continue;
+            int64_t ahead, side;
+            offset(un->yaw, (ac->x - un->x) / 64, (ac->z - un->z) / 64, &ahead, &side);
+            const int64_t h = un->half, r = ACR_GEN1_HIT_RADIUS;
+            const int64_t ca = ahead < -h ? -h : ahead > h ? h : ahead;   /* nearest point of the square */
+            const int64_t cs = side < -h ? -h : side > h ? h : side;
+            int64_t pa = 0, ps = 0;                                      /* push, square's frame */
+            if (ca == ahead && cs == side) {                             /* middle inside: shortest way out */
+                const int64_t oa = h - (ahead < 0 ? -ahead : ahead), os = h - (side < 0 ? -side : side);
+                if (oa < os) pa = (ahead < 0 ? -1 : 1) * (oa + r);
+                else ps = (side < 0 ? -1 : 1) * (os + r);
+            } else {
+                const int64_t ea = ahead - ca, es = side - cs, d2 = ea * ea + es * es;
+                if (d2 >= r * r) continue;
+                const int64_t d = (int64_t)isqrt64((uint64_t)d2);
+                if (!d) continue;
+                pa = ea * (r - d) / d + (ea > 0 ? 1 : ea < 0 ? -1 : 0);
+                ps = es * (r - d) / d + (es > 0 ? 1 : es < 0 ? -1 : 0);
+            }
+            int32_t fx, fz;
+            fwd_vec(un->yaw, &fx, &fz);
+            /* back to world: ahead along (fx, fz), side along (fz, -fx) (see offset) */
+            const int64_t wx = (pa * fx + ps * fz) / 4096, wz = (pa * fz - ps * fx) / 4096;
+            acr_gen1_ac_shift(ac, (int32_t)(wx * 64), (int32_t)(wz * 64));
+        }
+    }
 }

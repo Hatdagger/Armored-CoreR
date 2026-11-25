@@ -11,4 +11,11 @@
 int acr_export_moa_motion(const char *menu_module, const char *unpacked_dir, const char *out_dir,
                           uint32_t *count, char *err, size_t err_size);
 
+/* Writes one motion set (u32 count, offsets at +12, then per animation
+ * [u16 header x2][u16 length][u16 keys | 0x8000 rot][keys: u16 frame, s16 x y z])
+ * as a root-motion file: `model = id` for an AC set, or `handler = id` for a
+ * mission unit's (unit != 0; chunk 12, see acr_units_moa.c). Returns 0 on a
+ * bad set or a write error. */
+int acr_write_root_motion(const char *path, unsigned id, const uint8_t *set, size_t size, int unit);
+
 #endif

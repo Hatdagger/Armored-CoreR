@@ -36,14 +36,14 @@ A run of `[u32 size][data]` chunks, read in this order:
 | 2 | 0x8 | `0x8005A9A0(0x80)` | model set |
 | 3 | 0xCCC | `0x8005A9A0(0xA0)` | model set |
 | 4 | 0x3A6C | `0x8005E9F0(0, ...)` | **the stage's area models**: one PlayStation TMD (id 0x41), one object per model number |
-| 5 | 0 | stored at `0x801F0E30` | ? |
+| 5 | 0 | stored at `0x801F0E30` | ? (missions: **the cutscenes**, pointer at `0x801F8E90`; see "Mission script") |
 | 6 | 0xC3C0 | `0x80052DF8` | ? (starts `1, 0xE20, "pBAV"`: sound bank?) |
 | 7 | 0x3688 | copied to `0x801B2018`, then `0x80074154` | **collision**, per model number |
 | 8 | 0x863C | `0x800783B0` | **area records** (512 x 52 bytes, 64 in RAM at `0x801C2018`), then neighbour lists |
 | 9 | 0x34 | `0x80079908` | ? |
 | 10 | 0x4000 | `0x80079798` | ? |
 | 11 | 0x3800 | `0x8005DB5C` | ? |
-| 12 | 0x4 | | ? |
+| 12 | 0x4 | | ? (missions: per object handler a 36-byte header and **its motion set**, the AC format; see "Mission script") |
 | 13 | 0x2800 | `0x80079E08` | **points / objects**, 40-byte records |
 
 Chunk 4's models are a flat, see-through green copy of chunk 1's (same
@@ -338,23 +338,470 @@ only bigger (14 to 366 areas, up to 87 models). acr-import now writes all of
   (new area records) brings its collision with it.
 - **Starts.** The two start records (chunk 13 records 1 and 2) are the
   arena's; missions don't use them as drops. Stage 0's sit side by side,
-  below the floor. Mission drops will come from mission data (`GG/MS/MIS.T`,
-  410 entries, not read yet). The engine gives maps used by the mission
+  below the floor. MIS.T turned out to be the briefings only (see
+  "Missions" below); the drops are still to find in the mission code. The engine gives maps used by the mission
   tests their own starts (`demo_stage.c`, `k_mission_starts`): 11 so far.
 - **Footing** (an AC set on start 1's floor and walked 400 ticks, game
   collision): 2-5 and 7-19 hold it and stop it at walls; 0 holds it once it
-  stands on the real floor (y 0). **1 and 6 don't:** their ground is class 1
-  and class 4 polygons (stage 1's floor tile, model 0: one class 4 polygon at
-  y 25 and one class 1 at y 0), which the body mask 5 passes through, so the
-  AC sinks. Every battle engine (FDAT 207-211) sets the AC's +0x43 to 5 at
-  the same spot (`li 5; sb 0x43`), and the arena floor probe takes its mask
-  from +0x43 (`0x8007C95C`), so the mask alone doesn't explain it. Still to
-  read: whether the mission engine changes +0x43 later, or treats class 1/4
-  floors differently (the +0x2E "lowest class 1 floor" value).
+  stands on the real floor (y 0).
+- **Maps 1 and 6 are sea maps** (read 2026-11-21). Their ground is the sea:
+  map 1's base tile (model 0) is a class 4 plane at y 25 over a class 1
+  plane at y 0, map 6's outer tiles a class 1 plane at -62.5. Both classes
+  share a bit with the body mask 5, so ACs pass through: that is the water,
+  not a floor bug. Every engine sets +0x43 to 5 the same way, the mission
+  engine (FDAT 207, the one with `#Location Now`) included (`0x80084D54`).
+  The arena start records sit over the water, so an AC dropped there sinks.
+  The solid ground is class 0: on map 1 the ships (the long one along x from
+  about game x 5,600 to 10,500, deck -250, 750 wide; a second near game
+  (-19,000, -7,500), deck -500 / -750), on map 6 the middle platform (deck
+  -500). AC TEST's starts (`k_mission_starts`): map 1 game (6,600, -250, 0)
+  and (9,000, -250, 0) on the long ship facing each other; map 6 (0, -500,
+  +-2,500). Checked: both hold an idle AC; a two-minute computer fight on
+  map 6 stays on the platform, on map 1 one AC walks off the ship into the
+  sea. Still to read: what the mission engine does to an AC in the water
+  (probably lost, as in AC1's sea missions; not read); class 4 vs class 1 (perhaps the
+  surface the splash is drawn at vs the bottom).
 - **Mission map 11** (a square hall, four pillars; the P4 Qualifier test):
   floor at 3,000; starts (0, 3000, -8000) facing 0 and (0, 3000, 8000) facing
   2048. Two computer pilots fight two minutes there without leaving the
   hall (`tests/test_gen1_stage.c`).
+
+## Missions (read 2026-11-21)
+
+`tools/research/moa_missions.py <import>/unpacked` prints all of this.
+
+- **Mission n is played on map n.** Briefing n, map n and mission code n
+  line up: 1 "Escort Submarine" on the R&G steamship route is the open-sea
+  map with ships, 6 "PROGTECH Marine Laboratory" the platform in the sea,
+  11 "Destroy enemy AC (Goldy)" the four-pillar hall, 14 "Hercules in 3
+  minutes", and so on (19 has no briefing).
+- **`GG/MS/MIS.T` (409 entries) is the briefings**, 16 entries a mission:
+  +1 the mail header (sender, requester, reward), the next text entries the
+  pages ("Theater of operations", enemy forces, objective; `%n@1..@0` marks
+  highlighted words), 12,288-byte entries are TIM pictures (the briefing
+  maps), empty entries are unused slots. 384+ hold part descriptions and
+  later mail. No placements or mission rules in it.
+- **Mission code: FDAT `5s+0`** (33-55 KB), loaded at **`0x800A0DD0`**
+  (found from its own calls landing on function starts; checked on missions 0, 1,
+  6 and 11). Header: 16 pointers; slot 0 is the per-frame mission
+  logic (mission 0: radio lines through
+  `0x80058B1C(0, 0, line)`), slots 1-7 small hooks, **slots 9 on are
+  object handlers**. FDAT `5s+1..3` are empty for missions.
+- **Objects: chunk 13 records 3 on.** Record +6 picks the handler
+  (slot 8 + n); +14 a type; +16 on per-object numbers. The counts match the
+  briefings: 6 "MTs x 5" has 5 objects on handler 2; 12 "MTs x 6" 6 on
+  handler 1; 13 "Trucks x 3, MTs x 4" 4 + 3; 14 "Hercules" one object;
+  11 "Goldy" two. Map 1's long ship is objects 7-9 (handler 6, types 1, 49,
+  50) at the ship's tiles, so it is probably the escorted vessel and moves.
+- Still open: which records are the player's drop (records 0-2 or the
+  code), the objective / failure rules in slot 0, what record +14 and
+  +16 on mean (the five MTs on map 6 carry types 12, 11, 1, 33, 4).
+
+## Mission objects in the mission engine (read 2026-11-23)
+
+The mission engine is FDAT 207 (loaded at `0x80050DD8`, as the others).
+Its stage loader (`0x80055850`-`0x800559F4`) reads the chunks in the
+arena's order; chunk 12 goes to `0x800795A8`, chunk 13 to `0x80079774`.
+
+- **Record table:** `0x80079774` copies chunk 13's first 64 records into
+  44-byte entries at `0x801E6748`: byte 0 a state (1 = object made), byte
+  1 the object's number, +2 a working copy of record +22, +4 the 40-byte
+  record. A small bytecode script (interpreter around `0x80091D88`,
+  opcodes `0x8000`, `0x8001`, `0x8004`, `0x8005`...) refers to entries by
+  number: the mission's script, not read yet.
+- **Objects** are 376 bytes, the AC object's size, in a block at
+  `0x801E7248`; object 0 is the player's AC. `0x8007EB00(object, entry)`
+  builds one: +0 = the entry, +4 = the chunk 12 entry of its handler,
+  **+360 / +362 / +364 = record +22** (+360 is where an AC keeps its AP),
+  +0x72 and +0x28 = the chunk 12 entry's first word (the height missiles
+  aim at, for ACs).
+- **AP = record +22** (map 6: the MTs 5,000, the big MT 18,000). The hit
+  routine `0x8007AF00` takes damage off +360 and stops at 0. For a unit
+  (not object 0) the damage is `0x8007AEA4`: a solid shot takes its
+  attack (shot +2); an energy shot (shot byte 0 bits 4-5 = 2) takes
+  attack x (8 - n) / 8 + 1, n = bits 8-11 of record +16 (a signed
+  nibble). Map 6: the five MTs n = 2, the big MT 3, the tank AC 0. The
+  player's AC goes through `0x8007AE34` instead, which is the VS engine's
+  hit (`0x80079500`, `acr_gen1_hit_ap`): attack x the AC's shell or energy
+  factor / 64 x 2 / 3 (corrected 2026-11-24; it was noted as "x 2"). So a
+  unit's shot hurts an AC exactly as an AC gun of the same attack, and a
+  unit's AP counts in raw attack points: a rifle (218) takes 218 off an MT,
+  about 61 off the default AC.
+- **Handlers** (mission code slots 9 on) only set an object up: map 6's
+  MT handler (`0x800A3E48`) sets +0x36 = 2, four routines at +0x58
+  (behaviour, called each frame with the state), +0x5C (start), +0x60,
+  +0x64, +364 x 4, +0x4C = a random number (`0x80079508` = the boot
+  program's rand), then runs the start routine and the behaviour once.
+  The tank AC's (`0x800A3F24`) plays its animation 2 (`0x80054AC8`,
+  object +108 = the animation, as for ACs).
+- **Behaviour:** the MT's (`0x800A3430`) is a 12-state machine on object
+  +69; each state plays a few of the unit's animations through
+  `0x800A32AC(object, a, b, c, next)`. 7000 appears as a range there.
+  Movement, aiming and firing: still to read (calls into the engine at
+  `0x8007C104`, `0x8007C134`, `0x8007C20C`, `0x8007E238`, `0x8007D50C`,
+  `0x80079828`).
+
+## Mission unit behaviour (read 2026-11-24)
+
+Map 6's mission code (FDAT 030 at `0x800A0DD0`), slots 9-12: the big MT
+`0x800A2F3C`, the MT `0x800A3E48`, the tank AC `0x800A3F24`, the
+model-less object `0x800A3F78` (only sets +0x36 = 1, +0x32 = 8). A handler
+fills four routines: **+0x58 behaviour** (called with the state, +0x4A),
+**+0x5C events** (`0x800A3A9C` for the MT), **+0x60 each tick** (gun and
+death, `0x800A38B4`), **+0x64 destroyed**. The big MT's routines
+(`0x800A2254`, `0x800A2B90`, `0x800A2784`, `0x800A2DB4`) have the same
+decision code with its own tables, so it is the missions' common MT.
+
+- **Body box (chunk 12).** u16 count, then `[u32 size][36-byte header][data]`;
+  entry k belongs to handler k + 1 (`0x800795A8` fills 44-byte entries from
+  `0x801E6614`, `0x8007EB00` indexes them by record +6). The object takes
+  data halfwords 2 and 3, each / 4, into +0x28 / +0x2A (and +0x72 / +0x74),
+  the fields an AC keeps its stage box in: **half width and height**. Map
+  6: the MT 125 x 175, the big MT 200 x 340, the tank AC 112 x 150; the ACs
+  on the other maps 100 x 225 or 75 x 212, the ships 750 x 375. acr-import
+  writes them as `box` in objects.toml, with `ap` (+22), `attack` (+24) and
+  `energy_n` (+16 bits 8-11).
+- **Target** (`0x8007931C`): among the first 16 objects of another team
+  (+0x36 & 7), the nearest, measured as sqrt((dx/2)^2 + (dz/2)^2) x 4, i.e.
+  **2 x the flat distance**; it spreads picks over targets fewer of its side
+  already chase. Kept at +0x50.
+- **Decisions** (event routine, events 0, 3 and 4 while +0x4B = 1): measure >
+  2,500 (1,250 away) -> state 1; < 1,000 (500) -> state 6; else rand(80)
+  through a 36-entry table: 1 x6, 2-8 x2 each, 9 and 10 x4 each, the rest
+  (44 of 80) nothing. The state is set with `0x8007B598`, which also keeps
+  the target and a random offset (+-50 in x and z) at +0xF8..+0x103.
+  Events 1-2: a third of the time state 1 or 6 at even odds. **Event 5**
+  (sent by the hit routine `0x8007AF00` and the wall code) swaps the state
+  for its pair: 1-6, 2-8, 3-7, 4-5, so the pairs are opposite steps.
+- **Behaviour** (`0x800A3430`, jump table `0x800A1100`): states 1-8 call
+  `0x800A32AC` with a walk, a start and two linking animations:
+  state 1 walk 2 / start 1 (links 3, 5), 2: 4 / 3 (1, 5), 3: 6 / 5 (1, 3),
+  4: 9 / 8, 5: 11 / 10 (no links), 6: 13 / 12 (14, 16), 7: 15 / 14
+  (12, 16), 8: 17 / 16 (12, 14). (Read 2026-11-24; the order noted before,
+  13/15/17 for states 4-6, was the code's order, not the states'.) In
+  `0x800A32AC`: already in any walk (2, 4, 6, 9, 11, 13, 15, 17, table
+  `0x800A10C0`) it plays the new walk straight away; in the start or a link
+  it waits for that to end (`0x80054C04`), then plays the walk; otherwise,
+  if `0x800A3194` agrees (not read), the start. 9 and 10 turn
+  (`0x800A30F4` / `0x800A3144`: the turn speed +0xD4 grows by 8 a tick, at
+  most 24, added to the facing); 0 idles (animation 7 or 18 via
+  `0x8007C9B8`); 11 (`0x8007D50C`) not read.
+- **Walking speed** = the animations' root tracks (`0x80055138` moves the
+  object along the animation each frame; chunk 12's motion sets, below).
+  The tracks' +x is the unit's left, so the states walk: 1 ahead, 2 ahead
+  left, 3 ahead right, 4 left, 5 right, 6 back, 7 back left, 8 back right,
+  and the hit pairs (1-6, 2-8, 3-7, 4-5) are opposites. Map 6's MT (handler
+  2): starts 8 frames (168 / 4 ahead), walks 24 frames: ahead 646, sideways
+  646, diagonals 446 x 445, back 592, back diagonals 446 x 446 (1/4 units),
+  i.e. 161.5 units a loop, about 6.7 a tick. The big MT (handler 1): walk 2
+  is 2,075 in 24 frames, 12-frame starts. acr-import writes them as
+  `stages/MM/motion-HH.toml` (HH = handler, the AC format); the engine walks
+  by them (acr_gen1_battle.c).
+- **Gun** (`0x800A38B4` / `0x800A3714`): `0x80079828` gives the angles to
+  the target for a gun at joint 7 with range 7,000, +-256 up / down and
+  +-1,024 to the sides; the gun's angles (+0x7E / +0x80) turn 16 a tick
+  (`0x800136E0`), on aim once a tick's turn reaches the target. On aim with
+  no burst: 2,622 in 32,768 a tick a burst starts (328 of those without the
+  line-of-sight test `0x8007DEA4`); the burst counter +0x47 is 6, a shot on
+  each odd tick (3), the two muzzles in turn (+0x110 ^ 2), each with a
+  muzzle light (+0x150 = 15, colour 180, 160, 140). The shot
+  (`0x8007D774`) takes **attack = record +24** (map 6: MT 200, big MT 400,
+  tank AC 10) and the shot table at `0x800AD13C`: speed 700, range 7,000
+  (the same as the rifle's). +0x48 is a wait that counts down first.
+- **Destroyed**: +0x49 leaves 255, `0x8007B0D8` plays the explosion, then
+  `0x8007EE04` removes the object.
+- **Big MT (U19):** placed 1,000 under the deck; nothing in its handler
+  moves it: slot 0 brings it up with cutscene 3 (see "Mission script").
+
+**In the engine** (2026-11-24): `acr_gen1_battle` has up to 64 units beside
+the fighters (`acr_gen1_unit`, target number `ACR_GEN1_UNIT(u)`), stepped
+with the fight so netplay stays in step (`acr_gen1_match` hashes them). They
+can be locked (guns, missiles, the camera swing), shots and missiles hit
+their box, damage follows the rule above, and a destroyed unit blows up and
+is gone after 20 ticks. Brains: **MT** (10 or more animations) as above;
+**turret** (armed, fewer animations) turns in place and fires the same way;
+none for the unarmed (trucks, bunkers). Stand-ins: a step lasts 24 ticks,
+the MT walks 16 a tick ahead (11 sideways or back) and turns to face its
+target 24 a tick while walking; a step into a wall or off its floor is
+turned around as a hit is. AC TEST joins
+every unit of a mission map that has a model, AP and a floor under it
+(map 6: 6 of 7; the big MT waits under the sea) as team 1, with the target
+AC; the HUD shows the locked unit's AP, its marker and every unit on the
+radar. `tests/test_gen1_units.c` covers lock, damage, destruction, both
+brains and a repeat run.
+
+Checked in AC TEST on map 6: the five MTs and the tank AC fire bursts, a
+default AC standing still loses about 500 AP in 6 seconds and is down in
+about 20 (the MTs aim at where it is, without leading, so moving spoils
+their aim); a rifle shot takes 218 off an MT (5,000 -> 4,782 on the HUD).
+
+**Blade, bodies and the mission win** (2026-11-25; ours, the game's own
+code for these is still to be read):
+- Blade: the swing's seek (3,000 ahead, +-45 degrees) and both arc
+  crossings take units as well as ACs. A unit is reached at its near side
+  (its middle less its half width, past an AC's radius of 75, so an
+  AC-sized unit reads as an AC); a hit goes through the unit damage rule
+  (the blade is energy: 738 -> 554 on map 6's MT), turns the MT's step as
+  any hit does and ends the lunge, without knockback. The lunge also stops
+  at a unit's body (half width + 75 ahead).
+- Bodies: a unit's body is a square of its half width either side of its
+  middle, turned with it, its height tall; an AC (hit cylinder 75 / 212)
+  overlapping it is pushed straight out after the units move, so an MT
+  walking into an AC shoves it. ACs still pass through each other (only
+  the blade's lunge stops at them), as before.
+- Result: a live unit in the fight keeps its side standing, so a mission
+  map is won when the last enemy target, AC or unit, is down; a side made
+  of units alone counts too. Dormant units (map 6's big MT under the sea)
+  don't count until the script raises them. Time-up AP compares the ACs
+  only. AC TEST on a mission map now ends this way (no clock): WIN once
+  everything is down, LOSE when the player is.
+- Tests: blade hit / miss on a unit, the lunge stopping at it, push-out
+  (side, corner, clear, above), and the results.
+
+**Record 0 is the player's drop** (2026-11-23): on 15 of the 20 maps it
+stands exactly on the collision floor, facing along the map (map 2 in the
+hangar facing the bay, map 8 in the tunnel, map 12 down the street); on
+maps 3 and 5 it is above the floor (a drop from the air: map 3 at -10,500
+over -5,000, map 5 at -3,840 over 1,525); on map 1 it is in the sea (the
+submarine escort: the player may start aboard something); on map 13 it is
+outside the map's collision. AC TEST now starts the player there on every
+mission map but 1, 6, 11 (their own starts) and 13, with the target 2,500
+ahead facing back.
+
+## Mission script (map 6, read 2026-11-25)
+
+Slot 0 of the mission code (map 6: `0x800A641C`) runs every tick. It does
+nothing once the ending is requested (`0x800A0DBC` & `0x381`) or while the
+player's AP (object 0 +360) is 0. Its own state is `0x800AD838` (start 0).
+Record-table entries (44 bytes from `0x801E6748`, byte 0 the state: 1 made,
+3 destroyed) are named by chunk 13 record number. Map 6: **4 the tank-legged
+AC, 5 a model-less object beside it, 6 the big MT, 7-11 the five MTs.**
+
+- **0:** once every entry from 4 on except 4, 5 and 6 is destroyed (or has
+  no handler), stage nodes 132 and 133 (64-byte entries from `0x801CFAB0`,
+  controller pointer at +56) get +6 = 0, +10 = 4: their animation 4, the
+  deck opening. -> 1.
+- **1:** waits for node 132's controller (+44) byte +16. Then object 5 is
+  removed, **the tank AC is made** (`0x8007ECEC`, it isn't there before),
+  cutscenes 1 and 2 run, the big MT gets a per-tick hook (`+0x60` =
+  `0x800A5F5C`: water splashes at joints 8 and 11 while y > 0, camera shake
+  and a sound near the surface) and **cutscene 3 brings it up**; radio line
+  37. -> -1.
+- **-1:** the tank AC destroyed (state 3, or its y past 30,000) gives radio
+  123 and **event flag 18** (`0x800907D0`: a byte in the progress block; a
+  bonus, the mission doesn't need it).
+- **The big MT destroyed ends it.** Tank AC already down: radio 153 and
+  `0x80052490(128)`, the "mission accomplished" request (the ending starts
+  100 ticks later, `0x800A0DB0` +12 / +16). Tank AC still up: a 60-tick
+  fade to white, the player moved, cutscene 4 (radio 153 in it), then the
+  same request.
+
+**Cutscenes** (chunk 5): u16 offsets to each; a cutscene is u16 0, u8 track
+count, u8, u16 length in ticks, then u16 offsets to its tracks. A track is
+u16 words: a type (0 general, 1 camera, 2 objects), then commands, `FFF0 n`
+wait n ticks, `FFFF` end. `0x80093844(code, hook)` plays one while the fight
+waits: code bits 0-7 the cutscene, 0x100 a per-tick hook (second argument).
+Map 6 plays 0 at the start, 1 and 2 when the deck has opened, 3 for the big
+MT, 4 in the second ending. Commands read so far (interpreter
+`0x80091D88`): `1003 n` takes record entry n (makes its object if needed);
+`8 / 9 a b c` sets the animation (`0x80054AC8`); `1001 8000 n 0` puts the
+object at point n of the 52-byte table at `0x801E49D8`; `1002` a rotation;
+`0 / 2 x y z` position / rotation keys (`0 8000 n 0`: toward point n; the
+interpreter keeps the previous key at +8 and the new one's place in the
+track at +14; the per-tick interpolation is not read); `14 ...` a sound; `100D` defines a point;
+`1008 / 1009` drive stage nodes (132 and 133 in cutscene 2); `1004 n` radio.
+**The points** (read 2026-11-24) are stage chunk 10: 128 entries of 32
+bytes (s16 x, y, z, s16 at +6, ...), copied by `0x80078DE8` (called from
+the stage loader at `0x800559A8`) into 128 x 52 bytes at `0x801E49D8`.
+Map 6, game x, y down, z: **10 (300, 500, 11000), 11 (300, 500, 8000),
+12 (300, -1200, 6500), 13 (300, -500, 3500)**; 5 / 6 are (100 / 800, -500,
+300), 14 (300, -750, 3700). Cutscene 3 (270 ticks), the big MT's track:
+wait 50; `1003 6`; a sound; put at point 10, animation 26; key to point 11,
+wait 60; a sound, animation 29, key to point 12, wait 34; a sound; put at
+point 13, rotation 2048, animation 27; wait 126. So it walks under water
+from z 11,000 to 8,000, leaps 1,700 up and 1,500 ahead, and lands on the
+deck at z 3,500 facing south.
+
+**The deck** (nodes 132 / 133, animated instance at node +56: +6 frame,
++10 animation): cutscene 2 sets both to frame 161 (`1008 1 0x84 0xA1`,
+`1008 1 0x85 0xA1`), likely the opening's last frame; not confirmed. Map
+6's mission code has its own node controller (`0x800A3F8C` sets the
+controller's +16 state; `0x800A3FDC` takes 0x8100 / 0x8200-2 commands from
+cutscene `1009`) — not read through.
+
+**Motion sets** (chunk 12): u16 count, then per handler `[u32 size]` a
+36-byte header and a motion set in the AC format (`acr_motion_moa.c`),
+pointer at entry +40 (`0x800795A8`); the object's animation state (+108)
+takes it (+136). Map 6 (1/4 world units): the MT's walk (anim 2) is z -646
+in 24 frames (about 161 world units, against the engine's stand-in of 16 a
+tick), its diagonals 3-5; the big MT's walk z -2,075 in 24. `tools/research/
+moa_unit_motion.py` prints them. Not used by the engine yet (next).
+
+**In the engine** (`src/gen1/acr_gen1_mission.{h,c}`, part of the battle
+and of netplay's hash): units keep their record number; a map with a script
+names the ones that wait (map 6: the tank AC hidden, the big MT drawn under
+the sea), and wins by its objective instead of "everything down" (the
+player's side down still loses). Map 6 runs the steps above with the
+cutscenes skipped; the deck takes 44 ticks to open (stand-in); the big MT
+follows cutscene 3's points during the fight (keys taken as straight lines)
+and joins at point 13 facing 2048. AC TEST logs each step; `ACR_UNITS_DOWN=1` starts with the
+units in the fight destroyed (testing aid). Checked in AC TEST: the deck
+opens, the tank AC joins; 2026-11-24 screenshots show the big MT leaping
+over the deck edge and standing on the deck.
+
+## Mission scripts, other maps (read 2026-11-24)
+
+The end call is `0x80052490(128)` "accomplished" or `(256)` "failed"
+(radio 153 goes with the first, 158 with the second). Failure is possible
+on maps 1, 3, 12 and 14. A record "left" = its entry (44 bytes from
+`0x801E6748`) has a handler (+10 != -1) and isn't destroyed (state 3),
+made or not.
+
+- **Map 2** (`0x800A39B0`): records 4-63 none left -> a counter starts
+  at 1 and requests at 30 (29 ticks later). Radio 28 at tick 40, 120 / 121
+  from area triggers (`0x801D0C36`, `0x801D0BF6`).
+- **Map 15** (`0x800A29E0`): an intro cutscene (`0x80093844(0x800)`);
+  none left -> the request at once.
+- **Map 13** (`0x800A4FA0`): fewer than 8 left -> radio 93 and records
+  11-14 made (the four drones, U10; list at `0x800AABEC`), once; none left
+  -> as map 2. Records 4-10 trucks and MTs, 15 the jet (U36).
+- **Map 12** (`0x800A4640`, "Objective: Save friendly units"): targets
+  records 4-9 (list `0x800AA0D8`, handler 1 = slot 9 `0x800A263C`, team 2,
+  U20); records 10-12 (list `0x800AA0F0`, handler 2 = slot 10
+  `0x800A3724`, U31, **team 4**: each handler's set-up writes its team to
+  object +54) are the friendly units. The player's object is team 1
+  (object 0 at `0x801E7248`; its AP, +360, stops the script at 0). Read
+  through 2026-11-25; its state is `0x800AA100`, each tick:
+  - radio 101 at tick 20 (`0x800A0DB0` +18);
+  - **0:** every target destroyed (record state 3) -> 1. Otherwise each
+    friendly destroyed plays radio 102-104 once (flags `0x800AA110`); none
+    left -> 2;
+  - **1:** radio 153, `0x80052490(128)` accomplished -> -1;
+  - **2:** a counter (`0x800AA10C`) = 20 -> -1. The counter counts down
+    the same tick; at 0 radio 59 (counter -2); once the radio is done
+    (`0x80058480`) radio 158 and `0x80052490(256)` **failed** (counter -3).
+  **Targets.** Handler 1's think routine (`0x800A2290`) calls the common
+  `0x8007931C` (objects of another team: the player and the friendlies).
+  Handler 2's (`0x800A3378`) calls its own copy `0x800A2718(self, 0x7FFFFFFF)`:
+  over the 16 objects of 376 bytes from `0x801E7248`, it skips empty ones,
+  **team 5**, itself, and object 0 (the player) while `0x800A0DBC` has
+  0x400; the rest (the targets, but also **the player and the other
+  friendlies**, as read) score by half-distance x 2, and when there are 2
+  or more team-5 objects the score is scaled by (1 + team-5 objects
+  already aiming at it, object +80) / (team-5 objects): a spread for a
+  team-5 squad. On map 12 nothing is team 5, so it is "the nearest object
+  but itself". So, as read, the friendlies may aim at the player and at
+  each other; whether their shots hurt them (the shot side, in the EXE)
+  is not read. **To check in the game.**
+- Maps 1, 3, 4, 5, 7-11, 14, 16-19: not read yet (timers in 14 "Hercules
+  in 3 minutes"; 3, 12, 14 fail).
+
+**In the engine**: maps 2, 12, 13 and 15 run these rules (records 11-14
+of map 13 wait hidden); radio and cutscenes are left out. Units the engine
+leaves out (not on a floor) don't count, unlike the game. Map 12
+(2026-11-25): the friendlies are on the player's side (battle team 0);
+every unit now aims at the nearest enemy AC **or unit**, so the targets go
+for the friendlies and the friendlies for the targets (not for the player
+or each other, unlike the read above: a stand-in until it is checked in
+the game). Friendly units don't keep the player's side standing. The
+failed ending is a result of its own (`ACR_GEN1_MISSION_FAILED`, the
+battle's 2), shown as "MISSION FAILED"; radio 59's length is a stand-in
+(66 ticks, about 3 s). AC TEST: `ACR_FRIENDS_DOWN=1` starts with the
+friendly units destroyed (`ACR_UNITS_DOWN=1` now only the enemy ones).
+
+## Mission units (read 2026-11-22)
+
+`tools/research/moa_units.py <import>/unpacked` prints the roster below;
+with `<stage> <slot> <out.png>` it draws one unit in its first pose.
+
+- **Chunk 2 is the mission's unit models** (model set at slot 0x80, the
+  arena loader's `0x8005A9A0(0x80)`; Green Silo's is empty): u16 count, then
+  `[u32 size][entry]`, size < 5 = empty. Slot 0 and often the last are
+  empty; **object handler n draws slot 0x80 + n** (map 6: handler 2's five
+  objects are slot 2, the biped cannon MT; map 12 "MTs x 6" and map 13
+  "MTs x 4" use the same model).
+- **An entry** is an animated model like an AC: an animation block in PA
+  entry 0's layout without its size word (byte 0 = animation count, byte 1
+  = nodes, then the block length, 0x1C, joint table, animation list, end;
+  offsets count from 4 bytes before the entry), then a u32 and `u32
+  objects`, and the AC part mesh table: objects = pieces x LODs, LOD 0
+  first, pieces = the joint table's slots. Joint table slot k draws piece
+  k. Corrected 2026-11-23: the u32 is not the LOD count (1-3; U02 says 1
+  and has 3 LODs); the jets (U09, U17, U36) and the big cannon (U40) have
+  2 LODs, so the first pictures showed only 4 of the jets' 7 pieces. ACs have 57 animations and 23 jointed pieces (more for
+  quads); MTs 2-30 animations; turrets, vehicles and buildings 1-4.
+- The same unit (same bytes) is reused across maps: 43 different units
+  in maps 0-19.
+
+Roster (handler: objects x unit; names are by eye from the pictures):
+
+| Map | Briefing | Units |
+| --- | --- | --- |
+| 0 | Capture fugitive | 1 box vehicle (U00), 30 tracked gun MTs (U01), 1 AC (U02) |
+| 1 | Escort submarine | 3 helicopters (U03), 2 gun turrets (U04), box structures (U05, U07), 2 dome turrets (U06), 3 model-less objects (the moving ship) |
+| 2 | Destroy all combat MTs | 31 spider MTs (U08) |
+| 3 | Destroy the cannon | 3 jet fighters (U09), 8 small drones (U10), 1 reverse-legged AC (U11) |
+| 4 | Destroy all enemy forces | 5 small hover guns (U12), 1 AC (U13) |
+| 5 | Gun emplacements x 9 | 5 + 4 gun emplacements (U14, U15), 8 tanks (U16), 1 jet (U17), 1 AC (U18) |
+| 6 | MTs x 5 | 1 big humanoid MT (U19), 5 biped cannon MTs (U20), 1 tank-legged AC (U21), 1 model-less |
+| 7 | Destroy the armoured car | 1 helicopter (U22), 2 spiked armoured cars (U23), 1 box vehicle (U00), 5 humanoid MTs (U24), 1 quad AC (U25) |
+| 8 | AC x 1, MTs | 10 heavy humanoid MTs (U26), 6 cannon turrets (U27), 1 AC (U28), 1 model-less |
+| 9 | Recover secret material | 10 tracked gun MTs (U01), 15 light humanoid MTs (U29), 1 tank-legged AC (U30) |
+| 10 | Locate research team | 8 light humanoid MTs (U29), 25 cannon turrets (U27), 1 cannon MT (U31), 1 AC (U32) |
+| 11 | Goldy | 2 quad ACs (U33, U34) |
+| 12 | MTs x 6 | 6 cannon MTs (U20), 3 cannon MTs (U31) |
+| 13 | Trucks x 3, MTs x 4 | 4 drones (U10), 3 trucks (U35), 4 cannon MTs (U20), 1 jet (U36) |
+| 14 | Hercules | 1 AC (U37) |
+| 15 | Tank x 1 | 4 bunkers (U38), 1 long beam (U39), 2 big cannons (U40) |
+| 16 | Destroy all enemies | 6 heavy humanoid MTs (U26), 10 cannon MTs (U20), 1 AC (U02), 1 model-less |
+| 17 | Defend all gates | 6 tall humanoids (U41), 1 AC (U02), 3 model-less |
+| 18 | Reach the factory's core | 3 ACs (U02) |
+| 19 | (no briefing) | 1 AC (U42) |
+
+**Textures** (read 2026-11-23): every unit's pages and palettes are in
+its map's RTIM entry, the same VRAM load as the stage's textured models.
+Units used on several maps look the same on each (checked texel by texel
+on the faces' areas).
+
+**Import** (2026-11-23, `tools/acr_import/acr_units_moa.c`): acr-import
+writes `units/UNN/` for all 43 (numbered as above): `pieceK.obj` (LOD 0, at
+its node's bind position as AC parts), `skeleton.toml` and `anims.txt` (the
+AC set layout; a drawing node says `draws = "unit K"`), `unit.mtl` +
+`texture-NN.png`, and `unit.toml` (maps, slots, pieces, LODs). Each mission
+map gets `stages/MM/objects.toml`: records 0-2 as points, then each object
+with its handler, unit, skin, place (engine x), facing, type and all its
+raw words. All 43 load through the engine's parsers (skeleton, animations,
+MTL, OBJ). Imports from older builds get them through `acr_import_refresh`.
+
+Record 0 of each map is a third point next to the arena's two starts
+(map 6: game (-8000, -675, 10500) facing 2048); perhaps the player's drop.
+On map 6 it sits on a small structure out at sea, north-east of the
+platform, not on the platform itself. Not checked further.
+
+**In the engine** (2026-11-23, `src/platform/sdl3/demo_units.c`): on any
+mission map (0-19) AC TEST draws every object that has a unit, at its
+record's place and facing, in its animation 0, looping. (Since 2026-11-24
+they fight: see "Mission unit behaviour".) The skeleton reader takes
+`draws = "unit K"` as `ACR_PART_UNIT`. F7 now cycles Green Silo, Ocean
+Platform, map 11, map 6, the open floor (`ACR_STAGE=NN` starts on any map).
+Checked on map 6 (screenshots and a plan from the files): the five biped
+cannon MTs (U20) and the tank-legged AC (U21) stand on the deck (their
+lowest points at 499 against the deck's 500), all facing 0. The big
+humanoid MT (U19, record 6) is placed at game y +500, 1,000 under the deck
+and 560 under the sea surface, north of the platform: probably raised by
+its mission code. Maps 0, 3, 7, 11, 12 and 14 load and draw all their
+objects (map 0: 32).
+
+Screenshots without a screen (Linux): `LIBGL_ALWAYS_SOFTWARE=1
+SDL_VIDEO_FORCE_EGL=1 SDL_AUDIO_DRIVER=dummy ACR_STAGE=6
+ACR_SHOT=out.bmp ACR_SHOT_MS=4000 xvfb-run -a -s "-screen 0 1280x720x24"
+armored-corer <import> --test` (`ACR_HOLD` holds inputs). Without
+`SDL_VIDEO_FORCE_EGL` SDL gets an OpenGL ES context there and nothing is
+drawn.
+
+Read since: AP, weapons and the MT's behaviour ("Mission unit behaviour").
+Still open: state 11, which code sends events 0-4 (the decision timing),
+`0x800A3194`, the mission script and slot 0 (objectives, the big MT's rise).
 
 ## Next
 

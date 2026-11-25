@@ -155,6 +155,7 @@ static struct {
 } g_seen[ACR_GEN1_MAX_SHOTS];
 static int32_t g_ap[ACR_GEN1_MAX_FIGHTERS];
 static int g_ap_ok;
+static uint8_t g_unit_down[ACR_GEN1_MAX_UNITS];   /* each unit's down counter last seen */
 static uint64_t g_last_ns;
 static float g_now_ms;          /* a running clock for flicker */
 static uint32_t g_rng = 0x9E3779B9u;
@@ -183,6 +184,7 @@ static part *spawn(int sheet, int frames, int blend, const float p[3], float lif
 void fx_reset(void) {
     memset(g_part, 0, sizeof g_part);
     memset(g_seen, 0, sizeof g_seen);
+    memset(g_unit_down, 0, sizeof g_unit_down);
     g_ap_ok = 0;
 }
 
@@ -372,6 +374,17 @@ void fx_update(const acr_gen1_battle *b, uint64_t now_ns) {
             ac_blast(feet);
         }
         g_ap[k] = b->f[k].ap;
+    }
+    /* Mission units: a blast sized to the body the tick one is destroyed. */
+    for (int u = 0; u < b->units; ++u) {
+        const acr_gen1_unit *un = &b->unit[u];
+        if (un->down && !g_unit_down[u] && g_ap_ok) {
+            const float c[3] = { (float)un->x / 64.0f, -(float)un->y / 64.0f + un->height * 0.5f, (float)un->z / 64.0f };
+            const float sz = (float)(un->half > un->height ? un->half : un->height) / 150.0f;
+            explosion(c, sz < 0.6f ? 0.6f : sz > 3.0f ? 3.0f : sz, 0);
+            explosion(c, sz * 0.6f < 0.5f ? 0.5f : sz * 0.6f, 0.15f);
+        }
+        g_unit_down[u] = un->down;
     }
     g_ap_ok = 1;
 

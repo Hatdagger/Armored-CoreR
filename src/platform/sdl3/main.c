@@ -48,6 +48,7 @@
 #include "../../gen1/acr_gen1_ai.h"
 #include "demo_model.h"
 #include "demo_stage.h"
+#include "demo_units.h"
 #include "../../model/acr_aim.h"
 #include "garage.h"
 #include "rogue.h"
@@ -570,11 +571,15 @@ static int modern_of(int who) { return (g_options[who] & ACR_GEN1_OPTION_MODERN)
 static const char *g_import_dir = "";
 /* The arena: Green Silo (stage 27) when the import has it; F7 cycles Green
  * Silo, Ocean Platform (39), mission map 11 (the four-pillar hall, the P4
- * Qualifier test) and the open test floor. ACR_STAGE=NN picks any stage
+ * Qualifier test), mission map 6 (the sea platform, with its units) and the
+ * open test floor. ACR_STAGE=NN picks any stage
  * 0-40 to start on (0-19 are the mission maps); ACR_STAGE=open (or -1)
  * starts on the open floor. */
 static demo_stage g_stage;
 static int g_stage_id = 27, g_stage_on = 0;
+/* On a mission map (0-19), its mission units where the map's objects stand
+ * (drawn only: their mission code isn't read yet). Loaded when first drawn. */
+static demo_units g_units = { .map = -1 };
 
 /* Places fighter k's AC on the stage's start k (x, y down, z, facing). */
 static void stage_spawn(acr_gen1_ac *ac, const acr_gen1_ac_def *def, int k) {
@@ -995,7 +1000,7 @@ int main(int argc, char **argv) {
     if (!g_hangar.owned[ACR_GEN1_CAT_OPTION][ACR_GEN1_OPTION_MODERN_BIT])
         g_hangar.owned[ACR_GEN1_CAT_OPTION][ACR_GEN1_OPTION_MODERN_BIT] = 1;
     g_options[0] = g_options[1] = g_part_args ? 0 : g_hangar.options;
-    acr_import_refresh(dir);          /* older imports: the menu sounds, the emblems */
+    acr_import_refresh(dir);          /* older imports: the menu sounds, the emblems, the mission units */
     sfx_open(dir);                    /* the menus' clicks too */
     rogue_init(dir, &g_catalog, g_part_names);
     rogue_set_ac_drawer(rogue_draw_ac);
@@ -1125,6 +1130,17 @@ int main(int argc, char **argv) {
             acr_gen1_ac_spawn(P, def, 0, -2500 * 64, 0);                                  \
             acr_gen1_ac_spawn(T, def2, target_side() * 64, (target_dist() - 2500) * 64, 2048); \
         }                                                                                 \
+        /* Mission maps: their units join the fight (team 1, with the target AC; \
+         * map 12's friendly units team 0, with the player). */                 \
+        demo_units_join(&g_units, g_import_dir, g_stage_on && !g_rogue_fight ? g_stage_id : -1, &battle,  \
+                        g_stage_on ? &g_stage.collision : NULL);                          \
+        /* Testing aids: ACR_UNITS_DOWN=1 starts with the enemy units in the    \
+         * fight destroyed, so a map's script moves on (map 6: the deck opens); \
+         * ACR_FRIENDS_DOWN=1 the friendly ones (map 12: the mission fails). */ \
+        for (int u_ = 0; u_ < battle.units; ++u_)                                         \
+            if (battle.unit[u_].active &&                                                 \
+                SDL_getenv(battle.unit[u_].team & 1 ? "ACR_UNITS_DOWN" : "ACR_FRIENDS_DOWN")) \
+                battle.unit[u_].ap = 0, battle.unit[u_].down = 1;                         \
         acr_gen1_battle_retarget(&battle);                                                \
         memset(battle.shot, 0, sizeof battle.shot);                                       \
         fx_reset();                                                                       \
@@ -1386,10 +1402,11 @@ int main(int argc, char **argv) {
             if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && back_held && e.gbutton.button == SDL_GAMEPAD_BUTTON_DPAD_LEFT) { toggle_stage = 1; back_combo = 1; }
             if (toggle_stage) {
                 /* Green Silo -> Ocean Platform -> mission map 11 (four-pillar
-                 * hall) -> the open test floor -> Green Silo (ACR_STAGE's
+                 * hall) -> mission map 6 (sea platform, its units drawn) ->
+                 * the open test floor -> Green Silo (ACR_STAGE's
                  * stage, if another, goes to the open floor next). A stage
                  * the import lacks is skipped. */
-                static const int k_cycle[] = { 27, 39, 11 };
+                static const int k_cycle[] = { 27, 39, 11, 6 };
                 enum { CYCLE = (int)(sizeof k_cycle / sizeof k_cycle[0]) };
                 int want_id = -1, at = CYCLE;
                 if (!g_stage_on) { want_id = k_cycle[0]; at = 0; }
@@ -2119,6 +2136,17 @@ int main(int argc, char **argv) {
                     round_result = res;
                     break;
                 }
+            } else if (battle.units) {
+                /* A mission map in AC TEST: no clock; won once every enemy
+                 * target (the target AC and the units in the fight) is
+                 * down, lost when the player is down or out of the area. */
+                const int res = acr_gen1_battle_result(&battle, 0);
+                if (!res) ko_ms = 0;
+                if (res && (ko_ms += battle.step_ms) >= 12 * 1000 / 22) {
+                    round_over = 1;
+                    round_result = res;
+                    break;
+                }
             } else if (g_stage_on && acr_gen1_stage_has_area_rule(&g_stage.collision)) {
                 /* Against the still target there is no clock, but leaving
                  * the area (outside both inner boxes) still loses. */
@@ -2153,6 +2181,19 @@ int main(int argc, char **argv) {
             /* The arena's floors and walls (the defs are reloaded on part changes). */
             def->stage = def2->stage = battle.stage = g_stage_on ? &g_stage.collision : NULL;
             acr_gen1_battle_step(&battle, in2, act);
+            if (battle.mission.map) {      /* the map's script: log each step it takes */
+                static acr_gen1_mission last_m;
+                const acr_gen1_mission *m_ = &battle.mission;
+                if (m_->phase != last_m.phase || m_->result != last_m.result || (m_->flags & ~last_m.flags) ||
+                    (m_->end_ticks && !last_m.end_ticks)) {
+                    int up = 0;
+                    for (int u_ = 0; u_ < battle.units; ++u_) up += battle.unit[u_].active && !battle.unit[u_].down;
+                    SDL_Log("mission %02d script: step %d, flags %d, ending in %d ticks%s (%d units in the fight)",
+                            m_->map - 1, m_->phase, m_->flags, m_->end_ticks,
+                            m_->result == ACR_GEN1_MISSION_FAILED ? ", FAILED" : m_->result ? ", DONE" : "", up);
+                }
+                last_m = *m_;
+            }
             for (int k = 0; k < 2; ++k) { in2[k].boost_tapped = 0; boost_released[k] = !in2[k].boost; }
             /* the open floor's square walls (the shown position too, so drawing stops there) */
             const int32_t lim = ARENA * 64;
@@ -2313,6 +2354,13 @@ int main(int argc, char **argv) {
         /* the arena (its sky first, around the eye), or the open floor's grid and walls */
         if (g_stage_on) demo_stage_draw_sky(&g_stage, sky_eye);
         if (g_stage_on) demo_stage_draw(&g_stage, 0);
+        if (g_stage_on && g_stage_id >= 0 && g_stage_id < 20) {
+            if (g_units.map != g_stage_id) {
+                demo_units_free(&g_units);
+                demo_units_load(g_import_dir, g_stage_id, &g_units);
+            }
+            demo_units_draw(&g_units, battle.units ? &battle : NULL, (float)SDL_GetTicksNS() / (float)ACR_GEN1_TICK_NS, &g_light);
+        }
         for (int g = -ARENA; g <= ARENA && !g_stage_on; g += 2000) {
             line3(v3((float)g, 0, (float)-ARENA), v3((float)g, 0, (float)ARENA), 52, 70, 76);
             line3(v3((float)-ARENA, 0, (float)g), v3((float)ARENA, 0, (float)g), 52, 70, 76);
@@ -2434,6 +2482,12 @@ int main(int argc, char **argv) {
         /* Weapon, ammo, AP, lock box and the target's marker. */
         {
             const acr_gen1_fighter *me = &battle.f[view], *tg = &battle.f[tgi];
+            /* A mission unit aimed at: its marker, AP and radar dot instead. */
+            const int tany = acr_gen1_battle_target_any(&battle, view);
+            const acr_gen1_unit *tun = tany >= ACR_GEN1_MAX_FIGHTERS ? &battle.unit[tany - ACR_GEN1_MAX_FIGHTERS] : NULL;
+            const int tg_alive = tun ? tun->ap > 0 && !tun->down : tg->ap > 0;
+            float mk[3] = { tx, ty + 100, tz };
+            if (tun) { mk[0] = (float)tun->x / 64.0f; mk[1] = -(float)tun->y / 64.0f + tun->height * 0.5f; mk[2] = (float)tun->z / 64.0f; }
             if (me->weapons) {
                 const acr_gen1_weapon *w = &me->weapon[me->current];
                 if (w->stance && !me->human_plus) {
@@ -2510,8 +2564,8 @@ int main(int argc, char **argv) {
                     }
                 }
                 float sx, sy;
-                if (tg->ap > 0 && acr_gen1_in_lock_box(&battle, view, w) &&
-                    to_hud(proj, viewm, v3(tx, ty + 100, tz), g_vw, &sx, &sy)) {
+                if (tg_alive && acr_gen1_in_lock_box(&battle, view, w) &&
+                    to_hud(proj, viewm, v3(mk[0], mk[1], mk[2]), g_vw, &sx, &sy)) {
                     if (me->locked) {
                         acr_hud_rect(sx - 18, sy - 18, 36, 36, 255, 60, 50, 255, 0);
                         {
@@ -2547,7 +2601,7 @@ int main(int argc, char **argv) {
                 hs.energy_max = st->energy_capacity;
                 hs.red_zone = st->red_zone;
                 hs.drained = ac.drained;
-                hs.enemy_ap = tg->ap > 0 ? tg->ap : 0;
+                hs.enemy_ap = tun ? (tg_alive ? tun->ap : 0) : tg->ap > 0 ? tg->ap : 0;
                 hs.heading = ac.syaw;
                 for (int k = 0; k < me->weapons && hs.weapons < BATTLE_HUD_MAX_WEAPONS; ++k) {
                     const acr_gen1_weapon *wk = &me->weapon[k];
@@ -2559,15 +2613,23 @@ int main(int argc, char **argv) {
                     ++hs.weapons;
                 }
                 hs.radar_range = ac_data[view].radar_range;
-                hs.enemy_dx = (T->sx - ac.sx) / 64;
-                hs.enemy_dz = (T->sz - ac.sz) / 64;
-                hs.enemy_on_radar = tg->ap > 0;
+                hs.enemy_dx = tun ? (tun->x - ac.sx) / 64 : (T->sx - ac.sx) / 64;
+                hs.enemy_dz = tun ? (tun->z - ac.sz) / 64 : (T->sz - ac.sz) / 64;
+                hs.enemy_on_radar = tg_alive;
                 /* Co-op: every other AC on the radar too, teammates in their own colour. */
                 for (int j = 0; j < nf && hs.others < BATTLE_HUD_MAX_OTHERS; ++j) {
-                    if (j == view || j == tgi || battle.f[j].ap <= 0) continue;
+                    if (j == view || (j == tgi && !tun) || battle.f[j].ap <= 0) continue;
                     hs.other[hs.others].dx = (battle.f[j].ac.sx - ac.sx) / 64;
                     hs.other[hs.others].dz = (battle.f[j].ac.sz - ac.sz) / 64;
                     hs.other[hs.others].ally = acr_gen1_battle_team(&battle, j) == acr_gen1_battle_team(&battle, view);
+                    ++hs.others;
+                }
+                for (int u = 0; u < battle.units && hs.others < BATTLE_HUD_MAX_OTHERS; ++u) {   /* mission units */
+                    const acr_gen1_unit *un = &battle.unit[u];
+                    if (!un->active || un->down || un == tun) continue;
+                    hs.other[hs.others].dx = (un->x - ac.sx) / 64;
+                    hs.other[hs.others].dz = (un->z - ac.sz) / 64;
+                    hs.other[hs.others].ally = (un->team & 1) == acr_gen1_battle_team(&battle, view);
                     ++hs.others;
                 }
                 /* HIT: this AC landed one; DAMAGED: it took one. ARMOR LOW
@@ -2610,7 +2672,7 @@ int main(int argc, char **argv) {
             TEXT(20, 112, "BACK+UP (F4): OPPONENT STILL / AI PRESETS  BACK+DOWN (F6): AI VS AI (WATCH)");
             if (g_stage.ok) TEXT(20, 136, g_stage.collision.bounds ? "BACK+RIGHT (F8): TEST BOUNDARY ON (1,500 PAST THE STARTS)"
                                                                    : "BACK+RIGHT (F8): TEST BOUNDARY OFF");
-            TEXT(20, 124, g_stage.ok ? "BACK+LEFT (F7): GREEN SILO / OCEAN PLATFORM / MISSION MAP 11 / OPEN FLOOR"
+            TEXT(20, 124, g_stage.ok ? "BACK+LEFT (F7): GREEN SILO / OCEAN PLATFORM / MISSION MAPS 11, 6 / OPEN FLOOR"
                                      : "BACK+LEFT (F7): ARENA STAGE (RE-IMPORT THE DISC FOR STAGES)");
         }
         }
@@ -2633,7 +2695,10 @@ int main(int argc, char **argv) {
             const int time_up = round_ms <= 0 && (two_players || g_ai_mode);
             int out = 0;
             for (int j = 0; j < acr_gen1_battle_fighters(&battle); ++j) out |= acr_gen1_battle_out_of_area(&battle, j) == 2;
-            const char *why = out ? "OUT OF AREA" : "KNOCKED OUT";
+            /* A map's script decides by its objective: the game's own words. */
+            const char *why = battle.mission.result == ACR_GEN1_MISSION_FAILED ? "MISSION FAILED"
+                            : battle.mission.result == ACR_GEN1_MISSION_DONE   ? "MISSION ACCOMPLISHED"
+                            : out ? "OUT OF AREA" : "KNOCKED OUT";
             if (time_up) battle_hud_word(full_w, g_hud_frame, BATTLE_HUD_TIME_UP, 140, 255, 230, 120);
             else battle_hud_text(full_w, g_hud_frame, 0, 160.0f - 3.0f * (float)SDL_strlen(why), 140, why, 1, 255, 230, 120);
             {

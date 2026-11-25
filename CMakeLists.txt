@@ -27,6 +27,7 @@ add_library(acr_gen1 STATIC
     src/gen1/acr_gen1_sim.c
     src/gen1/acr_gen1_pose.c
     src/gen1/acr_gen1_battle.c
+    src/gen1/acr_gen1_mission.c
     src/gen1/acr_gen1_garage.c
     src/gen1/acr_gen1_ai.c
     src/gen1/acr_gen1_stage.c
@@ -62,6 +63,7 @@ add_library(acr_import_lib STATIC
     tools/acr_import/acr_motion_moa.c
     tools/acr_import/acr_models_moa.c
     tools/acr_import/acr_stages_moa.c
+    tools/acr_import/acr_units_moa.c
     tools/acr_import/acr_hud_moa.c
     tools/acr_import/acr_sfx_moa.c
     tools/acr_import/acr_arena_moa.c)
@@ -98,6 +100,12 @@ if(NOT MSVC)
     target_link_libraries(test_gen1_battle PRIVATE m)
 endif()
 add_test(NAME gen1_battle COMMAND test_gen1_battle)
+add_executable(test_gen1_units tests/test_gen1_units.c)
+target_link_libraries(test_gen1_units PRIVATE acr_gen1)
+if(NOT MSVC)
+    target_link_libraries(test_gen1_units PRIVATE m)
+endif()
+add_test(NAME gen1_units COMMAND test_gen1_units)
 add_executable(test_gen1_stage tests/test_gen1_stage.c)
 target_link_libraries(test_gen1_stage PRIVATE acr_gen1)
 add_test(NAME gen1_stage COMMAND test_gen1_stage)
@@ -152,7 +160,7 @@ if(ACR_BUILD_GAME)
         GIT_SHALLOW TRUE)
     FetchContent_MakeAvailable(SDL3)
     add_executable(armored-corer WIN32 src/platform/sdl3/main.c src/platform/sdl3/demo_data.c src/platform/sdl3/demo_model.c
-                   src/platform/sdl3/demo_stage.c src/platform/sdl3/garage.c src/platform/sdl3/rogue.c src/platform/sdl3/arena.c src/platform/sdl3/controls.c
+                   src/platform/sdl3/demo_stage.c src/platform/sdl3/demo_units.c src/platform/sdl3/garage.c src/platform/sdl3/rogue.c src/platform/sdl3/arena.c src/platform/sdl3/controls.c
                    src/platform/sdl3/battle_hud.c src/platform/sdl3/net_link.c
                    src/platform/sdl3/net_menu.c src/platform/sdl3/net_brief_ui.c
                    src/platform/sdl3/fx.c src/platform/sdl3/sfx.c src/platform/sdl3/rogue_sound.c)

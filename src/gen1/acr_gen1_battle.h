@@ -16,6 +16,7 @@
 #include <stdint.h>
 
 #include "acr_gen1_sim.h"
+#include "acr_gen1_mission.h"
 
 enum { ACR_GEN1_GUN, ACR_GEN1_MISSILE, ACR_GEN1_BLADE };
 enum { ACR_GEN1_MOUNT_HAND, ACR_GEN1_MOUNT_BACK, ACR_GEN1_MOUNT_ARMS };
@@ -168,7 +169,8 @@ typedef struct acr_gen1_fighter {
 } acr_gen1_fighter;
 
 typedef struct acr_gen1_shot {
-    uint8_t  active, owner, weapon;
+    uint8_t  active, owner, weapon;            /* owner: a fighter, or ACR_GEN1_UNIT(u) */
+    uint16_t attack;                           /* a unit's shot: its attack (solid) */
     int32_t  x, y, z;                          /* 1/64 world units */
     int32_t  vx, vy, vz;                       /* guns: 1/64 units a step; missiles: 1/64 units a tick */
     int32_t  travelled;                        /* world units */
@@ -245,9 +247,71 @@ typedef struct acr_gen1_modern_tuning {
     uint16_t spread, bloom_shot, bloom_max, bloom_decay;
 } acr_gen1_modern_tuning;
 
+/* ---- Mission units (MTs, turrets, vehicles) ----
+ * Master of Arena's mission engine (FDAT 207) keeps them as 376-byte
+ * objects like the ACs, built from the map's records (chunk 13) and the
+ * handler's chunk 12 entry (docs/research/gen1-stages.md, "Mission unit
+ * behaviour"). In a battle they are extra targets beside the fighters:
+ * lockable, hit by shots and missiles, and (with a brain) moving and
+ * firing at the other team. A unit is target number ACR_GEN1_UNIT(u).
+ *
+ * - AP: record +22, in the attack's own units (an AC keeps AP x 4).
+ * - Damage taken (0x8007AEA4): a solid shot its attack; an energy shot
+ *   attack x (8 - n) / 8 + 1, n = record +16 bits 8-11 (signed).
+ * - Damage given (0x8007AE34): as an AC's gun, attack = record +24, through
+ *   the AC's shell factor (acr_gen1_hit_ap).
+ * - Body: chunk 12 entry +0 (half width, either side) and +2 (height).
+ * - MT brain (map 6 code 0x800A3A9C / 0x800A38B4 / 0x800A3430): see
+ *   acr_gen1_battle.c, "Units". */
+#define ACR_GEN1_MAX_UNITS 64
+#define ACR_GEN1_UNIT(u)   (ACR_GEN1_MAX_FIGHTERS + (u))
+enum { ACR_GEN1_BRAIN_NONE, ACR_GEN1_BRAIN_MT, ACR_GEN1_BRAIN_TURRET };
+/* MT states (object +74; pairs a hit swaps: 1-6, 2-8, 3-7, 4-5). */
+enum { ACR_GEN1_UNIT_IDLE, ACR_GEN1_UNIT_AHEAD, ACR_GEN1_UNIT_AHEAD_L, ACR_GEN1_UNIT_AHEAD_R,
+       ACR_GEN1_UNIT_LEFT, ACR_GEN1_UNIT_RIGHT, ACR_GEN1_UNIT_BACK, ACR_GEN1_UNIT_BACK_L,
+       ACR_GEN1_UNIT_BACK_R, ACR_GEN1_UNIT_TURN_L, ACR_GEN1_UNIT_TURN_R };
+#define ACR_GEN1_UNIT_RANGE     7000    /* the MT gun's range (aim routine 0x800A3714, shot table) */
+#define ACR_GEN1_UNIT_SHOT      700     /* its shot speed, world units a tick (shot table +4) */
+#define ACR_GEN1_UNIT_FAR       2500    /* decision distances (game's measure, see .c) */
+#define ACR_GEN1_UNIT_NEAR      1000
+#define ACR_GEN1_UNIT_DOWN_TICKS 20     /* a destroyed unit stays this long (the explosion) */
+#define ACR_GEN1_UNIT_ANIMS     32      /* animations a unit's motion set may have */
+
+typedef struct acr_gen1_unit {
+    uint8_t  active;                           /* in the fight (0: dormant, drawn only) */
+    uint8_t  team;                             /* the fighters' teams; enemies of the other */
+    uint8_t  brain;                            /* ACR_GEN1_BRAIN_* */
+    int32_t  x, y, z;                          /* feet, 1/64 world units, as acr_gen1_ac */
+    int32_t  px, py, pz;                       /* the tick before (gun lead) */
+    uint16_t yaw;                              /* facing, 4096 a turn */
+    int16_t  turn;                             /* turn speed (+212) */
+    int32_t  ap, ap_max;
+    uint16_t half, height;                     /* body box */
+    int8_t   energy_n;                         /* energy defence nibble */
+    uint16_t attack;                           /* its gun's attack, 0 = unarmed */
+    uint8_t  state, state_ticks;               /* MT state and ticks left in it */
+    uint8_t  burst, cooldown;                  /* +71 / +72 */
+    int16_t  gun_yaw, gun_pitch;               /* +126 / +128: the gun off the facing */
+    uint8_t  side;                             /* muzzle alternates (+272 ^ 2) */
+    uint8_t  down;                             /* ticks since destroyed, 0 = alive */
+    int8_t   target;                           /* fighter it aims at, -1 none */
+    uint8_t  hit_flash;                        /* ticks of the hit blink */
+    uint8_t  record;                           /* its chunk 13 record (the script's name for it), 0 = none */
+    uint8_t  wait;                             /* ACR_GEN1_WAIT_*: waiting for the map's script (active 0) */
+    /* Root motion (chunk 12's motion set, stages/MM/motion-HH.toml): an MT
+     * walks by its animations' tracks, ACR_GEN1_UNIT_ANIMS of them (entries
+     * may be NULL). NULL: the stand-in speeds in acr_gen1_battle.c. */
+    const acr_gen1_root_track *const *motion;
+    uint8_t  anim;                             /* the animation it plays (+0x6C), 0 = none / idle */
+    uint16_t anim_frame, span_left;
+    acr_gen1_stepper step[2];                  /* x and z of the key span it is in */
+} acr_gen1_unit;
+
 typedef struct acr_gen1_battle {
     acr_gen1_fighter f[ACR_GEN1_MAX_FIGHTERS];
     uint8_t count;                             /* fighters in the fight, 2..4 (0 = the old 2, see above) */
+    uint8_t units;                             /* mission units in unit[] (0 = none) */
+    acr_gen1_unit unit[ACR_GEN1_MAX_UNITS];
     uint8_t targeted;                          /* targets picked at least once (set by retarget) */
     acr_gen1_shot shot[ACR_GEN1_MAX_SHOTS];
     uint16_t step_ms;                          /* length of a step, for times in ms */
@@ -258,6 +322,7 @@ typedef struct acr_gen1_battle {
     uint32_t rng;                              /* the battle's own random numbers (0 = default seed) */
     const acr_gen1_stage *stage;               /* the arena (NULL = open floor): stops shots */
     acr_gen1_modern_tuning modern;             /* 0 fields = the defaults below */
+    acr_gen1_mission mission;                  /* the mission map's script (0 = none: the plain rule) */
 } acr_gen1_battle;
 
 typedef struct acr_gen1_actions {
@@ -346,8 +411,19 @@ void acr_gen1_battle_step(acr_gen1_battle *b, const acr_gen1_input in[], const a
 int acr_gen1_battle_fighters(const acr_gen1_battle *b);
 /* Fighter i's team: its team field, or i in the old two-AC fight. */
 int acr_gen1_battle_team(const acr_gen1_battle *b, int i);
-/* Fighter i's target, -1 none. */
+/* Fighter i's target, -1 none (or a unit: see _target_any). */
 int acr_gen1_battle_target(const acr_gen1_battle *b, int i);
+/* The same, units included: a fighter, ACR_GEN1_UNIT(u), or -1. */
+int acr_gen1_battle_target_any(const acr_gen1_battle *b, int i);
+/* Where target t (fighter or unit) is: its middle in world units (y down),
+ * its height; 0 when there is no such target. */
+int acr_gen1_battle_target_at(const acr_gen1_battle *b, int t, int32_t mid[3], int32_t *height);
+
+/* Units. Adds one (its fields set as the header says; state, gun and the
+ * like start at 0); returns its number or -1 when full. */
+int acr_gen1_battle_add_unit(acr_gen1_battle *b, const acr_gen1_unit *u);
+/* Damage a unit takes from a hit (0x8007AEA4). */
+int32_t acr_gen1_unit_damage(uint16_t attack, int energy, int8_t n);
 /* Picks every fighter's target now (the step does this itself; call it
  * once after setting a fight up so the first frame shows the right one). */
 void acr_gen1_battle_retarget(acr_gen1_battle *b);

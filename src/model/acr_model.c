@@ -89,7 +89,8 @@ int acr_skeleton_parse(const char *text, acr_skeleton *out) {
         } else if (n >= 0 && (v = value_of(s, e, "draws")) && v < e && *v == '"') {
             const char *a = v + 1, *b = a;
             while (b < e && *b != ' ' && *b != '"') ++b;
-            raw[n].draw_kind = (uint8_t)acr_part_kind(a, (size_t)(b - a));
+            raw[n].draw_kind = (b - a == 4 && !memcmp(a, "unit", 4)) ? (uint8_t)ACR_PART_UNIT
+                                                                     : (uint8_t)acr_part_kind(a, (size_t)(b - a));
             if (read_ints(b, e, x, 1) == 1 && x[0] >= 0 && x[0] < 256) raw[n].draw_piece = (uint8_t)x[0];
         }
         p = *e ? e + 1 : e;

@@ -18,7 +18,9 @@
 
 /* Part kinds a skeleton node can draw (the export's category names). */
 enum { ACR_PART_CORE, ACR_PART_HEAD, ACR_PART_ARMS, ACR_PART_LEGS, ACR_PART_HAND,
-       ACR_PART_BACK_LEFT, ACR_PART_BACK_RIGHT, ACR_PART_BOOSTER, ACR_PART_KINDS, ACR_PART_NONE = 255 };
+       ACR_PART_BACK_LEFT, ACR_PART_BACK_RIGHT, ACR_PART_BOOSTER, ACR_PART_KINDS,
+       /* A mission unit's node (draws = "unit K"): draw_piece = K, the unit's pieceK.obj. */
+       ACR_PART_UNIT = 254, ACR_PART_NONE = 255 };
 
 /* "core", "back-left"... -> ACR_PART_*, or ACR_PART_NONE. */
 int acr_part_kind(const char *name, size_t len);
