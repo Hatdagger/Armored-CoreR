@@ -123,8 +123,11 @@ static void keep_top(const acr_gen1_rogue_world *w, cand *chosen, int need, cand
 
 static int foe_karasawa(const acr_gen1_rogue_foe *f) { return f->karasawa; }
 
-int acr_gen1_rogue_lineup(const acr_gen1_rogue_world *w, uint64_t seed, acr_gen1_rogue_pick out[SLOTS]) {
-    uint64_t rng = seed ^ 0x4C494E45ull;              /* own stream: "LINE" */
+/* Draws `rungs * per` opponents on the ladder's difficulty curve, easiest
+ * first, into `drawn` (roster indices); `per` opponents share a rung (1 solo,
+ * 2 co-op pairs), so every rule that counts rungs counts them `per` times.
+ * Returns the opponents drawn. */
+static int draw_lineup(const acr_gen1_rogue_world *w, uint64_t rng, int rungs, int per, int *drawn) {
     static cand rest[ACR_GEN1_ROGUE_ROSTER];
     static uint8_t taken[ACR_GEN1_ROGUE_ROSTER];
     int nrest = 0;
@@ -139,14 +142,14 @@ int acr_gen1_rogue_lineup(const acr_gen1_rogue_world *w, uint64_t seed, acr_gen1
         ++nrest;
     }
     memset(taken, 0, sizeof taken);
-    int need = NEED < nrest ? NEED : nrest;
+    int need = rungs * per < nrest ? rungs * per : nrest;
     sort_cands(rest, nrest, 0);
     /* The sorted roster cut into `need` buckets; each rung draws from a
-     * window around its bucket, 6 buckets wide at the bottom down to 1 at
+     * window around its bucket, 6 rungs wide at the bottom down to 1 at
      * the top, so low ranks vary between runs while the top stays tight. */
-    cand chosen[SLOTS];
+    cand chosen[2 * SLOTS];
     for (int b = 0; b < need; ++b) {
-        const double wd = need > 1 ? 6.0 - 5.0 * b / (need - 1) : 1.0;
+        const double wd = need > 1 ? per * (6.0 - 5.0 * b / (need - 1)) : 1.0;
         int lo = (int)((double)nrest * (b + 0.5 - wd / 2) / need);
         int hi = (int)((double)nrest * (b + 0.5 + wd / 2) / need + 0.999);
         if (lo < 0) lo = 0;
@@ -169,7 +172,7 @@ int acr_gen1_rogue_lineup(const acr_gen1_rogue_world *w, uint64_t seed, acr_gen1
      * a random lift of up to LINEUP_NOISE score points (the most at the
      * bottom), so the first opponent isn't always one of the same few. */
     {
-        const int loose = need > LINEUP_TIGHT ? need - LINEUP_TIGHT : 0;
+        const int loose = need > LINEUP_TIGHT * per ? need - LINEUP_TIGHT * per : 0;
         for (int b = 0; b < need; ++b) {
             const int j = b < loose ? LINEUP_NOISE * (loose - b) / loose : 0;
             chosen[b].jitter = (uint32_t)chosen[b].score * 1000u +
@@ -177,18 +180,43 @@ int acr_gen1_rogue_lineup(const acr_gen1_rogue_world *w, uint64_t seed, acr_gen1
         }
         sort_cands(chosen, need, 1);
     }
-    keep_top(w, chosen, need, rest, nrest, taken, KARASAWA_TOP, foe_karasawa);
-    keep_top(w, chosen, need, rest, nrest, taken, PLUS_TOP, foe_plus);
+    keep_top(w, chosen, need, rest, nrest, taken, KARASAWA_TOP * per, foe_karasawa);
+    keep_top(w, chosen, need, rest, nrest, taken, PLUS_TOP * per, foe_plus);
+    for (int b = 0; b < need; ++b) drawn[b] = chosen[b].foe;
+    return need;
+}
+
+int acr_gen1_rogue_lineup(const acr_gen1_rogue_world *w, uint64_t seed, acr_gen1_rogue_pick out[SLOTS]) {
+    int pick[NEED];
+    const int need = draw_lineup(w, seed ^ 0x4C494E45ull, NEED, 1, pick);   /* own stream: "LINE" */
     int filled = 0;
     out[filled].kind = ACR_GEN1_ROGUE_PLAYER;
     out[filled].arena = out[filled].rank = 0;
     ++filled;
     for (int b = 0; b < need; ++b, ++filled) {
         out[filled].kind = ACR_GEN1_ROGUE_FOE;
-        out[filled].arena = w->foe[chosen[b].foe].arena;
-        out[filled].rank = w->foe[chosen[b].foe].rank;
+        out[filled].arena = w->foe[pick[b]].arena;
+        out[filled].rank = w->foe[pick[b]].rank;
     }
     return filled;
+}
+
+int acr_gen1_rogue_lineup_pairs(const acr_gen1_rogue_world *w, uint64_t seed,
+                                acr_gen1_rogue_pick out[SLOTS][2]) {
+    int pick[2 * NEED];
+    const int got = draw_lineup(w, seed ^ 0x50414952ull, NEED, 2, pick);    /* own stream: "PAIR" */
+    memset(out, 0, sizeof(acr_gen1_rogue_pick) * SLOTS * 2);
+    out[0][0].kind = out[0][1].kind = ACR_GEN1_ROGUE_PLAYER;
+    const int rungs = got / 2;
+    for (int r = 0; r < rungs; ++r)
+        for (int k = 0; k < 2; ++k) {
+            /* Easiest first: rung r gets the (2r)th and (2r+1)th. */
+            const acr_gen1_rogue_foe *f = &w->foe[pick[2 * r + k]];
+            out[r + 1][k].kind = ACR_GEN1_ROGUE_FOE;
+            out[r + 1][k].arena = f->arena;
+            out[r + 1][k].rank = f->rank;
+        }
+    return rungs + 1;
 }
 
 /* ---- builds ---- */
