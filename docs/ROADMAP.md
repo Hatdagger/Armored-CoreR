@@ -255,9 +255,24 @@ Fixes after the first play-test (2026-11-19):
    2026-11-19, user's layout): GARAGE (ASSEMBLY, AC TEST), SHOP, ARENA,
    MISSIONS, NETWORK, ROGUE ARENA, SYSTEM (SAVE, LOAD, SETTINGS: CONTROLS,
    VIDEO, AUDIO; EXIT GAME). NETWORK and SHOP are their own entries, not
-   inside the garage. MISSIONS, VIDEO and AUDIO show dimmed ("NOT
-   AVAILABLE YET.") until they exist. The game saves by itself after every
-   change; SAVE writes it now, LOAD goes back to the saved garage.
+   inside the garage. MISSIONS shows dimmed ("NOT AVAILABLE YET.") until
+   it exists. The game saves by itself after every change; SAVE writes it
+   now, LOAD goes back to the saved garage.
+   **Garage pages (2026-11-25):** GARAGE now holds ASSEMBLY, OPTIONAL
+   PARTS, PERFORMANCE, CHANGE COLOR, AC TEST (the game's order).
+   OPTIONAL PARTS (mapping §2j): the owned options, their type, slots
+   needed / free, the disc's description and the option's own model
+   turning. CHANGE COLOR (§2l): EDIT COLOR with GENERAL / HEAD / CORE /
+   ARMS / LEGS (4 colours each, R G B 0-64, GENERAL paints the core and
+   copies it over the rest) and DEFAULT (the disc's colours); the paint is
+   saved (save format 3; older saves take their 4 colours on every part)
+   and shown on your AC everywhere you fly it. CHANGE PATTERN (the 15
+   patterns) is listed but not built yet. The shop and assembly lists show
+   each part's shop text from the disc.
+   **SETTINGS > VIDEO / AUDIO (2026-11-25):** fullscreen or window, window
+   size, fight HUD 4:3 / wide (F9 too), smooth / stepped animation (F5
+   too); fight sounds and menu sounds volume (0-10). Saved in
+   `settings.toml` beside the save.
 9. **Android**: SDL3 already runs there; needs an OpenGL ES version of the
    renderer (`src/render/`), picking the disc image with Android's file
    picker for the import, controllers first (touch controls later), and an
@@ -360,12 +375,12 @@ part tables, renderer, menus): see `docs/research/gen1-weapons.md` for the
 fight, `gen1-movement.md` for energy and turning, `gen1-fitting-rules.md`
 for the garage and shop. Still to bring over:
 
-- Garage: the 15 paint patterns
-  (HEAD_T head + 18v, CORE_T core + 11v, ARMS_T arms + 24v, LEG_T legs +
-  40v; colours MENU_TIM 26 + 4v + scheme), default paint, EDIT EMBLEM
-  (64 x 64, 16 colours, colour 0 see-through), shop texts (MIS.T 385),
-  option texts (`0x800CDE8C`), the garage's part models (now imported to
-  `models/menu/`).
+- Garage: the 15 paint patterns and their 45 colour schemes (CHANGE
+  PATTERN; HEAD_T head + 18v, CORE_T core + 11v, ARMS_T arms + 24v, LEG_T
+  legs + 40v; colours MENU_TIM 26 + 4v + scheme; needs acr-import to
+  export the pattern textures), EDIT EMBLEM (64 x 64, 16 colours, colour 0
+  see-through), the garage's part models in ASSEMBLY (imported to
+  `models/menu/`; OPTIONAL PARTS already shows its own).
 - Fight: gun lock distance factor (lock record +0x04), knockback and
   stagger distances, burn (flag 0x80), cannon kick and recoil, the
   first-person camera (START + Triangle + Square), radar (range, missile
