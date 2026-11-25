@@ -83,9 +83,11 @@ static uint32_t load_texture(const char *path) {
     return tex;
 }
 
-/* Faces shaded by a fixed light from above (no stage lights read yet).
- * Textured faces go in a batch per texture, coloured the PS1 way (128 =
- * the texel as it is). */
+/* Faces lit the game's way when the import wrote the stage lights (a
+ * colour on every point: r g b x 255 = the PS1 colour, 128 = the texel as
+ * it is; docs/research/gen1-stages.md, "Stage lights"); otherwise (older
+ * imports, custom maps) shaded by a fixed light from above. Textured faces
+ * go in a batch per texture, coloured the PS1 way. */
 /* Faces lying on another face in the same plane: the smaller of two such
  * faces is the overlay (a decal or a model's second layer); an exact copy
  * of an earlier face is dropped (2). Plane within half a unit, normals
@@ -199,15 +201,20 @@ static int build_faces(demo_stage *s, const char *obj, const char *mtl_text, con
         float lit = unlit ? 1.0f : 0.75f;
         if (len > 0 && !unlit) lit = 0.55f + 0.45f * fabsf((n[0] * L[0] + n[1] * L[1] + n[2] * L[2]) / len);
         const acr_material *m = mesh.material[t] < mtl.count ? &mtl.m[mesh.material[t]] : NULL;
-        const uint8_t r = (uint8_t)((m ? m->r : 160) * lit), g = (uint8_t)((m ? m->g : 160) * lit),
-                      bl = (uint8_t)((m ? m->b : 160) * lit);
+        /* The game's light for this face, per channel (1 = the texel as it is). */
+        float gl[3] = { lit, lit, lit };
+        if (mesh.has_colour && !unlit)
+            for (int k = 0; k < 3; ++k) gl[k] = SDL_roundf(mesh.v[t * 3].c[k] * 255.0f) / 128.0f;
+        const float fr = (m ? m->r : 160) * gl[0], fg = (m ? m->g : 160) * gl[1], fb = (m ? m->b : 160) * gl[2];
+        const uint8_t r = (uint8_t)SDL_min(fr, 255.0f), g = (uint8_t)SDL_min(fg, 255.0f), bl = (uint8_t)SDL_min(fb, 255.0f);
         if (mark[t] == 2) continue;                    /* an exact copy of an earlier face */
         if (m && m->textured && m->kind < s->batches) {
-            const uint8_t c = (uint8_t)(128 * lit);
+            uint8_t c[3];
+            for (int k = 0; k < 3; ++k) c[k] = (uint8_t)SDL_min(128.0f * gl[k] + 0.5f, 255.0f);
             const int bi = m->kind + (mark[t] ? 1 : 0);
             acr_vtx *out = s->batch[bi].v + s->batch[bi].count;
             for (int j = 0; j < 3; ++j) {
-                out[j] = vtx(mesh.v[t * 3 + j].p, c, c, c, s->batch[bi].semi ? 128 : 255);
+                out[j] = vtx(mesh.v[t * 3 + j].p, c[0], c[1], c[2], s->batch[bi].semi ? 128 : 255);
                 out[j].u = mesh.v[t * 3 + j].uv[0];
                 out[j].v = 1.0f - mesh.v[t * 3 + j].uv[1];
             }

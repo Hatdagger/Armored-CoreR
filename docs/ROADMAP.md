@@ -118,7 +118,7 @@ Design docs for what comes after: [STORY.md](STORY.md) (campaign),
    user's pick for the second arena) joins Green Silo in AC TEST (F7).
    Out-of-area: the rule is in (warning, then the loss) with a test
    boundary (F8); the stages' own boxes aren't found yet. Next: those
-   boxes, the other stages, stage lights.
+   boxes, the other stages, stage lights (all three done by 2026-11-25).
    Mission maps (2026-11-20, branch `gen1-mission-stages`): acr-import
    writes stages 0-19 too; AC TEST's F7 adds mission map 11 (the P4
    Qualifier hall) and `ACR_STAGE=NN` opens any of 0-40 (`ACR_STAGE=open`:
@@ -239,7 +239,9 @@ Fixes after the first play-test (2026-11-19):
    Guest rule. **Stages done** (branch `arena-stages-disc`, 2026-11-25):
    all four play (Green Silo, Ocean Platform, Garden Plaza, Night City),
    each with its own out-of-area boxes from the disc, no match timer
-   (user). Still to do: stage lights (read, not applied).
+   (user). **Stage lights done** (branch `stage-lights`, 2026-11-25):
+   each area lit by its own light set from the disc, the game's maths;
+   no fog (user: off by default).
 8. **UI**: the game's menus and garage screens to Master of Arena's design
    (and the split-screen HUD). **Main menu** (first version done,
    2026-11-19, user's layout): GARAGE (ASSEMBLY, AC TEST), SHOP, ARENA,

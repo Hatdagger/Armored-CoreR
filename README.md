@@ -54,7 +54,8 @@ the core, tools and tests, add `-DACR_BUILD_GAME=OFF`.
 
 ## Importing your disc
 
-Re-import after updating to this version: Rogue Arena needs the game's
+Re-import after updating to this version: the stages gained the game's own
+stage lights (an older import keeps one fixed light). Before that, Rogue Arena needed the game's
 arena opponents (`arena/`), the fight sounds need the game's shared fight
 bank (`sfx/`; without it fights are silent) and the weapon effects need the
 game's effect pictures (`fx/`; without them shots draw as plain glows).
