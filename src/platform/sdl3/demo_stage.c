@@ -30,6 +30,34 @@ static int read_start(const char *toml, const char *key, int32_t out[4]) {
     return 1;
 }
 
+/* out_of_area = [ [lo x, y, z, hi x, y, z, bit], ... ] (engine axes). */
+static uint8_t read_out_of_area(const char *toml, acr_gen1_stage_bound *out, unsigned max) {
+    const char *p = SDL_strstr(toml, "\nout_of_area");
+    if (!p || !(p = SDL_strchr(p, '['))) return 0;
+    ++p;
+    unsigned n = 0;
+    while (n < max) {
+        while (*p == ' ' || *p == '\n' || *p == '\r' || *p == ',') ++p;
+        if (*p != '[') break;
+        ++p;
+        long v[7];
+        int k = 0;
+        for (; k < 7; ++k) {
+            char *e;
+            v[k] = SDL_strtol(p, &e, 10);
+            if (e == p) break;
+            p = e;
+            while (*p == ',' || *p == ' ') ++p;
+        }
+        if (k < 7 || *p != ']' || v[6] < 0 || v[6] > 7) return 0;
+        ++p;
+        for (int i = 0; i < 3; ++i) { out[n].lo[i] = (int32_t)v[i]; out[n].hi[i] = (int32_t)v[3 + i]; }
+        out[n].bit = (uint8_t)v[6];
+        ++n;
+    }
+    return (uint8_t)n;
+}
+
 static acr_vtx vtx(const float *p, uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
     acr_vtx v = { p[0], p[1], p[2], r, g, b, a, 0, 0 };
     return v;
@@ -270,6 +298,11 @@ int demo_stage_load(const char *dir, int id, demo_stage *out) {
     char *mtl = load_text(path);
     int ok = coll && toml && acr_gen1_stage_parse(coll, &out->collision) &&
              read_start(toml, "start_1", out->start[0]) && read_start(toml, "start_2", out->start[1]);
+    if (ok) {
+        out->own_bounds = read_out_of_area(toml, out->own_bound, ACR_GEN1_STAGE_BOUNDS);
+        SDL_memcpy(out->collision.bound, out->own_bound, sizeof out->own_bound);
+        out->collision.bounds = out->own_bounds;
+    }
     /* Mission maps (stages 0-19) keep the arena's two start records, but
      * the mission engine doesn't use them as drops: some sit side by side or
      * off the floor. Maps used by the mission tests get their own starts

@@ -15,7 +15,7 @@ garage's own AC, paying prize money and prize parts into the garage.
 
 ```mermaid
 flowchart TD
-    M["Main menu > ARENA"] --> L["Arena list<br/>(main + 8 Ex Arenas, MATCH TIMER, STAGE)"]
+    M["Main menu > ARENA"] --> L["Arena list<br/>(main + 8 Ex Arenas, STAGE)"]
     L --> R["Ladder: RANK, PILOT, CHALLENGE / REFERENCE ONLY"]
     R -- "A on an opponent above" --> Q{"CHALLENGE ...?"}
     Q -- YES --> F["Fight: your garage AC vs their AC and pilot"]
@@ -41,9 +41,10 @@ From the AC1Recomp mapping (`docs/mapping/arena-prizes.md`,
 | Champion / Guest | their part comes only once every opponent there is beaten |
 | Ex Arenas 1-4 | need the matching legs (humanoid, four legs, reverse joint, caterpillar) |
 | Blocked fights | the game's messages: "REFERENCE ONLY", "UNABLE TO CHALLENGE AT THIS TIME", "REQUIRES A SPECIFIC LEG TYPE", "YOUR EQUIPMENT IS INCOMPLETE" |
-| Timer | 2:00, 5:00 or NONE (set on the arena list) |
+| No timer | a fight goes on until one side is down or out of the area, or you give up (Esc twice / Back + Start), which is a loss (user, 2026-11-25) |
+| Out of area | inside the stage's whole-level box but outside both inner boxes loses, as in the game (Garden Plaza, Night City, Ocean Platform; Green Silo is closed in) |
 
-## Our own choices (the mapping doesn't say) — easy to change
+## Our own choices (the mapping doesn't say) — confirmed by the user 2026-11-25
 
 1. **Who drops when you win:** the beaten opponent drops to just below you;
    the ones in between move up one. This keeps the sub arena from ever
@@ -53,9 +54,27 @@ From the AC1Recomp mapping (`docs/mapping/arena-prizes.md`,
    Champion, Guest and FromSoft at main-arena rank 1; Master once Champion,
    Guest and FromSoft have each been topped. (`ACR_ARENA_UNLOCK=1` opens
    them all for testing.)
-4. **A draw counts as a loss** (as in Rogue Arena).
+4. **Giving up counts as a loss.** With no timer a draw only happens when
+   both sides go down at the same moment; that counts as a loss too.
 5. **Prize 22** (Champion's) is a part outside the ten part tables; the
    result screen says the build doesn't have it yet.
+
+## Stages
+
+Pick with STAGE on the arena list (left / right). All four come from the
+disc import; out of area (OoA) boxes are the stage's own, read from the
+disc by acr-import (re-import to get them):
+
+| Stage | Id | Out of area |
+|---|---|---|
+| Green Silo | 27 | none (closed dome) |
+| Ocean Platform | 39 | yes |
+| Garden Plaza | 25 | yes |
+| Night City | 36 | yes |
+
+Walking out at the edges is stopped by walls on all three; you leave the
+area by flying over the edge. Leaving the inner area shows the warning,
+leaving it completely loses the fight.
 
 ## Testing
 
@@ -67,8 +86,9 @@ From the AC1Recomp mapping (`docs/mapping/arena-prizes.md`,
 
 ## Still to do (step 7)
 
-- Stages: the stages' own out-of-area boxes (a test boundary stands in),
-  Garden Plaza and Night City, stage lights. Needs the disc to test.
+- Stage lights: the game's light sets are read (see
+  `docs/research/gen1-stages.md`, "Stage lights"), not applied yet; all
+  stages still share one fixed light.
 - The VS screen before an Arena fight (Rogue Arena has one), opponent
   emblems on the ladder, the "Opponent unavailable, default win" rule
   (opponents killed in missions) once missions count.

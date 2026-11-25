@@ -26,6 +26,11 @@ typedef struct demo_stage {
     int skies;
     int textured;                   /* 1: the textured models; 0: the flat green ones */
     int32_t half;                   /* half width of a square inside the walls, for the AI */
+    /* The stage's own out-of-area boxes (stage.toml out_of_area, imports
+     * from 2026-11-25 on), also put in collision.bound when loaded; kept
+     * here so AC TEST's test boundary can be swapped back. */
+    acr_gen1_stage_bound own_bound[ACR_GEN1_STAGE_BOUNDS];
+    uint8_t own_bounds;
 } demo_stage;
 
 /* Loads <import_dir>/stages/<id>/; 0 (and nothing kept) if it isn't there. */

@@ -236,8 +236,10 @@ Fixes after the first play-test (2026-11-19):
    (branch `arena-ladder`, 2026-11-24; `docs/ARENA.md`): main menu > ARENA
    with the main arena (ranked + sub arena) and the eight Ex Arenas,
    challenge rules, prize money and parts into the garage, the Champion /
-   Guest rule, match timer 2:00 / 5:00 / none. Still to do: the stages'
-   area boxes, Garden Plaza and Night City, stage lights.
+   Guest rule. **Stages done** (branch `arena-stages-disc`, 2026-11-25):
+   all four play (Green Silo, Ocean Platform, Garden Plaza, Night City),
+   each with its own out-of-area boxes from the disc, no match timer
+   (user). Still to do: stage lights (read, not applied).
 8. **UI**: the game's menus and garage screens to Master of Arena's design
    (and the split-screen HUD). **Main menu** (first version done,
    2026-11-19, user's layout): GARAGE (ASSEMBLY, AC TEST), SHOP, ARENA,
@@ -359,8 +361,8 @@ for the garage and shop. Still to bring over:
   stagger distances, burn (flag 0x80), cannon kick and recoil, the
   first-person camera (START + Triangle + Square), radar (range, missile
   blips, display types), Human PLUS levels below "full".
-- Arena (step 4): stage area boxes (out of bounds: inside both inner boxes
-  or lose), prizes (`arena-prizes.md`), opponent AI records (36 bytes), the
-  match timer options (2:00, 5:00, none).
+- Arena (step 4): stage area boxes (done 2026-11-25: chunk 10 stage
+  objects + the stage code's box handler), prizes (`arena-prizes.md`),
+  opponent AI records (36 bytes). No match timer in the Arena (user).
 - Missions later: `missions.md` (mission code and maps are FDAT 0-99).
 
