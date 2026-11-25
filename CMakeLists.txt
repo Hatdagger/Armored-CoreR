@@ -28,6 +28,7 @@ add_library(acr_gen1 STATIC
     src/gen1/acr_gen1_pose.c
     src/gen1/acr_gen1_battle.c
     src/gen1/acr_gen1_mission.c
+    src/gen1/acr_gen1_missions.c
     src/gen1/acr_gen1_garage.c
     src/gen1/acr_gen1_ai.c
     src/gen1/acr_gen1_stage.c
@@ -66,7 +67,8 @@ add_library(acr_import_lib STATIC
     tools/acr_import/acr_units_moa.c
     tools/acr_import/acr_hud_moa.c
     tools/acr_import/acr_sfx_moa.c
-    tools/acr_import/acr_arena_moa.c)
+    tools/acr_import/acr_arena_moa.c
+    tools/acr_import/acr_missions_moa.c)
 target_include_directories(acr_import_lib PUBLIC tools/acr_import)
 target_link_libraries(acr_import_lib PUBLIC acr_gen1)
 if(NOT MSVC)
@@ -130,6 +132,9 @@ add_test(NAME gen1_rogue COMMAND test_gen1_rogue)
 add_executable(test_gen1_arena tests/test_gen1_arena.c)
 target_link_libraries(test_gen1_arena PRIVATE acr_gen1)
 add_test(NAME gen1_arena COMMAND test_gen1_arena)
+add_executable(test_gen1_missions tests/test_gen1_missions.c)
+target_link_libraries(test_gen1_missions PRIVATE acr_gen1)
+add_test(NAME gen1_missions COMMAND test_gen1_missions)
 add_executable(test_rollback tests/test_rollback.c)
 target_link_libraries(test_rollback PRIVATE acr_net)
 add_test(NAME rollback COMMAND test_rollback)
@@ -163,7 +168,8 @@ if(ACR_BUILD_GAME)
                    src/platform/sdl3/demo_stage.c src/platform/sdl3/demo_units.c src/platform/sdl3/garage.c src/platform/sdl3/rogue.c src/platform/sdl3/arena.c src/platform/sdl3/controls.c
                    src/platform/sdl3/battle_hud.c src/platform/sdl3/net_link.c
                    src/platform/sdl3/net_menu.c src/platform/sdl3/net_brief_ui.c
-                   src/platform/sdl3/fx.c src/platform/sdl3/sfx.c src/platform/sdl3/rogue_sound.c)
+                   src/platform/sdl3/fx.c src/platform/sdl3/sfx.c src/platform/sdl3/rogue_sound.c
+                   src/platform/sdl3/missions.c)
     add_library(acr_render_gl STATIC src/render/acr_render_gl.c)
     target_include_directories(acr_render_gl PUBLIC src/render)
     target_link_libraries(armored-corer PRIVATE acr_core acr_gen1 acr_import_lib acr_model acr_light acr_render_gl acr_net SDL3::SDL3-static)

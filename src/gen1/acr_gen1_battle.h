@@ -37,6 +37,8 @@ typedef struct acr_gen1_weapon {
     char     name[20];
     uint16_t attack;
     uint16_t ammo;          /* 0 = unlimited (blade) */
+    uint16_t ammo_price;    /* per round (detail +0xC): the mission report's ammunition bill */
+    uint8_t  solid;         /* damage flag 0x10: only these are billed for ammunition */
     int32_t  range;         /* world units, already capped by the FCS; blade: reach */
     uint8_t  energy;        /* energy damage (else shell) */
     uint16_t lock_ms;       /* guns: non-zero = locks on (the time itself comes from the FCS

@@ -53,6 +53,7 @@
 #include "garage.h"
 #include "rogue.h"
 #include "arena.h"
+#include "missions.h"
 #include "controls.h"
 #include "battle_hud.h"
 #include "fx.h"
@@ -474,14 +475,17 @@ static int next_part(const char *dir, int parts[SLOT_COUNT], int slot, demo_ac *
 #define MODE_ROGUE      10
 #define MODE_CONTROLS   11
 #define MODE_ARENA      12
+#define MODE_MISSIONS   13
 static int g_ai_mode = 0;
 static acr_gen1_ai_profile g_rogue_prof;
 static int g_plus2 = 0;                  /* the opponent's Human PLUS level (Rogue Arena) */
-static int g_rogue_fight = 0;            /* a menu-run fight is on: 1 Rogue Arena, 2 the Arena */
+static int g_rogue_fight = 0;            /* a menu-run fight is on: 1 Rogue Arena, 2 the Arena, 3 a mission */
 static int32_t g_round_start_ms = 120000; /* a round's length (the Arena's timer can change it) */
 static int g_round_clock = 1;            /* 0 = no time limit (the Arena's NONE) */
 /* The fight the menus set up (Rogue Arena's or the Arena's). */
-static const rogue_fight *menu_fight(void) { return g_rogue_fight == 2 ? arena_fight_info() : rogue_fight_info(); }
+static const rogue_fight *menu_fight(void) {
+    return g_rogue_fight == 3 ? missions_fight_info() : g_rogue_fight == 2 ? arena_fight_info() : rogue_fight_info();
+}
 static acr_gen1_ai g_ai[ACR_GEN1_MAX_FIGHTERS];
 static unsigned g_ai_round = 0;
 static int g_autopilot = 0;              /* player 1 flown by the AI too (AI against AI) */
@@ -626,6 +630,7 @@ static void hangar_open(const int start[SLOT_COUNT]) {
     save_path(path, sizeof path);
     char *text = SDL_LoadFile(path, NULL);
     const int ok = text && acr_gen1_save_read(&g_hangar, text);
+    if (ok) acr_gen1_mission_record_read(missions_record(), text);   /* the save's [missions] */
     SDL_free(text);
     if (ok) return;
     uint8_t s[SLOT_COUNT];
@@ -652,9 +657,10 @@ static void hangar_open(const int start[SLOT_COUNT]) {
 }
 
 static int hangar_save(void) {
-    char path[1200], text[4096];
+    char path[1200], text[8192];
     save_path(path, sizeof path);
-    const size_t n = acr_gen1_save_write(&g_hangar, text, sizeof text);
+    size_t n = acr_gen1_save_write(&g_hangar, text, sizeof text);
+    if (n < sizeof text) n += acr_gen1_mission_record_write(missions_record(), text + n, sizeof text - n);
     return n < sizeof text && SDL_SaveFile(path, text, n);
 }
 
@@ -665,6 +671,7 @@ static int hangar_load(void) {
     char *text = SDL_LoadFile(path, NULL);
     acr_gen1_hangar h;
     const int ok = text && acr_gen1_save_read(&h, text);
+    if (ok) acr_gen1_mission_record_read(missions_record(), text);
     SDL_free(text);
     if (ok) g_hangar = h;
     return ok;
@@ -1006,6 +1013,7 @@ int main(int argc, char **argv) {
     rogue_set_ac_drawer(rogue_draw_ac);
     arena_init(dir, &g_hangar, &g_catalog, g_part_names);
     arena_set_ac_drawer(rogue_draw_ac);
+    missions_init(dir, &g_hangar, &g_catalog);
     controls_load();
     controls_ui cui;
     controls_open(&cui);
@@ -1203,6 +1211,7 @@ int main(int argc, char **argv) {
         int to_garage = 0, rogue_done = 0, rogue_give_up = 0;
         rogue_command rcmd = RC_NONE;
         arena_command acmd = AC_NONE;
+        missions_command mcmd = MC_NONE;
         garage_action net_action = GA_NONE;   /* the network screens' input this frame */
         int net_action_keys = 0;
         int net_copy = 0, net_paste = 0;      /* copy / paste a briefing code this frame */
@@ -1231,6 +1240,14 @@ int main(int argc, char **argv) {
                 if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) ga = button_action(e.gbutton.button);
                 const arena_command ac = arena_input(ga);
                 if (ac != AC_NONE) acmd = ac;
+                continue;
+            }
+            if (mode == MODE_MISSIONS) {   /* the MISSIONS screens take all other input */
+                garage_action ga = GA_NONE;
+                if (e.type == SDL_EVENT_KEY_DOWN) ga = key_action(e.key.scancode);
+                if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) ga = button_action(e.gbutton.button);
+                const missions_command mc = missions_input(ga);
+                if (mc != MC_NONE) mcmd = mc;
                 continue;
             }
             if (mode == MODE_ROGUE) {   /* Rogue Arena's screens take all other input */
@@ -1557,24 +1574,34 @@ int main(int argc, char **argv) {
         if (mode == 1 && g_rogue_fight) {
             if (round_over && !rogue_over_at) rogue_over_at = SDL_GetTicks();
             if (round_over && SDL_GetTicks() - rogue_over_at > 4000) rogue_done = 1;
-            /* Testing aid: ACR_ROGUE_AUTOWIN=1 counts every Rogue Arena fight
-             * as won a moment after it starts (headless screen tests). */
+            /* Testing aid: ACR_ROGUE_AUTOWIN=1 counts every menu fight (Rogue
+             * Arena, Arena, missions) as won a moment after it starts
+             * (headless screen tests); =lose as lost. ACR_AUTOEND_MS sets the
+             * moment (default 1500). */
             static Uint64 autowin_at;
             if (!autowin_at) autowin_at = SDL_GetTicks();
-            const int autowin = SDL_getenv("ACR_ROGUE_AUTOWIN") && SDL_GetTicks() - autowin_at > 1500;
+            const char *auto_ = SDL_getenv("ACR_ROGUE_AUTOWIN");
+            const Uint64 auto_ms_ = SDL_getenv("ACR_AUTOEND_MS") ? (Uint64)SDL_atoi(SDL_getenv("ACR_AUTOEND_MS")) : 1500;
+            const int autowin = auto_ && SDL_GetTicks() - autowin_at > auto_ms_;
             if (rogue_give_up || rogue_done || autowin) {
                 autowin_at = 0;
-                const int res_ = autowin ? 1 : rogue_give_up || !round_over ? 2 : round_result;
-                const int was_arena_ = g_rogue_fight == 2;
-                if (was_arena_) { if (arena_fight_over(res_)) hangar_save(); }
+                const int res_ = autowin ? (SDL_strcmp(auto_, "lose") ? 1 : 2) : rogue_give_up || !round_over ? 2 : round_result;
+                const int was_arena_ = g_rogue_fight == 2, was_mission_ = g_rogue_fight == 3;
+                if (was_mission_) {
+                    /* The income and expense report: the player's AP and the
+                     * rounds fired are what the bill is figured from. */
+                    if (missions_fight_over(res_, battle.f[0].ap, battle.f[0].ap_max,
+                                            acr_gen1_mission_ammo_cost(&battle.f[0])))
+                        hangar_save();
+                } else if (was_arena_) { if (arena_fight_over(res_)) hangar_save(); }
                 else rogue_fight_over(res_);
                 g_rogue_fight = 0;
                 g_round_start_ms = ROUND_MS; g_round_clock = 1;
                 g_ai_mode = 0; g_autopilot = 0; g_plus2 = 0; human_plus = 0;
                 g_paint_on[0] = g_paint_on[1] = 0;
                 rogue_over_at = 0;
-                mode = was_arena_ ? MODE_ARENA : MODE_ROGUE;
-                if (was_arena_) {              /* the garage's own AC again (paint off) */
+                mode = was_mission_ ? MODE_MISSIONS : was_arena_ ? MODE_ARENA : MODE_ROGUE;
+                if (was_arena_ || was_mission_) {   /* the garage's own AC again (paint off) */
                     int f_[SLOT_COUNT];
                     hangar_parts(f_);
                     LOAD_PLAYER_BUILD(f_);
@@ -1612,6 +1639,47 @@ int main(int argc, char **argv) {
                 g_round_clock = limit_ > 0;
                 g_round_start_ms = limit_ > 0 ? limit_ : ROUND_MS;
                 g_rogue_fight = 2;
+                set_rate(&clock, def, g_tick_rate);
+                set_rate(&clock, def2, g_tick_rate);
+                SETUP_FIGHTERS();
+                prevs[0] = *P; prevs[1] = *T;
+                last = SDL_GetTicksNS();
+                rogue_over_at = give_up_until = 0;
+                mode = 1;
+            }
+        }
+        if (mode == MODE_MISSIONS) {
+            garage_action d = pad_direction(pads[0], SDL_GetTicks());
+            if (d == GA_NONE) d = script_action();
+            if (d != GA_NONE) { const missions_command c = missions_input(d); if (c != MC_NONE) mcmd = c; }
+            if (mcmd == MC_LEAVE) { mode = 0; gui.screen = 0; }
+            if (mcmd == MC_SORTIE) {
+                /* The garage's AC on the mission map against the mission's
+                 * opponent (P4: the Nest examiner, flown by the balanced AI
+                 * as in AC TEST), with the mission's time limit. */
+                const rogue_fight *mf = missions_fight_info();
+                LOAD_PLAYER_BUILD(mf->parts[0]);
+                memcpy(parts2, mf->parts[1], sizeof parts2);
+                demo_load(dir, parts2, &ac_data[1], err, sizeof err);
+                g_paint_on[0] = 1;
+                memcpy(g_paint[0], mf->colours[0], sizeof g_paint[0]);
+                g_paint_on[1] = 0;
+                g_ai_mode = ACR_GEN1_AI_BALANCED; g_autopilot = 0; two_players = 0;
+                human_plus = 0; g_plus2 = 0;
+                if (!(g_stage.ok && g_stage_id == mf->stage)) {
+                    demo_stage tmp;
+                    if (demo_stage_load(dir, mf->stage, &tmp)) {
+                        if (g_stage.ok) demo_stage_free(&g_stage);
+                        g_stage = tmp;
+                        g_stage_id = mf->stage;
+                    }
+                }
+                g_stage_on = g_stage.ok && g_stage_id == mf->stage;
+                def->stage = def2->stage = battle.stage = g_stage_on ? &g_stage.collision : NULL;
+                const int32_t limit_ = missions_round_ms();
+                g_round_clock = limit_ > 0;
+                g_round_start_ms = limit_ > 0 ? limit_ : ROUND_MS;
+                g_rogue_fight = 3;
                 set_rate(&clock, def, g_tick_rate);
                 set_rate(&clock, def2, g_tick_rate);
                 SETUP_FIGHTERS();
@@ -1701,6 +1769,19 @@ int main(int argc, char **argv) {
             arena_draw(acr_render_hud(0, 0, pw, ph), elapsed);
             goto present;
         }
+        if (mode == MODE_MISSIONS) {
+            static Uint64 missions_last_ms;
+            const Uint64 now_ms = SDL_GetTicks();
+            const int elapsed = missions_last_ms ? (int)(now_ms - missions_last_ms) : 0;
+            missions_last_ms = now_ms;
+            int pw = 0, ph = 0;
+            SDL_GetWindowSizeInPixels(window, &pw, &ph);
+            if (pw < 1 || ph < 1) { SDL_Delay(10); continue; }
+            acr_render_begin(pw, ph, 8, 10, 14);
+            g_screen_pw = pw; g_screen_ph = ph;
+            missions_draw(acr_render_hud(0, 0, pw, ph), elapsed);
+            goto present;
+        }
         if (mode == MODE_ROGUE) {
             static Uint64 rogue_last_ms;
             const Uint64 now_ms = SDL_GetTicks();
@@ -1732,6 +1813,7 @@ int main(int argc, char **argv) {
             }
             if (gcmd == GC_ROGUE) { rogue_open(g_hangar.pilot_name, g_hangar.ac_name); mode = MODE_ROGUE; }
             if (gcmd == GC_ARENA) { arena_open(); mode = MODE_ARENA; }
+            if (gcmd == GC_MISSIONS) { missions_open(); mode = MODE_MISSIONS; }
             if (gcmd == GC_CONTROLS) { controls_open(&cui); mode = MODE_CONTROLS; }
             if (gcmd == GC_QUIT) running = 0;
             if (gcmd == GC_NETWORK) {
@@ -2354,7 +2436,7 @@ int main(int argc, char **argv) {
         /* the arena (its sky first, around the eye), or the open floor's grid and walls */
         if (g_stage_on) demo_stage_draw_sky(&g_stage, sky_eye);
         if (g_stage_on) demo_stage_draw(&g_stage, 0);
-        if (g_stage_on && g_stage_id >= 0 && g_stage_id < 20) {
+        if (g_stage_on && g_stage_id >= 0 && g_stage_id < 20 && !g_rogue_fight) {   /* menu fights: no mission units */
             if (g_units.map != g_stage_id) {
                 demo_units_free(&g_units);
                 demo_units_load(g_import_dir, g_stage_id, &g_units);

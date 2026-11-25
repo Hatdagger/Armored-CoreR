@@ -28,7 +28,7 @@ flowchart LR
     end
     subgraph Content
         R4["4 / 7 Arena<br/>2 stages, walls"]:::doing
-        MS["Missions<br/>P4 playable"]:::doing
+        MS["Missions<br/>P4 from MISSIONS menu"]:::doing
         TM["Tinkercad maps"]:::doing
         ST["Campaign / story"]:::todo
     end
@@ -243,8 +243,12 @@ Fixes after the first play-test (2026-11-19):
    2026-11-19, user's layout): GARAGE (ASSEMBLY, AC TEST), SHOP, ARENA,
    MISSIONS, NETWORK, ROGUE ARENA, SYSTEM (SAVE, LOAD, SETTINGS: CONTROLS,
    VIDEO, AUDIO; EXIT GAME). NETWORK and SHOP are their own entries, not
-   inside the garage. MISSIONS, VIDEO and AUDIO show dimmed ("NOT
-   AVAILABLE YET.") until they exist. The game saves by itself after every
+   inside the garage. VIDEO and AUDIO show dimmed ("NOT AVAILABLE YET.")
+   until they exist. **MISSIONS** (2026-11-25, branch
+   `gen1-missions-menu`): the list (P4 Qualifier, then Master of Arena's
+   20 missions from the disc), briefings with the disc's pages and
+   pictures, the sortie check, and MoA's own income and expense report;
+   see [MISSIONS.md](MISSIONS.md) "MISSIONS screens". The game saves by itself after every
    change; SAVE writes it now, LOAD goes back to the saved garage.
 9. **Android**: SDL3 already runs there; needs an OpenGL ES version of the
    renderer (`src/render/`), picking the disc image with Android's file

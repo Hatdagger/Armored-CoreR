@@ -75,6 +75,8 @@ int main(int argc, char **argv) {
             printf("Wrote %u mission units in %s/units.\n", (unsigned)stats.units, out_dir);
         if (stats.opponents)
             printf("Wrote %u arena opponents in %s/arena.\n", (unsigned)stats.opponents, out_dir);
+        if (stats.missions)
+            printf("Wrote %u missions in %s/missions.\n", (unsigned)stats.missions, out_dir);
         if (stats.archives_skipped)
             printf("Left %u .T files as they are: their tables did not check out.\n",
                    (unsigned)stats.archives_skipped);

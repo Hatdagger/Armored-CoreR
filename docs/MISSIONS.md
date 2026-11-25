@@ -129,9 +129,9 @@ flowchart LR
     G3["3. More units<br/>beyond 4 ACs / 2 teams"]:::todo
     G4["4. Mission file<br/>drops, objectives, timer,<br/>triggers, 40/40/20 roll"]:::todo
     G5["5. Mission AI<br/>scripted paths, flee,<br/>wake-on-trigger"]:::todo
-    G6["6. Screens<br/>select, briefing,<br/>MISSION TIME, results"]:::todo
+    G6["6. Screens<br/>list, briefing, report done;<br/>MISSION TIME HUD next"]:::doing
 
-    P4(["P4 Qualifier<br/>playable now"]):::done
+    P4(["P4 Qualifier<br/>MISSIONS menu"]):::done
     INV(["Investigation"]):::todo
     P125(["P1 / P2 / P5"]):::todo
     P3(["P3 vehicles"]):::todo
@@ -149,6 +149,65 @@ flowchart LR
     classDef todo fill:#333,stroke:#888,color:#ddd
 ```
 
-Test order: P4 (now, a 1v1 vs CPU on map 11 in AC TEST) → Investigation
-(after 3-5) → P1 / P2 / P5 (after 2) → P3 (vehicles). Screens can be
-skipped in tests with a direct launcher.
+Test order: P4 (now, from the MISSIONS menu; also still in AC TEST on map
+11) → Investigation (after 3-5) → P1 / P2 / P5 (after 2) → P3 (vehicles).
+Screens can be skipped in tests with a direct launcher.
+
+## MISSIONS screens (2026-11-25)
+
+Main menu > MISSIONS. Code: `src/platform/sdl3/missions.c` (screens),
+`src/gen1/acr_gen1_missions.c` (rules, unit tests in
+`tests/test_gen1_missions.c`), `tools/acr_import/acr_missions_moa.c`
+(what acr-import reads from the disc).
+
+```mermaid
+flowchart LR
+    L["Mission list<br/>P4 + MoA's 20"] -->|A| B["Briefing<br/>mail header, pages,<br/>pictures"]
+    L -->|Tab / Triangle| R["Read-only briefing<br/>(missions not playable yet)"]
+    B -->|A on last page| Q{"Accept?"}
+    Q -->|YES| C{"Sortie check"}
+    C -->|fails| M["The game's message"]
+    C -->|passes| F["Sortie<br/>(P4: map 11, 3:00)"]
+    F --> X["Income and<br/>expense report"]
+    X --> L
+```
+
+**What's on the screens and where it comes from**
+
+| What | Source |
+|---|---|
+| MoA's 20 missions: name, requester, sender, reward, briefing pages, pictures | Your disc, through acr-import: `GG/MS/MIS.T` entry 0 (the menu's mission table) and the page / picture entries it points to. Written to `<import>/missions/` |
+| Page markup: `@1 ... @0` yellow words, `%n` picture n | The disc's own markup in the pages; the pictures match (e.g. Eliminate Fugitive's `%0` is the Armored Car) |
+| P4 Qualifier: Raven's Nest, 10,000 C, 3:00, briefing | The user's mockup (Standard variant); its last page follows MoA's "Theater of operations" page with the mockup's facts |
+| Sortie check and its three messages | MoA's menu 0x800967C4: incomplete (a part, or a booster on legs that need one) → weight (legs or arm load) → energy. Option slots aren't checked |
+| Income and expense report: picture, digits, row positions, timing | RTIM 63 / 64 (success, picked at random) and 65 (failure), drawn by the missions engine 0x800918E8 |
+| Report maths | See below |
+| Mission record | Saved in the garage's save file, section `[missions]` |
+
+**The report (MoA's rules, read from the disc 2026-11-25).**
+
+- **Reward**: the mission's reward on a success, 0 on a failure.
+- **Special addition / Special deduction**: tallies a MoA mission's own
+  code and breakable structures keep. P4 has none, so they are 0.
+- **Ammunition**: for each solid weapon (damage flag 0x10), rounds fired
+  × its ammo price. Energy weapons cost nothing.
+- **A.C. repair**: (AP max − AP left) × (AC price ÷ 100) ÷ 8,000, rounded
+  down. The AC price is every fitted part but the options. The menu adds
+  it up at launch, and a two-slot back unit counts twice, as on the disc.
+- **Balance** is the sum. **Total credits** = credits + balance, kept
+  between −999,999 and 9,999,999.
+
+A failure still pays ammunition and repair. Mission progress and credits
+go into the same save as the garage.
+
+**Not yet**
+- MoA's own missions can't be flown: they're listed and their briefings
+  can be read. Maps 2, 12, 13, 15 already run their rules in AC TEST;
+  they open once the extra AC TEST target is gone and the radio is in.
+- P4's other variants (Alternate layout, Altered circumstances) and the
+  40/40/20 roll. The Standard variant always runs.
+- P4's examiner has no authored build yet ("balanced mid-weight"): it
+  flies a copy of the player's AC with the balanced AI, as AC TEST's
+  target does.
+- MoA's chapters (which missions are offered when), mail, the "Dummy"
+  slots 20-23 and the table's byte +1160.
