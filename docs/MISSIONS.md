@@ -179,7 +179,7 @@ flowchart LR
 | MoA's 20 missions: name, requester, sender, reward, briefing pages, pictures | Your disc, through acr-import: `GG/MS/MIS.T` entry 0 (the menu's mission table) and the page / picture entries it points to. Written to `<import>/missions/` |
 | Page markup: `@1 ... @0` yellow words, `%n` picture n | The disc's own markup in the pages; the pictures match (e.g. Eliminate Fugitive's `%0` is the Armored Car) |
 | P4 Qualifier: Raven's Nest, 10,000 C, 3:00, briefing | The user's mockup (Standard variant); its last page follows MoA's "Theater of operations" page with the mockup's facts |
-| P4's examiner AC | The user's AI Battle card ([missions/p4-examiner-card.png](missions/p4-examiner-card.png), format 4): XCA-00, HD-REDEYE, AN-201, LN-1001, WG-MGA1, LS-200G, WC-CN35 + WM-X201, COMDEX-G0, GBG-10000, B-HP25; no options, no Human PLUS, BALANCED AI; the card's paint |
+| P4's examiner AC | The user's AI Battle card ([missions/p4-examiner-card.png](missions/p4-examiner-card.png), format 4): XCA-00, HD-REDEYE, AN-201, LN-1001, WG-MGA1, LS-200G, WC-CN35 + WM-X201, COMDEX-G0, GBG-10000, B-HP25; no options, no Human PLUS, BALANCED AI; the card's paint. Names (user): AC **Anfang**, pilot **NEST EXAMINER** |
 | Sortie check and its three messages | MoA's menu 0x800967C4: incomplete (a part, or a booster on legs that need one) → weight (legs or arm load) → energy. Option slots aren't checked |
 | Income and expense report: picture, digits, row positions, timing | RTIM 63 / 64 (success, picked at random) and 65 (failure), drawn by the missions engine 0x800918E8 |
 | Report maths | See below |
@@ -207,7 +207,5 @@ go into the same save as the garage.
   they open once the extra AC TEST target is gone and the radio is in.
 - P4's other variants (Alternate layout, Altered circumstances) and the
   40/40/20 roll. The Standard variant always runs.
-- P4's examiner still needs its names: the card has the builder's
-  defaults (PILOT / AC), so the HUD shows "NEST EXAMINER" for now.
 - MoA's chapters (which missions are offered when), mail, the "Dummy"
   slots 20-23 and the table's byte +1160.

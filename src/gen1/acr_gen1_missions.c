@@ -22,9 +22,8 @@
  * XCA-00, HD-REDEYE, AN-201, LN-1001, WG-MGA1, LS-200G, WC-CN35 (back
  * left), WM-X201 (back right), COMDEX-G0, GBG-10000, B-HP25, no options,
  * no Human PLUS, the BALANCED AI. Colours are the card's paint as the arena
- * record takes it (record bytes 16-27). The card's names are the builder's
- * defaults ("PILOT", "AC"); the user will name them, so the mockup's
- * "Nest examiner" stands in. */
+ * record takes it (record bytes 16-27). Names (the user, 2026-11-25): pilot
+ * NEST EXAMINER, AC Anfang (the card had the builder's defaults). */
 static const uint8_t k_p4_foe[ACR_GEN1_SLOT_COUNT] = {
     [ACR_GEN1_SLOT_CORE] = 0, [ACR_GEN1_SLOT_BOOSTER] = 6, [ACR_GEN1_SLOT_HEAD] = 3, [ACR_GEN1_SLOT_ARMS] = 1,
     [ACR_GEN1_SLOT_BLADE] = 1, [ACR_GEN1_SLOT_HAND] = 2, [ACR_GEN1_SLOT_BACK_L] = 28, [ACR_GEN1_SLOT_BACK_R] = 7,
@@ -61,7 +60,7 @@ static void add_own(acr_gen1_mission_list *l) {
     m->foe_options = 0;
     memcpy(m->foe_colours, k_p4_foe_colours, sizeof m->foe_colours);
     strcpy(m->foe_pilot, "NEST EXAMINER");
-    strcpy(m->foe_ac, "");
+    strcpy(m->foe_ac, "ANFANG");
 }
 
 /* ---- missions.toml ---- */
