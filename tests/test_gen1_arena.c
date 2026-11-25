@@ -101,8 +101,39 @@ static void test_challenge_rules(void) {
     EXPECT(acr_gen1_arena_result(&s, &g_w, 0, 30, 0, &p));
     EXPECT(!p.won && p.new_rank == 49 && acr_gen1_arena_rank(&s, 0) == 49);
     EXPECT(s.a[0].challenges == 2 && s.a[0].wins == 1 && s.a[0].losses == 1);
-    /* Can't book a fight against someone below. */
-    EXPECT(!acr_gen1_arena_result(&s, &g_w, 0, 50, 1, &p));
+    /* Below the player: only the beaten (rank 50, disc rank 20) can be
+     * fought again, as a rematch. */
+    EXPECT(acr_gen1_arena_defeated(&s, 0, 50));
+    EXPECT(acr_gen1_arena_is_rematch(&s, 0, 50));
+    EXPECT(!acr_gen1_arena_is_rematch(&s, 0, 48));
+    EXPECT(acr_gen1_arena_can_challenge(&s, 0, 49, 0, 0) == ACR_GEN1_ARENA_REFERENCE);
+}
+
+static void test_rematch(void) {
+    /* A rematch moves no rank and pays nothing, win or lose, but counts. */
+    acr_gen1_arena s;
+    acr_gen1_arena_new(&s, &g_w);
+    acr_gen1_arena_payout p;
+    EXPECT(acr_gen1_arena_result(&s, &g_w, 0, 49, 1, &p));   /* disc 49 now at 50 */
+    EXPECT(acr_gen1_arena_can_challenge(&s, 0, 50, 0, 0) == ACR_GEN1_ARENA_OK);
+    EXPECT(acr_gen1_arena_can_challenge(&s, 0, 50, 0, ACR_GEN1_FAIL_WEIGHT) == ACR_GEN1_ARENA_INCOMPLETE);
+    const acr_gen1_arena_ladder before = s.a[0];
+    EXPECT(acr_gen1_arena_result(&s, &g_w, 0, 50, 1, &p));
+    EXPECT(p.won && p.rematch && p.money == 0 && p.prize_id == -1 && p.old_rank == 49 && p.new_rank == 49);
+    EXPECT(memcmp(s.a[0].holder, before.holder, sizeof before.holder) == 0);
+    EXPECT(s.a[0].wins == before.wins + 1 && s.a[0].challenges == before.challenges + 1);
+    EXPECT(acr_gen1_arena_result(&s, &g_w, 0, 50, 0, &p));
+    EXPECT(!p.won && p.rematch && s.a[0].losses == before.losses + 1);
+    acr_gen1_hangar h;
+    memset(&h, 0, sizeof h);
+    acr_gen1_arena_pay(&h, &p);
+    EXPECT(h.credits == 0);
+    /* Leg arenas: rematches still need the legs. */
+    climb(&s, 0, 15);
+    EXPECT(acr_gen1_arena_result(&s, &g_w, 1, 9, 1, NULL));
+    EXPECT(acr_gen1_arena_is_rematch(&s, 1, 10));
+    EXPECT(acr_gen1_arena_can_challenge(&s, 1, 10, ACR_GEN1_ARENA_LEGS_FOUR, 0) == ACR_GEN1_ARENA_WRONG_LEGS);
+    EXPECT(acr_gen1_arena_can_challenge(&s, 1, 10, ACR_GEN1_ARENA_LEGS_HUMANOID, 0) == ACR_GEN1_ARENA_OK);
 }
 
 static void test_sub_never_strands(void) {
@@ -121,8 +152,11 @@ static void test_sub_never_strands(void) {
         acr_gen1_arena_result(&s, &g_w, 0, ok[(seed >> 8) % (unsigned)n], 1, NULL);
     }
     EXPECT(acr_gen1_arena_rank(&s, 0) == 16);
-    /* Below the player: the 34 beaten sub-arena opponents, none can be refought. */
-    for (int r = 17; r <= 50; ++r) EXPECT(s.a[0].beaten[acr_gen1_arena_holder(&s, 0, r) - 1]);
+    /* Below the player: the 34 beaten sub-arena opponents, each open for a rematch. */
+    for (int r = 17; r <= 50; ++r) {
+        EXPECT(s.a[0].beaten[acr_gen1_arena_holder(&s, 0, r) - 1]);
+        EXPECT(acr_gen1_arena_can_challenge(&s, 0, r, 0, 0) == ACR_GEN1_ARENA_OK);
+    }
     /* The ranked list is open now; leg arenas not yet (rank 16 is not 15). */
     EXPECT(acr_gen1_arena_can_challenge(&s, 0, 1, 0, 0) == ACR_GEN1_ARENA_OK);
     EXPECT(acr_gen1_arena_open(&s, 1) == ACR_GEN1_ARENA_LOCKED);
@@ -262,6 +296,7 @@ int main(void) {
     test_new();
     test_challenge_rules();
     test_sub_never_strands();
+    test_rematch();
     test_prizes();
     test_second_win_no_part();
     test_leg_arena_and_champion();

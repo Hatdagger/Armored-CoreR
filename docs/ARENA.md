@@ -17,8 +17,10 @@ garage's own AC, paying prize money and prize parts into the garage.
 flowchart TD
     M["Main menu > ARENA"] --> L["Arena list<br/>(main + 8 Ex Arenas, MATCH TIMER, STAGE)"]
     L --> R["Ladder: RANK, PILOT, CHALLENGE / REFERENCE ONLY"]
-    R -- "A on an opponent above" --> Q{"CHALLENGE ...?"}
-    Q -- YES --> F["Fight: your garage AC vs their AC and pilot"]
+    R -- "A on an opponent above,<br/>or a DEFEATED one below" --> Q{"CHALLENGE / REMATCH ...?"}
+    Q -- YES --> V["VS screen: both ACs, emblem, count 5..1,<br/>the ladder a row per rank"]
+    V -- "count out / A" --> F["Fight: your garage AC vs their AC and pilot"]
+    V -- B --> R
     F -- win --> W["YOU WIN: up one rank,<br/>prize money, maybe a part"]
     F -- "loss / draw / give up" --> X["YOU LOSE: rank stays"]
     W --> R
@@ -33,7 +35,7 @@ From the AC1Recomp mapping (`docs/mapping/arena-prizes.md`,
 | Rule | |
 |---|---|
 | Main arena | 50 places: ranks 1-15 the **ranked** list, 16-50 the **sub arena** (L1 / R1 flips the pages) |
-| Sub arena | each opponent is beaten once and can't be fought again ("BEATEN") |
+| Sub arena | in the game each opponent is beaten once and can't be fought again; here they can, as a rematch (below) |
 | Ranked list | opens at the top of the sub arena (rank 16) |
 | Winning | anyone above can be challenged; a win moves you **up one rank** |
 | Prize money | the first win over an opponent only (user, 2026-11-24); credits cap at 99,999,999 |
@@ -56,19 +58,47 @@ From the AC1Recomp mapping (`docs/mapping/arena-prizes.md`,
 4. **A draw counts as a loss** (as in Rogue Arena).
 5. **Prize 22** (Champion's) is a part outside the ten part tables; the
    result screen says the build doesn't have it yet.
+6. **Rematches** (user, 2026-11-25): whoever you beat drops to just
+   below you and is marked **DEFEATED** on the ladder. You can fight them
+   again in any arena, for fun: no rank change, no money, no part (it still
+   counts in the ARENA REPORT, and Ex Arenas still need their legs). Beating
+   the pilot just above you means taking their place; beating someone
+   further up still moves you up one rank (the game's rule).
+
+## The VS screen
+
+Every Arena fight opens with Rogue Arena's VS screen (AC1Recomp's design;
+the code is shared, `src/platform/sdl3/vs_screen.{h,c}`): your AC (blue,
+left), the opponent's (red, right) with their emblem from your disc behind
+it (`<import>/arena/<AA-name>/<RR>-emblem.tim`), RANK badges, FOR RANK n
+(REMATCH for a rematch), the count "UNITS DEPLOY IN 5..1" and the stage;
+then the hangar shutters close and the fight starts. A skips the count, B
+goes back to the ladder.
+
+The bottom band is the arena's **whole ladder, a row per rank** (user,
+2026-11-25), in columns of ten: your row where you stand (blue, "YOU"),
+the opponent's row (red), the defeated struck through in red. In the main
+arena the ranked list's numbers are gold, with a gold line under rank 15.
+
+Your own emblem: none yet. The garage has no EDIT EMBLEM and the save keeps
+no emblem, so the left box shows your AC only; it will pick up your
+emblem once EDIT EMBLEM is built.
 
 ## Testing
 
 - `ACR_ROGUE_AUTOWIN=1` now also wins Arena fights a moment after they
   start (headless screen tests).
-- Tested here with a made-up import (no disc): list, ladder, challenge,
-  fight with and without a clock, win, pay-out and save. Real opponents,
-  their ACs on the ladder panel and the prize part names need the disc.
+- Checked with the real disc (2026-11-25, Master of Arena USA): ladder
+  names (Nine-Ball / Hustler One at rank 1 ... Angst / No Problem at 49),
+  their ACs and emblems on the ladder panel, VS screen, a real win over Top
+  Cap paying 10,000 C and HD-H10, a rematch, the Humanoid Ex Arena. All 23
+  prize ids resolve to the part names in AC1Recomp's `arena-prizes.md`
+  (prize 22 has no part table, as before).
 
 ## Still to do (step 7)
 
 - Stages: the stages' own out-of-area boxes (a test boundary stands in),
   Garden Plaza and Night City, stage lights. Needs the disc to test.
-- The VS screen before an Arena fight (Rogue Arena has one), opponent
-  emblems on the ladder, the "Opponent unavailable, default win" rule
-  (opponents killed in missions) once missions count.
+- The "Opponent unavailable, default win" rule (opponents killed in
+  missions) once missions count.
+- The player's emblem on the VS screen once EDIT EMBLEM exists.

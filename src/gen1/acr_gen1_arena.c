@@ -133,6 +133,16 @@ int acr_gen1_arena_holder(const acr_gen1_arena *s, int a, int rank) {
 
 int acr_gen1_arena_is_sub(int a, int rank) { return a == 0 && rank > ACR_GEN1_ARENA_RANKED; }
 
+int acr_gen1_arena_defeated(const acr_gen1_arena *s, int a, int rank) {
+    const int d = acr_gen1_arena_holder(s, a, rank);
+    return d && s->a[a].beaten[d - 1];
+}
+
+int acr_gen1_arena_is_rematch(const acr_gen1_arena *s, int a, int rank) {
+    const int me = acr_gen1_arena_rank(s, a);
+    return me && rank > me && acr_gen1_arena_defeated(s, a, rank);
+}
+
 /* ---- what may be fought ---- */
 
 const char *acr_gen1_arena_why_text(acr_gen1_arena_why why) {
@@ -166,11 +176,11 @@ acr_gen1_arena_why acr_gen1_arena_can_challenge(const acr_gen1_arena *s, int a, 
     if (open != ACR_GEN1_ARENA_OK) return open;
     const acr_gen1_arena_ladder *l = &s->a[a];
     const int me = acr_gen1_arena_rank(s, a);
-    if (rank < 1 || rank > l->places || rank >= me) return ACR_GEN1_ARENA_REFERENCE;
-    const int foe = l->holder[rank - 1];
-    if (acr_gen1_arena_is_sub(a, rank)) {
-        if (l->beaten[foe - 1]) return ACR_GEN1_ARENA_DONE;
-    } else if (a == 0 && me > ACR_GEN1_ARENA_RANKED + 1) {
+    if (rank < 1 || rank > l->places || rank == me) return ACR_GEN1_ARENA_REFERENCE;
+    if (rank > me) {
+        /* below: only a rematch of someone already beaten */
+        if (!acr_gen1_arena_is_rematch(s, a, rank)) return ACR_GEN1_ARENA_REFERENCE;
+    } else if (!acr_gen1_arena_is_sub(a, rank) && a == 0 && me > ACR_GEN1_ARENA_RANKED + 1) {
         return ACR_GEN1_ARENA_SUB_FIRST;
     }
     if (a >= 1 && a <= 4 && legs_kind != a) return ACR_GEN1_ARENA_WRONG_LEGS;
@@ -193,10 +203,13 @@ int acr_gen1_arena_result(acr_gen1_arena *s, const acr_gen1_arena_world *w, int 
     if (a < 0 || a >= ACR_GEN1_ARENA_COUNT) return 0;
     acr_gen1_arena_ladder *l = &s->a[a];
     const int me = acr_gen1_arena_rank(s, a);
-    if (!me || rank < 1 || rank >= me) return 0;
+    if (!me || rank < 1 || rank == me || rank > l->places) return 0;
+    const int rematch = rank > me;
+    if (rematch && !acr_gen1_arena_is_rematch(s, a, rank)) return 0;
     const int foe_rank = l->holder[rank - 1];
     const acr_gen1_rogue_foe *f = acr_gen1_arena_foe(w, a, foe_rank);
     p.old_rank = p.new_rank = me;
+    p.rematch = rematch;
     if (l->challenges < 0xFFFFu) ++l->challenges;
     if (!won) {
         if (l->losses < 0xFFFFu) ++l->losses;
@@ -206,6 +219,10 @@ int acr_gen1_arena_result(acr_gen1_arena *s, const acr_gen1_arena_world *w, int 
     }
     p.won = 1;
     if (l->wins < 0xFFFFu) ++l->wins;
+    if (rematch) {                  /* for fun only: nothing moves, nothing paid */
+        if (out) *out = p;
+        return 1;
+    }
     /* The beaten opponent drops to just below the player, who moves up
      * one; everyone between moves up to fill its place. */
     for (int i = rank - 1; i < me - 2; ++i) l->holder[i] = l->holder[i + 1];

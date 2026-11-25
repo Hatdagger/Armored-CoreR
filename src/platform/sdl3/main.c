@@ -1586,10 +1586,10 @@ int main(int argc, char **argv) {
             if (d == GA_NONE) d = script_action();
             if (d != GA_NONE) { const arena_command c = arena_input(d); if (c != AC_NONE) acmd = c; }
             if (acmd == AC_LEAVE) { mode = 0; gui.screen = 0; }
-            if (acmd == AC_FIGHT) {
-                /* The garage's AC against the opponent, flown by its own
-                 * pilot, on the stage and with the timer picked on the
-                 * ARENA screen. */
+            if (acmd == AC_FIGHT || arena_vs_due()) {
+                /* After the VS screen: the garage's AC against the opponent,
+                 * flown by its own pilot, on the stage and with the timer
+                 * picked on the ARENA screen. */
                 const rogue_fight *af = arena_fight_info();
                 LOAD_PLAYER_BUILD(af->parts[0]);
                 memcpy(parts2, af->parts[1], sizeof parts2);

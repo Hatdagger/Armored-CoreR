@@ -6,9 +6,9 @@
  * From the AC1Recomp mapping (docs/mapping/arena-prizes.md,
  * menus-screens.md, games/master-of-arena/moa_arena_run_boot.c):
  *  - Arena 0 has 50 places (49 opponents and the player). Ranks 1-15 are
- *    the ranked list, 16-50 the sub arena: sub-arena opponents count as
- *    beaten once and can't be fought again; the ranked list opens once
- *    the player is at the top of the sub arena (rank 16).
+ *    the ranked list, 16-50 the sub arena; the ranked list opens once the
+ *    player is at the top of the sub arena (rank 16). (In the game a
+ *    beaten sub-arena opponent can't be fought again: see rematches below.)
  *  - A win over anyone above moves the player up one rank (the ranked list
  *    and the Ex Arenas).
  *  - A win pays the opponent's prize money (credits, capped at
@@ -19,7 +19,11 @@
  *  - Ex Arenas 1-4 need the matching legs ("Requires a specific leg type.").
  * Armored-CoreR's own choices where the mapping is silent (docs/ARENA.md):
  *  - The beaten opponent drops to just below the player; the ones between
- *    move up one (so the sub arena never strands the player).
+ *    move up one (so the sub arena never strands the player). Beating the
+ *    one just above means taking its place.
+ *  - Rematches (user, 2026-11-25): a beaten ("DEFEATED") opponent below
+ *    the player can be fought again, in any arena, for fun only: no rank
+ *    change, no money, no part. It still counts in the ARENA REPORT.
  *  - Prize money and prize parts are paid the first time an opponent is
  *    beaten only (user, 2026-11-24).
  *  - Ex Arenas open: 1-4 at main-arena rank 15, 5-7 at main-arena rank 1,
@@ -102,7 +106,7 @@ typedef enum acr_gen1_arena_why {
     ACR_GEN1_ARENA_LOCKED,       /* "You may not enter this Arena now." */
     ACR_GEN1_ARENA_WRONG_LEGS,   /* "Requires a specific leg type." */
     ACR_GEN1_ARENA_REFERENCE,    /* at or below the player: "Reference Only" */
-    ACR_GEN1_ARENA_DONE,         /* sub arena, already beaten: "Unable to challenge at this time." */
+    ACR_GEN1_ARENA_DONE,         /* the game's "beaten, can't refight" (unused: rematches are allowed) */
     ACR_GEN1_ARENA_SUB_FIRST,    /* ranked list before the sub arena is cleared: the same message */
     ACR_GEN1_ARENA_INCOMPLETE    /* the AC fails the garage's checks: "Your equipment is incomplete." */
 } acr_gen1_arena_why;
@@ -114,6 +118,12 @@ acr_gen1_arena_why acr_gen1_arena_open(const acr_gen1_arena *s, int a);
  * kind `legs_kind` and `build_fail` from the garage check (0 = legal). */
 acr_gen1_arena_why acr_gen1_arena_can_challenge(const acr_gen1_arena *s, int a, int rank, int legs_kind,
                                                 unsigned build_fail);
+
+/* A fight against rank `rank` would be a rematch: an opponent below the
+ * player that has been beaten before (no rank change, no prize). */
+int acr_gen1_arena_is_rematch(const acr_gen1_arena *s, int a, int rank);
+/* The opponent at rank `rank` has been beaten at least once (DEFEATED). */
+int acr_gen1_arena_defeated(const acr_gen1_arena *s, int a, int rank);
 
 /* A prize part as a catalogue entry. 1 = it maps to a part (prize 22's
  * part is not in the ten part tables: 0). */
@@ -127,11 +137,12 @@ typedef struct acr_gen1_arena_payout {
     int     prize_id;              /* -1 none */
     int     part_cat, part_index;  /* -1 when prize_id has no part */
     int     set_prize;             /* the part is Champion's / Guest's all-beaten prize */
+    int     rematch;               /* a rematch: no rank change, nothing paid */
 } acr_gen1_arena_payout;
 
-/* Books a fight against rank `rank` of arena `a` (a challenge the player
- * could make): won = 1 or 0 (draws are losses). Moves the ranks and fills
- * `out`. 1 = booked. */
+/* Books a fight against rank `rank` of arena `a` (a challenge or a rematch
+ * the player could make): won = 1 or 0 (draws are losses). Moves the ranks
+ * (not for a rematch) and fills `out`. 1 = booked. */
 int acr_gen1_arena_result(acr_gen1_arena *s, const acr_gen1_arena_world *w, int a, int rank, int won,
                           acr_gen1_arena_payout *out);
 /* Pays a booked win into the garage: credits (capped), the part's copies
