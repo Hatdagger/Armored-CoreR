@@ -24,7 +24,7 @@ flowchart LR
     end
     subgraph Online
         R6["6 Netplay<br/>rollback 1v1 + co-op"]:::done
-        CO["Rogue Arena co-op<br/>local 2P"]:::doing
+        CO["Rogue Arena co-op<br/>local 2P + online"]:::doing
     end
     subgraph Content
         R4["4 / 7 Arena<br/>2 stages, walls"]:::doing
@@ -231,8 +231,9 @@ the rules (`src/gen1/acr_gen1_coop.{h,c}`, tests in
 controllers**: ROGUE ARENA > CO-OP, 19 pairs from the disc, 2v2 fights on
 the split screen with no time limit, the rejoin choice, each player's
 prize screen, the shared stash, the final duel, RETRY with a ghost pair.
-Next: online (the host keeps the run, rollback fights), then a two-PC
-play-test.
+**Online** (branch `rogue-coop-online`): NETWORK > MODE ROGUE ARENA CO-OP;
+the host keeps the run, both players' screens at once, READY from both,
+rollback fights, resume after a disconnect. Next: a two-PC play-test.
 
 ## Next, in order (agreed 2026-11-19)
 

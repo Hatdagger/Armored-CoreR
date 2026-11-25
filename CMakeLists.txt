@@ -39,7 +39,7 @@ target_include_directories(acr_gen1 PUBLIC src/gen1)
 
 # Netplay: rollback over any packet link (no sockets in here, so it ports
 # to the Xbox's System Link later).
-add_library(acr_net STATIC src/net/acr_rollback.c src/net/acr_brief.c src/net/acr_brief_words.c)
+add_library(acr_net STATIC src/net/acr_rollback.c src/net/acr_msg.c src/net/acr_brief.c src/net/acr_brief_words.c)
 target_include_directories(acr_net PUBLIC src/net)
 target_link_libraries(acr_net PUBLIC acr_gen1)
 target_link_libraries(acr_gen1 PUBLIC acr_core)
@@ -140,6 +140,9 @@ add_test(NAME rollback COMMAND test_rollback)
 add_executable(test_brief tests/test_brief.c)
 target_link_libraries(test_brief PRIVATE acr_net)
 add_test(NAME brief COMMAND test_brief)
+add_executable(test_msg tests/test_msg.c)
+target_link_libraries(test_msg PRIVATE acr_net)
+add_test(NAME msg COMMAND test_msg)
 add_executable(test_light tests/test_light.c)
 target_link_libraries(test_light PRIVATE acr_light)
 add_test(NAME light COMMAND test_light)

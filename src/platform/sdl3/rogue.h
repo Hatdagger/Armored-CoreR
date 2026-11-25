@@ -7,12 +7,15 @@
 #define ROGUE_H
 
 #include "garage.h"
+#include "net_link.h"
 
 typedef enum rogue_command {
     RC_NONE,
     RC_FIGHT,       /* start the fight in rogue_fight_info() */
     RC_GARAGE,      /* open the run's garage (assembly only) */
-    RC_LEAVE        /* back to the main garage menu */
+    RC_LEAVE,       /* back to the main garage menu */
+    RC_NETWORK,     /* co-op: open NETWORK with ROGUE ARENA CO-OP picked */
+    RC_NET_CLOSE    /* online co-op is over: close the link */
 } rogue_command;
 
 typedef struct rogue_fight {
@@ -28,6 +31,13 @@ typedef struct rogue_fight {
     int humans;                        /* 0 or 1 solo / the Arena, 2 co-op */
     int fighters;                      /* co-op: 4 against a pair, 2 the duel */
     char name[4][48];
+    /* Online co-op (online 1): this PC's player (0 host, 1 guest), the
+     * fight's random seed (the host's), the input delay. The fight runs on
+     * rollback, the pair's pilots inside the match. */
+    int online;
+    int net_local;
+    uint32_t net_seed;
+    int net_delay;
 } rogue_fight;
 
 /* main.c draws the ACs of the VS and victory screens: build `parts` in
@@ -58,8 +68,24 @@ int rogue_vs_due(void);
 void rogue_fight_over(int result);
 /* A co-op fight is over (rogue_fight_info()->humans == 2): the result as
  * acr_gen1_battle_result (1 the players' team / player 1 in the duel, 2 the
- * pair / player 2, 3 a draw) and whether each player's AC was destroyed. */
+ * pair / player 2, 3 a draw) and whether each player's AC was destroyed.
+ * Online, 0 means the fight was abandoned (a player left, the connection
+ * was lost): it doesn't count, and the session ends. */
 void rogue_coop_fight_over(int result, int p1_down, int p2_down);
+
+/* Online co-op (docs/ROGUE-ARENA-COOP.md): the link is connected with
+ * ROGUE ARENA CO-OP picked; the co-op screens take it from here (the host
+ * keeps the run). main.c keeps the link and closes it on RC_NET_CLOSE. */
+void rogue_coop_online_begin(net_link *link, const net_match_info *info);
+/* Once a frame while the co-op screens or an online co-op fight are on:
+ * messages, the connection, timers. RC_FIGHT starts the fight in
+ * rogue_fight_info(); RC_NET_CLOSE ends the online session. */
+rogue_command rogue_tick(uint64_t now_ms, int in_fight);
+/* Online co-op fight, the guest: the host has sent the result (as
+ * rogue_coop_fight_over takes it). 1 = it came. */
+int rogue_coop_net_result(int *result, int *p1_down, int *p2_down);
+/* Online co-op: this PC is in a session. */
+int rogue_coop_online(void);
 
 /* The run's garage (assembly) and its catalogue (prices in P, no shop). */
 garage_data rogue_garage_data(void);

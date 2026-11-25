@@ -269,6 +269,75 @@ static void test_duel(void) {
     EXPECT(!g_c.over);
 }
 
+/* Online: the host keeps the run and sends it whole; the guest plays its
+ * own prize screen on its copy and sends back only its side. */
+static int same_state(const acr_gen1_coop *a, const acr_gen1_coop *b) {
+    static char ta[96 * 1024], tb[96 * 1024];
+    const size_t na = acr_gen1_coop_state_write(a, ta, sizeof ta), nb = acr_gen1_coop_state_write(b, tb, sizeof tb);
+    return na == nb && na < sizeof ta && !strcmp(ta, tb);
+}
+
+static void test_online(void) {
+    const acr_gen1_rogue_world w = world();
+    static acr_gen1_coop guest;
+    static char text[96 * 1024];
+    EXPECT(acr_gen1_coop_new(&g_c, &w, 9090, k_pilot, k_ac));
+    size_t n = acr_gen1_coop_state_write(&g_c, text, sizeof text);
+    EXPECT(n > 0 && n < sizeof text);
+    memset(&guest, 0, sizeof guest);
+    EXPECT(acr_gen1_coop_state_read(&guest, text));
+    EXPECT(same_state(&g_c, &guest));
+    EXPECT(guest.seed == g_c.seed && !memcmp(guest.pair, g_c.pair, sizeof g_c.pair));
+    for (int p = 0; p < 2; ++p) EXPECT(guest.player[p].seed == g_c.player[p].seed);
+
+    /* A win with player 2 destroyed. The host applies the guest's NEW RANDOM AC. */
+    earn(&w, 8);
+    acr_gen1_coop_won(&g_c, 0, 1);
+    EXPECT(acr_gen1_coop_rejoin(&g_c, &w, 1, 0));
+    acr_gen1_coop_state_write(&g_c, text, sizeof text);
+    EXPECT(acr_gen1_coop_state_read(&guest, text) && same_state(&g_c, &guest));
+    /* Both prize screens at once: the host's on the run, the guest's on its copy. */
+    EXPECT(save_one(&w, 0));
+    acr_gen1_rogue_offer o[3];
+    const int no = acr_gen1_rogue_offers(&guest.player[1], &w, o);
+    int took = 0;
+    for (int i = 0; i < no && !took; ++i)
+        if (o[i].kind == ACR_GEN1_OFFER_PART && (int32_t)o[i].cost <= guest.player[1].hangar.credits)
+            took = acr_gen1_rogue_take(&guest.player[1], &w, &o[i], -1);   /* saved for later */
+    if (!took) acr_gen1_rogue_pass(&guest.player[1]);
+    EXPECT(!acr_gen1_coop_prize_due(&guest, 1));
+    EXPECT(acr_gen1_coop_side_write(&guest, 1, text, sizeof text) < sizeof text);
+    EXPECT(acr_gen1_coop_side_read(&g_c, 1, text));
+    EXPECT(!acr_gen1_coop_prize_due(&g_c, 1));
+    EXPECT(g_c.player[1].hangar.credits == guest.player[1].hangar.credits);
+    EXPECT(!memcmp(g_c.player[1].hangar.owned, guest.player[1].hangar.owned, sizeof g_c.player[1].hangar.owned));
+    EXPECT(g_c.player[1].saved_n == took);
+    acr_gen1_coop_collect(&g_c, 1);
+    EXPECT(g_c.stash_n == 1 + took && g_c.stash[g_c.stash_n - 1].owner == (took ? 1 : 0));
+    EXPECT(acr_gen1_coop_ready(&g_c));
+    /* The stash lock travels too. */
+    EXPECT(acr_gen1_coop_hold(&g_c, 0, 0));
+    acr_gen1_coop_state_write(&g_c, text, sizeof text);
+    EXPECT(acr_gen1_coop_state_read(&guest, text) && same_state(&g_c, &guest));
+    EXPECT(guest.hold[0] == 0 && guest.hold[1] == -1 && !acr_gen1_coop_hold(&guest, 1, 0));
+    /* A side can't claim prize screens that haven't happened; nonsense is refused. */
+    acr_gen1_coop_side_write(&guest, 1, text, sizeof text);
+    const uint8_t wins = g_c.wins;
+    g_c.wins = 0;
+    EXPECT(!acr_gen1_coop_side_read(&g_c, 1, text));
+    g_c.wins = wins;
+    EXPECT(!acr_gen1_coop_side_read(&g_c, 0, text));           /* player 2's side as player 1's */
+    const acr_gen1_coop keep = g_c;
+    EXPECT(!acr_gen1_coop_state_read(&g_c, "nonsense") && !memcmp(&keep, &g_c, sizeof keep));
+    /* A long run with ghosts still fits one message. */
+    acr_gen1_coop_lost(&g_c);
+    EXPECT(acr_gen1_coop_retry(&g_c, &w));
+    n = acr_gen1_coop_state_write(&g_c, text, sizeof text);
+    printf("co-op online: the whole run is %u bytes\n", (unsigned)n);
+    EXPECT(n < 60000);
+    EXPECT(acr_gen1_coop_state_read(&guest, text) && same_state(&g_c, &guest) && guest.ghosts == g_c.ghosts);
+}
+
 int main(void) {
     make_catalog();
     make_roster();
@@ -279,6 +348,7 @@ int main(void) {
     test_retry_ghosts();
     test_save_mid_run();
     test_duel();
+    test_online();
     if (failures) { printf("%d failure(s)\n", failures); return 1; }
     printf("rogue arena co-op: all passed\n");
     return 0;
