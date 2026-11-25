@@ -12,7 +12,8 @@
 #include "rogue.h"
 
 /* Timing (seconds since the screen opened): the count starts at VS_C0 and
- * steps every VS_STEP; the shutters start at VS_SHUT_AT. */
+ * steps every VS_STEP; the shutters start at VS_SHUT_AT (a 5 count; a
+ * shorter count, vs_setup.count, starts them sooner). */
 #define VS_C0        0.6f
 #define VS_STEP      1.0f
 #define VS_SHUT_AT   (VS_C0 + 5.0f * VS_STEP)
@@ -33,6 +34,7 @@ typedef struct vs_setup {
     const char *stage;               /* under the count */
     const char *hint;                /* the bottom line */
     int shots;                       /* rifle shots on counts 3, 2, 1 (the last `shots` of them, 0-3) */
+    int count;                       /* the count's first number, 0 = 5 (the shots assume 5) */
     vs_strip_fn strip;
 } vs_setup;
 

@@ -31,7 +31,15 @@
  *  - A draw (both down at once) counts as a loss.
  *  - No match timer in the Arena (user, 2026-11-25): a fight goes on until
  *    one side is down or out of the area, or the player gives up (a loss).
- *    The timer setting below stays in the save file but isn't used. */
+ *    The timer setting below stays in the save file but isn't used.
+ *
+ * Absent opponents (the menu module's challenge code, FDAT 206 0x800BF43C):
+ * after YES to "Do you want to challenge?", an opponent who can't fight
+ * (Armored-CoreR: killed in a mission) and hasn't been handled yet gives
+ * "Opponent unavailable, default win.": it's marked handled and the player
+ * moves up one rank with no fight. Challenging a handled one again says
+ * "Opponent is unable to compete." The default win pays nothing (the game
+ * pays prizes after a fight; this path skips it). */
 #ifndef ACR_GEN1_ARENA_H
 #define ACR_GEN1_ARENA_H
 
@@ -46,6 +54,9 @@
 #define ACR_GEN1_ARENA_YOU    255   /* the player's place in holder[] */
 #define ACR_GEN1_ARENA_PRIZES 23
 #define ACR_GEN1_ARENA_CREDITS_MAX 99999999
+
+/* An opponent's presence (ladder.absent[]). */
+enum { ACR_GEN1_ARENA_PRESENT = 0, ACR_GEN1_ARENA_ABSENT = 1, ACR_GEN1_ARENA_ABSENT_DONE = 2 };
 
 /* Leg kinds, numbered as the Ex Arenas that ask for them. */
 enum { ACR_GEN1_ARENA_LEGS_NONE = 0, ACR_GEN1_ARENA_LEGS_HUMANOID, ACR_GEN1_ARENA_LEGS_FOUR,
@@ -67,6 +78,7 @@ typedef struct acr_gen1_arena_ladder {
     uint8_t  holder[ACR_GEN1_ARENA_PLACES];       /* holder[r - 1]: disc rank at rank r, or ARENA_YOU */
     uint8_t  beaten[ACR_GEN1_ARENA_PLACES];       /* by disc rank - 1: beaten at least once */
     uint8_t  part_given[ACR_GEN1_ARENA_PLACES];   /* by disc rank - 1: its prize part was given */
+ uint8_t  absent[ACR_GEN1_ARENA_PLACES];       /* by disc rank - 1: ACR_GEN1_ARENA_ABSENT_* */
     uint8_t  set_given;                           /* Champion / Guest: the all-beaten prize was given */
     uint8_t  best;                                /* the player's best rank (0 = never fought) */
     uint16_t challenges, wins, losses;            /* ARENA REPORT */
@@ -141,6 +153,7 @@ typedef struct acr_gen1_arena_payout {
     int     part_cat, part_index;  /* -1 when prize_id has no part */
     int     set_prize;             /* the part is Champion's / Guest's all-beaten prize */
     int     rematch;               /* a rematch: no rank change, nothing paid */
+    int     default_win;           /* the opponent was absent: no fight, no pay */
 } acr_gen1_arena_payout;
 
 /* Books a fight against rank `rank` of arena `a` (a challenge or a rematch
@@ -151,6 +164,20 @@ int acr_gen1_arena_result(acr_gen1_arena *s, const acr_gen1_arena_world *w, int 
 /* Pays a booked win into the garage: credits (capped), the part's copies
  * (+1, +1 more for the paired back weapons, capped at ACR_GEN1_OWN_MAX). */
 void acr_gen1_arena_pay(acr_gen1_hangar *h, const acr_gen1_arena_payout *p);
+
+/* Marks (arena, disc rank) as unable to fight (missions call this; the
+ * ACR_ARENA_ABSENT test switch too). One already handled stays handled.
+ * 1 = marked. */
+int acr_gen1_arena_set_absent(acr_gen1_arena *s, int a, int disc_rank);
+/* The presence of the opponent at rank `rank` (ACR_GEN1_ARENA_*; PRESENT
+ * for the player or no one). */
+int acr_gen1_arena_absent_at(const acr_gen1_arena *s, int a, int rank);
+/* "Opponent unavailable, default win.": books a challenge to an absent
+ * opponent at rank `rank` (one the player could challenge) as a win with
+ * no money and no part, and marks it handled. 1 = booked. A handled one
+ * ("Opponent is unable to compete.") can't be fought, not even as a
+ * rematch: acr_gen1_arena_result refuses absent opponents. */
+int acr_gen1_arena_default_win(acr_gen1_arena *s, int a, int rank, acr_gen1_arena_payout *out);
 
 /* ---- save file (plain text, arena.toml) ---- */
 #define ACR_GEN1_ARENA_FORMAT 1

@@ -18,7 +18,9 @@ flowchart TD
     M["Main menu > ARENA"] --> L["Arena list<br/>(main + 8 Ex Arenas, STAGE)"]
     L --> R["Ladder: RANK, PILOT, CHALLENGE / REFERENCE ONLY"]
     R -- "A on an opponent above,<br/>or a DEFEATED one below" --> Q{"CHALLENGE / REMATCH ...?"}
-    Q -- YES --> V["VS screen: both ACs, emblem, count 5..1,<br/>the ladder a row per rank"]
+    Q -- YES --> V["VS screen: both ACs, emblem,<br/>count 3..1, shutters"]
+    Q -- "YES, opponent absent" --> D["Opponent unavailable, default win:<br/>up one rank, no pay"]
+    D --> R
     V -- "count out / A" --> F["Fight: your garage AC vs their AC and pilot"]
     V -- B --> R
     F -- win --> W["YOU WIN: up one rank,<br/>prize money, maybe a part"]
@@ -69,22 +71,44 @@ From the AC1Recomp mapping (`docs/mapping/arena-prizes.md`,
 
 ## The VS screen
 
-Every Arena fight opens with Rogue Arena's VS screen (AC1Recomp's design;
-the code is shared, `src/platform/sdl3/vs_screen.{h,c}`): your AC (blue,
-left), the opponent's (red, right) with their emblem from your disc behind
-it (`<import>/arena/<AA-name>/<RR>-emblem.tim`), RANK badges, FOR RANK n
-(REMATCH for a rematch), the count "UNITS DEPLOY IN 5..1" and the stage;
-then the hangar shutters close and the fight starts. A skips the count, B
-goes back to the ladder.
-
-The bottom band is the arena's **whole ladder, a row per rank** (user,
-2026-11-25), in columns of ten: your row where you stand (blue, "YOU"),
-the opponent's row (red), the defeated struck through in red. In the main
-arena the ranked list's numbers are gold, with a gold line under rank 15.
+Every Arena fight opens with a VS screen (the user's simpler pick,
+2026-11-25; the code is shared with Rogue Arena, `src/platform/sdl3/vs_screen.{h,c}`):
+your AC (blue, left), the opponent's (red, right) with their emblem from
+your disc behind it (`<import>/arena/<AA-name>/<RR>-emblem.tim`), RANK
+badges, the pilot names, VS (REMATCH under it for a rematch), "UNITS
+DEPLOY IN 3..1" and the stage; then the hangar shutters close and the
+fight starts. A skips the count, B goes back to the ladder. No strip in the
+bottom band (Rogue Arena keeps its strip of small boxes and its 5 count).
 
 Your own emblem: none yet. The garage has no EDIT EMBLEM and the save keeps
-no emblem, so the left box shows your AC only; it will pick up your
-emblem once EDIT EMBLEM is built.
+no emblem, so the left box shows your AC only.
+
+## Emblems
+
+Each opponent's emblem shows small on its ladder row and large behind its
+AC on the ladder panel and the VS screen.
+
+## Absent opponents: "Opponent unavailable, default win."
+
+From the menu module's challenge code (FDAT 206, `0x800BF43C`; strings at
+`0x80053FE0` / `0x80054004`). After YES, an opponent who can't fight and
+hasn't been handled yet gives **"Opponent unavailable, default win."**: it
+is marked handled and you move up one rank with no fight. Challenging a
+handled one again (it sits below you, like a DEFEATED one) gives
+**"Opponent is unable to compete."**; no rematch.
+
+| | |
+|---|---|
+| Who is absent | Armored-CoreR: opponents killed in missions (missions hook in later through `acr_gen1_arena_set_absent`) |
+| Pay | none: no prize money, no part (the game pays after a fight; this path has none) |
+| Ladder | UNAVAILABLE on the row until then; afterwards it drops below you as after a win, counts as beaten and reads UNABLE |
+| Save | `absent = [...]` per arena in `arena.toml` (by disc rank: 1 due, 2 given); older saves read as all present |
+
+What makes an opponent absent in the game itself (the check just before,
+`0x8007E164`) isn't mapped yet.
+
+Test switch until missions count: `ACR_ARENA_ABSENT="0:49,0:48"` marks
+(arena : disc rank) absent. Disc rank is the rank on a new game.
 
 ## Stages
 
@@ -116,4 +140,6 @@ leaving it completely loses the fight.
 
 ## Still to do (step 7)
 
-- (filled in below)
+- Stage lights and backgrounds: PRs #19 and #21.
+- Missions calling `acr_gen1_arena_set_absent` when an arena pilot dies.
+- The player's emblem on the VS screen once EDIT EMBLEM exists.

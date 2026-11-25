@@ -171,6 +171,7 @@ void vs_open(const vs_setup *s) {
     V.s = *s;
     if (V.s.shots < 0) V.s.shots = 0;
     if (V.s.shots > 3) V.s.shots = 3;
+    if (V.s.count <= 0 || V.s.count > 5) V.s.count = 5;
     V.t = 0;
     V.shut = -1;
     V.shots = V.door = 0;
@@ -223,7 +224,7 @@ void vs_draw(float hud_w, int elapsed_ms) {
     const float dt = (float)elapsed_ms / 1000.0f;
     V.t += dt;
     const float t = V.t;
-    if (V.shut < 0 && t >= VS_SHUT_AT) V.shut = 0;
+    if (V.shut < 0 && t >= VS_C0 + (float)V.s.count * VS_STEP) V.shut = 0;
     else if (V.shut >= 0) V.shut += dt;
     const float sh = V.shut;
     /* the sounds: a shot with each slash, the shutters' slam on the meet */
@@ -289,7 +290,7 @@ void vs_draw(float hud_w, int elapsed_ms) {
     acr_hud_rect(0, 323, hud_w, 2, band[0], band[1], band[2], 255, 1);
     if (V.s.strip) V.s.strip(hud_w, sx, t, band);
     /* the count */
-    const int count = sh < 0 && t >= VS_C0 ? 5 - (int)((t - VS_C0) / VS_STEP) : 0;
+    const int count = sh < 0 && t >= VS_C0 ? V.s.count - (int)((t - VS_C0) / VS_STEP) : 0;
     if (count > 0) {
         SDL_snprintf(s, sizeof s, "%d", count);
         vs_text_mid(cx, 205, s, 27, 255, 196, 72);

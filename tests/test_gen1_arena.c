@@ -291,6 +291,62 @@ static void test_save_round_trip(void) {
     EXPECT(r.a[2].places == 0);
 }
 
+/* "Opponent unavailable, default win." / "Opponent is unable to compete." */
+static void test_absent_default_win(void) {
+    acr_gen1_arena s;
+    acr_gen1_arena_new(&s, &g_w);
+    EXPECT(acr_gen1_arena_set_absent(&s, 0, 49));
+    EXPECT(!acr_gen1_arena_set_absent(&s, 0, 50));          /* the player's place */
+    EXPECT(!acr_gen1_arena_set_absent(&s, 2, 1));           /* no such arena in the import */
+    EXPECT(acr_gen1_arena_absent_at(&s, 0, 49) == ACR_GEN1_ARENA_ABSENT);
+    EXPECT(acr_gen1_arena_absent_at(&s, 0, 48) == ACR_GEN1_ARENA_PRESENT);
+    EXPECT(acr_gen1_arena_absent_at(&s, 0, 50) == ACR_GEN1_ARENA_PRESENT);
+    /* a present opponent can't be won by default */
+    acr_gen1_arena_payout p;
+    EXPECT(!acr_gen1_arena_default_win(&s, 0, 48, &p));
+    const uint32_t c0 = s.a[0].challenges;
+    EXPECT(acr_gen1_arena_default_win(&s, 0, 49, &p));
+    EXPECT(p.won && p.default_win && p.money == 0 && p.prize_id == -1 && p.part_cat == -1);
+    EXPECT(p.old_rank == 50 && p.new_rank == 49);
+    EXPECT(acr_gen1_arena_rank(&s, 0) == 49);
+    EXPECT(acr_gen1_arena_holder(&s, 0, 50) == 49);          /* dropped below the player */
+    EXPECT(s.a[0].absent[48] == ACR_GEN1_ARENA_ABSENT_DONE);
+    EXPECT(s.a[0].challenges == c0 + 1 && s.a[0].wins == 1);
+    /* handled once: no second default win, no rematch either; marking again keeps it handled */
+    EXPECT(!acr_gen1_arena_default_win(&s, 0, 50, &p));
+    EXPECT(!acr_gen1_arena_result(&s, &g_w, 0, 50, 1, &p));
+    /* while absent and not yet handled, a fight can't be booked either */
+    EXPECT(acr_gen1_arena_set_absent(&s, 0, 48));
+    EXPECT(!acr_gen1_arena_result(&s, &g_w, 0, 48, 1, &p));
+    s.a[0].absent[47] = ACR_GEN1_ARENA_PRESENT;
+    EXPECT(acr_gen1_arena_set_absent(&s, 0, 49));
+    EXPECT(s.a[0].absent[48] == ACR_GEN1_ARENA_ABSENT_DONE);
+    /* a prize opponent absent: no part, no money (rank 3 has prize 4) */
+    acr_gen1_hangar h;
+    memset(&h, 0, sizeof h);
+    climb(&s, 0, 16);
+    climb(&s, 0, 4);
+    EXPECT(acr_gen1_arena_rank(&s, 0) == 4);
+    const int d = acr_gen1_arena_holder(&s, 0, 3);
+    EXPECT(acr_gen1_arena_set_absent(&s, 0, d));
+    EXPECT(acr_gen1_arena_default_win(&s, 0, 3, &p));
+    acr_gen1_arena_pay(&h, &p);
+    EXPECT(h.credits == 0);
+    for (int c = 0; c < ACR_GEN1_CAT_COUNT; ++c)
+        for (int i = 0; i < ACR_GEN1_PART_MAX; ++i) EXPECT(h.owned[c][i] == 0);
+    /* saved and read back; an older save without the absent line reads as all present */
+    static char text[16384];
+    acr_gen1_arena_write(&s, text, sizeof text);
+    acr_gen1_arena r;
+    EXPECT(acr_gen1_arena_read(&r, text));
+    EXPECT(memcmp(&r, &s, sizeof r) == 0);
+    char *line = strstr(text, "absent = [");
+    EXPECT(line != NULL);
+    if (line) line[0] = 'X';                                   /* key gone */
+    EXPECT(acr_gen1_arena_read(&r, text));
+    EXPECT(r.a[0].absent[48] == 0);
+}
+
 int main(void) {
     make_world();
     test_new();
@@ -301,6 +357,7 @@ int main(void) {
     test_second_win_no_part();
     test_leg_arena_and_champion();
     test_save_round_trip();
+    test_absent_default_win();
     if (failures) { printf("%d failure(s)\n", failures); return 1; }
     printf("gen1 arena: all passed\n");
     return 0;

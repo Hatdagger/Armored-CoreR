@@ -239,7 +239,12 @@ Fixes after the first play-test (2026-11-19):
    Guest rule. **Stages done** (branch `arena-stages-disc`, 2026-11-25):
    all four play (Green Silo, Ocean Platform, Garden Plaza, Night City),
    each with its own out-of-area boxes from the disc, no match timer
-   (user). Still to do: stage lights (read, not applied).
+   (user). **VS screen, emblems, rematches, default win done** (branch
+   `arena-vs-simple-on15`, replaces PR #15's VS screen, 2026-11-25): a
+   simple VS screen before each fight, opponents' emblems on the ladder,
+   rematches of DEFEATED opponents, the game's "Opponent unavailable,
+   default win" rule (missions mark the absent later). Stage lights and
+   backgrounds: PRs #19 / #21.
 8. **UI**: the game's menus and garage screens to Master of Arena's design
    (and the split-screen HUD). **Main menu** (first version done,
    2026-11-19, user's layout): GARAGE (ASSEMBLY, AC TEST), SHOP, ARENA,
