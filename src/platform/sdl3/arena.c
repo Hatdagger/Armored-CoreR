@@ -7,6 +7,7 @@
 #include "../../gen1/acr_gen1_arena.h"
 #include "../../render/acr_render.h"
 #include "sfx.h"
+#include "vs_screen.h"
 
 #define WHITE 220, 230, 235
 #define DIM 120, 135, 145
@@ -14,7 +15,7 @@
 #define GOOD 120, 230, 140
 #define BAD 255, 90, 70
 
-enum { AS_PICK, AS_LADDER, AS_ASK, AS_RESULT };
+enum { AS_PICK, AS_LADDER, AS_ASK, AS_VS, AS_RESULT };
 
 /* The stages offered (the four that matter for the current build, user
  * 2026-11-19; as Rogue Arena). Green Silo is the default. */
@@ -45,10 +46,11 @@ static struct {
     int message_ms, err, snd;
     int stages[NSTAGE], nstages;
     float spin;
+    char vs_right[40];                   /* AS_VS: the top right line */
 } A;
 
 static rogue_ac_drawer g_draw_ac;
-void arena_set_ac_drawer(rogue_ac_drawer fn) { g_draw_ac = fn; }
+void arena_set_ac_drawer(rogue_ac_drawer fn) { g_draw_ac = fn; vs_set_ac_drawer(fn); }
 
 static void say(const char *t) {
     SDL_strlcpy(A.message, t, sizeof A.message);
@@ -120,6 +122,28 @@ static const char *stage_name(int id) {
     return "STAGE";
 }
 
+/* Test switch until missions count: ACR_ARENA_ABSENT="0:12,5:3" marks
+ * (arena : disc rank) as unable to fight (disc rank = the rank on a new
+ * game). Kept in arena.toml. */
+static void absent_from_env(void) {
+    const char *e = SDL_getenv("ACR_ARENA_ABSENT");
+    if (!e) return;
+    int changed = 0;
+    while (*e) {
+        char *end;
+        const long a = SDL_strtol(e, &end, 10);
+        if (end == e || *end != ':') break;
+        e = end + 1;
+        const long d = SDL_strtol(e, &end, 10);
+        if (end == e) break;
+        e = end;
+        const int was = a >= 0 && a < ACR_GEN1_ARENA_COUNT && d >= 1 && d <= ACR_GEN1_ARENA_PLACES ? A.s.a[a].absent[d - 1] : -1;
+        if (was >= 0 && acr_gen1_arena_set_absent(&A.s, (int)a, (int)d) && A.s.a[a].absent[d - 1] != was) changed = 1;
+        while (*e == ',' || *e == ' ') ++e;
+    }
+    if (changed) save();
+}
+
 int arena_init(const char *import_dir, acr_gen1_hangar *hangar, const acr_gen1_catalog *cat,
                char names[ACR_GEN1_CAT_COUNT][ACR_GEN1_PART_MAX][24]) {
     SDL_strlcpy(A.import_dir, import_dir, sizeof A.import_dir);
@@ -143,6 +167,7 @@ int arena_init(const char *import_dir, acr_gen1_hangar *hangar, const acr_gen1_c
     A.nstages = 0;
     for (int i = 0; i < NSTAGE; ++i) if (stage_exists(k_stage[i].id)) A.stages[A.nstages++] = i;
     load();
+    absent_from_env();
     A.ok = A.s.a[0].places > 0;
     A.screen = AS_PICK;
     return A.ok;
@@ -219,10 +244,12 @@ static void foe_name(const acr_gen1_rogue_foe *f, char *out, size_t size) {
     else SDL_snprintf(out, size, "%s", f->ac[0] ? f->ac : f->pilot);
 }
 
-static const acr_gen1_rogue_foe *foe_at(int rank) {
-    const int d = acr_gen1_arena_holder(&A.s, A.arena, rank);
-    return d ? acr_gen1_arena_foe(&A.w, A.arena, d) : NULL;
+static const acr_gen1_rogue_foe *foe_at_in(int arena, int rank) {
+    const int d = acr_gen1_arena_holder(&A.s, arena, rank);
+    return d ? acr_gen1_arena_foe(&A.w, arena, d) : NULL;
 }
+
+static const acr_gen1_rogue_foe *foe_at(int rank) { return foe_at_in(A.arena, rank); }
 
 static const char *part_name(int cat, int index) {
     if (!A.names || cat < 0 || cat >= ACR_GEN1_CAT_COUNT || index < 0 || index >= ACR_GEN1_PART_MAX) return "A PART";
@@ -250,6 +277,44 @@ static int prepare_fight(int rank) {
     A.fight_rank = rank;
     return 1;
 }
+
+/* ---- the VS screen (vs_screen.c, shared with Rogue Arena) ----
+ * The Arena's is the simpler one (user, 2026-11-25): both ACs, their RANK
+ * badges and names, the opponent's emblem, VS, a 3 count and the
+ * shutters; no strip in the bottom band. */
+
+static void vs_start(void) {
+    const int a = A.fight_arena, rank = A.fight_rank, me = acr_gen1_arena_rank(&A.s, a);
+    const int rematch = acr_gen1_arena_is_rematch(&A.s, a, rank);
+    if (a == 0 && A.s.a[0].places > ACR_GEN1_ARENA_RANKED)
+        SDL_snprintf(A.vs_right, sizeof A.vs_right, "%s", acr_gen1_arena_is_sub(a, rank) ? "SUB ARENA" : "RANKED");
+    else SDL_snprintf(A.vs_right, sizeof A.vs_right, "%s", acr_gen1_arena_name(a));
+    vs_setup s;
+    SDL_zero(s);
+    s.fight = &A.fight;
+    s.mode = a == 0 ? "ARENA" : "EX ARENA";
+    s.right = A.vs_right;
+    s.band[0] = 0xEC; s.band[1] = 0xA8; s.band[2] = 0x24;
+    s.rank[0] = me;
+    s.rank[1] = rank;
+    /* The player's emblem: none yet (the garage has no EDIT EMBLEM). */
+    s.emblem[1] = vs_emblem(A.import_dir, a, acr_gen1_arena_holder(&A.s, a, rank));
+    s.tag = rematch ? "REMATCH" : NULL;
+    s.stage = stage_name(A.fight.stage);
+    s.hint = "ENTER / A  SORTIE NOW    ESC / B  BACK TO THE LADDER";
+    s.count = 3;
+    vs_open(&s);
+}
+
+/* "Opponent unavailable, default win.": no fight, up one rank, no pay. */
+static void default_win(int rank) {
+    foe_name(foe_at(rank), A.pay_foe, sizeof A.pay_foe);
+    if (!acr_gen1_arena_default_win(&A.s, A.arena, rank, &A.pay)) return;
+    save();
+    A.screen = AS_RESULT;
+}
+
+int arena_vs_due(void) { return A.screen == AS_VS && vs_due(); }
 
 const rogue_fight *arena_fight_info(void) { return &A.fight; }
 int32_t arena_round_ms(void) { return 0; }   /* no clock in the Arena */
@@ -347,9 +412,21 @@ static arena_command input(garage_action a) {
         if (a == GA_LEFT || a == GA_RIGHT || a == GA_UP || a == GA_DOWN) { A.ask = 1 - A.ask; return AC_NONE; }
         if (a == GA_CANCEL || (a == GA_OK && A.ask == 1)) { A.screen = AS_LADDER; return AC_NONE; }
         if (a != GA_OK) return AC_NONE;
+        {   /* the game checks the opponent is there after YES (FDAT 206 0x800BF43C) */
+            const int rank = cursor_rank(), absent = acr_gen1_arena_absent_at(&A.s, A.arena, rank);
+            if (absent == ACR_GEN1_ARENA_ABSENT) { default_win(rank); return AC_NONE; }
+            if (absent == ACR_GEN1_ARENA_ABSENT_DONE) { say("OPPONENT IS UNABLE TO COMPETE."); A.screen = AS_LADDER; return AC_NONE; }
+        }
         if (!prepare_fight(cursor_rank())) { say("THE OPPONENT COULD NOT BE LOADED."); A.screen = AS_LADDER; return AC_NONE; }
-        A.screen = AS_LADDER;
-        return AC_FIGHT;
+        vs_start();                     /* the fight starts when it's done (arena_vs_due) */
+        A.screen = AS_VS;
+        return AC_NONE;
+    case AS_VS:
+        if (vs_closing()) { A.snd = -3; return AC_NONE; }             /* closing: nothing to do (silent) */
+        if (a == GA_CANCEL) { A.screen = AS_LADDER; return AC_NONE; }
+        if (a == GA_OK) vs_skip();                                    /* skip the count: the shutters now */
+        else A.snd = -3;
+        return AC_NONE;
     case AS_RESULT:
         if (a != GA_OK && a != GA_CANCEL) return AC_NONE;
         ladder_home();
@@ -365,7 +442,7 @@ arena_command arena_input(garage_action a) {
     A.err = 0;
     A.snd = -1;
     const arena_command c = input(a);
-    int k = A.snd == -2 ? SFX_UI_BACK : A.snd;
+    int k = A.snd == -2 ? SFX_UI_BACK : A.snd;   /* -3: silent */
     if (k == -1) {
         if (A.err) k = SFX_UI_BACK;
         else if (a == GA_OK) k = SFX_UI_OK;
@@ -481,8 +558,15 @@ static void status_of(int rank, const char **text, uint8_t c[3]) {
     const int me = acr_gen1_arena_rank(&A.s, A.arena);
     static const uint8_t good[3] = { GOOD }, dim[3] = { DIM }, hi[3] = { HILITE }, bad[3] = { BAD };
     const uint8_t *k = dim;
+    const int absent = acr_gen1_arena_absent_at(&A.s, A.arena, rank);
     if (rank == me) { *text = "YOU"; k = hi; }
-    else {
+    else if (absent == ACR_GEN1_ARENA_ABSENT_DONE) *text = "UNABLE";
+    else if (absent == ACR_GEN1_ARENA_ABSENT && why_at(rank) == ACR_GEN1_ARENA_OK) { *text = "UNAVAILABLE"; k = hi; }
+    else if (acr_gen1_arena_defeated(&A.s, A.arena, rank) && rank > me) {
+        static const uint8_t down[3] = { 200, 110, 100 };
+        *text = "DEFEATED";             /* a rematch, for fun: no rank, no prize */
+        k = why_at(rank) == ACR_GEN1_ARENA_OK ? down : dim;
+    } else {
         switch (why_at(rank)) {
         case ACR_GEN1_ARENA_OK: *text = "CHALLENGE"; k = good; break;
         case ACR_GEN1_ARENA_DONE: *text = "BEATEN"; break;
@@ -517,6 +601,10 @@ static void draw_ladder(float hud_w, int elapsed_ms) {
         SDL_snprintf(line, sizeof line, "%2d", rank);
         acr_hud_text(lx + 4, y, line, WHITE);
         const acr_gen1_rogue_foe *f = foe_at(rank);
+        if (f) {   /* its emblem, small */
+            const uint32_t em = vs_emblem(A.import_dir, A.arena, f->rank);
+            if (em) acr_hud_sprite(em, 64, 64, 0, 0, 64, 64, lx + 28, y - 4, 18, 18, 255, 255, 255, 255, ACR_HUD_ALPHA);
+        }
         if (rank == me && A.h) SDL_snprintf(line, sizeof line, "%.20s", A.h->pilot_name[0] ? A.h->pilot_name : "YOU");
         else SDL_snprintf(line, sizeof line, "%.20s", f ? (f->pilot[0] ? f->pilot : f->ac) : "?");
         if (rank == me) acr_hud_text(lx + 52, y, line, HILITE);
@@ -550,6 +638,9 @@ static void draw_ladder(float hud_w, int elapsed_ms) {
     } else if (f) {
         acr_hud_text(px + 12, 58, f->ac[0] ? f->ac : "AC", HILITE);
         acr_hud_text(px + 12, 72, f->pilot, WHITE);
+        /* its emblem behind the AC */
+        vs_emblem_draw(vs_emblem(A.import_dir, A.arena, acr_gen1_arena_holder(&A.s, A.arena, rank)), px + 8, 92, pw - 16,
+                       230, 210, 0, 120);
         if (g_draw_ac) {
             int parts[SLOT_COUNT];
             for (int s = 0; s < SLOT_COUNT; ++s) parts[s] = f->parts[s];
@@ -558,8 +649,11 @@ static void draw_ladder(float hud_w, int elapsed_ms) {
         char c[24];
         const acr_gen1_arena_ladder *l = &A.s.a[A.arena];
         const int d = acr_gen1_arena_holder(&A.s, A.arena, rank);
+        const int absent = acr_gen1_arena_absent_at(&A.s, A.arena, rank);
         num((long)f->prize_money, c, sizeof c);
-        if (!(d && l->beaten[d - 1])) {   /* paid on the first win only: nothing shown after */
+        if (absent) {
+            if (absent == ACR_GEN1_ARENA_ABSENT) acr_hud_text(px + 12, 336, "OPPONENT UNAVAILABLE", HILITE);
+        } else if (!(d && l->beaten[d - 1])) {   /* paid on the first win only: nothing shown after */
             SDL_snprintf(line, sizeof line, "PRIZE      %s C", c);
             acr_hud_text(px + 12, 336, line, WHITE);
         }
@@ -570,12 +664,14 @@ static void draw_ladder(float hud_w, int elapsed_ms) {
                 SDL_snprintf(line, sizeof line, "BEAT ALL:  %s", part_name(pc, pi));
                 acr_hud_text(px + 12, 352, line, GOOD);
             }
-        } else if (d && !l->part_given[d - 1] && acr_gen1_arena_prize_part(f->prize_part, &pc, &pi)) {
+        } else if (!absent && d && !l->part_given[d - 1] && acr_gen1_arena_prize_part(f->prize_part, &pc, &pi)) {
             SDL_snprintf(line, sizeof line, "PART       %s", part_name(pc, pi));
             acr_hud_text(px + 12, 352, line, GOOD);
         }
         const acr_gen1_arena_why why = why_at(rank);
         if (why != ACR_GEN1_ARENA_OK) acr_hud_text(px + 12, 372, acr_gen1_arena_why_text(why), DIM);
+        else if (absent == ACR_GEN1_ARENA_ABSENT_DONE) acr_hud_text(px + 12, 372, "OPPONENT IS UNABLE TO COMPETE.", DIM);
+        else if (acr_gen1_arena_is_rematch(&A.s, A.arena, rank)) acr_hud_text(px + 12, 372, "DEFEATED.  A: REMATCH (NO PRIZE)", GOOD);
         else acr_hud_text(px + 12, 372, "A: CHALLENGE", GOOD);
         if (f->ai.rebel) acr_hud_text(px + 12, 388, "HUMAN PLUS", BAD);
     }
@@ -589,7 +685,7 @@ static void draw_ask(float hud_w, int elapsed_ms) {
     const acr_gen1_rogue_foe *f = foe_at(cursor_rank());
     char name[48], line[96];
     foe_name(f, name, sizeof name);
-    SDL_snprintf(line, sizeof line, "CHALLENGE %s?", name);
+    SDL_snprintf(line, sizeof line, "%s %s?", acr_gen1_arena_is_rematch(&A.s, A.arena, cursor_rank()) ? "REMATCH" : "CHALLENGE", name);
     const float w = 8.0f * (float)SDL_strlen(line) + 48 > 360 ? 8.0f * (float)SDL_strlen(line) + 48 : 360;
     const float x = hud_w * 0.5f - w * 0.5f, y = 180;
     panel(x, y, w, 96);
@@ -614,7 +710,16 @@ static void draw_result(float hud_w) {
     if (A.pay.won) acr_hud_text_size(wx, y + 18, word, 24, GOOD, 255);
     else acr_hud_text_size(wx, y + 18, word, 24, BAD, 255);
     acr_hud_text(x + 24, y + 62, A.pay_foe, WHITE);
-    if (A.pay.won) {
+    if (A.pay.default_win) {
+        acr_hud_text(x + 24, y + 86, "OPPONENT UNAVAILABLE, DEFAULT WIN.", HILITE);
+        SDL_snprintf(line, sizeof line, "RANK  %d  >  %d", A.pay.old_rank, A.pay.new_rank);
+        acr_hud_text(x + 24, y + 110, line, HILITE);
+        if (A.pay.new_rank == 1) acr_hud_text(x + 24, y + 182, "YOU ARE THE TOP OF THIS ARENA.", HILITE);
+    } else if (A.pay.rematch) {
+        SDL_snprintf(line, sizeof line, "REMATCH: RANK STAYS %d", A.pay.old_rank);
+        acr_hud_text(x + 24, y + 86, line, WHITE);
+        acr_hud_text(x + 24, y + 110, "NO PRIZE IN A REMATCH. GOOD FIGHT.", DIM);
+    } else if (A.pay.won) {
         SDL_snprintf(line, sizeof line, "RANK  %d  >  %d", A.pay.old_rank, A.pay.new_rank);
         acr_hud_text(x + 24, y + 86, line, HILITE);
         if (A.pay.money) {   /* a repeat win over the same opponent: no prize line */
@@ -642,6 +747,10 @@ void arena_draw(float hud_w, int elapsed_ms) {
     case AS_PICK: draw_pick(hud_w); message(hud_w, elapsed_ms); break;
     case AS_LADDER: draw_ladder(hud_w, elapsed_ms); break;
     case AS_ASK: draw_ask(hud_w, elapsed_ms); break;
+    case AS_VS:
+        acr_hud_rect(0, 0, hud_w, 480, 8, 10, 14, 255, 1);
+        vs_draw(hud_w, elapsed_ms);
+        break;
     case AS_RESULT: draw_result(hud_w); break;
     }
 }

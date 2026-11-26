@@ -168,7 +168,14 @@ Main menu -> **ARENA**. Master of Arena's ranked ladders with your own
 garage AC. The main arena starts you at rank 50 in the sub arena; beat
 everyone there to open the ranked list (L1 / R1 flips the pages). Pick an
 opponent above you and challenge; a win moves you up one rank and pays
-their prize money the first time, and some opponents give a part. The Ex Arenas open as
+their prize money the first time, and some opponents give a part. Whoever
+you beat drops to just below you, marked **DEFEATED**: you can fight them
+again for fun (a rematch: no rank change, no prize). Each fight opens with
+Rogue Arena's **VS screen**: both ACs, the opponent's emblem from your
+disc behind theirs, the count to sortie, and along the bottom the whole
+ladder, a row per rank (you in blue, the opponent in red, the defeated
+struck through). The ladder shows each opponent's emblem behind their AC too.
+The Ex Arenas open as
 you climb (four of them need a specific leg type). MATCH TIMER (2:00,
 5:00, none) and STAGE are on the arena list. Rules: `docs/ARENA.md`.
 

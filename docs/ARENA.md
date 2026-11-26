@@ -17,8 +17,12 @@ garage's own AC, paying prize money and prize parts into the garage.
 flowchart TD
     M["Main menu > ARENA"] --> L["Arena list<br/>(main + 8 Ex Arenas, STAGE)"]
     L --> R["Ladder: RANK, PILOT, CHALLENGE / REFERENCE ONLY"]
-    R -- "A on an opponent above" --> Q{"CHALLENGE ...?"}
-    Q -- YES --> F["Fight: your garage AC vs their AC and pilot"]
+    R -- "A on an opponent above,<br/>or a DEFEATED one below" --> Q{"CHALLENGE / REMATCH ...?"}
+    Q -- YES --> V["VS screen: both ACs, emblem,<br/>count 3..1, shutters"]
+    Q -- "YES, opponent absent" --> D["Opponent unavailable, default win:<br/>up one rank, no pay"]
+    D --> R
+    V -- "count out / A" --> F["Fight: your garage AC vs their AC and pilot"]
+    V -- B --> R
     F -- win --> W["YOU WIN: up one rank,<br/>prize money, maybe a part"]
     F -- "loss / draw / give up" --> X["YOU LOSE: rank stays"]
     W --> R
@@ -33,7 +37,7 @@ From the AC1Recomp mapping (`docs/mapping/arena-prizes.md`,
 | Rule | |
 |---|---|
 | Main arena | 50 places: ranks 1-15 the **ranked** list, 16-50 the **sub arena** (L1 / R1 flips the pages) |
-| Sub arena | each opponent is beaten once and can't be fought again ("BEATEN") |
+| Sub arena | in the game each opponent is beaten once and can't be fought again; here they can, as a rematch (below) |
 | Ranked list | opens at the top of the sub arena (rank 16) |
 | Winning | anyone above can be challenged; a win moves you **up one rank** |
 | Prize money | the first win over an opponent only (user, 2026-11-24); credits cap at 99,999,999 |
@@ -58,6 +62,53 @@ From the AC1Recomp mapping (`docs/mapping/arena-prizes.md`,
    both sides go down at the same moment; that counts as a loss too.
 5. **Prize 22** (Champion's) is a part outside the ten part tables; the
    result screen says the build doesn't have it yet.
+6. **Rematches** (user, 2026-11-25): whoever you beat drops to just
+   below you and is marked **DEFEATED** on the ladder. You can fight them
+   again in any arena, for fun: no rank change, no money, no part (it still
+   counts in the ARENA REPORT, and Ex Arenas still need their legs). Beating
+   the pilot just above you means taking their place; beating someone
+   further up still moves you up one rank (the game's rule).
+
+## The VS screen
+
+Every Arena fight opens with a VS screen (the user's simpler pick,
+2026-11-25; the code is shared with Rogue Arena, `src/platform/sdl3/vs_screen.{h,c}`):
+your AC (blue, left), the opponent's (red, right) with their emblem from
+your disc behind it (`<import>/arena/<AA-name>/<RR>-emblem.tim`), RANK
+badges, the pilot names, VS (REMATCH under it for a rematch), "UNITS
+DEPLOY IN 3..1" and the stage; then the hangar shutters close and the
+fight starts. A skips the count, B goes back to the ladder. No strip in the
+bottom band (Rogue Arena keeps its strip of small boxes and its 5 count).
+
+Your own emblem: none yet. The garage has no EDIT EMBLEM and the save keeps
+no emblem, so the left box shows your AC only.
+
+## Emblems
+
+Each opponent's emblem shows small on its ladder row and large behind its
+AC on the ladder panel and the VS screen.
+
+## Absent opponents: "Opponent unavailable, default win."
+
+From the menu module's challenge code (FDAT 206, `0x800BF43C`; strings at
+`0x80053FE0` / `0x80054004`). After YES, an opponent who can't fight and
+hasn't been handled yet gives **"Opponent unavailable, default win."**: it
+is marked handled and you move up one rank with no fight. Challenging a
+handled one again (it sits below you, like a DEFEATED one) gives
+**"Opponent is unable to compete."**; no rematch.
+
+| | |
+|---|---|
+| Who is absent | Armored-CoreR: opponents killed in missions (missions hook in later through `acr_gen1_arena_set_absent`) |
+| Pay | none: no prize money, no part (the game pays after a fight; this path has none) |
+| Ladder | UNAVAILABLE on the row until then; afterwards it drops below you as after a win, counts as beaten and reads UNABLE |
+| Save | `absent = [...]` per arena in `arena.toml` (by disc rank: 1 due, 2 given); older saves read as all present |
+
+What makes an opponent absent in the game itself (the check just before,
+`0x8007E164`) isn't mapped yet.
+
+Test switch until missions count: `ACR_ARENA_ABSENT="0:49,0:48"` marks
+(arena : disc rank) absent. Disc rank is the rank on a new game.
 
 ## Stages
 
@@ -80,9 +131,12 @@ leaving it completely loses the fight.
 
 - `ACR_ROGUE_AUTOWIN=1` now also wins Arena fights a moment after they
   start (headless screen tests).
-- Tested here with a made-up import (no disc): list, ladder, challenge,
-  fight with and without a clock, win, pay-out and save. Real opponents,
-  their ACs on the ladder panel and the prize part names need the disc.
+- Checked with the real disc (2026-11-25, Master of Arena USA): ladder
+  names (Nine-Ball / Hustler One at rank 1 ... Angst / No Problem at 49),
+  their ACs and emblems on the ladder panel, VS screen, a real win over Top
+  Cap paying 10,000 C and HD-H10, a rematch, the Humanoid Ex Arena. All 23
+  prize ids resolve to the part names in AC1Recomp's `arena-prizes.md`
+  (prize 22 has no part table, as before).
 
 ## Stage lights (2026-11-25, branch `stage-lights`)
 
@@ -119,6 +173,5 @@ the PS1's short draw distance), so it stays off.
 
 ## Still to do (step 7)
 
-- The VS screen before an Arena fight (Rogue Arena has one), opponent
-  emblems on the ladder, the "Opponent unavailable, default win" rule
-  (opponents killed in missions) once missions count.
+- Missions calling `acr_gen1_arena_set_absent` when an arena pilot dies.
+- The player's emblem on the VS screen once EDIT EMBLEM exists.

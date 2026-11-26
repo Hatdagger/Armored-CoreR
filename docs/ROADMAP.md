@@ -257,7 +257,11 @@ Fixes after the first play-test (2026-11-19):
    each area lit by its own light set from the disc, the game's maths;
    no fog (user: off by default). **Backgrounds** (branch
    `stage-backgrounds`, 2026-11-25): far planes tiled to the horizon,
-   our own gradient skies with clouds (user: made-up assets are fine).
+   our own gradient skies with clouds (user: made-up assets are fine). **VS screen, emblems, rematches,
+   default win done** (branch `arena-vs-simple-on15`, replaces PR #15's VS
+   screen, 2026-11-25): a simple VS screen before each fight, opponents'
+   emblems on the ladder, rematches of DEFEATED opponents, the game's
+   "Opponent unavailable, default win" rule (missions mark the absent later).
 8. **UI**: the game's menus and garage screens to Master of Arena's design
    (and the split-screen HUD). **Main menu** (first version done,
    2026-11-19, user's layout): GARAGE (ASSEMBLY, AC TEST), SHOP, ARENA,

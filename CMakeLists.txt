@@ -206,7 +206,8 @@ if(ACR_BUILD_GAME)
                    src/platform/sdl3/battle_hud.c src/platform/sdl3/net_link.c
                    src/platform/sdl3/net_menu.c src/platform/sdl3/net_brief_ui.c
                    src/platform/sdl3/fx.c src/platform/sdl3/sfx.c src/platform/sdl3/rogue_sound.c
-                   src/platform/sdl3/disc_pick.c)
+                   src/platform/sdl3/disc_pick.c
+                   src/platform/sdl3/vs_screen.c)
     if(ANDROID)
         # The game is libmain.so; SDL's Java activity starts it.
         add_library(armored-corer SHARED ${ACR_GAME_SOURCES})

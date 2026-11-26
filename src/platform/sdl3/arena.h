@@ -12,7 +12,7 @@
 
 typedef enum arena_command {
     AC_NONE,
-    AC_FIGHT,       /* start the fight in arena_fight_info() */
+    AC_FIGHT,       /* start the fight in arena_fight_info() (now: when arena_vs_due()) */
     AC_LEAVE        /* back to the main menu */
 } arena_command;
 
@@ -26,6 +26,10 @@ void arena_set_ac_drawer(rogue_ac_drawer fn);
 void arena_open(void);
 arena_command arena_input(garage_action a);
 void arena_draw(float hud_w, int elapsed_ms);
+
+/* After YES on a challenge the VS screen runs (as Rogue Arena's); 1 once
+ * it is done: start the fight in arena_fight_info(). */
+int arena_vs_due(void);
 
 /* The fight to start (the same layout as Rogue Arena's) and its round
  * length in ms (0 = no time limit). */
