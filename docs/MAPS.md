@@ -89,11 +89,13 @@ hard pixels, like the PS1 games' own); nothing is taken from the disc.
 | Blue, light blue | facade | two storeys of windows, some lit | a roof with a parapet and vents |
 | Yellow | hazard | black and yellow stripes | wider stripes |
 | Orange, brown, dark red | crate | a container's ribs, rust, a frame | ribs the other way |
-| Anything else (purple, dark green...) | panel | painted slabs in that colour | |
+| Purple, violet, pink | lights | light bars in a dark housing, glowing in that colour | a lit square set in the floor |
+| Dark green, lime, olive | grass | a hedge | grass |
 
-![The six patterns as the script draws them: white, dark grey, blue, yellow, orange and purple; walls above, floors below](maps/textures.png)
+![The seven patterns as the script draws them: white, dark grey, blue, yellow, orange, purple and dark green; walls above, floors below](maps/textures.png)
 
-Clear green and clear red stay the start markers and are never drawn.
+Clear green and clear red stay the start markers and are never drawn (a
+darker or yellower green is grass).
 
 ![A map shaped like Stage 1 (a white container, blue 10 x 10 x 20 mm blocks) with its made textures. A rough preview drawn outside the game, not a screenshot](maps/preview.png)
 

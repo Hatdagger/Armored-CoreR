@@ -233,7 +233,7 @@ def facing_to(src, dst):
 TEX = 64
 MAX_DRAWN = 12000                                          # drawn faces before the squares are widened
 SHADES = (0.34, 0.48, 0.62, 0.76, 0.88, 1.0, 1.1, 1.24)   # 5 = the colour itself
-LIT, BLACK = 8, 9                                          # a lit window; hazard black
+LIT, BLACK, GLOW = 8, 9, 10                                # a lit window; hazard black; a light in the map's colour
 
 
 class Rand:
@@ -258,13 +258,15 @@ def surface_kind(c):
         hue = 60 * ((b - r) / (hi - lo) + 2)
     else:
         hue = 60 * ((r - g) / (hi - lo) + 4)
-    if 42 <= hue < 70:
+    if 42 <= hue < 64:
         return "hazard"
     if 170 <= hue < 265:
         return "facade"
     if hue < 42 or hue >= 330:
         return "crate"
-    return "panel"
+    if 64 <= hue < 170:
+        return "grass"
+    return "lights"
 
 
 def _blank(shade):
@@ -420,7 +422,51 @@ def tex_crate(rnd):
     return ribs(0), ribs(1)
 
 
-SURFACES = {"panel": tex_panel, "plate": tex_plate, "hazard": tex_hazard, "facade": tex_facade, "crate": tex_crate}
+def tex_lights(rnd):
+    def housing(bars):
+        px = _blank(2)
+        _mottle(px, rnd, 10, 6)
+        for a, b in bars:                      # light bars in a dark frame
+            for y in range(a - 2, b + 2):
+                for x in range(4, TEX - 4):
+                    inside = a <= y < b and 6 <= x < TEX - 6
+                    px[y][x] = (GLOW if (x // 2 + y) % 9 else 7) if inside else 0
+            for x in range(6, TEX - 6):
+                px[a][x] = 7                   # the glass's upper edge
+        _seams(px)
+        return px
+    side = housing(((12, 20), (44, 52)))
+    top = _blank(2)
+    _mottle(top, rnd, 10, 6)
+    for y in range(TEX):                       # a lit square set in the floor
+        for x in range(TEX):
+            d = max(abs(x - 31.5), abs(y - 31.5))
+            if 18 <= d < 24:
+                top[y][x] = GLOW if d < 23 and d >= 19 else 0
+    _seams(top)
+    return side, top
+
+
+def tex_grass(rnd):
+    def blades(n):
+        px = _blank(5)
+        for y in range(TEX):
+            for x in range(TEX):
+                k = rnd.next(100)
+                px[y][x] = 5 + (k < 16) - (k > 68) - (k > 91)
+        for _ in range(n):
+            x, y, h = rnd.next(TEX), rnd.next(TEX), 2 + rnd.next(3)
+            for d in range(h):
+                px[(y + d) % TEX][x] = 7 if d == 0 else 6
+        return px
+    side = blades(70)                          # a hedge, darker at the foot
+    for y in range(TEX - 6, TEX):
+        for x in range(TEX):
+            side[y][x] = max(0, side[y][x] - (1 if y < TEX - 2 else 2))
+    return side, blades(34)
+
+
+SURFACES = {"lights": tex_lights, "grass": tex_grass, "panel": tex_panel, "plate": tex_plate, "hazard": tex_hazard, "facade": tex_facade, "crate": tex_crate}
 
 
 def make_texture(c):
@@ -431,6 +477,7 @@ def make_texture(c):
     base = [v * tone for v in c]
     pal = [tuple(min(255, int(v * s + 0.5)) for v in base) for s in SHADES]
     pal += [(250, 232, 150), (24, 24, 28)]     # LIT, BLACK
+    pal.append(tuple(min(255, int(v * 0.4 + 255 * 0.6)) for v in c))   # GLOW
     return kind, [[pal[s] for s in row] for row in side + top]
 
 
