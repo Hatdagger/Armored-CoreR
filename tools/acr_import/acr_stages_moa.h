@@ -21,6 +21,14 @@
 int acr_export_moa_stages(const char *unpacked_dir, const char *out_dir, uint32_t *stages,
                           char *err, size_t err_size);
 
+/* The colour a stage face is lit with (docs/research/gen1-stages.md, "Stage
+ * lights"): the GTE's NCCS (sf = 1, lm = 1) on the model normal `n` (4096 =
+ * 1) with a light set's light matrix `llm` (turned for an area of `quarter`
+ * quarter turns, the area draw's way), colour matrix `lcm` and back colour
+ * `bk`, and the colour 0x404040. Each channel 0-255; 128 = the texel as it is. */
+void acr_moa_light_face(const int16_t llm[9], const int16_t lcm[9], const uint8_t bk[3], unsigned quarter,
+                        const int16_t n[3], uint8_t out[3]);
+
 /* Name of a stage number (the arena's stage list), or NULL. */
 const char *acr_moa_stage_name(unsigned stage);
 

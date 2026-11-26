@@ -84,11 +84,21 @@ leaving it completely loses the fight.
   fight with and without a clock, win, pay-out and save. Real opponents,
   their ACs on the ladder panel and the prize part names need the disc.
 
+## Stage lights (2026-11-25, branch `stage-lights`)
+
+Every Arena stage is lit the game's way: each area uses its own light set
+from the disc (three directional lights, a colour matrix and a back
+colour), and every face gets the colour the game's GTE gives it (details:
+`docs/research/gen1-stages.md`, "Stage lights"). Green Silo's middle floor
+and dome use the dim, green-tinted set 10, so it's darker than before;
+Night City's buildings use set 1 (dimmer, cooler); Ocean Platform and
+Garden Plaza use set 0 (floors a little brighter than the texture). Needs
+a re-import (`acr-import`); older imports and custom maps keep the fixed
+light. No fog: the game's stage draw doesn't use it (it only exists to hide
+the PS1's short draw distance), so it stays off.
+
 ## Still to do (step 7)
 
-- Stage lights: the game's light sets are read (see
-  `docs/research/gen1-stages.md`, "Stage lights"), not applied yet; all
-  stages still share one fixed light.
 - The VS screen before an Arena fight (Rogue Arena has one), opponent
   emblems on the ladder, the "Opponent unavailable, default win" rule
   (opponents killed in missions) once missions count.

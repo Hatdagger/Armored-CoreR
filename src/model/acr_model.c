@@ -457,8 +457,8 @@ void acr_mesh_free(acr_mesh *mesh) {
 
 int acr_obj_parse(const char *text, const acr_mtl *mtl, acr_mesh *out) {
     memset(out, 0, sizeof *out);
-    float *pos = NULL, *nrm = NULL, *uv = NULL;
-    uint32_t np = 0, nn = 0, nt = 0, cp = 0, cn = 0, ct = 0, cv = 0, cm = 0;
+    float *pos = NULL, *nrm = NULL, *uv = NULL, *col = NULL;
+    uint32_t np = 0, nn = 0, nt = 0, cp = 0, cn = 0, ct = 0, cv = 0, cm = 0, cc = 0;
     int mat = 0, ok = 1;
     for (const char *p = text; *p && ok; ) {
         const char *e = line_end(p), *s = skip_ws(p, e);
@@ -472,6 +472,22 @@ int acr_obj_parse(const char *text, const acr_mtl *mtl, acr_mesh *out) {
                 char *next;
                 (*arr)[*cnt * (uint32_t)dims + (uint32_t)i] = strtof(q, &next);
                 q = next;
+            }
+            if (kind == 0) {   /* an optional colour after the point */
+                if (!grow((void **)&col, &cc, (*cnt + 1) * 3u, sizeof(float))) { ok = 0; break; }
+                float rgb[3] = { 1, 1, 1 };
+                int got = 0;
+                for (int i = 0; i < 3; ++i) {
+                    char *next;
+                    const float f = strtof(q, &next);
+                    if (next == q || next > e) break;
+                    rgb[i] = f;
+                    q = next;
+                    ++got;
+                }
+                if (got == 3) out->has_colour = 1;
+                else rgb[0] = rgb[1] = rgb[2] = 1;
+                memcpy(col + *cnt * 3, rgb, sizeof rgb);
             }
             (*cnt)++;
         } else if (starts(s, e, "usemtl")) {
@@ -508,6 +524,7 @@ int acr_obj_parse(const char *text, const acr_mtl *mtl, acr_mesh *out) {
                     const long vi = idx[c3[j]][0], ti = idx[c3[j]][1], ni = idx[c3[j]][2];
                     if (vi < 1 || (uint32_t)vi > np) { ok = 0; break; }
                     memcpy(v->p, pos + (vi - 1) * 3, sizeof v->p);
+                    memcpy(v->c, col + (vi - 1) * 3, sizeof v->c);
                     if (ti >= 1 && (uint32_t)ti <= nt) memcpy(v->uv, uv + (ti - 1) * 2, sizeof v->uv);
                     if (ni >= 1 && (uint32_t)ni <= nn) memcpy(v->n, nrm + (ni - 1) * 3, sizeof v->n);
                 }
@@ -517,7 +534,7 @@ int acr_obj_parse(const char *text, const acr_mtl *mtl, acr_mesh *out) {
         }
         p = *e ? e + 1 : e;
     }
-    free(pos); free(nrm); free(uv);
+    free(pos); free(nrm); free(uv); free(col);
     if (!ok) acr_mesh_free(out);
     return ok;
 }

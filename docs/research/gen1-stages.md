@@ -265,33 +265,58 @@ straight out ends at a wall on all three (Garden Plaza inside box 2, Ocean
 Platform inside box 2 with the warning, Night City inside box 1), so the
 area is left by flying over the edge.
 
-## Stage lights (read 2026-11-25, not applied yet)
+## Stage lights (read and applied 2026-11-25)
 
 - **Light sets:** 32 records of 44 bytes in **FDAT 205 chunk 7** (common
   to every stage), copied to `0x800B51C8` by the loader and expanded by
   `0x8005D9E8` into 104-byte sets at `0x801ACDF0`: light matrix +0x00
-  (three light directions, 4096 = 1), the same matrix turned a quarter,
-  half and three quarters (+0x14 / +0x28 / +0x3C, `0x8005DAE4`), colour
-  matrix +0x50, back colour +0x62 (r, g, b), fog value +0x66 (when not
-  0: `SetFogNearFar(v / 16, v / 4, 160)`, far colour black).
+  (three light directions, one per row, 4096 = 1), the same matrix turned
+  a quarter, half and three quarters (+0x14 / +0x28 / +0x3C, `0x8005DAE4`
+  calling `0x800139F8`: each row (x, y, z) becomes (-z, y, x), (-x, y, -z),
+  (z, y, -x)), colour matrix +0x50 (file +0x14), back colour +0x62 (file
+  +0x26: r, g, b), fog value +0x66 (file +0x2A; when not 0:
+  `SetFogNearFar(v / 16, v / 4, 160)`, far colour black).
 - **Which set:** byte 0 of the area record's word +0x28 in the file
-  (+0x30 in RAM, `0x800784E0`). Garden Plaza and Ocean Platform: set 0
-  everywhere. Green Silo: set 0, the four dome quarters set 10. Night
-  City: set 1 on 425 areas, set 0 on 87.
-- Set 0: lights straight down plus two side lights, colour matrix 1.0,
+  (+0x30 in RAM, copied at `0x800784E0`). Only the first 512 records are
+  areas (the bytes after them aren't). Garden Plaza and Ocean Platform: set
+  0. Green Silo: set 0, with the four middle areas (model 12, the floor
+  under the dome) on set 10 (2 more records carry 10 too). Night City: set 1 on most areas, set 0 on 87.
+- Set 0: one light straight down plus two side lights, colour matrix 1.0,
   back colour 255, no fog. Set 1: the same three directions, colour 0.73,
-  back colour 200, fog 20,000. Set 10: colour about 0.5 / 0.34, back
-  colour 100, fog 30,000.
-- **How it's drawn:** within 1,300 of an area's box the near level is
-  lit (`0x80063844` -> `0x8006CAEC`): per face `NCS` with the face normal
-  (back colour + colour matrix x the three lights), then per corner
-  `DCPL` (that colour times the corner's colour word, faded to black by
-  depth). Farther away the far level is drawn without them.
-- **Still to read** before applying them: which faces take the light
-  (the draw switches on codes 0x24 / 0x25 / 0x2C / 0x2D / 0x34 / 0x35 /
-  0x3C / 0x3D / 0xA4 / 0xAC; 0x25 / 0x2D draw the texture as it is), what
-  the corner colour word (+8 of the transformed corner) holds, and the fog
-  range before a set with a fog value is used.
+  back colour 200, fog 20,000. Set 10: the light from above at 0.49, the two
+  side lights at 0.34 / 0.49 / 0.34 (green), back colour 100, fog 30,000.
+- **Setting the set:** the area draw `0x80063844` (FDAT 210) calls
+  `SetColorMatrix(set + 0x50)` (`0x80029B84`), `SetBackColor(r, g, b)`
+  (`0x80029CE4`: each << 4 into RBK/GBK/BBK) and
+  `SetLightMatrix(set + k * 0x14)` (`0x80029B54`) with k = (-quarter) & 3,
+  the area's quarter turns (RAM +0x16, already reduced to 0-3). The
+  models' normals stay in model space; the turned light matrix makes up
+  for the area's turn.
+- **How it's drawn:** the stage draw is `0x8006E77C` (or `0x8006F57C`),
+  not `0x8006CAEC`: that one is the object draw (ACs and other models,
+  `0x8006C978`, records of 0x7C bytes), which does use `NCS` / `NCDS` /
+  `DCPL`, the per-corner lamp table at `0x800A40A8` and fog. The stage
+  draw switches on the TMD mode & 0xFC: 0x24 (textured triangle), 0x2C
+  (textured quad), 0x6C (quad; bit 6 is dropped from the GPU code). Every
+  face is lit once with **`NCCS`** (sf, lm): its normal (the word after
+  the texture words) and the colour 0x404040 (`0x1F800390`). So per
+  channel: IR = lim(LLM x N >> 12), then lim((BK << 4 << 12 + LCM x IR)
+  >> 12), and the colour = (0x40 << 4) x IR >> 12 >> 4, 0-255, where 128
+  is the texel as it is (the GPU doubles). The GPU code is the TMD mode
+  itself, so modes with bit 0 (0x25 / 0x2D) draw the texture unlit, and
+  bit 1 is semi-transparency. No depth cue in this draw, so the fog value
+  doesn't touch the stage (only objects). Faces near the camera (+7 of a
+  corner) take another path (`0x8006EB58`, not read); a corner with +0xB set takes its own
+  colour word (`0x8006E744`) — not seen on the arena stages' floors and
+  walls; not applied.
+- **Applied:** acr-import (`acr_stages_moa.c`, `acr_moa_light_face`) works
+  out every face's colour with the same integer maths and writes it on
+  the face's own points in `visual.obj` (`v x y z r g b`, colour x 255 =
+  the PS1 value). The engine's stage draw uses it instead of the fixed
+  light (older imports and custom maps keep the fixed light). No fog.
+- **Not read:** what the object draw's per-corner lamps (`0x80063FFC`
+  builds 4 x 16 colours from a per-object list) light, and the far-level
+  draw's colour (we draw every area at full detail).
 
 ## The sky (chunk 3, read 2026-11-19)
 
@@ -359,8 +384,8 @@ y = -game y). Open them in Blender to look around.
 - Shots and missiles stop at the stage (`battle.stage`).
 - AC TEST loads Green Silo when the import has it (F7 / Back+Left: the
   open test floor), drawn from the textured models (an import from before
-  the textures falls back to the flat green ones). Lit by a fixed light
-  until the stage lights are read.
+  the textures falls back to the flat green ones). Lit by the stage lights
+  (2026-11-25; an older import: a fixed light).
 - The arch feet on the four diagonals are solid (user: in the game they
   can't be passed through): chunk 7's model 0 has them as leaning walls
   from the floor to about 2,500 up, inner face about 6,350 from the
@@ -862,5 +887,6 @@ Still open: state 11, which code sends events 0-4 (the decision timing),
    in Ocean Platform. Page 448's texture.
 5. The out-of-area boxes' records (see "Out of area"); the game's own
    touchdown code; AC against stage objects.
-3. Stage lights (`0x801A8D80` light sets by area +0x30 byte 0) and fog.
+3. Done 2026-11-25: stage lights (see "Stage lights"). Fog isn't used by
+   the stage draw.
 4. Chunks 6, 9-12 and the stage objects in chunk 13.
