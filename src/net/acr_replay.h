@@ -11,7 +11,7 @@
  * - a setup block the game fills in and reads back (who fights whom and
  *   where: the builds, the stage, the mode, the names). Its bytes are not
  *   read in here;
- * - the pads, step by step, for 1 to 4 ACs: the two players of a match, or
+ * - the pads, step by step, for 1 to 4 ACs: the players of a match, or
  *   every AC of a fight the game runs itself (a computer pilot's buttons
  *   are saved like a player's);
  * - a check every so often: the hash of the fight at that step. Playback
@@ -49,7 +49,7 @@
 
 /* What runs the fight being recorded. */
 enum {
-    ACR_REPLAY_MATCH  = 0,   /* acr_gen1_match_step: track 0 and 1 are the two players (VS, co-op, online) */
+    ACR_REPLAY_MATCH  = 0,   /* acr_gen1_match_step: a track per player, 2 to 4 (VS, co-op, online) */
     ACR_REPLAY_BATTLE = 1    /* the game's own loop around acr_gen1_battle_step: a track per AC */
 };
 
@@ -125,9 +125,10 @@ void acr_replay_rec_drop(acr_replay_rec *rec);
  * every step); a fight with held controls takes a small fraction of it. */
 uint32_t acr_replay_worst_size(int tracks, uint32_t steps, uint32_t check_every, uint32_t setup_len);
 
-/* A match (acr_gen1_match_step): call before each step with the two
- * players' pads; writes the check when one is due, then the step. */
-void acr_replay_rec_match(acr_replay_rec *rec, const acr_gen1_match *m, const acr_rb_pad pads[2]);
+/* A match (acr_gen1_match_step): call before each step with the players'
+ * pads, one per track (track p is player p, who flies fighter p); writes
+ * the check when one is due, then the step. */
+void acr_replay_rec_match(acr_replay_rec *rec, const acr_gen1_match *m, const acr_rb_pad pads[]);
 /* Closes it with the match as it stands. */
 uint32_t acr_replay_rec_end_match(acr_replay_rec *rec, const acr_gen1_match *m);
 

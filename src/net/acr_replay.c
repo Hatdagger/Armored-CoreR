@@ -172,12 +172,10 @@ static void end_of_match(acr_replay_end *e, const acr_gen1_match *m) {
     e->wins[1] = m->wins[1];
 }
 
-void acr_replay_rec_match(acr_replay_rec *rec, const acr_gen1_match *m, const acr_rb_pad pads[2]) {
+void acr_replay_rec_match(acr_replay_rec *rec, const acr_gen1_match *m, const acr_rb_pad pads[]) {
     if (rec->failed || rec->ended) return;
     if (acr_replay_rec_wants_check(rec)) acr_replay_rec_check(rec, acr_gen1_match_hash(m));
-    acr_rb_pad all[ACR_REPLAY_TRACKS] = { 0 };
-    for (unsigned t = 0; t < rec->info.tracks && t < 2; ++t) all[t] = pads[t];
-    acr_replay_rec_step(rec, all);
+    acr_replay_rec_step(rec, pads);
 }
 
 uint32_t acr_replay_rec_end_match(acr_replay_rec *rec, const acr_gen1_match *m) {

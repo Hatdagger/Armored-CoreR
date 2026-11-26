@@ -12,7 +12,7 @@ takes to watch a fight again, from any camera. Design: [DESIGN.md](DESIGN.md),
 (`tests/test_replay.c`). No files, clocks or memory allocation in it, so it
 goes to the Xbox as it is.
 
-- Recording a match step by step, or an **online match** from the pads that
+- Recording a match step by step (2 to 4 players), or an **online match** from the pads that
   are final behind rollback: both machines end up with the same file, byte
   for byte.
 - Playing back: a step at a time (for watching) or all at once (for checking

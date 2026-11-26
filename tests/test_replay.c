@@ -534,6 +534,52 @@ int main(int argc, char **argv) {
     }
     online("online co-op, 40 ms 2% loss", 3000, 0, &home_c, 0);
 
+    /* ---- Four players (2v2, as lockstep will run it): a pad per player. ---- */
+    rules.ai_mask = 0;
+    {
+        const acr_replay_info four_p = { .kind = ACR_REPLAY_MATCH, .tracks = 4, .step_ms = 16,
+                                         .check_every = ACR_REPLAY_CHECK_EVERY, .data_check = 0xC0FFEE01u, .seed = 77 };
+        seed = 909;
+        pilot pl4[4];
+        memset(pl4, 0, sizeof pl4);
+        EXPECT(acr_replay_rec_begin(&rec, file_a, CAP, &four_p, NULL, 0));
+        acr_gen1_match_init(&m, &start, &rules);
+        for (int f = 0; f < 3000; ++f) {
+            acr_rb_pad pads[4];
+            acr_gen1_input in[ACR_GEN1_MAX_FIGHTERS];
+            acr_gen1_actions act[ACR_GEN1_MAX_FIGHTERS];
+            for (int k = 0; k < 4; ++k) {
+                pads[k] = next_pad(&pl4[k]);
+                acr_rb_unpack(pads[k], &in[k], &act[k]);
+            }
+            acr_replay_rec_match(&rec, &m, pads);
+            acr_gen1_match_step(&m, &start, &rules, in, act);
+        }
+        const uint32_t n = acr_replay_rec_end_match(&rec, &m);
+        const uint32_t h = acr_gen1_match_hash(&m);
+        EXPECT(n > 0 && acr_replay_open(&rd, file_a, n) == ACR_REPLAY_OK && rd.info.tracks == 4 && rd.steps == 3000);
+        EXPECT(acr_replay_play_match(&rd, &m2, &start, &rules) == 0);
+        EXPECT(acr_gen1_match_hash(&m2) == h);
+        /* players 3 and 4 are in it: the same fight without their pads ends differently */
+        acr_gen1_match_init(&m2, &start, &rules);
+        acr_replay_rewind(&rd);
+        for (;;) {
+            acr_rb_pad pads[4];
+            uint32_t hh;
+            const int ev = acr_replay_next(&rd, pads, &hh);
+            if (ev == ACR_REPLAY_EV_END) break;
+            if (ev != ACR_REPLAY_EV_STEP) continue;
+            acr_gen1_input in[ACR_GEN1_MAX_FIGHTERS];
+            acr_gen1_actions act[ACR_GEN1_MAX_FIGHTERS];
+            memset(in, 0, sizeof in);
+            memset(act, 0, sizeof act);
+            for (int k = 0; k < 2; ++k) acr_rb_unpack(pads[k], &in[k], &act[k]);
+            acr_gen1_match_step(&m2, &start, &rules, in, act);
+        }
+        EXPECT(acr_gen1_match_hash(&m2) != h);
+        printf("2v2, four players: 3000 steps in %u bytes\n", (unsigned)n);
+    }
+
     printf(failures ? "%d FAILED\n" : "all replay tests passed\n", failures);
     return failures ? 1 : 0;
 }
