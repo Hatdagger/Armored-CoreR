@@ -4,8 +4,10 @@
 
 #include <string.h>
 
+#include "../../gen1/acr_gen1_mission.h"
 #include "../../model/acr_png.h"
 #include "../../render/acr_render.h"
+#include "arena.h"
 #include "sfx.h"
 
 #define WHITE 220, 230, 235
@@ -37,6 +39,10 @@ static struct {
     acr_gen1_mission_report rep;
     int fight_row;
     rogue_fight fight;
+    uint8_t rolled[ACR_GEN1_MISSIONS_MAX];   /* the variant rolled for each row, 0 = not yet */
+    acr_gen1_mission_info shown;            /* M.cur as rolled: what the briefing shows */
+    acr_gen1_mission_info fly;              /* the sortie as rolled */
+    uint16_t foe_options;                   /* fighter 1's option bits (the challenger's after it comes) */
     char message[96];
     int message_ms, err, snd;
 } M;
@@ -124,7 +130,27 @@ void missions_init(const char *import_dir, acr_gen1_hangar *hangar, const acr_ge
     M.screen = MS_LIST;
 }
 
+/* Each mission with variants gets one rolled when the screen opens, kept
+ * until it is flown (so the list, the briefing and the sortie agree).
+ * Testing aid: ACR_MISSION_VARIANT=1|2|3 picks it instead. */
+static void roll_variants(void) {
+    const char *force = SDL_getenv("ACR_MISSION_VARIANT");
+    for (int i = 0; i < M.list.count; ++i) {
+        if (!M.list.m[i].variants || M.rolled[i]) continue;
+        int v = force ? SDL_atoi(force) : acr_gen1_mission_roll((uint32_t)SDL_rand_bits());
+        if (v < 1 || v > M.list.m[i].variants) v = 1;
+        M.rolled[i] = (uint8_t)v;
+        SDL_Log("missions: %s rolled variant %d (%s)", M.list.m[i].id, v, acr_gen1_mission_variant_name(v));
+    }
+}
+
+/* Row `row` as rolled. */
+static void as_rolled(int row, acr_gen1_mission_info *out) {
+    acr_gen1_mission_variant(&M.list.m[row], M.rolled[row] ? M.rolled[row] : 1, out);
+}
+
 void missions_open(void) {
+    roll_variants();
     M.screen = MS_LIST;
     M.cur = M.top = 0;
     M.message[0] = 0;
@@ -134,15 +160,40 @@ void missions_open(void) {
 /* ---- sortie ---- */
 
 const rogue_fight *missions_fight_info(void) { return &M.fight; }
-int32_t missions_round_ms(void) { return M.list.m[M.fight_row].time_ms; }
-uint16_t missions_foe_options(void) {
-    const acr_gen1_mission_info *m = &M.list.m[M.fight_row];
-    return m->foe_set ? m->foe_options : (M.h ? M.h->options : 0);
+int32_t missions_round_ms(void) { return M.fly.time_ms; }
+uint16_t missions_foe_options(void) { return M.foe_options; }
+int missions_rule(void) { return M.fly.rule; }
+int missions_variant(void) { return M.fly.variant; }
+int32_t missions_extra_ms(void) { return M.fly.extra_ms; }
+
+const char *missions_radio(int event) {
+    if (M.fly.rule != ACR_GEN1_OWN_P4_ALTERED) return NULL;
+    /* The mockup's variant-3 briefing as radio (the user, 2026-11-25), less
+     * "the examiner flies a light build" (it flies its usual one), and the
+     * Nest's words when the challenger comes. */
+    return event == 0 ? "NEST: A shortened test today. Win, and you're through."
+         : event == 1 ? "NEST: Continue the test." : NULL;
+}
+
+int missions_challenger(void) {
+    const acr_gen1_rogue_foe *f = M.fly.late_ac[0] ? arena_find_ac(M.fly.late_ac) : NULL;
+    if (!f) return 0;
+    rogue_fight *g = &M.fight;
+    for (int s = 0; s < SLOT_COUNT; ++s) g->parts[1][s] = f->parts[s];
+    memcpy(g->colours[1], f->colours, sizeof g->colours[1]);
+    g->plus[1] = f->ai.rebel;
+    g->ai = f->ai;
+    if (f->ac[0] && f->pilot[0]) SDL_snprintf(g->name[1], sizeof g->name[1], "%s / %s", f->ac, f->pilot);
+    else SDL_strlcpy(g->name[1], f->ac[0] ? f->ac : f->pilot, sizeof g->name[1]);
+    M.foe_options = f->options;
+    return 1;
 }
 
 static int prepare_sortie(void) {
-    const acr_gen1_mission_info *m = &M.list.m[M.cur];
+    acr_gen1_mission_info *m = &M.fly;
+    as_rolled(M.cur, m);
     if (!m->playable || !M.h) return 0;
+    M.foe_options = m->foe_set ? m->foe_options : M.h->options;
     rogue_fight *g = &M.fight;
     SDL_zero(*g);
     /* The mission's opponent (P4: the examiner from the user's card, flown
@@ -162,13 +213,16 @@ static int prepare_sortie(void) {
     return 1;
 }
 
-int missions_fight_over(int result, int32_t ap_left, int32_t ap_max, int32_t ammo_cost) {
-    const acr_gen1_mission_info *m = &M.list.m[M.fight_row];
+int missions_fight_over(int result, int32_t ap_left, int32_t ap_max, int32_t ammo_cost, int bonus) {
+    const acr_gen1_mission_info *m = &M.fly;
     const int success = result == 1;
     const int32_t price = M.h && M.cat ? acr_gen1_mission_ac_price(M.h, M.cat) : 0;
     const int32_t repair = acr_gen1_mission_repair_cost(ap_max, ap_left, price);
-    if (M.h) acr_gen1_mission_settle(M.h, &M.rep, success, m->reward, 0, ammo_cost, repair, 0);
+    /* A variant's bonus is its special addition (success only, as the game's). */
+    if (M.h) acr_gen1_mission_settle(M.h, &M.rep, success, m->reward, bonus ? m->bonus : 0, ammo_cost, repair, 0);
     acr_gen1_mission_book(&g_record, m->id, success);
+    M.rolled[M.fight_row] = 0;          /* flown: the next offer rolls again */
+    roll_variants();
     /* The report's picture: 63 or 64 after a success (the game picks one at
      * random, rand() <= 0x4000 -> 64), 65 after a failure. */
     M.report_pic = success ? (SDL_rand(2) ? 1 : 0) : 2;
@@ -192,7 +246,7 @@ static void scroll_to_cursor(void) {
     if (M.cur >= M.top + LIST_ROWS) M.top = M.cur - LIST_ROWS + 1;
 }
 
-static int brief_pages(void) { return 1 + M.list.m[M.cur].pages; }   /* the mail header, then the text */
+static int brief_pages(void) { return 1 + M.shown.pages; }   /* the mail header, then the text */
 
 static missions_command input(garage_action a) {
     acr_gen1_mission_info *m = &M.list.m[M.cur];
@@ -202,6 +256,7 @@ static missions_command input(garage_action a) {
         if (a == GA_CANCEL) return MC_LEAVE;
         /* Triangle / Tab reads a briefing that can't be flown yet. */
         if (a == GA_INFO || (a == GA_OK && m->playable)) {
+            as_rolled(M.cur, &M.shown);
             M.view_only = !m->playable;
             M.page = 0;
             load_pictures(M.cur);
@@ -325,7 +380,9 @@ static void draw_list(float hud_w) {
     text_right(x + w, 56, "STATUS", DIM);
     for (int i = 0; i < LIST_ROWS && M.top + i < M.list.count; ++i) {
         const int row = M.top + i;
-        const acr_gen1_mission_info *m = &M.list.m[row];
+        acr_gen1_mission_info shown_;
+        as_rolled(row, &shown_);
+        const acr_gen1_mission_info *m = &shown_;
         const float y = 78 + 22.0f * (float)i;
         const int sel = row == M.cur;
         if (sel) row_bar(x, y, w + 12);
@@ -394,7 +451,7 @@ static void markup_line(float x, float y, const char *s, size_t n, int *hi, unsi
 }
 
 static void draw_brief(float hud_w) {
-    const acr_gen1_mission_info *m = &M.list.m[M.cur];
+    const acr_gen1_mission_info *m = &M.shown;
     char title[64], nm[48];
     upper(m->name, nm, sizeof nm);
     SDL_snprintf(title, sizeof title, "MISSIONS  -  %s", nm);
@@ -418,8 +475,12 @@ static void draw_brief(float hud_w) {
         SDL_snprintf(line, sizeof line, "Reward:    %s C", c);
         acr_hud_text_size(x, y, line, TEXT_SIZE, HILITE, 255);
         y += TEXT_SIZE * 3.2f;
-        if (m->own)
-            acr_hud_text(x, y, "ARMORED-CORER MISSION (PROLOGUE 4, STANDARD VARIANT).", DIM);
+        if (m->own) {
+            /* Variant 3 is never briefed: its briefing reads as variant 1's. */
+            SDL_snprintf(line, sizeof line, "ARMORED-CORER MISSION (PROLOGUE 4, %s VARIANT).",
+                         acr_gen1_mission_variant_name(m->briefed ? m->briefed : 1));
+            acr_hud_text(x, y, line, DIM);
+        }
         else {
             acr_hud_text(x, y, "FROM YOUR MASTER OF ARENA DISC.", DIM);
             if (!m->pages) acr_hud_text(x, y + 16, "THE DISC HAS NO BRIEFING FOR THIS MISSION.", DIM);

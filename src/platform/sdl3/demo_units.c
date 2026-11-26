@@ -331,6 +331,43 @@ static const acr_gen1_root_track *const *unit_motion(demo_units *u, const char *
     return mo->anim;
 }
 
+/* Object o into battle b, with map `map`'s script rules (-1 none) and
+ * motion sets from `motion_map`. Returns its unit, -1 when left out (no
+ * model or AP, or not on a floor: *dormant counts those). */
+static int join_object(demo_units *u, demo_unit_object *o, int map, int motion_map, const char *import_dir,
+                       acr_gen1_battle *b, const acr_gen1_stage *stage, int *dormant) {
+    o->unit = -1;
+    if (o->model < 0 || o->ap <= 0) return -1;
+    const demo_unit_model *m = &u->model[o->model];
+    acr_gen1_unit n;
+    SDL_memset(&n, 0, sizeof n);
+    /* drawn world (y up) -> the battle's (y down, 1/64) */
+    const int32_t x = (int32_t)o->pos[0], y = (int32_t)-o->pos[1], z = (int32_t)o->pos[2];
+    n.half = (uint16_t)(o->half > 0 ? o->half : 100);
+    n.height = (uint16_t)(o->height > 0 ? o->height : 200);
+    n.record = (uint8_t)o->record;
+    n.wait = (uint8_t)(map >= 0 ? acr_gen1_mission_wait(map, o->record) : ACR_GEN1_WAIT_NONE);
+    if (stage && !n.wait) {     /* standing on something? (map 6's big MT waits under the sea for its script) */
+        const int32_t pos[3] = { x, y, z };
+        int32_t fy = 0;
+        if (!acr_gen1_stage_floor_probe(stage, pos, ACR_GEN1_STAGE_PROBE_HALF, n.height, ACR_GEN1_STAGE_AC_MASK, &fy) ||
+            fy - y > ACR_GEN1_STAGE_GROUNDED || fy < y - 1) { ++*dormant; return -1; }
+    }
+    n.active = !n.wait;      /* waiting ones join when the script says */
+    n.team = (uint8_t)(map >= 0 ? acr_gen1_mission_team(map, o->record) : 1);
+    n.x = x * 64; n.y = y * 64; n.z = z * 64;
+    n.yaw = (uint16_t)((int)(o->yaw * (4096.0f / 6.2831853f) + 0.5f) & 4095);
+    n.ap = n.ap_max = o->ap;
+    n.attack = (uint16_t)(o->attack > 0 ? o->attack : 0);
+    n.energy_n = (int8_t)o->energy_n;
+    int anims = 0;
+    for (int k = 0; k < ACR_ANIM_MAX; ++k) anims += m->anims.anim[k].frames > 0;
+    n.brain = (uint8_t)(anims >= 10 ? ACR_GEN1_BRAIN_MT : n.attack ? ACR_GEN1_BRAIN_TURRET : ACR_GEN1_BRAIN_NONE);
+    if (n.brain == ACR_GEN1_BRAIN_MT && o->handler > 0) n.motion = unit_motion(u, import_dir, motion_map, o->handler);
+    o->unit = acr_gen1_battle_add_unit(b, &n);
+    return o->unit;
+}
+
 int demo_units_join(demo_units *u, const char *import_dir, int map, acr_gen1_battle *b, const acr_gen1_stage *stage) {
     b->units = 0;
     SDL_memset(b->unit, 0, sizeof b->unit);
@@ -342,41 +379,45 @@ int demo_units_join(demo_units *u, const char *import_dir, int map, acr_gen1_bat
         demo_units_load(import_dir, map, u);
     }
     int dormant = 0;
-    for (int i = 0; i < u->objects; ++i) {
-        demo_unit_object *o = &u->object[i];
-        if (o->model < 0 || o->ap <= 0) continue;
-        const demo_unit_model *m = &u->model[o->model];
-        acr_gen1_unit n;
-        SDL_memset(&n, 0, sizeof n);
-        /* drawn world (y up) -> the battle's (y down, 1/64) */
-        const int32_t x = (int32_t)o->pos[0], y = (int32_t)-o->pos[1], z = (int32_t)o->pos[2];
-        n.half = (uint16_t)(o->half > 0 ? o->half : 100);
-        n.height = (uint16_t)(o->height > 0 ? o->height : 200);
-        n.record = (uint8_t)o->record;
-        n.wait = (uint8_t)acr_gen1_mission_wait(map, o->record);
-        if (stage && !n.wait) {     /* standing on something? (map 6's big MT waits under the sea for its script) */
-            const int32_t pos[3] = { x, y, z };
-            int32_t fy = 0;
-            if (!acr_gen1_stage_floor_probe(stage, pos, ACR_GEN1_STAGE_PROBE_HALF, n.height, ACR_GEN1_STAGE_AC_MASK, &fy) ||
-                fy - y > ACR_GEN1_STAGE_GROUNDED || fy < y - 1) { ++dormant; continue; }
-        }
-        n.active = !n.wait;      /* waiting ones join when the script says */
-        n.team = (uint8_t)acr_gen1_mission_team(map, o->record);
-        n.x = x * 64; n.y = y * 64; n.z = z * 64;
-        n.yaw = (uint16_t)((int)(o->yaw * (4096.0f / 6.2831853f) + 0.5f) & 4095);
-        n.ap = n.ap_max = o->ap;
-        n.attack = (uint16_t)(o->attack > 0 ? o->attack : 0);
-        n.energy_n = (int8_t)o->energy_n;
-        int anims = 0;
-        for (int k = 0; k < ACR_ANIM_MAX; ++k) anims += m->anims.anim[k].frames > 0;
-        n.brain = (uint8_t)(anims >= 10 ? ACR_GEN1_BRAIN_MT : n.attack ? ACR_GEN1_BRAIN_TURRET : ACR_GEN1_BRAIN_NONE);
-        if (n.brain == ACR_GEN1_BRAIN_MT && o->handler > 0) n.motion = unit_motion(u, import_dir, map, o->handler);
-        o->unit = acr_gen1_battle_add_unit(b, &n);
-    }
+    for (int i = 0; i < u->objects; ++i) join_object(u, &u->object[i], map, map, import_dir, b, stage, &dormant);
     acr_gen1_mission_start(b, map);
     int scripted = 0;
     for (int k = 0; k < b->units; ++k) scripted += b->unit[k].wait != 0;
     SDL_Log("mission map %02d: %d units, %d waiting for the script%s, %d left out (not on a floor)", map,
             b->units, scripted, b->mission.map ? "" : " (no script)", dormant);
     return b->units;
+}
+
+int demo_units_borrow(demo_units *u, const char *import_dir, int from_map, int record, const acr_gen1_mission_spot *spots,
+                      int n, acr_gen1_battle *b, const acr_gen1_stage *stage) {
+    if (u->map != DEMO_UNITS_BORROWED + from_map) {
+        demo_units_free(u);
+        demo_units_load(import_dir, from_map, u);
+        u->map = DEMO_UNITS_BORROWED + from_map;
+    }
+    demo_unit_object src;
+    int found = 0;
+    for (int i = 0; i < u->objects && !found; ++i)
+        if (u->object[i].record == record) { src = u->object[i]; found = 1; }
+    if (!found || src.model < 0) {
+        SDL_Log("mission units: map %02d has no record %d to borrow (re-import your disc)", from_map, record);
+        u->objects = 0;
+        return 0;
+    }
+    if (n > DEMO_UNIT_OBJECTS) n = DEMO_UNIT_OBJECTS;
+    u->objects = n;
+    u->drawn = n;
+    int dormant = 0, joined = 0;
+    for (int k = 0; k < n; ++k) {
+        demo_unit_object *o = &u->object[k];
+        *o = src;
+        o->pos[0] = (float)spots[k].x;
+        o->pos[1] = -(float)spots[k].y;
+        o->pos[2] = (float)spots[k].z;
+        o->yaw = (float)(spots[k].facing & 4095) * (6.2831853f / 4096.0f);
+        joined += join_object(u, o, -1, from_map, import_dir, b, stage, &dormant) >= 0;
+    }
+    SDL_Log("mission units: %d of map %02d's record %d (unit %s) joined, %d left out (not on a floor)", joined, from_map,
+            record, u->model[src.model].id, dormant);
+    return joined;
 }

@@ -30,6 +30,8 @@ void arena_draw(float hud_w, int elapsed_ms);
 /* The fight to start (the same layout as Rogue Arena's) and its round
  * length in ms (0 = no time limit). */
 const rogue_fight *arena_fight_info(void);
+/* The imported arena opponent whose AC is called `ac` (any arena), or NULL. */
+const acr_gen1_rogue_foe *arena_find_ac(const char *ac);
 int32_t arena_round_ms(void);
 /* The fight is over: 1 won, 2 lost, 3 draw (a loss). Books the result and
  * pays a win into the garage; 1 = the garage changed (save it). */

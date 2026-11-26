@@ -30,13 +30,25 @@ void missions_draw(float hud_w, int elapsed_ms);
  * Nest examiner), the mission map, and the time limit in ms (0 none). */
 const rogue_fight *missions_fight_info(void);
 int32_t missions_round_ms(void);
-/* The opponent's option bits. */
+/* The opponent's option bits (the challenger's once it came). */
 uint16_t missions_foe_options(void);
+/* The sortie's variant (1..3) and its rule for the battle (ACR_GEN1_OWN_*,
+ * acr_gen1_mission_start_own), and the time a late arrival adds (ms). */
+int missions_variant(void);
+int missions_rule(void);
+int32_t missions_extra_ms(void);
+/* The radio line for an event of the sortie (0 the start, 1 the challenger
+ * comes), NULL none. */
+const char *missions_radio(int event);
+/* P4 Altered circumstances: puts the challenger (an arena AC from the
+ * import) in missions_fight_info()'s opponent place. 0 = not in the import. */
+int missions_challenger(void);
 /* The sortie is over: 1 won, anything else failed. The player's AP left
- * and AP max, and the ammunition bill (acr_gen1_mission_ammo_cost). Pays
+ * and AP max, the ammunition bill (acr_gen1_mission_ammo_cost), and
+ * whether the variant's bonus was earned (its special addition). Pays
  * the report into the garage and books the record; returns 1 (the garage
  * changed: save it). */
-int missions_fight_over(int result, int32_t ap_left, int32_t ap_max, int32_t ammo_cost);
+int missions_fight_over(int result, int32_t ap_left, int32_t ap_max, int32_t ammo_cost, int bonus);
 
 /* The record of missions played, as the save file keeps it. */
 acr_gen1_mission_record *missions_record(void);

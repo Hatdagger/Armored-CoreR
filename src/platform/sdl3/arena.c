@@ -251,6 +251,12 @@ static int prepare_fight(int rank) {
     return 1;
 }
 
+const acr_gen1_rogue_foe *arena_find_ac(const char *ac) {
+    for (int i = 0; ac && i < A.w.foes; ++i)
+        if (!SDL_strcasecmp(A.roster[i].ac, ac)) return &A.roster[i];
+    return NULL;
+}
+
 const rogue_fight *arena_fight_info(void) { return &A.fight; }
 int32_t arena_round_ms(void) { return acr_gen1_arena_timer_ms(A.s.timer); }
 

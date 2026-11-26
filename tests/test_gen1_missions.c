@@ -131,7 +131,77 @@ static void test_record(void) {
     EXPECT(back.sorties == 0 && back.n == 0);
 }
 
+/* P4's variants: the 40/40/20 roll, what each is briefed and flown as. */
+static void test_variants(void) {
+    int count[4] = { 0, 0, 0, 0 };
+    for (uint32_t r = 0; r < 1000; ++r) ++count[acr_gen1_mission_roll(r)];
+    EXPECT(count[1] == 400 && count[2] == 400 && count[3] == 200);
+    static acr_gen1_mission_list l;
+    acr_gen1_missions_build(&l, NULL);
+    const acr_gen1_mission_info *p4 = &l.m[0];
+    EXPECT(!strcmp(p4->id, "P4") && p4->variants == 3);
+    static acr_gen1_mission_info v;
+    acr_gen1_mission_variant(p4, 1, &v);
+    EXPECT(v.variant == 1 && v.briefed == 1 && v.rule == ACR_GEN1_OWN_NONE && v.reward == 10000);
+    acr_gen1_mission_variant(p4, 2, &v);
+    EXPECT(v.variant == 2 && v.briefed == 2 && v.rule == ACR_GEN1_OWN_P4_ALTERNATE && v.reward == 12000);
+    EXPECT(v.time_ms == 180000 && v.pages == 3 && strstr(v.page[2], "MT (drone) x2"));
+    acr_gen1_mission_variant(p4, 3, &v);
+    /* Never briefed: variant 1's pages and reward; the rule, the bonus and the late arrival. */
+    EXPECT(v.variant == 3 && v.briefed == 1 && v.rule == ACR_GEN1_OWN_P4_ALTERED);
+    EXPECT(v.reward == 10000 && v.bonus == 12000 && v.extra_ms == 120000 && v.time_ms == 180000);
+    EXPECT(!strcmp(v.page[0], p4->page[0]) && v.late_ac[0]);
+    acr_gen1_mission_variant(&l.m[0], 9, &v);   /* out of range: variant 1 */
+    EXPECT(v.variant == 1 && v.rule == ACR_GEN1_OWN_NONE);
+}
+
+/* The own-mission rules: only fighter 1 counts (P4's drones don't), and
+ * P4 Altered brings the challenger below half AP before it can be won. */
+static void test_own_rules(void) {
+    static acr_gen1_battle b;
+    memset(&b, 0, sizeof b);
+    b.f[0].ap = b.f[0].ap_max = 8000;
+    b.f[1].ap = b.f[1].ap_max = 8000;
+    b.units = 1;
+    b.unit[0].active = 1; b.unit[0].team = 1; b.unit[0].ap = 950;
+    acr_gen1_mission_start_own(&b, ACR_GEN1_OWN_P4_ALTERNATE);
+    EXPECT(acr_gen1_battle_result(&b, 0) == 0);
+    b.f[1].ap = 0;                                  /* examiner down, a drone still up: won */
+    EXPECT(acr_gen1_battle_result(&b, 0) == 1);
+    b.f[1].ap = 9000;                               /* time up: the ACs' AP alone */
+    EXPECT(acr_gen1_battle_result(&b, 1) == 2);
+    b.f[1].ap = 3000;
+    EXPECT(acr_gen1_battle_result(&b, 1) == 1);
+
+    memset(&b, 0, sizeof b);
+    b.f[0].ap = b.f[0].ap_max = 8000;
+    b.f[1].ap = b.f[1].ap_max = 8000;
+    acr_gen1_mission_start_own(&b, ACR_GEN1_OWN_P4_ALTERED);
+    acr_gen1_mission_tick(&b);
+    EXPECT(b.mission.phase == 0 && !(b.mission.flags & ACR_GEN1_MISSION_SWAP));
+    b.f[1].ap = 4000;                               /* half: not yet */
+    acr_gen1_mission_tick(&b);
+    EXPECT(b.mission.phase == 0);
+    EXPECT(acr_gen1_battle_result(&b, 1) == 1);     /* time up before it comes: more AP wins */
+    b.f[1].ap = 0;                                  /* one big hit to 0: the challenger still comes */
+    acr_gen1_mission_tick(&b);
+    EXPECT(b.mission.phase == 1 && (b.mission.flags & ACR_GEN1_MISSION_SWAP));
+    EXPECT(acr_gen1_battle_result(&b, 0) == 0);     /* not won by that */
+    b.f[1].ap = b.f[1].ap_max = 7000;               /* the platform swaps fighter 1 in */
+    acr_gen1_mission_challenger_in(&b);
+    EXPECT(b.mission.phase == 2 && !(b.mission.flags & ACR_GEN1_MISSION_SWAP));
+    acr_gen1_mission_tick(&b);
+    EXPECT(!(b.mission.flags & ACR_GEN1_MISSION_BONUS) && acr_gen1_battle_result(&b, 0) == 0);
+    b.f[1].ap = 0;
+    acr_gen1_mission_tick(&b);
+    EXPECT((b.mission.flags & ACR_GEN1_MISSION_BONUS) && acr_gen1_battle_result(&b, 0) == 1);
+    b.f[0].ap = 0;                                  /* the player down loses */
+    EXPECT(acr_gen1_battle_result(&b, 0) == 3);
+}
+
 int main(void) {
+    test_variants();
+    test_own_rules();
     test_list();
     test_sortie();
     test_costs();

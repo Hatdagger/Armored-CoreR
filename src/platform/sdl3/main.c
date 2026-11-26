@@ -584,6 +584,22 @@ static int g_stage_id = 27, g_stage_on = 0;
 /* On a mission map (0-19), its mission units where the map's objects stand
  * (drawn only: their mission code isn't read yet). Loaded when first drawn. */
 static demo_units g_units = { .map = -1 };
+/* Armored-CoreR missions: units borrowed from another map (P4's drones). */
+static demo_units g_mission_units = { .map = -1 };
+/* A mission's radio line on screen (text only for now) and until when. */
+static char g_radio[96];
+static Uint64 g_radio_until;
+static void radio_say(const char *t) {
+    if (!t) return;
+    SDL_strlcpy(g_radio, t, sizeof g_radio);
+    g_radio_until = SDL_GetTicks() + 5000;
+    SDL_Log("radio: %s", t);
+}
+/* An Armored-CoreR mission's start (acr_gen1_missions.h spots). */
+static void spot_spawn(acr_gen1_ac *ac, const acr_gen1_ac_def *def, const acr_gen1_mission_spot *s) {
+    acr_gen1_ac_spawn(ac, def, s->x * 64, s->z * 64, (uint16_t)(s->facing & 4095));
+    ac->y = ac->py = ac->sy = s->y * 64;
+}
 
 /* Places fighter k's AC on the stage's start k (x, y down, z, facing). */
 static void stage_spawn(acr_gen1_ac *ac, const acr_gen1_ac_def *def, int k) {
@@ -1097,40 +1113,42 @@ int main(int argc, char **argv) {
     memset(&battle, 0, sizeof battle);
     acr_gen1_ac *const P = &battle.f[0].ac;
     acr_gen1_ac *const T = &battle.f[1].ac;
+    /* Fighter i_ from its demo_ac (parts loaded), at full AP; not placed. */
+    #define SETUP_FIGHTER(i_) do {                                                        \
+        acr_gen1_fighter *f_ = &battle.f[i_];                                         \
+        demo_ac *d_ = &ac_data[i_];                                                   \
+        memset(f_, 0, sizeof *f_);                                                    \
+        f_->intercept_shot = -1; f_->swing_target = -1; f_->last_missile = -1;        \
+        /* Human PLUS at full (level 9): energy rules of VS 0x80083560. */            \
+        /* With SP-MODERN only the no-kneel benefit applies (level 0 here). */         \
+        if ((i_ == 0 ? human_plus : g_plus2) && !d_->plus_applied &&                  \
+            acr_gen1_human_plus_level(i_ == 0 ? 9 : (unsigned)g_plus2, i_ == 0 ? g_options[0] : 0)) { \
+            acr_gen1_human_plus_energy(&d_->def.stats, i_ == 0 ? 9 : g_plus2);        \
+            d_->plus_applied = 1;                                                     \
+        }                                                                             \
+        f_->def = &d_->def;                                                           \
+        f_->ap = f_->ap_max = d_->ap;                                                 \
+        f_->shell_factor = d_->shell_factor;                                          \
+        f_->energy_factor = d_->energy_factor;                                        \
+        f_->weapons = (uint8_t)(i_ == 0 || two_players || g_ai_mode ? d_->weapons : 0); \
+        for (int w_ = 0; w_ < d_->weapons; ++w_) {                                    \
+            f_->weapon[w_] = d_->weapon[w_];                                          \
+            f_->ammo[w_] = d_->weapon[w_].ammo;                                       \
+        }                                                                             \
+        f_->current = 0;                                                              \
+        f_->legs = (uint8_t)(pp[i_][SLOT_LEGS] >= 27 ? ACR_GEN1_LEGS_TRACKS            \
+                   : pp[i_][SLOT_LEGS] >= 21 ? ACR_GEN1_LEGS_FOUR : ACR_GEN1_LEGS_TWO); \
+        f_->human_plus = (uint8_t)(i_ == 0 ? human_plus : i_ == 1 && g_plus2 > 0); f_->kneeling = 0; \
+        f_->team = (uint8_t)(i_ >= 2);   /* co-op: players 0, 1 against the AI ACs */ \
+        f_->target = -1;                                                              \
+        /* SP-MODERN: pilots only (the AI flies the original controls). */           \
+        f_->modern = (uint8_t)(i_ < 2 && !(i_ == 0 && g_autopilot) &&                 \
+                               !(i_ == 1 && g_ai_mode && !g_net && !two_players) && modern_of(i_)); \
+        d_->def.cruise_pct = (uint8_t)(f_->legs == ACR_GEN1_LEGS_TWO ? ACR_GEN1_CRUISE_PCT \
+                                       : ACR_GEN1_CRUISE_HEAVY_PCT);                    \
+    } while (0)
     #define SETUP_FIGHTERS() do {                                                         \
-        for (int i_ = 0; i_ < acr_gen1_battle_fighters(&battle); ++i_) {                  \
-            acr_gen1_fighter *f_ = &battle.f[i_];                                         \
-            demo_ac *d_ = &ac_data[i_];                                                   \
-            memset(f_, 0, sizeof *f_);                                                    \
-            f_->intercept_shot = -1; f_->swing_target = -1; f_->last_missile = -1;        \
-            /* Human PLUS at full (level 9): energy rules of VS 0x80083560. */            \
-            /* With SP-MODERN only the no-kneel benefit applies (level 0 here). */         \
-            if ((i_ == 0 ? human_plus : g_plus2) && !d_->plus_applied &&                  \
-                acr_gen1_human_plus_level(i_ == 0 ? 9 : (unsigned)g_plus2, i_ == 0 ? g_options[0] : 0)) { \
-                acr_gen1_human_plus_energy(&d_->def.stats, i_ == 0 ? 9 : g_plus2);        \
-                d_->plus_applied = 1;                                                     \
-            }                                                                             \
-            f_->def = &d_->def;                                                           \
-            f_->ap = f_->ap_max = d_->ap;                                                 \
-            f_->shell_factor = d_->shell_factor;                                          \
-            f_->energy_factor = d_->energy_factor;                                        \
-            f_->weapons = (uint8_t)(i_ == 0 || two_players || g_ai_mode ? d_->weapons : 0); \
-            for (int w_ = 0; w_ < d_->weapons; ++w_) {                                    \
-                f_->weapon[w_] = d_->weapon[w_];                                          \
-                f_->ammo[w_] = d_->weapon[w_].ammo;                                       \
-            }                                                                             \
-            f_->current = 0;                                                              \
-            f_->legs = (uint8_t)(pp[i_][SLOT_LEGS] >= 27 ? ACR_GEN1_LEGS_TRACKS            \
-                       : pp[i_][SLOT_LEGS] >= 21 ? ACR_GEN1_LEGS_FOUR : ACR_GEN1_LEGS_TWO); \
-            f_->human_plus = (uint8_t)(i_ == 0 ? human_plus : i_ == 1 && g_plus2 > 0); f_->kneeling = 0; \
-            f_->team = (uint8_t)(i_ >= 2);   /* co-op: players 0, 1 against the AI ACs */ \
-            f_->target = -1;                                                              \
-            /* SP-MODERN: pilots only (the AI flies the original controls). */           \
-            f_->modern = (uint8_t)(i_ < 2 && !(i_ == 0 && g_autopilot) &&                 \
-                                   !(i_ == 1 && g_ai_mode && !g_net && !two_players) && modern_of(i_)); \
-            d_->def.cruise_pct = (uint8_t)(f_->legs == ACR_GEN1_LEGS_TWO ? ACR_GEN1_CRUISE_PCT \
-                                           : ACR_GEN1_CRUISE_HEAVY_PCT);                    \
-        }                                                                                 \
+        for (int i_ = 0; i_ < acr_gen1_battle_fighters(&battle); ++i_) SETUP_FIGHTER(i_); \
         battle.targeted = 0;                                                              \
         if (battle.count > 2) coop_spawn(&battle);                                        \
         else if (g_stage_on) { stage_spawn(P, def, 0); stage_spawn(T, def2, 1); }         \
@@ -1142,6 +1160,22 @@ int main(int argc, char **argv) {
          * map 12's friendly units team 0, with the player). */                 \
         demo_units_join(&g_units, g_import_dir, g_stage_on && !g_rogue_fight ? g_stage_id : -1, &battle,  \
                         g_stage_on ? &g_stage.collision : NULL);                          \
+        /* Armored-CoreR missions: the variant's rule, and P4 Alternate layout's          \
+         * starts and drones (acr_gen1_missions.h). */                                    \
+        g_mission_units.objects = 0;                                                      \
+        if (g_rogue_fight == 3) {                                                         \
+            acr_gen1_mission_start_own(&battle, missions_rule());                         \
+            /* Testing aid: ACR_MISSION_FOE_HURT=1 starts the opponent below half  \
+             * its AP (P4 Altered: the challenger comes at once). */              \
+            if (SDL_getenv("ACR_MISSION_FOE_HURT")) battle.f[1].ap = battle.f[1].ap_max * 49 / 100; \
+            if (missions_rule() == ACR_GEN1_OWN_P4_ALTERNATE && g_stage_on) {             \
+                spot_spawn(P, def, &acr_gen1_p4_alt_start[0]);                            \
+                spot_spawn(T, def2, &acr_gen1_p4_alt_start[1]);                           \
+                demo_units_borrow(&g_mission_units, g_import_dir, ACR_GEN1_P4_DRONE_MAP,  \
+                                  ACR_GEN1_P4_DRONE_RECORD, acr_gen1_p4_alt_drone, 2, &battle,\
+                                  &g_stage.collision);                                    \
+            }                                                                             \
+        }                                                                                 \
         /* Testing aids: ACR_UNITS_DOWN=1 starts with the enemy units in the    \
          * fight destroyed, so a map's script moves on (map 6: the deck opens); \
          * ACR_FRIENDS_DOWN=1 the friendly ones (map 12: the mission fails). */ \
@@ -1591,7 +1625,8 @@ int main(int argc, char **argv) {
                     /* The income and expense report: the player's AP and the
                      * rounds fired are what the bill is figured from. */
                     if (missions_fight_over(res_, battle.f[0].ap, battle.f[0].ap_max,
-                                            acr_gen1_mission_ammo_cost(&battle.f[0])))
+                                            acr_gen1_mission_ammo_cost(&battle.f[0]),
+                                            (battle.mission.flags & ACR_GEN1_MISSION_BONUS) != 0))
                         hangar_save();
                 } else if (was_arena_) { if (arena_fight_over(res_)) hangar_save(); }
                 else rogue_fight_over(res_);
@@ -1682,6 +1717,10 @@ int main(int argc, char **argv) {
                 set_rate(&clock, def2, g_tick_rate);
                 SETUP_FIGHTERS();
                 prevs[0] = *P; prevs[1] = *T;
+                g_radio_until = 0;
+                radio_say(missions_radio(0));
+                SDL_Log("missions: sortie, variant %d (%s)", missions_variant(),
+                        acr_gen1_mission_variant_name(missions_variant()));
                 last = SDL_GetTicksNS();
                 rogue_over_at = give_up_until = 0;
                 mode = 1;
@@ -2261,6 +2300,36 @@ int main(int argc, char **argv) {
             /* The arena's floors and walls (the defs are reloaded on part changes). */
             def->stage = def2->stage = battle.stage = g_stage_on ? &g_stage.collision : NULL;
             acr_gen1_battle_step(&battle, in2, act);
+            if (battle.mission.flags & ACR_GEN1_MISSION_SWAP) {
+                /* P4 Altered circumstances: the examiner withdraws and the
+                 * challenger (an arena AC, flown by its own AI) drops in
+                 * from above on the east side; the clock gets its extra
+                 * time and the Nest says to go on. */
+                if (missions_challenger()) {
+                    const rogue_fight *cf = missions_fight_info();
+                    memcpy(parts2, cf->parts[1], sizeof parts2);
+                    demo_load(dir, parts2, &ac_data[1], err, sizeof err);
+                    g_paint_on[1] = 1;
+                    memcpy(g_paint[1], cf->colours[1], sizeof g_paint[1]);
+                    g_rogue_prof = cf->ai;
+                    g_ai_mode = AI_ROGUE;
+                    g_plus2 = cf->plus[1];
+                    g_options[1] = missions_foe_options();
+                    SETUP_FIGHTER(1);
+                    acr_gen1_mission_spot drop = acr_gen1_p4_challenger_drop;
+                    drop.y -= ACR_GEN1_P4_DROP_HEIGHT;
+                    spot_spawn(T, def2, &drop);
+                    prevs[1] = *T;
+                    const acr_gen1_ai_profile p_ = ai_profile(g_ai_mode);
+                    acr_gen1_ai_init(&g_ai[1], &p_, 0x5678u + (uint32_t)(++g_ai_round) * 7919u);
+                    battle.targeted = 0;
+                    acr_gen1_battle_retarget(&battle);
+                } else
+                    SDL_Log("missions: the challenger isn't in this import (re-import your disc); the examiner stays");
+                round_ms += missions_extra_ms();
+                acr_gen1_mission_challenger_in(&battle);
+                radio_say(missions_radio(1));
+            }
             if (battle.mission.map) {      /* the map's script: log each step it takes */
                 static acr_gen1_mission last_m;
                 const acr_gen1_mission *m_ = &battle.mission;
@@ -2434,6 +2503,8 @@ int main(int argc, char **argv) {
         /* the arena (its sky first, around the eye), or the open floor's grid and walls */
         if (g_stage_on) demo_stage_draw_sky(&g_stage, sky_eye);
         if (g_stage_on) demo_stage_draw(&g_stage, 0);
+        if (g_stage_on && g_rogue_fight == 3 && g_mission_units.objects && battle.units)   /* a mission's borrowed units */
+            demo_units_draw(&g_mission_units, &battle, (float)SDL_GetTicksNS() / (float)ACR_GEN1_TICK_NS, &g_light);
         if (g_stage_on && g_stage_id >= 0 && g_stage_id < 20 && !g_rogue_fight) {   /* menu fights: no mission units */
             if (g_units.map != g_stage_id) {
                 demo_units_free(&g_units);
@@ -2768,6 +2839,8 @@ int main(int argc, char **argv) {
                               g_ai_mode == AI_FROM_FILE ? "FROM FILE" : acr_gen1_ai_preset_name(g_ai_mode));
             battle_hud_text(full_w, g_hud_frame, 0, 160.0f - 2.0f * (float)SDL_strlen(who), 42, who, 0, 255, 200, 120);
         }
+        if (g_rogue_fight == 3 && !round_over && SDL_GetTicks() < g_radio_until)   /* a mission's radio */
+            battle_hud_text(full_w, g_hud_frame, 0, 160.0f - 2.0f * (float)SDL_strlen(g_radio), 196, g_radio, 0, 140, 230, 255);
         if (g_rogue_fight && !round_over && SDL_GetTicks() < give_up_until)
             battle_hud_text(full_w, g_hud_frame, 0, 160.0f - 2.0f * 29.0f, 180, "ESC AGAIN: GIVE UP (A LOSS)", 0, 255, 90, 70);
         if (round_over) {
