@@ -11,6 +11,7 @@
 #include "../../model/acr_model.h"
 #include "../../render/acr_light.h"
 #include "../../gen1/acr_gen1_battle.h"
+#include "../../gen1/acr_gen1_missions.h"
 
 #define DEMO_UNIT_MODELS   16    /* different units on one map (the most is 5) */
 #define DEMO_UNIT_PIECES   32
@@ -70,6 +71,15 @@ void demo_units_free(demo_units *u);
  * the number joined. A unit whose handler has a motion set
  * (motion-HH.toml, imports from 2026-11-24 on) walks by it. */
 int  demo_units_join(demo_units *u, const char *import_dir, int map, acr_gen1_battle *b, const acr_gen1_stage *stage);
+/* Armored-CoreR's own missions: `n` copies of map `from_map`'s object
+ * `record` (its unit, skin, AP, attack and body) at `spots`, joined to
+ * battle b as team 1 without a script, after demo_units_join has cleared
+ * b's units. u holds them for drawing (use a demo_units of its own, not
+ * the mission map's: its map becomes DEMO_UNITS_BORROWED + from_map).
+ * Returns the number joined. */
+#define DEMO_UNITS_BORROWED 100
+int  demo_units_borrow(demo_units *u, const char *import_dir, int from_map, int record, const acr_gen1_mission_spot *spots,
+                       int n, acr_gen1_battle *b, const acr_gen1_stage *stage);
 /* Draws every object, `tick` game ticks in: joined ones where battle b has
  * them, in their state's animation (MTs) or animation 0, blinking when hit
  * and gone once destroyed; the rest standing in animation 0. b may be NULL. */

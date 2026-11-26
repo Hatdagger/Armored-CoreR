@@ -6,6 +6,7 @@
 
 #include "acr_import.h"
 #include "acr_sfx_moa.h"
+#include "acr_stages_moa.h"
 
 #ifdef _WIN32
 #include <direct.h>
@@ -105,8 +106,28 @@ static long file_size(const char *path, unsigned char *first) {
     return n;
 }
 
+/* Stage lights: the GTE's NCCS worked by hand for a made-up light set. */
+static void test_stage_light(void) {
+    const int16_t llm[9] = { 0, -4096, 0, 4096, 0, 0, 0, 0, 0 };
+    const int16_t lcm[9] = { 4096, 2048, 0, 4096, 2048, 0, 4096, 2048, 0 };
+    const uint8_t bk[3] = { 255, 0, 128 };
+    const int16_t up[3] = { 0, -4096, 0 }, east[3] = { 4096, 0, 0 }, south[3] = { 0, 0, -4096 };
+    uint8_t c[3];
+    acr_moa_light_face(llm, lcm, bk, 0, up, c);       /* light 0 full: 4080 + 4096 */
+    CHECK(c[0] == 127 && c[1] == 64 && c[2] == 96);
+    acr_moa_light_face(llm, lcm, bk, 0, east, c);     /* light 1 full, at half colour */
+    CHECK(c[0] == 95 && c[1] == 32 && c[2] == 64);
+    acr_moa_light_face(llm, lcm, bk, 0, south, c);    /* back colour only */
+    CHECK(c[0] == 63 && c[1] == 0 && c[2] == 32);
+    acr_moa_light_face(llm, lcm, bk, 1, south, c);    /* a quarter-turned area: light 1 turned with it */
+    CHECK(c[0] == 95 && c[1] == 32 && c[2] == 64);
+    acr_moa_light_face(llm, lcm, bk, 1, east, c);
+    CHECK(c[0] == 63 && c[1] == 0 && c[2] == 32);
+}
+
 int main(int argc, char **argv) {
     const char *work = argc > 1 ? argv[1] : "test_import_work";
+    test_stage_light();
     make_dir(work);
     build_disc();
     CHECK(write_bin_cue(work));

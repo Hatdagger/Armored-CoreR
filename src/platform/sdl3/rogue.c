@@ -9,6 +9,7 @@
 #include "rogue_sound.h"
 #include "rogue_tiles_data.h"
 #include "sfx.h"
+#include "vs_screen.h"
 
 #define SLOTS ACR_GEN1_ROGUE_SLOTS
 
@@ -64,13 +65,10 @@ static struct {
     /* PART SPECS */
     demo_part_specs *specs;
     int specs_back;                           /* the screen it opened from (RS_PRIZE or RS_SWAP) */
-    /* VS screen (AC1Recomp's, user 2026-11-17/18) */
-    float vs_t, vs_shut;                      /* seconds since it opened; since the shutters started (< 0 not yet) */
-    int vs_shots, vs_shots_n, vs_door;
+    /* VS screen (AC1Recomp's, user 2026-11-17/18; vs_screen.c) */
     vs_mini mini[VS_MINI_MAX];
     int mini_n;
     char vs_belt[40];
-    uint32_t emblem_tex;                      /* the opponent's emblem, 0 none */
     /* victory screen */
     float vic_t;
     int vic_words;
@@ -78,7 +76,6 @@ static struct {
     uint8_t vic_colours[4][3];
     char vic_rank[16], vic_pay[12], vic_beaten[64], vic_line[2][48];
     int vic_ghost;
-    uint32_t soft_tex;                        /* a soft round dot: smoke and sparks */
     /* Co-op borrows the prize screen: `run` is a player's side while it
      * shows, the solo run waits in `solo`. */
     acr_gen1_rogue *borrow;
@@ -92,8 +89,7 @@ static rogue_command coop_input(garage_action a);
 static void coop_draw(float hud_w, int elapsed_ms);
 static void coop_prize_done(void);
 
-static rogue_ac_drawer g_draw_ac;
-void rogue_set_ac_drawer(rogue_ac_drawer fn) { g_draw_ac = fn; }
+void rogue_set_ac_drawer(rogue_ac_drawer fn) { vs_set_ac_drawer(fn); }
 
 static acr_gen1_rogue_world world(void) {
     acr_gen1_rogue_world w = { R.roster, R.foes, &R.cat, &R.info };
@@ -297,7 +293,7 @@ static int next_is_ghost(void) {
 }
 
 static void victory_open(void);
-static void vs_open(void);
+static void vs_start(void);
 
 static int prepare_fight(void) {
     acr_gen1_rogue_foe f;
@@ -458,7 +454,7 @@ static rogue_command input(garage_action a) {
             if (acr_gen1_rogue_check(&R.run, &R.cat)) { say("YOUR AC CAN'T SORTIE AS IT IS: CHECK THE GARAGE."); break; }
             if (!R.nstages) { say("RE-IMPORT YOUR DISC: NO STAGES FOUND."); break; }
             if (!prepare_fight()) { say("THE NEXT OPPONENT COULD NOT BE LOADED."); break; }
-            vs_open();
+            vs_start();
             R.screen = RS_VS;
             break;
         case HR_SWAP:
@@ -516,9 +512,9 @@ static rogue_command input(garage_action a) {
         }
         return RC_NONE;
     case RS_VS:
-        if (R.vs_shut >= 0) { R.snd = -2; return RC_NONE; }          /* closing: nothing to do */
+        if (vs_closing()) { R.snd = -2; return RC_NONE; }             /* closing: nothing to do */
         if (a == GA_CANCEL) { R.screen = RS_HUB; R.cur = HR_NEXT; return RC_NONE; }
-        if (a == GA_OK) R.vs_shut = 0;                                /* skip the count: the shutters now */
+        if (a == GA_OK) vs_skip();                                    /* skip the count: the shutters now */
         else R.snd = -2;
         return RC_NONE;
     case RS_RESULT:
@@ -715,16 +711,10 @@ static void part_lines(float x, float y, const acr_gen1_rogue_offer *o) {
 
 /* ---- shared drawing bits for the VS, victory and PART SPECS screens ---- */
 
-static void text_at(float x, float y, const char *t, float size, uint8_t r, uint8_t g, uint8_t b) {
-    acr_hud_text_size(x, y, t, size, r, g, b, 255);
-}
-static float text_w(const char *t, float size) { return size * (float)SDL_strlen(t); }
-static void text_mid(float cx, float y, const char *t, float size, uint8_t r, uint8_t g, uint8_t b) {
-    text_at(cx - text_w(t, size) * 0.5f, y, t, size, r, g, b);
-}
-static void text_right(float rx, float y, const char *t, float size, uint8_t r, uint8_t g, uint8_t b) {
-    text_at(rx - text_w(t, size), y, t, size, r, g, b);
-}
+static void text_at(float x, float y, const char *t, float size, uint8_t r, uint8_t g, uint8_t b) { vs_text_at(x, y, t, size, r, g, b); }
+static float text_w(const char *t, float size) { return vs_text_w(t, size); }
+static void text_mid(float cx, float y, const char *t, float size, uint8_t r, uint8_t g, uint8_t b) { vs_text_mid(cx, y, t, size, r, g, b); }
+static void text_right(float rx, float y, const char *t, float size, uint8_t r, uint8_t g, uint8_t b) { vs_text_right(rx, y, t, size, r, g, b); }
 /* Text with a dark edge (YOU WIN). */
 static void text_edged(float x, float y, const char *t, float size, uint8_t r, uint8_t g, uint8_t b) {
     const float e = size / 16.0f;
@@ -734,47 +724,11 @@ static void text_edged(float x, float y, const char *t, float size, uint8_t r, u
     acr_hud_text_size(x, y, t, size, r, g, b, 255);
 }
 
-/* A box filled top to bottom from colour c at k0 to k1 of its brightness. */
-static void gradient(float x, float y, float w, float h, const uint8_t c[3], float k0, float k1) {
-    const int steps = 24;
-    for (int i = 0; i < steps; ++i) {
-        const float k = k0 + (k1 - k0) * ((float)i + 0.5f) / (float)steps;
-        acr_hud_rect(x, y + h * (float)i / steps, w, h / steps + 0.5f, (uint8_t)SDL_min(255.0f, c[0] * k),
-                     (uint8_t)SDL_min(255.0f, c[1] * k), (uint8_t)SDL_min(255.0f, c[2] * k), 255, 1);
-    }
-}
+static void gradient(float x, float y, float w, float h, const uint8_t c[3], float k0, float k1) { vs_gradient(x, y, w, h, c, k0, k1); }
+static void frame(float x, float y, float w, float h, const uint8_t c[3], float t) { vs_frame(x, y, w, h, c, t); }
+static void thick_line(float x0, float y0, float x1, float y1, float t, uint8_t r, uint8_t g, uint8_t b) { vs_thick_line(x0, y0, x1, y1, t, r, g, b); }
+static void soft_dot(float cx, float cy, float rad, uint8_t r, uint8_t g, uint8_t b, uint8_t a) { vs_soft_dot(cx, cy, rad, r, g, b, a); }
 
-/* The mock's frame: a dark rim, then `t` units in colour. */
-static void frame(float x, float y, float w, float h, const uint8_t c[3], float t) {
-    for (float k = 0; k < 2; k += 1) acr_hud_rect(x - t - 2 - k, y - t - 2 - k, w + 2 * (t + 2 + k), h + 2 * (t + 2 + k), 10, 10, 14, 255, 0);
-    for (float k = 0; k < t; k += 1) acr_hud_rect(x - 1 - k, y - 1 - k, w + 2 * (1 + k), h + 2 * (1 + k), c[0], c[1], c[2], 255, 0);
-}
-
-/* A thick line (the slash). */
-static void thick_line(float x0, float y0, float x1, float y1, float t, uint8_t r, uint8_t g, uint8_t b) {
-    const float dx = x1 - x0, dy = y1 - y0, l = SDL_sqrtf(dx * dx + dy * dy);
-    if (l <= 0) return;
-    const float nx = -dy / l, ny = dx / l;
-    for (float k = -t * 0.5f; k <= t * 0.5f; k += 0.5f)
-        acr_hud_line(x0 + nx * k, y0 + ny * k, x1 + nx * k, y1 + ny * k, r, g, b, 255);
-}
-
-/* A soft round dot of colour (smoke, sparks). */
-static void soft_dot(float cx, float cy, float rad, uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
-    if (!R.soft_tex) {
-        static uint8_t px[32 * 32 * 4];
-        for (int y = 0; y < 32; ++y)
-            for (int x = 0; x < 32; ++x) {
-                const float d = SDL_sqrtf((x - 15.5f) * (x - 15.5f) + (y - 15.5f) * (y - 15.5f)) / 16.0f;
-                const float k = d >= 1 ? 0 : (1 - d) * (1 - d);
-                uint8_t *q = px + (y * 32 + x) * 4;
-                q[0] = q[1] = q[2] = 255;
-                q[3] = (uint8_t)(255 * k);
-            }
-        R.soft_tex = acr_render_texture(px, 32, 32, 0);
-    }
-    acr_hud_sprite(R.soft_tex, 32, 32, 0, 0, 32, 32, cx - rad, cy - rad, rad * 2, rad * 2, r, g, b, a, ACR_HUD_ALPHA);
-}
 
 static float ease_out(float t) { t = t < 0 ? 0 : t > 1 ? 1 : t; return 1 - (1 - t) * (1 - t) * (1 - t); }
 
@@ -793,91 +747,20 @@ static const uint8_t k_blue[3] = { 120, 170, 235 }, k_red[3] = { 235, 90, 80 }, 
 
 static void draw_ac(const int parts[SLOT_COUNT], const uint8_t colours[4][3], float x, float y, float w, float h,
                     float frac, float yaw, int lying, float shade) {
-    if (g_draw_ac) g_draw_ac(parts, colours, x, y, w, h, frac, yaw, lying, shade);
+    vs_draw_ac(parts, colours, x, y, w, h, frac, yaw, lying, shade);
 }
 
-/* ---- the opponents' emblems (acr-import: arena/<AA-name>/<RR>-emblem.tim) ---- */
-
-typedef struct emblem_find { int arena; char dir[1100]; } emblem_find;
-static SDL_EnumerationResult SDLCALL emblem_dir_cb(void *user, const char *dirname, const char *fname) {
-    emblem_find *f = user;
-    if (SDL_atoi(fname) == f->arena && fname[0] >= '0' && fname[0] <= '9' && fname[2] == '-') {
-        const size_t n = SDL_strlen(dirname);
-        SDL_snprintf(f->dir, sizeof f->dir, "%s%s%s", dirname, n && (dirname[n - 1] == '/' || dirname[n - 1] == '\\') ? "" : "/", fname);
-        return SDL_ENUM_SUCCESS;
-    }
-    return SDL_ENUM_CONTINUE;
-}
-
-/* A 4-bit 64 x 64 TIM (the game's emblems) to a texture; colour 0 is
- * see-through (AC1Recomp moa_screen_emblem_from_tim). 0 = none. */
-static uint32_t emblem_texture(int arena, int rank) {
-    emblem_find f = { arena, "" };
-    char path[1400];
-    SDL_snprintf(path, sizeof path, "%s/arena", R.import_dir);
-    SDL_EnumerateDirectory(path, emblem_dir_cb, &f);
-    if (!f.dir[0]) return 0;
-    SDL_snprintf(path, sizeof path, "%s/%02d-emblem.tim", f.dir, rank);
-    size_t n = 0;
-    uint8_t *d = SDL_LoadFile(path, &n);
-    if (!d) return 0;
-#define RD32(o) ((uint32_t)d[o] | (uint32_t)d[(o) + 1] << 8 | (uint32_t)d[(o) + 2] << 16 | (uint32_t)d[(o) + 3] << 24)
-#define RD16(o) ((uint32_t)d[o] | (uint32_t)d[(o) + 1] << 8)
-    uint32_t tex = 0;
-    if (n >= 20 && RD32(0) == 0x10u && (RD32(4) & 3u) == 0 && (RD32(4) & 8u)) {
-        uint32_t off = 8;
-        const uint32_t clen = RD32(off);
-        uint8_t pal[16][4];
-        if (off + 12u + 32u <= n && clen >= 44u) {
-            for (int i = 0; i < 16; ++i) {
-                const uint32_t v = RD16(off + 12u + 2u * (uint32_t)i);
-                const uint32_t r = (v & 31u) << 3, g = ((v >> 5) & 31u) << 3, b = ((v >> 10) & 31u) << 3;
-                pal[i][0] = (uint8_t)(r | r >> 5); pal[i][1] = (uint8_t)(g | g >> 5); pal[i][2] = (uint8_t)(b | b >> 5);
-                pal[i][3] = v ? 255 : 0;
-            }
-            off += clen;
-            if (off + 12u + 2048u <= n && RD16(off + 8u) * 4u == 64u && RD16(off + 10u) == 64u) {
-                static uint8_t px[64 * 64 * 4];
-                for (uint32_t i = 0; i < 2048u; ++i) {
-                    const uint8_t b = d[off + 12u + i];
-                    SDL_memcpy(px + 8 * i, pal[b & 15u], 4);
-                    SDL_memcpy(px + 8 * i + 4, pal[b >> 4], 4);
-                }
-                tex = acr_render_texture(px, 64, 64, 1);
-            }
-        }
-    }
-#undef RD32
-#undef RD16
-    SDL_free(d);
-    return tex;
-}
-
-/* ---- the VS screen (AC1Recomp's, design docs/rogue-arena-v2-design.md) ----
- * From NEXT BATTLE until the fight runs: the player's AC (blue, left) and
- * the next opponent (red, right, its emblem behind it), FOR RANK n, VS,
- * "UNITS DEPLOY IN 5..1" at a second a step; on counts 3, 2, 1 a rifle shot,
- * crossing out the ACs beaten last on the strip along the bottom. Then the
- * hangar shutters close and it fades to black, and the fight starts. ENTER /
- * A skips the count (the shutters close at once). Silent but for the shots
- * and the shutters. Ladder of 19 (AC1Recomp: 49): its belts are two ranks,
- * so the strip shows the last three ACs beaten (whatever their belt), YOU,
- * the next and the rest of the next one's belt. */
-#define VS_C0        0.6f
-#define VS_STEP      1.0f
-#define VS_SHUT_AT   (VS_C0 + 5.0f * VS_STEP)
-#define VS_MEET      0.30f
-#define VS_DOOR_PEAK 0.156f
-#define VS_FADE_AT   0.7f
-#define VS_FADE_LEN  0.4f
+/* ---- the VS screen (vs_screen.c, shared with the Arena) ----
+ * Ladder of 19 (AC1Recomp: 49): its belts are two ranks, so the strip
+ * along the bottom shows the last three ACs beaten (whatever their belt),
+ * YOU, the next and the rest of the next one's belt; the last three beaten
+ * are crossed out with a rifle shot on counts 3, 2, 1. */
 
 static void foe_paint(const acr_gen1_rogue_foe *f, uint8_t c[4][3]) { SDL_memcpy(c, f->colours, 12); }
 
-static void vs_open(void) {
-    rogue_sound_build();
-    R.vs_t = 0;
-    R.vs_shut = -1;
-    R.vs_shots = R.vs_door = 0;
+static void vs_strip(float hud_w, float sx, float t, const uint8_t band[3]);
+
+static void vs_start(void) {
     R.mini_n = 0;
     const int my_rank = rank_now(), foe_rank = my_rank - 1;
     const int belt = belt_of_rank(foe_rank);
@@ -908,7 +791,6 @@ static void vs_open(void) {
         const int from_end = beaten - 1 - i;
         R.mini[i].slash_at = from_end >= 3 ? -9.0f : VS_C0 + (float)(4 - from_end) * VS_STEP;
     }
-    R.vs_shots_n = beaten < 3 ? beaten : 3;
     if (R.mini_n < VS_MINI_MAX) {
         vs_mini *m = &R.mini[R.mini_n++];
         SDL_zero(*m);
@@ -927,123 +809,30 @@ static void vs_open(void) {
         for (int s = 0; s < SLOT_COUNT; ++s) m->parts[s] = f.parts[s];
         foe_paint(&f, m->colours);
     }
+    vs_setup s;
+    SDL_zero(s);
+    s.fight = &R.fight;
+    s.mode = "ROGUE ARENA";
+    s.right = R.vs_belt;
+    SDL_memcpy(s.band, k_band[belt < 0 ? 0 : belt > 10 ? 10 : belt], 3);
+    s.rank[0] = R.run.wins ? rank_now() : 0;
+    s.rank[1] = foe_rank;
     /* the opponent's emblem (none for ghosts) */
     const acr_gen1_rogue_pick *p = acr_gen1_rogue_next_pick(&R.run);
-    R.emblem_tex = 0;
-    if (p && p->kind == ACR_GEN1_ROGUE_FOE) R.emblem_tex = emblem_texture(p->arena, p->rank);
+    if (p && p->kind == ACR_GEN1_ROGUE_FOE) s.emblem[1] = vs_emblem(R.import_dir, p->arena, p->rank);
+    s.for_rank = foe_rank;
+    s.tag = next_is_ghost() ? "GHOST" : NULL;
+    s.stage = stage_name(R.fight.stage);
+    s.hint = "ENTER / A  SORTIE NOW    ESC / B  BACK TO THE HUB";
+    s.shots = beaten < 3 ? beaten : 3;
+    s.strip = vs_strip;
+    vs_open(&s);
 }
 
-/* One side's box: the colour gradient, the emblem behind, the dark foot, the AC. */
-static void vs_panel(float x, float y, float w, float h, const int parts[SLOT_COUNT], const uint8_t colours[4][3],
-                     const uint8_t tint[3], uint32_t emblem, int side) {
-    gradient(x, y, w, h, tint, 0.55f, 0.15f);
-    if (emblem) {
-        const float es = h * 1.15f;
-        float ex = x + (w - es) * 0.5f + (side < 0 ? w * 0.10f : -w * 0.10f), ey = y + (h - es) * 0.5f - h * 0.06f;
-        /* clipped to the box: only the part inside is drawn */
-        const float u0 = ex < x ? (x - ex) / es * 64 : 0, u1 = ex + es > x + w ? (x + w - ex) / es * 64 : 64;
-        const float v0 = ey < y ? (y - ey) / es * 64 : 0, v1 = ey + es > y + h ? (y + h - ey) / es * 64 : 64;
-        acr_hud_sprite(emblem, 64, 64, u0, v0, u1 - u0, v1 - v0, ex + u0 / 64 * es, ey + v0 / 64 * es,
-                       (u1 - u0) / 64 * es, (v1 - v0) / 64 * es, 255, 255, 255, 158, ACR_HUD_ALPHA);
-    }
-    for (int i = 0; i < 12; ++i) {                         /* darker toward the foot */
-        const float t = ((float)i + 0.5f) / 12.0f;
-        acr_hud_rect(x, y + h * (0.55f + 0.45f * (float)i / 12), w, h * 0.45f / 12 + 0.5f, 0, 0, 0, (uint8_t)(150 * t), 1);
-    }
-    draw_ac(parts, colours, x, y, w, h, 0.55f, side < 0 ? -0.35f : 0.35f, 0, 1.0f);
-}
-
-/* The hangar shutters closing (t seconds since they started). */
-static void vs_shutters(float hud_w, float t, const uint8_t band[3]) {
-    float k;
-    if (t < VS_MEET) { k = t / VS_MEET; k *= k; }
-    else if (t < VS_MEET + 0.10f) k = 1.0f - 0.025f * SDL_sinf((t - VS_MEET) / 0.10f * 3.14159265f);
-    else k = 1.0f;
-    const float half = 240.0f * k;
-    for (int top = 1; top >= 0; --top) {
-        const float y0 = top ? 0 : 480 - half, y1 = top ? half : 480;
-        acr_hud_rect(0, y0, hud_w, y1 - y0, 34, 35, 40, 255, 1);
-        for (float yy = top ? y1 - 17 - 32 : y0 + 17 + 32; top ? yy > y0 : yy < y1; yy += top ? -32.0f : 32.0f)
-            acr_hud_rect(0, yy - 1, hud_w, 2, 22, 22, 26, 255, 1);
-        if (half > 17) {                                   /* the hazard stripe on the leading edge */
-            const float ey = top ? y1 - 17 : y0;
-            for (float x = -40; x < hud_w + 40; x += 27) {
-                for (float s = 0; s < 13; s += 1)
-                    acr_hud_line(x + s, ey + 17, x + s + 17, ey, band[0], band[1], band[2], 255);
-            }
-            acr_hud_rect(0, ey, hud_w, 17, 0, 0, 0, 255, 0);
-            acr_hud_rect(0, ey + 1, hud_w, 15, 0, 0, 0, 255, 0);
-        }
-    }
-    if (t >= VS_MEET && t < VS_MEET + 0.12f)
-        acr_hud_rect(0, 238, hud_w, 4, 255, 240, 200, (uint8_t)(255 * (1 - (t - VS_MEET) / 0.12f)), 1);
-}
-
-static void vs_draw(float hud_w, int elapsed_ms) {
-    const float dt = (float)elapsed_ms / 1000.0f;
-    R.vs_t += dt;
-    const float t = R.vs_t;
-    if (R.vs_shut < 0 && t >= VS_SHUT_AT) R.vs_shut = 0;
-    else if (R.vs_shut >= 0) R.vs_shut += dt;
-    const float sh = R.vs_shut;
-    /* the sounds: a shot with each slash, the shutters' slam on the meet */
-    if (sh < 0) {
-        while (R.vs_shots < R.vs_shots_n && t >= VS_C0 + (float)(2 + (3 - R.vs_shots_n) + R.vs_shots) * VS_STEP) {
-            sfx_ui(R.vs_shots + 1 == R.vs_shots_n ? SFX_VS_SHOT_LAST : SFX_VS_SHOT);
-            ++R.vs_shots;
-        }
-    } else if (!R.vs_door && sh >= VS_MEET - VS_DOOR_PEAK) {
-        R.vs_door = 1;
-        sfx_ui(SFX_VS_DOOR);
-    }
-    const rogue_fight *g = &R.fight;
-    const int foe_rank = rank_now() - 1, belt = belt_of_rank(foe_rank);
-    const uint8_t *band = k_band[belt < 0 ? 0 : belt > 10 ? 10 : belt];
-    const float cx = hud_w * 0.5f, half = SDL_min(427.0f, hud_w * 0.5f), sx = half / 427.0f;
-    /* the backdrop: the belt tile dimmed to 42 % */
-    acr_hud_rect(0, 0, hud_w, 480, 0, 0, 0, 148, 1);
-    acr_hud_rect(0, 0, hud_w, 39, 0, 0, 0, 255, 1);
-    acr_hud_rect(0, 39, hud_w, 2, band[0], band[1], band[2], 255, 1);
-    text_at(cx - half + 20, 15, "ROGUE ARENA", 10, 150, 156, 170);
-    text_mid(cx, 11, "NEXT BATTLE", 16, 236, 236, 236);
-    text_right(cx + half - 20, 15, R.vs_belt, 10, band[0], band[1], band[2]);
-    const float pw = 280 * sx, ph = 200, py = 56, lx = cx - half + 43 * sx, rx = cx + half - 43 * sx - pw;
-    vs_panel(lx, py, pw, ph, g->parts[0], g->colours[0], k_blue, 0, -1);
-    vs_panel(rx, py, pw, ph, g->parts[1], g->colours[1], k_red, R.emblem_tex, 1);
-    frame(lx, py, pw, ph, k_blue, 2);
-    frame(rx, py, pw, ph, k_red, 2);
-    char s[64];
-    for (int k = 0; k < 2; ++k) {
-        const int rank = k ? foe_rank : (R.run.wins ? rank_now() : 0);
-        if (rank <= 0) continue;
-        SDL_snprintf(s, sizeof s, "RANK %d", rank);
-        const float bx = k ? rx + pw - 7 - text_w(s, 10) : lx + 7;
-        acr_hud_rect(bx - 4, py + 4, text_w(s, 10) + 7, 18, 0, 0, 0, 170, 1);
-        text_at(bx, py + 9, s, 10, 255, 196, 72);
-    }
-    /* names: pilot big, AC under it */
-    char pilot[2][24], ac[2][24];
-    for (int k = 0; k < 2; ++k) {
-        const char *n = g->name[k], *slash = SDL_strstr(n, " / ");
-        if (slash) {
-            SDL_snprintf(ac[k], sizeof ac[k], "%.*s", (int)(slash - n), n);
-            SDL_strlcpy(pilot[k], slash + 3, sizeof pilot[k]);
-        } else { SDL_strlcpy(ac[k], n, sizeof ac[k]); pilot[k][0] = 0; }
-    }
-    text_at(lx + 1, py + ph + 10, pilot[0][0] ? pilot[0] : ac[0], 16, 236, 236, 236);
-    if (pilot[0][0]) text_at(lx + 3, py + ph + 34, ac[0], 10, k_blue[0], k_blue[1], k_blue[2]);
-    text_right(rx + pw - 1, py + ph + 10, pilot[1][0] ? pilot[1] : ac[1], 16, 236, 236, 236);
-    if (pilot[1][0]) text_right(rx + pw - 3, py + ph + 34, ac[1], 10, k_red[0], k_red[1], k_red[2]);
-    if (foe_rank > 0) {
-        text_mid(cx, 64, "FOR RANK", 10, 150, 156, 170);
-        SDL_snprintf(s, sizeof s, "%d", foe_rank);
-        text_mid(cx, 82, s, 27, 255, 196, 72);
-    }
-    text_mid(cx, 140, "VS", 37, 235, 90, 80);
-    if (next_is_ghost()) text_mid(cx, 182, "GHOST", 10, 170, 176, 190);
-    /* the bottom band and the strip */
-    acr_hud_rect(0, 325, hud_w, 155, 0, 0, 0, 255, 1);
-    acr_hud_rect(0, 323, hud_w, 2, band[0], band[1], band[2], 255, 1);
+/* The strip of small boxes along the bottom. */
+static void vs_strip(float hud_w, float sx, float t, const uint8_t band[3]) {
+    const float cx = hud_w * 0.5f;
+    char s[16];
     float total = 0;
     for (int i = 0; i < R.mini_n; ++i) total += (R.mini[i].top ? 124 : 100) * sx + (i ? 15 : 0);
     float x = cx - total * 0.5f;
@@ -1098,23 +887,8 @@ static void vs_draw(float hud_w, int elapsed_ms) {
         else text_mid(x + w * 0.5f, y + h + 6, s, 10, 236, 236, 236);
         x += w + 15;
     }
-    /* the count */
-    const int count = sh < 0 && t >= VS_C0 ? 5 - (int)((t - VS_C0) / VS_STEP) : 0;
-    if (count > 0) {
-        SDL_snprintf(s, sizeof s, "%d", count);
-        text_mid(cx, 205, s, 27, 255, 196, 72);
-        SDL_snprintf(s, sizeof s, "UNITS DEPLOY IN %d", count);
-        text_mid(cx, 268, s, 10, 236, 236, 236);
-        text_mid(cx, 290, stage_name(g->stage), 10, 150, 156, 170);
-    } else if (sh < 0) {
-        const float k = 0.55f + 0.45f * (0.5f + 0.5f * SDL_sinf(t * 3.0f));
-        text_mid(cx, 210, "STANDBY", 16, (uint8_t)(255 * k), (uint8_t)(200 * k), (uint8_t)(80 * k));
-    }
-    if (sh < 0) text_mid(cx, 462, "ENTER / A  SORTIE NOW    ESC / B  BACK TO THE HUB", 8, 120, 135, 145);
-    if (sh >= 0) vs_shutters(hud_w, sh, band);
-    const float black = sh < 0 ? 0 : SDL_clamp((sh - VS_FADE_AT) / VS_FADE_LEN, 0.0f, 1.0f);
-    if (black > 0) acr_hud_rect(0, 0, hud_w, 480, 0, 0, 0, (uint8_t)(255 * black), 1);
 }
+
 
 /* ---- the victory screen (fighting-game style, AC1Recomp's) ----
  * Black bars, a band in the belt's colour with the belt pattern in it, the
@@ -1802,7 +1576,7 @@ void rogue_draw(float hud_w, int elapsed_ms) {
 }
 
 int rogue_vs_due(void) {
-    return R.screen == RS_VS && R.vs_shut >= VS_FADE_AT + VS_FADE_LEN;
+    return R.screen == RS_VS && vs_due();
 }
 
 /* ---- co-op ---- */

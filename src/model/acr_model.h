@@ -125,9 +125,11 @@ typedef struct acr_material {
 typedef struct acr_mtl { int count; acr_material m[ACR_MTL_MAX]; } acr_mtl;
 int acr_mtl_parse(const char *text, acr_mtl *out);
 
-typedef struct acr_mesh_vertex { float p[3], n[3], uv[2]; } acr_mesh_vertex;
+/* c: the vertex colour ("v x y z r g b", 0-1), 1 1 1 when the file has none. */
+typedef struct acr_mesh_vertex { float p[3], n[3], uv[2], c[3]; } acr_mesh_vertex;
 typedef struct acr_mesh {
     int tri_count;
+    int has_colour;             /* 1 if any vertex line carried a colour */
     acr_mesh_vertex *v;         /* 3 per triangle */
     uint8_t *material;          /* one per triangle, index into the acr_mtl */
 } acr_mesh;

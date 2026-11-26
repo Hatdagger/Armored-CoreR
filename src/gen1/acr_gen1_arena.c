@@ -133,6 +133,16 @@ int acr_gen1_arena_holder(const acr_gen1_arena *s, int a, int rank) {
 
 int acr_gen1_arena_is_sub(int a, int rank) { return a == 0 && rank > ACR_GEN1_ARENA_RANKED; }
 
+int acr_gen1_arena_defeated(const acr_gen1_arena *s, int a, int rank) {
+    const int d = acr_gen1_arena_holder(s, a, rank);
+    return d && s->a[a].beaten[d - 1];
+}
+
+int acr_gen1_arena_is_rematch(const acr_gen1_arena *s, int a, int rank) {
+    const int me = acr_gen1_arena_rank(s, a);
+    return me && rank > me && acr_gen1_arena_defeated(s, a, rank);
+}
+
 /* ---- what may be fought ---- */
 
 const char *acr_gen1_arena_why_text(acr_gen1_arena_why why) {
@@ -166,11 +176,11 @@ acr_gen1_arena_why acr_gen1_arena_can_challenge(const acr_gen1_arena *s, int a, 
     if (open != ACR_GEN1_ARENA_OK) return open;
     const acr_gen1_arena_ladder *l = &s->a[a];
     const int me = acr_gen1_arena_rank(s, a);
-    if (rank < 1 || rank > l->places || rank >= me) return ACR_GEN1_ARENA_REFERENCE;
-    const int foe = l->holder[rank - 1];
-    if (acr_gen1_arena_is_sub(a, rank)) {
-        if (l->beaten[foe - 1]) return ACR_GEN1_ARENA_DONE;
-    } else if (a == 0 && me > ACR_GEN1_ARENA_RANKED + 1) {
+    if (rank < 1 || rank > l->places || rank == me) return ACR_GEN1_ARENA_REFERENCE;
+    if (rank > me) {
+        /* below: only a rematch of someone already beaten */
+        if (!acr_gen1_arena_is_rematch(s, a, rank)) return ACR_GEN1_ARENA_REFERENCE;
+    } else if (!acr_gen1_arena_is_sub(a, rank) && a == 0 && me > ACR_GEN1_ARENA_RANKED + 1) {
         return ACR_GEN1_ARENA_SUB_FIRST;
     }
     if (a >= 1 && a <= 4 && legs_kind != a) return ACR_GEN1_ARENA_WRONG_LEGS;
@@ -185,6 +195,18 @@ static int all_beaten(const acr_gen1_arena_ladder *l) {
     return 1;
 }
 
+/* A win over rank `rank`: the beaten opponent drops to just below the
+ * player, who moves up one; everyone between moves up to fill its place.
+ * Returns the player's new rank. */
+static int move_up(acr_gen1_arena_ladder *l, int rank, int me) {
+    const uint8_t foe = l->holder[rank - 1];
+    for (int i = rank - 1; i < me - 2; ++i) l->holder[i] = l->holder[i + 1];
+    l->holder[me - 2] = ACR_GEN1_ARENA_YOU;
+    l->holder[me - 1] = foe;
+    if (!l->best || me - 1 < l->best) l->best = (uint8_t)(me - 1);
+    return me - 1;
+}
+
 int acr_gen1_arena_result(acr_gen1_arena *s, const acr_gen1_arena_world *w, int a, int rank, int won,
                           acr_gen1_arena_payout *out) {
     acr_gen1_arena_payout p;
@@ -193,10 +215,14 @@ int acr_gen1_arena_result(acr_gen1_arena *s, const acr_gen1_arena_world *w, int 
     if (a < 0 || a >= ACR_GEN1_ARENA_COUNT) return 0;
     acr_gen1_arena_ladder *l = &s->a[a];
     const int me = acr_gen1_arena_rank(s, a);
-    if (!me || rank < 1 || rank >= me) return 0;
+    if (!me || rank < 1 || rank == me || rank > l->places) return 0;
+    const int rematch = rank > me;
+    if (rematch && !acr_gen1_arena_is_rematch(s, a, rank)) return 0;
     const int foe_rank = l->holder[rank - 1];
+    if (l->absent[foe_rank - 1]) return 0;    /* default win / unable to compete instead */
     const acr_gen1_rogue_foe *f = acr_gen1_arena_foe(w, a, foe_rank);
     p.old_rank = p.new_rank = me;
+    p.rematch = rematch;
     if (l->challenges < 0xFFFFu) ++l->challenges;
     if (!won) {
         if (l->losses < 0xFFFFu) ++l->losses;
@@ -206,13 +232,11 @@ int acr_gen1_arena_result(acr_gen1_arena *s, const acr_gen1_arena_world *w, int 
     }
     p.won = 1;
     if (l->wins < 0xFFFFu) ++l->wins;
-    /* The beaten opponent drops to just below the player, who moves up
-     * one; everyone between moves up to fill its place. */
-    for (int i = rank - 1; i < me - 2; ++i) l->holder[i] = l->holder[i + 1];
-    l->holder[me - 2] = ACR_GEN1_ARENA_YOU;
-    l->holder[me - 1] = (uint8_t)foe_rank;
-    p.new_rank = me - 1;
-    if (!l->best || p.new_rank < l->best) l->best = (uint8_t)p.new_rank;
+    if (rematch) {                  /* for fun only: nothing moves, nothing paid */
+        if (out) *out = p;
+        return 1;
+    }
+    p.new_rank = move_up(l, rank, me);
     const int first = !l->beaten[foe_rank - 1];
     p.money = f && first ? f->prize_money : 0;   /* the first win over it only */
     l->beaten[foe_rank - 1] = 1;
@@ -230,6 +254,41 @@ int acr_gen1_arena_result(acr_gen1_arena *s, const acr_gen1_arena_world *w, int 
     }
     if (p.prize_id >= 0 && !acr_gen1_arena_prize_part(p.prize_id, &p.part_cat, &p.part_index))
         p.part_cat = p.part_index = -1;
+    if (out) *out = p;
+    return 1;
+}
+
+/* ---- absent opponents ---- */
+
+int acr_gen1_arena_set_absent(acr_gen1_arena *s, int a, int disc_rank) {
+    if (a < 0 || a >= ACR_GEN1_ARENA_COUNT) return 0;
+    acr_gen1_arena_ladder *l = &s->a[a];
+    if (disc_rank < 1 || disc_rank >= l->places) return 0;
+    if (l->absent[disc_rank - 1] == ACR_GEN1_ARENA_PRESENT) l->absent[disc_rank - 1] = ACR_GEN1_ARENA_ABSENT;
+    return 1;
+}
+
+int acr_gen1_arena_absent_at(const acr_gen1_arena *s, int a, int rank) {
+    const int d = acr_gen1_arena_holder(s, a, rank);
+    return d ? s->a[a].absent[d - 1] : ACR_GEN1_ARENA_PRESENT;
+}
+
+int acr_gen1_arena_default_win(acr_gen1_arena *s, int a, int rank, acr_gen1_arena_payout *out) {
+    acr_gen1_arena_payout p;
+    memset(&p, 0, sizeof p);
+    p.prize_id = p.part_cat = p.part_index = -1;
+    if (a < 0 || a >= ACR_GEN1_ARENA_COUNT) return 0;
+    acr_gen1_arena_ladder *l = &s->a[a];
+    const int me = acr_gen1_arena_rank(s, a);
+    const int d = acr_gen1_arena_holder(s, a, rank);
+    if (!me || !d || rank >= me || l->absent[d - 1] != ACR_GEN1_ARENA_ABSENT) return 0;
+    l->absent[d - 1] = ACR_GEN1_ARENA_ABSENT_DONE;
+    l->beaten[d - 1] = 1;
+    if (l->challenges < 0xFFFFu) ++l->challenges;
+    if (l->wins < 0xFFFFu) ++l->wins;
+    p.won = p.default_win = 1;
+    p.old_rank = me;
+    p.new_rank = move_up(l, rank, me);
     if (out) *out = p;
     return 1;
 }
@@ -294,6 +353,8 @@ size_t acr_gen1_arena_write(const acr_gen1_arena *s, char *buf, size_t size) {
         put_list(&o, "holder", l->holder, l->places);
         put_list(&o, "beaten", l->beaten, l->places);
         put_list(&o, "part_given", l->part_given, l->places);
+        put(&o, "# by disc rank: 1 = can't fight (default win due), 2 = default win given\n");
+        put_list(&o, "absent", l->absent, l->places);
         put_kv(&o, "set_given", l->set_given);
         put_kv(&o, "best", l->best);
         put_kv(&o, "challenges", l->challenges);
@@ -366,6 +427,11 @@ int acr_gen1_arena_read(acr_gen1_arena *out, const char *text) {
             if (get_list(b, be, "holder", l->holder, ACR_GEN1_ARENA_PLACES) != places) return 0;
             if (get_list(b, be, "beaten", l->beaten, ACR_GEN1_ARENA_PLACES) != places) return 0;
             if (get_list(b, be, "part_given", l->part_given, ACR_GEN1_ARENA_PLACES) != places) return 0;
+            /* absent: optional (saves from before it existed) */
+            const int na = get_list(b, be, "absent", l->absent, ACR_GEN1_ARENA_PLACES);
+            if (na >= 0 && na != places) return 0;
+            if (na < 0) memset(l->absent, 0, sizeof l->absent);
+            for (int i = 0; i < places; ++i) if (l->absent[i] > ACR_GEN1_ARENA_ABSENT_DONE) l->absent[i] = 0;
             l->set_given = (uint8_t)(get_num(b, be, "set_given", 0) != 0);
             const long best = get_num(b, be, "best", 0);
             l->best = (uint8_t)(best >= 0 && best <= places ? best : 0);

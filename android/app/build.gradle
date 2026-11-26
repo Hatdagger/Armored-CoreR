@@ -1,0 +1,68 @@
+plugins {
+    id 'com.android.application'
+}
+
+// SDL's source, the same release CMake builds (CMakeLists.txt): its Java
+// side (SDLActivity and friends) goes into the APK. Pass -PsdlDir=PATH.
+def sdlDir = project.findProperty('sdlDir') ?: System.getenv('SDL_DIR')
+if (!sdlDir) throw new GradleException('Pass -PsdlDir=<SDL source folder> (SDL release-3.2.10)')
+
+android {
+    namespace = 'io.github.hatdagger.armoredcorer'
+    compileSdk 35
+    if (System.getenv('ACR_NDK_VERSION')) ndkVersion System.getenv('ACR_NDK_VERSION')
+
+    defaultConfig {
+        applicationId 'io.github.hatdagger.armoredcorer'
+        minSdk 21
+        targetSdk 35
+        // each GitHub build counts up, so a new APK installs over the old one
+        versionCode((System.getenv('GITHUB_RUN_NUMBER') ?: '1') as int)
+        versionName '0.1-test'
+        externalNativeBuild {
+            cmake {
+                arguments '-DACR_BUILD_GAME=ON', "-DFETCHCONTENT_SOURCE_DIR_SDL3=${sdlDir}", '-DANDROID_STL=c++_static'
+                targets 'armored-corer'
+            }
+        }
+        ndk {
+            // the Legion Tab and other current tablets and phones
+            abiFilters 'arm64-v8a'
+        }
+    }
+
+    // A fixed test key (android/test.keystore, password "android", the
+    // usual for test keys: it is not a secret), so every build from GitHub
+    // installs over the last one and keeps the import and the saves.
+    signingConfigs {
+        test {
+            storeFile file('../test.keystore')
+            storePassword 'android'
+            keyAlias 'armored-corer-test'
+            keyPassword 'android'
+        }
+    }
+    buildTypes {
+        release {
+            minifyEnabled false
+            signingConfig signingConfigs.test
+        }
+        debug {
+            signingConfig signingConfigs.test
+        }
+    }
+
+    sourceSets.main {
+        java.srcDirs += ["${sdlDir}/android-project/app/src/main/java"]
+    }
+
+    externalNativeBuild {
+        cmake {
+            path '../../CMakeLists.txt'
+        }
+    }
+
+    lint {
+        abortOnError = false
+    }
+}

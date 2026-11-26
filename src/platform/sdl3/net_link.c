@@ -3,6 +3,8 @@
 #endif
 #include "net_link.h"
 #include "../../net/acr_msg.h"
+#include "net_upnp.h"
+#include "acr_upnp.h"
 
 #include <SDL3/SDL.h>
 #include <string.h>
@@ -75,7 +77,16 @@ struct net_link {
     /* Rogue Arena co-op: menu messages */
     acr_msg *msg;
     int peer_left;
+    /* the router: UPnP port forward, asked on a thread (net_upnp.c) */
+    SDL_Thread *upnp_thread;
+    SDL_AtomicInt upnp_done;
+    volatile int upnp_cancel;
+    net_upnp_map upnp;
+    int upnp_logged;
 };
+
+static int upnp_ready(const net_link *l);
+static int upnp_usable(const net_link *l);
 
 /* ---------------- sockets ---------------- */
 
@@ -219,6 +230,13 @@ static void stun_read(net_link *l, const uint8_t *b, int len) {
 }
 
 int net_link_public(const net_link *l, net_addr *out) {
+    /* Wait for the router too, so the briefing doesn't change once shown. */
+    if (l->upnp_thread && !upnp_ready(l)) return 0;
+    if (upnp_usable(l)) {
+        memcpy(out->ip, l->upnp.ext_ip, 4);
+        out->port = (uint16_t)l->upnp.ext_port;
+        return 1;
+    }
     if (l->stun_state == 1) *out = l->public_addr;
     return l->stun_state;
 }
@@ -232,6 +250,10 @@ void net_link_punch(net_link *l, const net_addr *to) {
 /* Online upkeep while connecting: ask STUN until it answers, and punch. */
 static void online_upkeep(net_link *l, uint64_t now_ms) {
     if (!l->online) return;
+    if (l->upnp_thread && !l->upnp_logged && upnp_ready(l)) {
+        SDL_Log("netplay: router (UPnP): %s", l->upnp.why);
+        l->upnp_logged = 1;
+    }
     if (l->stun_state == 0) {
         if (!l->stun_start_ms) l->stun_start_ms = now_ms;
         if (!l->stun_n || now_ms - l->stun_start_ms > 10000) {
@@ -247,6 +269,50 @@ static void online_upkeep(net_link *l, uint64_t now_ms) {
         raw_send(l, &l->punch, b, n);
         l->last_punch_ms = now_ms;
     }
+}
+
+/* ---------------- the router (UPnP) ---------------- */
+
+#define UPNP_BUDGET_MS 6000
+
+static int SDLCALL upnp_thread(void *data) {
+    net_link *l = (net_link *)data;
+    net_upnp_open(l->upnp.int_port, UPNP_BUDGET_MS, &l->upnp_cancel, &l->upnp);
+    SDL_SetAtomicInt(&l->upnp_done, 1);
+    return 0;
+}
+
+static int upnp_ready(const net_link *l) {
+    return SDL_GetAtomicInt((SDL_AtomicInt *)&l->upnp_done) != 0;
+}
+
+/* The forward is used for the briefing only if the router's outside address
+ * is a real internet one, and (when STUN answered) the same one STUN saw:
+ * otherwise there's another router in front of it. */
+static int upnp_usable(const net_link *l) {
+    if (!l->upnp_thread || !upnp_ready(l) || l->upnp.result != NET_UPNP_OPENED) return 0;
+    if (!acr_upnp_is_public(l->upnp.ext_ip)) return 0;
+    if (l->stun_state == 1 && memcmp(l->public_addr.ip, l->upnp.ext_ip, 4) != 0) return 0;
+    return 1;
+}
+
+static void upnp_start(net_link *l) {
+    struct sockaddr_in me;
+    socklen_t n = sizeof me;
+    if (getsockname(l->s, (struct sockaddr *)&me, &n) != 0) return;
+    l->upnp.int_port = ntohs(me.sin_port);
+    l->upnp_thread = SDL_CreateThread(upnp_thread, "acr-upnp", l);
+}
+
+int net_link_router(const net_link *l, int *ext_port) {
+    if (ext_port) *ext_port = 0;
+    if (!l->upnp_thread) return NET_ROUTER_NOT_ASKED;
+    if (!upnp_ready(l)) return NET_ROUTER_ASKING;
+    if (l->upnp.result == NET_UPNP_OPENED) {
+        if (ext_port) *ext_port = l->upnp.ext_port;
+        return upnp_usable(l) ? NET_ROUTER_OPENED : NET_ROUTER_BEHIND;
+    }
+    return l->upnp.result == NET_UPNP_REFUSED ? NET_ROUTER_REFUSED : NET_ROUTER_NONE;
 }
 
 net_link *net_link_open(const net_setup *s, char *err, int err_size) {
@@ -314,6 +380,7 @@ net_link *net_link_open(const net_setup *s, char *err, int err_size) {
         for (int i = 0; i < 12; ++i) l->stun_tid[i] = (uint8_t)rnd(l);
         stun_servers(l);
         l->strict = SDL_getenv("ACR_NET_STRICT") != NULL;
+        upnp_start(l);
     }
     l->state = NET_CONNECTING;
     return l;
@@ -325,6 +392,11 @@ void net_link_close(net_link *l) {
         /* The match packet "goodbye" (acr_rollback), sent a few times. */
         uint8_t bye[28] = { 'A', 'C', 'R', 'N', 1, 2 };
         for (int i = 0; i < 3; ++i) raw_send(l, &l->peer, bye, sizeof bye);
+    }
+    if (l->upnp_thread) {
+        l->upnp_cancel = 1;
+        SDL_WaitThread(l->upnp_thread, NULL);
+        net_upnp_close(&l->upnp);      /* takes the forward away again */
     }
     close_sock(l->s);
     SDL_free(l->msg);

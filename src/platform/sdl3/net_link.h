@@ -114,6 +114,21 @@ int net_link_public(const net_link *l, net_addr *out);
  * joiner's packets in (both sides "punch" a hole at once). */
 void net_link_punch(net_link *l, const net_addr *to);
 
+/* Online links also ask the home router (UPnP) to forward a UDP port to
+ * this PC (net_upnp.h), so the other player's first packet gets in. When it
+ * works, net_link_public gives the router's address and that port, and
+ * net_link_public waits for the router's answer (a few seconds at most).
+ * The forward is taken away in net_link_close. */
+enum {
+    NET_ROUTER_NOT_ASKED,    /* not online */
+    NET_ROUTER_ASKING,
+    NET_ROUTER_OPENED,       /* forwarded; *ext_port is the outside port */
+    NET_ROUTER_BEHIND,       /* forwarded, but that router is behind another one: not used */
+    NET_ROUTER_REFUSED,      /* the router answered but wouldn't */
+    NET_ROUTER_NONE          /* no UPnP router answered */
+};
+int net_link_router(const net_link *l, int *ext_port);
+
 /* LAN discovery: a host waiting for player 2 announces itself once a
  * second on the local network (UDP broadcast to port NET_BEACON_PORT, and
  * to this PC itself); the finder lists the hosts it hears. */

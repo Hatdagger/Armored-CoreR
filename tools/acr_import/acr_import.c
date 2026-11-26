@@ -8,6 +8,7 @@
 #include "acr_hud_moa.h"
 #include "acr_sfx_moa.h"
 #include "acr_arena_moa.h"
+#include "acr_missions_moa.h"
 
 #include <ctype.h>
 #include <errno.h>
@@ -220,6 +221,9 @@ static int import_disc(const char *disc_path, const char *out_dir, acr_import_st
         char arena_dir[ACR_PATH_MAX];
         snprintf(arena_dir, sizeof arena_dir, "%s/arena", out_dir);
         if (!acr_export_moa_arena(menu, unpacked, arena_dir, &stats->opponents, err, err_size)) return 0;
+        char missions_dir[ACR_PATH_MAX];
+        snprintf(missions_dir, sizeof missions_dir, "%s/missions", out_dir);
+        if (!acr_export_moa_missions(unpacked, missions_dir, &stats->missions, err, err_size)) return 0;
     }
     return 1;
 }
@@ -267,5 +271,10 @@ int acr_import_refresh(const char *out_dir) {
     }
     f = NULL;
     if (!have && acr_export_moa_units(unpacked, dir, stages, &n, err, sizeof err) && n) done |= 4;
+    /* Missions (2026-11-25): the list, briefings and the report pictures. */
+    snprintf(probe, sizeof probe, "%s/missions/report-digits.png", out_dir);
+    snprintf(dir, sizeof dir, "%s/missions", out_dir);
+    if (!(f = fopen(probe, "rb")) && acr_export_moa_missions(unpacked, dir, &n, err, sizeof err)) done |= 8;
+    if (f) fclose(f);
     return done;
 }

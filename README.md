@@ -54,7 +54,9 @@ the core, tools and tests, add `-DACR_BUILD_GAME=OFF`.
 
 ## Importing your disc
 
-Re-import after updating to this version: Rogue Arena needs the game's
+Re-import after updating to this version: Ocean Platform's sea and Garden
+Plaza's grass now reach the horizon (`far.obj`). Before that, the stages gained the game's own
+stage lights (an older import keeps one fixed light). Before that, Rogue Arena needed the game's
 arena opponents (`arena/`), the fight sounds need the game's shared fight
 bank (`sfx/`; without it fights are silent) and the weapon effects need the
 game's effect pictures (`fx/`; without them shots draw as plain glows).
@@ -105,7 +107,28 @@ The controller buttons for boost, fire, switch weapon, blade, strafe and
 view tilt can be changed on **SYSTEM > SETTINGS > CONTROLS** (pick a row, then
 press the button you want; a button already in use swaps places). Moving
 and turning stay on the left stick / d-pad; Start and Back keep their jobs.
-The mapping is saved in `controls.toml` beside the save.
+Left / right on that page switches to the **KEYBOARD** tab, where every
+key in the table below (moving and turning included) can be changed the
+same way; the arrow keys always move and turn, and Esc, Enter, Backspace,
+the F and number keys and the test keys (R, T, B, G, C, L, H) keep their
+jobs. Both mappings are saved in `controls.toml` beside the save. The
+keyboard column below is the standard layout.
+
+**GARAGE > PERFORMANCE** shows the AC's ratings as Master of Arena works
+them out (offensive, defensive, stability, mobility, support, OVERALL) and
+its GRADE: 25,000+ SUPERFINE, 20,000+ GREAT, 15,000+ FINE, 10,000+ OK,
+else POOR.
+
+**GARAGE > OPTIONAL PARTS** fits and removes optional parts, with each
+one's slots, the disc's description and its model. **GARAGE > CHANGE
+COLOR > EDIT COLOR** paints the head, core, arms and legs (four colours
+each; GENERAL paints them all; DEFAULT goes back to the game's colours):
+up / down picks R, G or B, left / right changes it (LB / RB by 2),
+Y / Tab the next colour, A keeps, B cancels.
+
+**SYSTEM > SETTINGS > VIDEO** (fullscreen, window size, fight HUD 4:3 /
+wide, smooth or stepped animation) and **AUDIO** (fight and menu sound
+volume) are saved in `settings.toml` beside the save.
 
 | Action | Controller | Keyboard |
 | --- | --- | --- |
@@ -124,6 +147,8 @@ The mapping is saved in `controls.toml` beside the save.
 | AI against AI (player 1 on autopilot, to watch) | Back + d-pad down | F6 |
 | Landing pause: guess / landing animation's length (test) | Back + R3 | F3 |
 | Switch target (2+ enemies in the sight; with one gun or missile, weapon switch does it too) | Back (tap) | X |
+| Tilt the view up / down (both: level) | LT / RT | Page Up / Page Down |
+| Blade (its own button) | B | V |
 | Change step rate (22, 30, 45, 60 steps a second; same game pace) | | T |
 | Reset | Start | R |
 | Hide help | | F1 |
@@ -143,7 +168,14 @@ Main menu -> **ARENA**. Master of Arena's ranked ladders with your own
 garage AC. The main arena starts you at rank 50 in the sub arena; beat
 everyone there to open the ranked list (L1 / R1 flips the pages). Pick an
 opponent above you and challenge; a win moves you up one rank and pays
-their prize money the first time, and some opponents give a part. The Ex Arenas open as
+their prize money the first time, and some opponents give a part. Whoever
+you beat drops to just below you, marked **DEFEATED**: you can fight them
+again for fun (a rematch: no rank change, no prize). Each fight opens with
+Rogue Arena's **VS screen**: both ACs, the opponent's emblem from your
+disc behind theirs, the count to sortie, and along the bottom the whole
+ladder, a row per rank (you in blue, the opponent in red, the defeated
+struck through). The ladder shows each opponent's emblem behind their AC too.
+The Ex Arenas open as
 you climb (four of them need a specific leg type). MATCH TIMER (2:00,
 5:00, none) and STAGE are on the arena list. Rules: `docs/ARENA.md`.
 

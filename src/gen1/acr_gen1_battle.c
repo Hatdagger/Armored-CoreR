@@ -1247,14 +1247,31 @@ int acr_gen1_battle_out_of_area(const acr_gen1_battle *b, int i) {
     if (!b->stage || !acr_gen1_stage_has_area_rule(b->stage)) return 0;
     const acr_gen1_ac *ac = &b->f[i].ac;
     const uint8_t bits = acr_gen1_stage_area_bits(b->stage, ac->x / 64, ac->y / 64, ac->z / 64);
-    if (!(bits & ACR_GEN1_AREA_INNER)) return 2;
-    return (bits & ACR_GEN1_AREA_INNER) != ACR_GEN1_AREA_INNER ? 1 : 0;
+    /* The arena engine's end check (0x800528E4): bits 0-2 exactly 1, i.e.
+     * inside box 0 (the whole level) and outside both inner boxes. Outside
+     * box 0 too (below the sea, say) is not out of area. */
+    if ((bits & 7) == 1) return 2;
+    return (bits & 1) && (bits & ACR_GEN1_AREA_INNER) != ACR_GEN1_AREA_INNER ? 1 : 0;
 }
 
 int acr_gen1_battle_result(const acr_gen1_battle *b, int time_up) {
     /* Out of area (outside both inner boxes) loses like a knock-out; a team
      * is down when every AC in it is. */
     const int n = acr_gen1_battle_fighters(b);
+    /* Armored-CoreR's own missions (acr_gen1_mission.h): the player against
+     * fighter 1 only; units (P4's drones) never keep a side standing. */
+    if (b->mission.own) {
+        const int p_down = b->f[0].ap <= 0 || acr_gen1_battle_out_of_area(b, 0) == 2;
+        const int f_down = b->f[1].ap <= 0 || acr_gen1_battle_out_of_area(b, 1) == 2;
+        if (b->mission.own == ACR_GEN1_OWN_P4_ALTERED && b->mission.phase < 2) {
+            if (p_down) return 2;
+            if (b->mission.phase || !time_up) return 0;    /* the challenger comes in instead */
+        } else {
+            if (p_down || f_down) return p_down && f_down ? 3 : p_down ? 2 : 1;
+            if (!time_up) return 0;
+        }
+        return b->f[0].ap > b->f[1].ap ? 1 : b->f[1].ap > b->f[0].ap ? 2 : 3;
+    }
     int standing[2] = { 0, 0 }, members[2] = { 0, 0 };
     int64_t ap[2] = { 0, 0 };
     for (int i = 0; i < n; ++i) {

@@ -28,13 +28,13 @@ flowchart LR
     end
     subgraph Content
         R4["4 / 7 Arena<br/>2 stages, walls"]:::doing
-        MS["Missions<br/>P4 playable"]:::doing
+        MS["Missions<br/>P4 from MISSIONS menu"]:::doing
         TM["Tinkercad maps"]:::doing
         ST["Campaign / story"]:::todo
     end
     subgraph Platforms
         R8["8 UI<br/>main menu in"]:::doing
-        R9["9 Android"]:::todo
+        R9["9 Android<br/>first APK"]:::doing
     end
 
     Foundation --> Play --> Online --> Content --> Platforms
@@ -118,7 +118,7 @@ Design docs for what comes after: [STORY.md](STORY.md) (campaign),
    user's pick for the second arena) joins Green Silo in AC TEST (F7).
    Out-of-area: the rule is in (warning, then the loss) with a test
    boundary (F8); the stages' own boxes aren't found yet. Next: those
-   boxes, the other stages, stage lights.
+   boxes, the other stages, stage lights (all three done by 2026-11-25).
    Mission maps (2026-11-20, branch `gen1-mission-stages`): acr-import
    writes stages 0-19 too; AC TEST's F7 adds mission map 11 (the P4
    Qualifier hall) and `ACR_STAGE=NN` opens any of 0-40 (`ACR_STAGE=open`:
@@ -216,8 +216,20 @@ Fixes after the first play-test (2026-11-19):
 - **CONTROLS page** (SYSTEM > SETTINGS, user): remap the controller's boost,
   fire, switch weapon, blade, strafe and view tilt (any face button,
   shoulder, trigger, stick click or paddle; a button in use swaps), saved
-  to `controls.toml`. Stick / d-pad movement, Start and Back stay fixed;
-  the keyboard isn't remapped yet.
+  to `controls.toml`. Stick / d-pad movement, Start and Back stay fixed.
+  **Keyboard too (2026-11-25):** a KEYBOARD tab (left / right) remaps
+  forward, back, turn, strafe, boost, fire, switch weapon, blade, switch
+  target and view tilt (a key in use swaps), saved in the same file
+  (`key_*` lines; older files keep the standard keys). The arrow keys
+  always move and turn; Esc, Enter, Backspace, the F and number keys and
+  the test letter keys (R, T, B, G, C, L, H) keep their jobs.
+- **PERFORMANCE and GRADE** (GARAGE > PERFORMANCE, 2026-11-25): Master of
+  Arena's page with its own sums (AC1Recomp `menus-screens.md` §2k,
+  `src/gen1/acr_gen1_perf.c`, tested): offensive, defensive, stability,
+  mobility (moving, turning, boost), support (radar range, FCS), OVERALL
+  and the GRADE, plus AP, weight and price. Matches the recomp's check
+  build (OVERALL 12,641). Human PLUS (5,120 radar with no radar) is ready
+  for when the garage gets it.
 - **Both back weapons work** (only the left one was a weapon): the AC now
   carries up to 4 (arm weapon, back left, back right, blade); a two-slot
   unit is one weapon.
@@ -242,27 +254,60 @@ rollback fights, resume after a disconnect. Next: a two-PC play-test.
    precision matters; then delay-based lockstep for LAN; then a
    host-runs-the-game model for more players. First version: 1v1 rollback
    over LAN / direct IP from the command line (`--host`, `--join`), data
-   check, desync check, fake lag for testing. Next: in-game host / join
-   screen with LAN discovery, co-op against the AI.
+   check, desync check, fake lag for testing. Done since: in-game host /
+   join screen with LAN discovery, co-op against the AI, internet play with
+   mission-briefing codes, and UPnP port opening on the host's router
+   (branch `netplay-upnp`, 2026-11-25).
 7. **Arena**: finish step 4 (the stages' own area boxes, the other stages,
    stage lights, rankings, opponents and rewards). **Ranked ladder done**
    (branch `arena-ladder`, 2026-11-24; `docs/ARENA.md`): main menu > ARENA
    with the main arena (ranked + sub arena) and the eight Ex Arenas,
    challenge rules, prize money and parts into the garage, the Champion /
-   Guest rule, match timer 2:00 / 5:00 / none. Still to do: the stages'
-   area boxes, Garden Plaza and Night City, stage lights.
+   Guest rule. **Stages done** (branch `arena-stages-disc`, 2026-11-25):
+   all four play (Green Silo, Ocean Platform, Garden Plaza, Night City),
+   each with its own out-of-area boxes from the disc, no match timer
+   (user). **Stage lights done** (branch `stage-lights`, 2026-11-25):
+   each area lit by its own light set from the disc, the game's maths;
+   no fog (user: off by default). **Backgrounds** (branch
+   `stage-backgrounds`, 2026-11-25): far planes tiled to the horizon,
+   our own gradient skies with clouds (user: made-up assets are fine). **VS screen, emblems, rematches,
+   default win done** (branch `arena-vs-simple-on15`, replaces PR #15's VS
+   screen, 2026-11-25): a simple VS screen before each fight, opponents'
+   emblems on the ladder, rematches of DEFEATED opponents, the game's
+   "Opponent unavailable, default win" rule (missions mark the absent later).
 8. **UI**: the game's menus and garage screens to Master of Arena's design
    (and the split-screen HUD). **Main menu** (first version done,
    2026-11-19, user's layout): GARAGE (ASSEMBLY, AC TEST), SHOP, ARENA,
    MISSIONS, NETWORK, ROGUE ARENA, SYSTEM (SAVE, LOAD, SETTINGS: CONTROLS,
    VIDEO, AUDIO; EXIT GAME). NETWORK and SHOP are their own entries, not
-   inside the garage. MISSIONS, VIDEO and AUDIO show dimmed ("NOT
-   AVAILABLE YET.") until they exist. The game saves by itself after every
-   change; SAVE writes it now, LOAD goes back to the saved garage.
+   inside the garage. **MISSIONS** (2026-11-25, branch
+   `gen1-missions-menu`): the list (P4 Qualifier, then Master of Arena's
+   20 missions from the disc), briefings with the disc's pages and
+   pictures, the sortie check, and MoA's own income and expense report;
+   see [MISSIONS.md](MISSIONS.md) "MISSIONS screens". The game saves by
+   itself after every change; SAVE writes it now, LOAD goes back to the
+   saved garage.
+   **Garage pages (2026-11-25):** GARAGE now holds ASSEMBLY, OPTIONAL
+   PARTS, PERFORMANCE, CHANGE COLOR, AC TEST (the game's order).
+   OPTIONAL PARTS (mapping §2j): the owned options, their type, slots
+   needed / free, the disc's description and the option's own model
+   turning. CHANGE COLOR (§2l): EDIT COLOR with GENERAL / HEAD / CORE /
+   ARMS / LEGS (4 colours each, R G B 0-64, GENERAL paints the core and
+   copies it over the rest) and DEFAULT (the disc's colours); the paint is
+   saved (save format 3; older saves take their 4 colours on every part)
+   and shown on your AC everywhere you fly it. CHANGE PATTERN (the 15
+   patterns) is listed but not built yet. The shop and assembly lists show
+   each part's shop text from the disc.
+   **SETTINGS > VIDEO / AUDIO (2026-11-25):** fullscreen or window, window
+   size, fight HUD 4:3 / wide (F9 too), smooth / stepped animation (F5
+   too); fight sounds and menu sounds volume (0-10). Saved in
+   `settings.toml` beside the save.
 9. **Android**: SDL3 already runs there; needs an OpenGL ES version of the
    renderer (`src/render/`), picking the disc image with Android's file
    picker for the import, controllers first (touch controls later), and an
    APK from the automatic build (installed directly, not via a store).
+   First version (branch `android-build`, 2026-11-25): GLES renderer, disc
+   picker, APK from GitHub Actions; see [ANDROID.md](ANDROID.md).
 
 ## Shortcuts
 
@@ -361,19 +406,18 @@ part tables, renderer, menus): see `docs/research/gen1-weapons.md` for the
 fight, `gen1-movement.md` for energy and turning, `gen1-fitting-rules.md`
 for the garage and shop. Still to bring over:
 
-- Garage: PERFORMANCE page and GRADE (OVERALL 25,000+ SUPERFINE, 20,000+
-  GREAT, 15,000+ FINE, 10,000+ OK, else POOR), the 15 paint patterns
-  (HEAD_T head + 18v, CORE_T core + 11v, ARMS_T arms + 24v, LEG_T legs +
-  40v; colours MENU_TIM 26 + 4v + scheme), default paint, EDIT EMBLEM
-  (64 x 64, 16 colours, colour 0 see-through), shop texts (MIS.T 385),
-  option texts (`0x800CDE8C`), the garage's part models (now imported to
-  `models/menu/`).
+- Garage: the 15 paint patterns and their 45 colour schemes (CHANGE
+  PATTERN; HEAD_T head + 18v, CORE_T core + 11v, ARMS_T arms + 24v, LEG_T
+  legs + 40v; colours MENU_TIM 26 + 4v + scheme; needs acr-import to
+  export the pattern textures), EDIT EMBLEM (64 x 64, 16 colours, colour 0
+  see-through), the garage's part models in ASSEMBLY (imported to
+  `models/menu/`; OPTIONAL PARTS already shows its own).
 - Fight: gun lock distance factor (lock record +0x04), knockback and
   stagger distances, burn (flag 0x80), cannon kick and recoil, the
   first-person camera (START + Triangle + Square), radar (range, missile
   blips, display types), Human PLUS levels below "full".
-- Arena (step 4): stage area boxes (out of bounds: inside both inner boxes
-  or lose), prizes (`arena-prizes.md`), opponent AI records (36 bytes), the
-  match timer options (2:00, 5:00, none).
+- Arena (step 4): stage area boxes (done 2026-11-25: chunk 10 stage
+  objects + the stage code's box handler), prizes (`arena-prizes.md`),
+  opponent AI records (36 bytes). No match timer in the Arena (user).
 - Missions later: `missions.md` (mission code and maps are FDAT 0-99).
 

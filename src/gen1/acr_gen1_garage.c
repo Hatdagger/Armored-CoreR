@@ -30,6 +30,27 @@ void acr_gen1_hangar_new(acr_gen1_hangar *h, const uint8_t start[ACR_GEN1_SLOT_C
         if (start_options & (1u << b)) ++h->owned[ACR_GEN1_CAT_OPTION][b];
 }
 
+void acr_gen1_paint_fill(uint8_t paint[4][4][3], const uint8_t colours[4][3]) {
+    for (int p = 0; p < 4; ++p)
+        for (int c = 0; c < 4; ++c)
+            for (int k = 0; k < 3; ++k)
+                paint[p][c][k] = colours[c][k] > ACR_GEN1_PAINT_MAX ? ACR_GEN1_PAINT_MAX : colours[c][k];
+}
+
+void acr_gen1_paint_set(uint8_t paint[4][4][3], int part, int colour, int channel, int value) {
+    if (part < 0 || part > ACR_GEN1_PAINT_GENERAL || colour < 0 || colour > 3 || channel < 0 || channel > 2) return;
+    const uint8_t v = (uint8_t)(value < 0 ? 0 : value > ACR_GEN1_PAINT_MAX ? ACR_GEN1_PAINT_MAX : value);
+    if (part != ACR_GEN1_PAINT_GENERAL) { paint[part][colour][channel] = v; return; }
+    paint[ACR_GEN1_PAINT_CORE][colour][channel] = v;
+    for (int p = 0; p < 4; ++p)
+        if (p != ACR_GEN1_PAINT_CORE) memcpy(paint[p], paint[ACR_GEN1_PAINT_CORE], sizeof paint[p]);
+}
+
+uint8_t acr_gen1_paint_get(const uint8_t paint[4][4][3], int part, int colour, int channel) {
+    if (part < 0 || part > ACR_GEN1_PAINT_GENERAL || colour < 0 || colour > 3 || channel < 0 || channel > 2) return 0;
+    return paint[part == ACR_GEN1_PAINT_GENERAL ? ACR_GEN1_PAINT_CORE : part][colour][channel];
+}
+
 unsigned acr_gen1_fitted_copies(const acr_gen1_hangar *h, acr_gen1_category cat, unsigned index) {
     if (cat == ACR_GEN1_CAT_OPTION) return index < ACR_GEN1_OPTION_MAX && (h->options >> index) & 1u;
     unsigned n = 0;
@@ -141,6 +162,26 @@ void acr_gen1_garage_build(const acr_gen1_hangar *h, const acr_gen1_catalog *c, 
         if (b == ACR_GEN1_OPTION_MODERN_BIT && o) out->option_cost[b] = out->core_option_slots;   /* all of them */
     }
     out->parts.option_mask = h->options;
+}
+
+void acr_gen1_garage_perf_build(const acr_gen1_hangar *h, const acr_gen1_catalog *c,
+                                int human_plus, acr_gen1_perf_build *out) {
+    memset(out, 0, sizeof *out);
+    for (int s = 0; s < ACR_GEN1_SLOT_COUNT; ++s) {
+        const acr_gen1_catalog_part *p = find(c, acr_gen1_slot_category((acr_gen1_slot)s), h->fitted[s]);
+        if (!p) continue;
+        out->part[s] = &p->perf;
+        out->weight[s] = p->stats.weight;
+        out->price[s] = p->price;
+        if (s == ACR_GEN1_SLOT_ARMS && (p->flags & ACR_GEN1_FIT_ARM_WEAPON)) out->weapon_arms = 1;
+        if (s == ACR_GEN1_SLOT_LEGS && (p->flags & ACR_GEN1_FIT_CATERPILLAR)) out->caterpillar = 1;
+    }
+    for (unsigned b = 0; b < ACR_GEN1_OPTION_MAX; ++b) {
+        const acr_gen1_catalog_part *o = (h->options & (1u << b)) ? find(c, ACR_GEN1_CAT_OPTION, b) : NULL;
+        if (o) out->option_price += o->price;
+    }
+    out->options = h->options;
+    out->human_plus = (uint8_t)(human_plus != 0);
 }
 
 unsigned acr_gen1_garage_check(const acr_gen1_hangar *h, const acr_gen1_catalog *c,
@@ -279,6 +320,9 @@ size_t acr_gen1_save_write(const acr_gen1_hangar *h, char *buf, size_t size) {
     put(&o, "colours    = [");
     for (int k = 0; k < 12; ++k) put(&o, k ? ", %d" : "%d", h->colours[k / 3][k % 3]);
     put(&o, "]   # 4 colour slots as red, green, blue 0..63\n");
+    put(&o, "paint      = [");
+    for (int k = 0; k < 48; ++k) put(&o, k ? ", %d" : "%d", h->paint[k / 12][(k / 3) % 4][k % 3]);
+    put(&o, "]   # CHANGE COLOR: head, core, arms, legs; BASE, OPTIONAL, DETAIL, JOINT; R, G, B 0..64\n");
     put(&o, "\n[ac]   # fitted parts by part number; -1 = none\n");
     for (int s = 0; s < ACR_GEN1_SLOT_COUNT; ++s)
         put(&o, "%-10s = %d\n", k_slot_key[s], h->fitted[s] == ACR_GEN1_NO_PART ? -1 : h->fitted[s]);
@@ -353,6 +397,14 @@ static int add_colour(void *user, long v) {
     return 1;
 }
 
+static int add_paint(void *user, long v) {
+    colour_ctx *c = user;
+    if (c->n >= 48 || v < 0 || v > ACR_GEN1_PAINT_MAX) return 0;
+    c->h->paint[c->n / 12][(c->n / 3) % 4][c->n % 3] = (uint8_t)v;
+    ++c->n;
+    return 1;
+}
+
 static int parse_string(const char *p, char *out, size_t size) {
     p = skip_space(p);
     if (*p != '"') return 0;
@@ -372,7 +424,7 @@ int acr_gen1_save_read(acr_gen1_hangar *h, const char *text) {
     for (int s = 0; s < ACR_GEN1_SLOT_COUNT; ++s) t.fitted[s] = ACR_GEN1_NO_PART;
     char section[16] = "";
     long format = -1;
-    int gen1 = 0;
+    int gen1 = 0, has_paint = 0;
     for (const char *line = text; line && *line; ) {
         const char *next = strchr(line, '\n');
         const char *p = skip_space(line);
@@ -400,6 +452,10 @@ int acr_gen1_save_read(acr_gen1_hangar *h, const char *text) {
                 else if (!strcmp(key, "colours")) {
                     colour_ctx cc = { &t, 0 };
                     ok = parse_list(p, add_colour, &cc) && cc.n == 12;
+                } else if (!strcmp(key, "paint")) {
+                    colour_ctx cc = { &t, 0 };
+                    ok = parse_list(p, add_paint, &cc) && cc.n == 48;
+                    has_paint = 1;
                 }
             } else if (!strcmp(section, "ac")) {
                 if (!strcmp(key, "options")) ok = parse_list(p, add_option, &t);
@@ -425,6 +481,8 @@ int acr_gen1_save_read(acr_gen1_hangar *h, const char *text) {
     /* Format 1 had no [shop] section: its stock starts empty. Newer formats
      * than this build can't be read. */
     if (format < 1 || format > ACR_GEN1_SAVE_FORMAT || !gen1) return 0;
+    /* Before format 3 there was no paint: every part takes the 4 colours. */
+    if (!has_paint) acr_gen1_paint_fill(t.paint, (const uint8_t (*)[3])t.colours);
     /* A hand-edited file may list fewer copies than are fitted: own what is fitted. */
     for (int c = 0; c < ACR_GEN1_CAT_COUNT; ++c)
         for (unsigned i = 0; i < ACR_GEN1_PART_MAX; ++i) {
