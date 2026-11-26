@@ -29,9 +29,25 @@ enum { ACR_GEN1_MISSION_OPEN = 0, ACR_GEN1_MISSION_DONE = 1, ACR_GEN1_MISSION_FA
 /* acr_gen1_mission.flags */
 #define ACR_GEN1_MISSION_BONUS 0x01   /* map 6: the tank AC was brought down (event 18) */
 #define ACR_GEN1_MISSION_FAIL  0x02   /* the ending running is "mission failed" (0x80052490(256)) */
+#define ACR_GEN1_MISSION_SWAP  0x04   /* P4 Altered: the challenger is due (the platform brings it in) */
+
+/* Armored-CoreR's own mission rules (acr_gen1_mission.own), set by the
+ * platform for the variant it rolled (acr_gen1_missions.h). Variant 1
+ * (Standard) needs none: the plain 1v1 rule.
+ * - P4 Alternate layout: two drone MTs beside the examiner (fighter 1).
+ *   Only the examiner counts: won when it is down, or with more AP than it
+ *   at time up; the drones are optional.
+ * - P4 Altered circumstances: once the examiner is below half its AP, the
+ *   script asks for the challenger (flag SWAP, phase 1); the platform puts
+ *   the challenger in fighter 1's place (the examiner withdraws) and calls
+ *   acr_gen1_mission_challenger_in (phase 2). Until then the examiner can't
+ *   be knocked out (the challenger comes in instead); at time up the AP of
+ *   whoever is fighter 1 decides. The challenger down sets BONUS. */
+enum { ACR_GEN1_OWN_NONE = 0, ACR_GEN1_OWN_P4_ALTERNATE, ACR_GEN1_OWN_P4_ALTERED };
 
 typedef struct acr_gen1_mission {
     uint8_t  map;          /* 1 + the mission map with a script, 0 = none (plain rule) */
+    uint8_t  own;          /* ACR_GEN1_OWN_*: an Armored-CoreR mission's rule (map is 0 then) */
     int8_t   phase;        /* the script's own step (map 6: the game's 0x800AD838) */
     uint16_t timer;        /* ticks left in a timed step */
     uint8_t  flags;
@@ -50,6 +66,10 @@ int acr_gen1_mission_team(int map, int record);
 /* Starts map `map`'s script on battle b (after its units joined); a map
  * without one clears it. */
 void acr_gen1_mission_start(struct acr_gen1_battle *b, int map);
+/* Starts an Armored-CoreR mission's rule (ACR_GEN1_OWN_*) on battle b. */
+void acr_gen1_mission_start_own(struct acr_gen1_battle *b, int own);
+/* P4 Altered: the challenger has taken fighter 1's place. */
+void acr_gen1_mission_challenger_in(struct acr_gen1_battle *b);
 /* One game tick of the script (the battle calls it after the units). */
 void acr_gen1_mission_tick(struct acr_gen1_battle *b);
 

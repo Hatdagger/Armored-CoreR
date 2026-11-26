@@ -67,6 +67,18 @@ typedef struct acr_gen1_mission_info {
     uint16_t foe_options;
     uint8_t  foe_colours[4][3];
     char     foe_pilot[20], foe_ac[20];
+    /* Variants (Armored-CoreR's own missions; docs/MISSIONS.md "Three
+     * variants per mission"): how many it has (0 = just the one), and for
+     * an info made by acr_gen1_mission_variant the variant it is (1..3),
+     * the one its briefing describes (variant 3 is never briefed: it shows
+     * variant 1's), the script rule (ACR_GEN1_OWN_*), the special addition
+     * paid when the rule's BONUS is earned, the time added when a late
+     * arrival comes in, and the late arrival's AC (an arena AC name). */
+    uint8_t  variants, variant, briefed;
+    uint8_t  rule;
+    int32_t  bonus;
+    int32_t  extra_ms;
+    char     late_ac[20];
     /* Text pages with the disc's markup: "@1".."@0" highlight, "%n" picture n. */
     char     page[ACR_GEN1_MISSION_PAGES][ACR_GEN1_MISSION_TEXT];
 } acr_gen1_mission_info;
@@ -81,6 +93,29 @@ typedef struct acr_gen1_mission_list {
  * (`toml` may be NULL: none imported). Returns how many MoA missions were
  * read. */
 int acr_gen1_missions_build(acr_gen1_mission_list *list, const char *toml);
+
+/* ---- variants ----
+ * The roll when a mission is taken: 1 Standard (40 %), 2 Alternate layout
+ * (40 %), 3 Altered circumstances (20 %). `r` is any random number; r % 100
+ * is used. */
+int acr_gen1_mission_roll(uint32_t r);
+const char *acr_gen1_mission_variant_name(int v);   /* "STANDARD", ... */
+/* Mission `m` as variant `v` is briefed and flown (variant 1, or a mission
+ * without variants: a copy of m). */
+void acr_gen1_mission_variant(const acr_gen1_mission_info *m, int v, acr_gen1_mission_info *out);
+
+/* P4's Alternate layout on map 11 (engine x, y down, z; facing 4096 a
+ * turn): the player's and the examiner's starts and the two drones. The
+ * drones are Master of Arena's small drone (unit U10) as map 13 has it
+ * (records 11-14: AP 950, attack 50). Altered circumstances: where the
+ * challenger drops in (it falls from DROP_HEIGHT above). */
+typedef struct acr_gen1_mission_spot { int32_t x, y, z; uint16_t facing; } acr_gen1_mission_spot;
+extern const acr_gen1_mission_spot acr_gen1_p4_alt_start[2];
+extern const acr_gen1_mission_spot acr_gen1_p4_alt_drone[2];
+#define ACR_GEN1_P4_DRONE_MAP    13
+#define ACR_GEN1_P4_DRONE_RECORD 11
+extern const acr_gen1_mission_spot acr_gen1_p4_challenger_drop;
+#define ACR_GEN1_P4_DROP_HEIGHT  2500
 
 /* ---- sortie check ---- */
 typedef enum acr_gen1_sortie {

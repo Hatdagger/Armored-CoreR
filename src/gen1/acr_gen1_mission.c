@@ -240,8 +240,32 @@ static void map12_tick(acr_gen1_battle *b) {
     m->timer = MAP12_FAIL_WAIT + MAP12_RADIO_TICKS;
 }
 
+void acr_gen1_mission_start_own(acr_gen1_battle *b, int own) {
+    memset(&b->mission, 0, sizeof b->mission);
+    b->mission.own = (uint8_t)own;
+}
+
+void acr_gen1_mission_challenger_in(acr_gen1_battle *b) {
+    acr_gen1_mission *m = &b->mission;
+    if (m->own != ACR_GEN1_OWN_P4_ALTERED || m->phase != 1) return;
+    m->flags &= (uint8_t)~ACR_GEN1_MISSION_SWAP;
+    m->phase = 2;
+}
+
+/* P4 Altered: the examiner below half AP brings the challenger (see the .h). */
+static void own_tick(acr_gen1_battle *b) {
+    acr_gen1_mission *m = &b->mission;
+    const acr_gen1_fighter *foe = &b->f[1];
+    if (m->own != ACR_GEN1_OWN_P4_ALTERED) return;
+    if (m->phase == 0 && (int64_t)foe->ap * 2 < foe->ap_max) {
+        m->phase = 1;
+        m->flags |= ACR_GEN1_MISSION_SWAP;
+    } else if (m->phase == 2 && foe->ap <= 0) m->flags |= ACR_GEN1_MISSION_BONUS;
+}
+
 void acr_gen1_mission_tick(acr_gen1_battle *b) {
     acr_gen1_mission *m = &b->mission;
+    if (m->own) { if (b->f[0].ap > 0) own_tick(b); return; }
     if (!m->map || m->result) return;
     if (b->f[0].ap <= 0) return;                /* the player is down: the script stops */
     if (m->end_ticks) {

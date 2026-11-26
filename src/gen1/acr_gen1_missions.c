@@ -14,8 +14,7 @@
  * 11 (the four-pillar hall), 10,000 C, 3:00, a 1v1 against a Nest examiner,
  * won by destruction or by more AP left when time runs out. The last page
  * follows MoA's "Theater of operations" page with the mockup's own facts.
- * The other variants (Alternate layout, Altered circumstances) and the
- * 40/40/20 roll come later; until then the Standard one always runs.
+ * Its other two variants are below (acr_gen1_mission_variant).
  *
  * The examiner's AC is the user's AI Battle card (Raven Card Builder,
  * format 4, checksum good; docs/missions/p4-examiner-card.png, 2026-11-25):
@@ -61,6 +60,81 @@ static void add_own(acr_gen1_mission_list *l) {
     memcpy(m->foe_colours, k_p4_foe_colours, sizeof m->foe_colours);
     strcpy(m->foe_pilot, "NEST EXAMINER");
     strcpy(m->foe_ac, "ANFANG");
+    m->variants = 3;
+}
+
+/* ---- variants ----
+ * P4 from the user's mockups (mission mockups page, 2026-11-20) and their
+ * answers (2026-11-25):
+ * - 2 Alternate layout: 12,000 C, 3:00. The player starts in the south-west
+ *   corner, the examiner behind the north-east pillar, two drone MTs in the
+ *   far (north) corners; only the examiner counts. The drones are MoA's
+ *   small drone U10 with map 13's numbers (records 11-14). Places: the
+ *   mockup's marks on map 11 (the hall's floor is +-11,800 across the
+ *   mockup's picture, pillars at +-5,700), moved clear of the pillar and
+ *   each other.
+ * - 3 Altered circumstances: the same examiner (the user: "the same
+ *   examiner I provided before"). Below half AP it withdraws and a
+ *   challenger drops in from the east; the Nest's radio says "Continue the
+ *   test." The challenger is a MoA arena Raven while versus rivals and
+ *   ghosts don't exist: The Wolf (pilot Prime, main arena rank 14, no
+ *   Human PLUS), flown by its own AI. 10,000 C, plus 12,000 C (special
+ *   addition) for beating it. The briefing is variant 1's, so the clock
+ *   starts at 3:00 and the challenger brings 2:00 more (the mockup's 5:00
+ *   in all). */
+const acr_gen1_mission_spot acr_gen1_p4_alt_start[2] = {
+    { -8400, 3000, -8400, 512 },     /* south-west corner, facing the middle */
+    {  7400, 3000,  7400, 2560 },    /* behind the north-east pillar, facing the player */
+};
+const acr_gen1_mission_spot acr_gen1_p4_alt_drone[2] = {
+    {  9300, 3000,  9600, 2560 },    /* north-east corner */
+    { -9300, 3000,  9600, 1536 },    /* north-west corner */
+};
+const acr_gen1_mission_spot acr_gen1_p4_challenger_drop = { 8000, 3000, 0, 3072 };   /* east side, facing west */
+
+int acr_gen1_mission_roll(uint32_t r) {
+    const uint32_t n = r % 100u;
+    return n < 40 ? 1 : n < 80 ? 2 : 3;
+}
+
+const char *acr_gen1_mission_variant_name(int v) {
+    return v == 2 ? "ALTERNATE LAYOUT" : v == 3 ? "ALTERED CIRCUMSTANCES" : "STANDARD";
+}
+
+void acr_gen1_mission_variant(const acr_gen1_mission_info *m, int v, acr_gen1_mission_info *out) {
+    if (out != m) *out = *m;
+    if (!m->variants || v < 1 || v > m->variants) v = 1;
+    out->variant = (uint8_t)v;
+    out->briefed = (uint8_t)(v == 3 ? 1 : v);
+    out->rule = 0;
+    out->bonus = 0;
+    out->extra_ms = 0;
+    out->late_ac[0] = 0;
+    if (strcmp(m->id, "P4") || v == 1) return;
+    if (v == 2) {
+        out->reward = 12000;
+        out->rule = ACR_GEN1_OWN_P4_ALTERNATE;
+        strcpy(out->page[0], "Second form of the test. You start\n"
+                             "in a corner, and the @1Nest examiner@0\n"
+                             "starts behind cover.");
+        strcpy(out->page[1], "Two @1drone MTs@0 add pressure. Only\n"
+                             "the examiner counts: win, or keep\n"
+                             "more AP than it when @1time runs out@0.");
+        strcpy(out->page[2], "Theater of operations: \n"
+                             "  Nest test site (pillar hall)\n"
+                             "Enemy forces:\n"
+                             "  AC (Nest examiner) x1\n"
+                             "  MT (drone) x2\n"
+                             "Objective: Defeat Examiner\n"
+                             "Time limit: 3:00");
+        out->pages = 3;
+        return;
+    }
+    /* v == 3: briefed as Standard (pages and reward stay variant 1's). */
+    out->rule = ACR_GEN1_OWN_P4_ALTERED;
+    out->bonus = 12000;
+    out->extra_ms = 2 * 60 * 1000;
+    strcpy(out->late_ac, "The Wolf");
 }
 
 /* ---- missions.toml ---- */

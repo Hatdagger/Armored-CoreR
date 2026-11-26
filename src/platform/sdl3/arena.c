@@ -278,6 +278,12 @@ static int prepare_fight(int rank) {
     return 1;
 }
 
+const acr_gen1_rogue_foe *arena_find_ac(const char *ac) {
+    for (int i = 0; ac && i < A.w.foes; ++i)
+        if (!SDL_strcasecmp(A.roster[i].ac, ac)) return &A.roster[i];
+    return NULL;
+}
+
 /* ---- the VS screen (vs_screen.c, shared with Rogue Arena) ----
  * The Arena's is the simpler one (user, 2026-11-25): both ACs, their RANK
  * badges and names, the opponent's emblem, VS, a 3 count and the
