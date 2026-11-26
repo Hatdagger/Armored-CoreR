@@ -20,7 +20,9 @@ middle set on its grid square's middle. One export can fill several squares
 
 Writes <import dir>/stages/<id>/:
     stage.toml     name, starts
-    visual.obj/mtl what is drawn (Tinkercad's colours)
+    visual.obj/mtl what is drawn (Tinkercad's colours, each with a texture
+                   made here: tex-RRGGBB.png; --plain for none)
+    preview.png    a rough picture of the textured map (not used by the game)
     collision.obj  what ACs stand on, run into and shoot
 
 No packages needed: plain Python 3.
@@ -218,6 +220,457 @@ def facing_to(src, dst):
     return int(round(a / (2 * math.pi) * 4096)) & 4095
 
 
+# ---------------------------------------------------------------------------
+# Textures. Tinkercad has none, so each colour gets one made here: the
+# colour's kind picks the pattern (SURFACES below) and the colour itself
+# tints it. Small, few shades, hard pixels, like the PS1 games' own. Nothing
+# is taken from a disc.
+#
+# A texture is 64 x 128: the upper half is for walls (sides), the lower half
+# for floors and roofs (tops). The game's stage textures don't repeat, so
+# every face is cut into squares of about --texture-size mm, each showing
+# the pattern once; the squares are fitted to each shape, so a pattern
+# always ends at the shape's edge.
+TEX = 64
+MAX_DRAWN = 12000                                          # drawn faces before the squares are widened
+SHADES = (0.34, 0.48, 0.62, 0.76, 0.88, 1.0, 1.1, 1.24)   # 5 = the colour itself
+LIT, BLACK, GLOW = 8, 9, 10                                # a lit window; hazard black; a light in the map's colour
+
+
+class Rand:
+    def __init__(self, seed):
+        self.s = (seed * 2654435761 + 12345) & 0xFFFFFFFF
+
+    def next(self, n):
+        self.s = (self.s * 1103515245 + 12345) & 0xFFFFFFFF
+        return (self.s >> 8) % n
+
+
+def surface_kind(c):
+    """The pattern for a Tinkercad colour (docs/MAPS.md, "Textures")."""
+    r, g, b = (v / 255 for v in c)
+    hi, lo = max(r, g, b), min(r, g, b)
+    sat = 0 if hi == 0 else (hi - lo) / hi
+    if sat < 0.2:
+        return "panel" if hi >= 0.5 else "plate"
+    if hi == r:
+        hue = 60 * (((g - b) / (hi - lo)) % 6)
+    elif hi == g:
+        hue = 60 * ((b - r) / (hi - lo) + 2)
+    else:
+        hue = 60 * ((r - g) / (hi - lo) + 4)
+    if 42 <= hue < 64:
+        return "hazard"
+    if 170 <= hue < 265:
+        return "facade"
+    if hue < 42 or hue >= 330:
+        return "crate"
+    if 64 <= hue < 170:
+        return "grass"
+    return "lights"
+
+
+def _blank(shade):
+    return [[shade] * TEX for _ in range(TEX)]
+
+
+def _mottle(px, rnd, dark=9, light=5):
+    for y in range(TEX):
+        for x in range(TEX):
+            k = rnd.next(100)
+            if k < dark and px[y][x] > 0:
+                px[y][x] -= 1
+            elif k < dark + light and px[y][x] < 7:
+                px[y][x] += 1
+
+
+def _seams(px, lines_x=(0,), lines_y=(0,)):
+    """A dark line with a light one beside it: the edge of a slab."""
+    for x0 in lines_x:
+        for y in range(TEX):
+            px[y][x0] = 2
+            px[y][(x0 + 1) % TEX] = min(7, px[y][(x0 + 1) % TEX] + 1)
+    for y0 in lines_y:
+        for x in range(TEX):
+            px[y0][x] = 2
+            px[(y0 + 1) % TEX][x] = min(7, px[(y0 + 1) % TEX][x] + 1)
+
+
+def _bolt(px, x, y):
+    px[y][x] = px[y][x + 1] = px[y + 1][x] = 2
+    px[y + 1][x + 1] = 1
+    px[y - 1][x] = px[y - 1][x + 1] = 6
+
+
+def tex_panel(rnd):
+    side = _blank(5)
+    for x in range(TEX):                       # streaks running down from a seam
+        if rnd.next(100) < 22:
+            top, length = (0, 34)[rnd.next(2)], 6 + rnd.next(22)
+            for y in range(top + 2, min(TEX, top + 2 + length)):
+                side[y][x] -= 1
+    _mottle(side, rnd)
+    for y in range(57, TEX):                   # grime at the foot
+        for x in range(TEX):
+            side[y][x] = max(0, side[y][x] - (1 if y < 61 else 2))
+    _seams(side, (0,), (0, 32))
+    for bx in (5, 57):
+        for by in (6, 26, 39, 52):
+            _bolt(side, bx, by)
+    top = _blank(5)
+    _mottle(top, rnd, 12, 6)
+    for _ in range(5):                         # scuffs
+        x, y, n = 4 + rnd.next(50), 4 + rnd.next(50), 3 + rnd.next(6)
+        for k in range(n):
+            if x + k < TEX and y + k // 2 < TEX:
+                top[y + k // 2][x + k] = 3
+    _seams(top, (0, 32), (0, 32))
+    return side, top
+
+
+def tex_plate(rnd):
+    def plate(step):
+        px = _blank(5)
+        _mottle(px, rnd, 8, 3)
+        for y in range(TEX):
+            for x in range(TEX):
+                a, b = x % 8, y % 8
+                if (a == 2 and 1 <= b <= 3) or (a == 6 and 5 <= b <= 7):
+                    px[y][x] = 7
+                elif (a == 3 and 1 <= b <= 3) or (a == 7 and 5 <= b <= 7):
+                    px[y][x] = 3
+        _seams(px, (0,) if step else (0, 32), (0,) if step else (0, 32))
+        for k in range(4, TEX, 16):
+            _bolt(px, k, 4)
+            _bolt(px, 3, k + 6)
+        return px
+    return plate(1), plate(0)
+
+
+def tex_hazard(rnd):
+    def stripes(width):
+        px = _blank(5)
+        _mottle(px, rnd, 10, 0)
+        for y in range(TEX):
+            for x in range(TEX):
+                if ((x + y) // width) % 2:
+                    px[y][x] = BLACK if rnd.next(100) >= 6 else 1
+        _seams(px)
+        return px
+    return stripes(8), stripes(16)
+
+
+def tex_facade(rnd):
+    side = _blank(4)
+    _mottle(side, rnd, 8, 4)
+    for wy in range(2):                        # two storeys a square, four windows each
+        for wx in range(4):
+            x0, y0 = wx * 16 + 3, wy * 32 + 9
+            lit = rnd.next(100) < 30
+            for y in range(y0, y0 + 16):
+                for x in range(x0, x0 + 10):
+                    side[y][x] = 1 if not lit else LIT
+                    if lit and (y == y0 + 8 or x == x0 + 5):
+                        side[y][x] = 4         # the window's bars against the light
+            for x in range(x0 - 1, x0 + 11):
+                side[y0 - 1][x] = 2
+                side[y0 + 16][x] = 6           # the sill catches the light
+            for y in range(y0, y0 + 16):
+                side[y][x0 - 1] = 2
+        for x in range(TEX):                   # the floor line between storeys
+            side[wy * 32][x] = 2
+            side[wy * 32 + 1][x] = 6
+            side[wy * 32 + 2][x] = 5
+    for y in range(TEX):
+        side[y][0] = 2
+    top = _blank(3)
+    _mottle(top, rnd, 10, 4)
+    for k in range(TEX):                       # the parapet round the roof
+        for d in range(3):
+            top[d][k] = top[TEX - 1 - d][k] = top[k][d] = top[k][TEX - 1 - d] = 5
+    for k in range(3, TEX - 3):
+        top[3][k] = top[k][3] = 1
+    for x0, y0 in ((12, 12), (38, 36)):        # vents
+        for y in range(y0, y0 + 12):
+            for x in range(x0, x0 + 14):
+                top[y][x] = 4 if (y - y0) % 3 else 1
+        for x in range(x0, x0 + 14):
+            top[y0][x] = 7
+            top[y0 + 12][x] = 1
+    return side, top
+
+
+def tex_crate(rnd):
+    def ribs(across):
+        px = _blank(5)
+        for y in range(TEX):
+            for x in range(TEX):
+                k = (y if across else x) % 8
+                px[y][x] = (6, 5, 5, 4, 3, 4, 4, 5)[k]
+        for _ in range(7):                     # rust and dents
+            cx, cy, r = rnd.next(TEX), rnd.next(TEX), 2 + rnd.next(4)
+            for y in range(max(0, cy - r), min(TEX, cy + r)):
+                for x in range(max(0, cx - r), min(TEX, cx + r)):
+                    if (x - cx) ** 2 + (y - cy) ** 2 <= r * r and rnd.next(100) < 70:
+                        px[y][x] = max(0, px[y][x] - 1)
+        for d in range(4):                     # the frame
+            for k in range(TEX):
+                px[d][k] = px[TEX - 1 - d][k] = 3 if d < 3 else 6
+        for y in range(TEX):
+            px[y][0] = 2
+            px[y][1] = 6
+        return px
+    return ribs(0), ribs(1)
+
+
+def tex_lights(rnd):
+    def housing(bars):
+        px = _blank(2)
+        _mottle(px, rnd, 10, 6)
+        for a, b in bars:                      # light bars in a dark frame
+            for y in range(a - 2, b + 2):
+                for x in range(4, TEX - 4):
+                    inside = a <= y < b and 6 <= x < TEX - 6
+                    px[y][x] = (GLOW if (x // 2 + y) % 9 else 7) if inside else 0
+            for x in range(6, TEX - 6):
+                px[a][x] = 7                   # the glass's upper edge
+        _seams(px)
+        return px
+    side = housing(((12, 20), (44, 52)))
+    top = _blank(2)
+    _mottle(top, rnd, 10, 6)
+    for y in range(TEX):                       # a lit square set in the floor
+        for x in range(TEX):
+            d = max(abs(x - 31.5), abs(y - 31.5))
+            if 18 <= d < 24:
+                top[y][x] = GLOW if d < 23 and d >= 19 else 0
+    _seams(top)
+    return side, top
+
+
+def tex_grass(rnd):
+    def blades(n):
+        px = _blank(5)
+        for y in range(TEX):
+            for x in range(TEX):
+                k = rnd.next(100)
+                px[y][x] = 5 + (k < 16) - (k > 68) - (k > 91)
+        for _ in range(n):
+            x, y, h = rnd.next(TEX), rnd.next(TEX), 2 + rnd.next(3)
+            for d in range(h):
+                px[(y + d) % TEX][x] = 7 if d == 0 else 6
+        return px
+    side = blades(70)                          # a hedge, darker at the foot
+    for y in range(TEX - 6, TEX):
+        for x in range(TEX):
+            side[y][x] = max(0, side[y][x] - (1 if y < TEX - 2 else 2))
+    return side, blades(34)
+
+
+SURFACES = {"lights": tex_lights, "grass": tex_grass, "panel": tex_panel, "plate": tex_plate, "hazard": tex_hazard, "facade": tex_facade, "crate": tex_crate}
+
+
+def make_texture(c):
+    """(kind, rows of RGB) for a colour: 64 wide, walls above floors."""
+    kind = surface_kind(c)
+    side, top = SURFACES[kind](Rand(c[0] << 16 | c[1] << 8 | c[2]))
+    tone = 215 / max(215, max(c))              # room above the colour for the light shades
+    base = [v * tone for v in c]
+    pal = [tuple(min(255, int(v * s + 0.5)) for v in base) for s in SHADES]
+    pal += [(250, 232, 150), (24, 24, 28)]     # LIT, BLACK
+    pal.append(tuple(min(255, int(v * 0.4 + 255 * 0.6)) for v in c))   # GLOW
+    return kind, [[pal[s] for s in row] for row in side + top]
+
+
+def write_png(path, rows):
+    """A plain 8-bit RGB PNG (no packages needed)."""
+    import struct
+    import zlib
+    w, h = len(rows[0]), len(rows)
+    raw = b"".join(b"\x00" + bytes(v for px in row for v in px) for row in rows)
+
+    def chunk(tag, data):
+        return struct.pack(">I", len(data)) + tag + data + struct.pack(">I", zlib.crc32(tag + data) & 0xFFFFFFFF)
+    with open(path, "wb") as f:
+        f.write(b"\x89PNG\r\n\x1a\n" + chunk(b"IHDR", struct.pack(">IIBBBBB", w, h, 8, 2, 0, 0, 0))
+                + chunk(b"IDAT", zlib.compress(raw, 9)) + chunk(b"IEND", b""))
+
+
+def write_preview(path, faces, textures, width, depth, low, size=(640, 400)):
+    """A rough picture of the textured map, seen from above its south-west
+    corner (--preview). Not the game's renderer: it is for checking colours
+    and patterns without starting the game, and for showing a map around."""
+    W, H = size
+    span = max(width, depth)
+    eye = (-0.15 * width, low + 0.15 * span, -0.46 * depth)
+    look = (0.06 * width, low + 0.03 * span, 0.05 * depth)
+    f = [look[i] - eye[i] for i in range(3)]
+    n = math.sqrt(sum(v * v for v in f))
+    f = [v / n for v in f]
+    r = [f[2], 0.0, -f[0]]
+    n = math.hypot(r[0], r[2])
+    r = [v / n for v in r]
+    u = [f[1] * r[2] - f[2] * r[1], f[2] * r[0] - f[0] * r[2], f[0] * r[1] - f[1] * r[0]]
+    if u[1] < 0:
+        u = [-v for v in u]
+    foc = (W / 2) / math.tan(math.radians(32))
+    near = span * 0.004
+    zb = [[1e30] * W for _ in range(H)]
+    img = [[(18, 22, 34)] * W for _ in range(H)]
+    light = (0.3, 0.9, 0.3)                    # the game's fixed stage light
+    for c, tri in faces:
+        P = [v[0] for v in tri]
+        UV = [v[1] for v in tri]
+        cam = []
+        for p in P:
+            d = [p[i] - eye[i] for i in range(3)]
+            cam.append((sum(d[i] * r[i] for i in range(3)), sum(d[i] * u[i] for i in range(3)),
+                        sum(d[i] * f[i] for i in range(3))))
+        if min(v[2] for v in cam) < near:
+            continue
+        S = [(W / 2 + v[0] * foc / v[2], H / 2 - v[1] * foc / v[2], 1.0 / v[2]) for v in cam]
+        x0, x1 = max(0, int(min(v[0] for v in S))), min(W - 1, int(max(v[0] for v in S)) + 1)
+        y0, y1 = max(0, int(min(v[1] for v in S))), min(H - 1, int(max(v[1] for v in S)) + 1)
+        den = (S[1][1] - S[2][1]) * (S[0][0] - S[2][0]) + (S[2][0] - S[1][0]) * (S[0][1] - S[2][1])
+        if x0 > x1 or y0 > y1 or abs(den) < 1e-9:
+            continue
+        e1 = [P[1][i] - P[0][i] for i in range(3)]
+        e2 = [P[2][i] - P[0][i] for i in range(3)]
+        nn = (e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0])
+        ln = math.sqrt(sum(v * v for v in nn)) or 1.0
+        lit = 0.55 + 0.45 * abs(sum(nn[i] * light[i] for i in range(3)) / ln)
+        rows = textures[c]
+        shade = {}
+        for y in range(y0, y1 + 1):
+            py = y + 0.5
+            for x in range(x0, x1 + 1):
+                px = x + 0.5
+                a = ((S[1][1] - S[2][1]) * (px - S[2][0]) + (S[2][0] - S[1][0]) * (py - S[2][1])) / den
+                b = ((S[2][1] - S[0][1]) * (px - S[2][0]) + (S[0][0] - S[2][0]) * (py - S[2][1])) / den
+                d = 1 - a - b
+                if a < -1e-6 or b < -1e-6 or d < -1e-6:
+                    continue
+                iz = a * S[0][2] + b * S[1][2] + d * S[2][2]
+                if 1 / iz >= zb[y][x]:
+                    continue
+                zb[y][x] = 1 / iz
+                tu = (a * UV[0][0] * S[0][2] + b * UV[1][0] * S[1][2] + d * UV[2][0] * S[2][2]) / iz
+                tv = (a * UV[0][1] * S[0][2] + b * UV[1][1] * S[1][2] + d * UV[2][1] * S[2][2]) / iz
+                t = rows[min(2 * TEX - 1, max(0, int((1.0 - tv) * 2 * TEX)))][min(TEX - 1, max(0, int(tu * TEX)))]
+                if t not in shade:
+                    shade[t] = tuple(min(255, int(k * lit)) for k in t)
+                img[y][x] = shade[t]
+    write_png(path, img)
+
+
+def faces_down(pts, t):
+    """A face whose front looks straight down. (y is up here, but the world
+    is left-handed: a front that looks down has a cross product that points up.)"""
+    A, B, C = (pts[i] for i in t[:3])
+    u = [B[a] - A[a] for a in range(3)]
+    w = [C[a] - A[a] for a in range(3)]
+    n = (u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0])
+    return n[1] > 0 and n[1] > 0.99 * math.sqrt(n[0] ** 2 + n[1] ** 2 + n[2] ** 2)
+
+
+def _clip(poly, idx, bound, keep_above):
+    """The part of a polygon on one side of a grid line (vertices: s, t, x, y, z)."""
+    out = []
+    for i, a in enumerate(poly):
+        b = poly[(i + 1) % len(poly)]
+        ina = a[idx] >= bound - 1e-7 if keep_above else a[idx] <= bound + 1e-7
+        inb = b[idx] >= bound - 1e-7 if keep_above else b[idx] <= bound + 1e-7
+        if ina:
+            out.append(a)
+        if ina != inb:
+            f = min(1.0, max(0.0, (bound - a[idx]) / (b[idx] - a[idx])))   # (an edge lying along the line)
+            out.append(tuple(a[j] + (b[j] - a[j]) * f for j in range(5)))
+    return out
+
+
+def textured_faces(pts, world, remap, cell):
+    """Cuts every face into squares of one pattern each.
+
+    Returns [(colour, ((x, y, z), (u, v)) x 3)]. Shapes are told apart by
+    colour and touching corners; each gets its own grid from its lowest
+    corner, with the square stretched a little so a whole number fits."""
+    key = {}
+
+    def kof(i):
+        p = pts[i]
+        return key.setdefault((round(p[0], 1), round(p[1], 1), round(p[2], 1)), len(key))
+    parent = {}
+
+    def find(a):
+        while parent.setdefault(a, a) != a:
+            parent[a] = parent[parent[a]]
+            a = parent[a]
+        return a
+    for t in world:                            # same colour and a shared corner: one shape
+        c = remap[t[3]]
+        ks = [(c, kof(i)) for i in t[:3]]
+        for k in ks[1:]:
+            parent[find(k)] = find(ks[0])
+    box = {}
+    for t in world:
+        root = find((remap[t[3]], kof(t[0])))
+        b = box.setdefault(root, [[1e18] * 3, [-1e18] * 3])
+        for i in t[:3]:
+            for a in range(3):
+                b[0][a] = min(b[0][a], pts[i][a])
+                b[1][a] = max(b[1][a], pts[i][a])
+    half = 0.5 / (2 * TEX)                     # half a texel of the 128 rows: keeps the two halves apart
+    out = []
+    for t in world:
+        c = remap[t[3]]
+        lo, hi = box[find((c, kof(t[0])))]
+        size = [hi[a] - lo[a] for a in range(3)]
+        fit = [size[a] / max(1, round(size[a] / cell)) if size[a] > 1e-6 else cell for a in range(3)]
+        A, B, C = (pts[i] for i in t[:3])
+        u = [B[a] - A[a] for a in range(3)]
+        w = [C[a] - A[a] for a in range(3)]
+        n = (u[1] * w[2] - u[2] * w[1], u[2] * w[0] - u[0] * w[2], u[0] * w[1] - u[1] * w[0])
+        an = [abs(v) for v in n]
+        if max(an) < 1e-9:
+            continue
+        if an[1] >= an[0] and an[1] >= an[2]:
+            sa, ta, top = 0, 2, True           # a floor or a roof: across x and z
+        elif an[0] >= an[2]:
+            sa, ta, top = 2, 1, False          # a wall facing east or west: along z, up y
+        else:
+            sa, ta, top = 0, 1, False          # a wall facing north or south: along x, up y
+        tri = [((p[sa] - lo[sa]) / fit[sa], (p[ta] - lo[ta]) / fit[ta], p[0], p[1], p[2]) for p in (A, B, C)]
+        # Walls: every other shape, and every other side of it, shows the picture
+        # mirrored, so a row of the same buildings doesn't light the same windows.
+        na = 0 if sa == 2 else 2               # the axis the wall faces along
+        mirror = not top and (int(round(lo[0] / 50)) * 7 + int(round(lo[2] / 50)) * 13 + sa + (n[na] > 0)) % 2 == 1
+        s0, s1 = math.floor(min(v[0] for v in tri) + 1e-6), math.ceil(max(v[0] for v in tri) - 1e-6)
+        for i in range(s0, max(s1, s0 + 1)):
+            strip = _clip(_clip(tri, 0, i, True), 0, i + 1, False)
+            if len(strip) < 3:
+                continue
+            t0, t1 = math.floor(min(v[1] for v in strip) + 1e-6), math.ceil(max(v[1] for v in strip) - 1e-6)
+            for j in range(t0, max(t1, t0 + 1)):
+                poly = _clip(_clip(strip, 1, j, True), 1, j + 1, False)
+                if len(poly) < 3:
+                    continue
+                vs = []
+                for s, tt, x, y, z in poly:
+                    lu, lv = min(1.0, max(0.0, s - i)), min(1.0, max(0.0, tt - j))
+                    if mirror:
+                        lu = 1.0 - lu
+                    row = (0.5 if top else 0.0) + half + (1.0 - lv) * (0.5 - 2 * half)   # down the image
+                    vs.append(((x, y, z), (lu, 1.0 - row)))
+                for k in range(1, len(vs) - 1):
+                    a, b, d = vs[0], vs[k], vs[k + 1]
+                    e1 = [b[0][m] - a[0][m] for m in range(3)]
+                    e2 = [d[0][m] - a[0][m] for m in range(3)]
+                    cr = (e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0])
+                    if cr[0] ** 2 + cr[1] ** 2 + cr[2] ** 2 > 1e-4:
+                        out.append((c, (a, b, d)))
+    return out
+
+
 def main():
     ap = argparse.ArgumentParser(description=__doc__, formatter_class=argparse.RawDescriptionHelpFormatter)
     ap.add_argument("inputs", nargs="+", help="Tinkercad .zip export(s) (Export -> .OBJ) or .obj files, "
@@ -228,6 +681,11 @@ def main():
     ap.add_argument("--scale", type=float, default=50.0, help="world units per mm (default 50)")
     ap.add_argument("--tile", type=float, default=200.0, help="tile size in mm for grid-named files (default 200)")
     ap.add_argument("--up", choices=["auto", "y", "z"], default="auto", help="the files' up axis")
+    ap.add_argument("--texture-size", type=float, default=10.0,
+                    help="mm one square of a texture covers (default 10: two AC widths and a half)")
+    ap.add_argument("--plain", action="store_true", help="no textures: Tinkercad's plain colours, as before")
+    ap.add_argument("--no-preview", action="store_true",
+                    help="skip preview.png (a rough picture of the textured map; it takes a second or two)")
     args = ap.parse_args()
     files = list(args.inputs)
     import_dir = args.import_dir
@@ -348,23 +806,67 @@ def main():
     palette = sorted(set(remap.values()))
     name_of = {c: f"c{c[0]:02x}{c[1]:02x}{c[2]:02x}" for c in palette}
 
+    kinds, tex_rows, drawn = {}, {}, []
     with open(os.path.join(out, "visual.mtl"), "w") as f:
         for c in palette:
-            f.write(f"newmtl {name_of[c]}\nKd {c[0] / 255:.4f} {c[1] / 255:.4f} {c[2] / 255:.4f}\n\n")
+            f.write(f"newmtl {name_of[c]}\nKd {c[0] / 255:.4f} {c[1] / 255:.4f} {c[2] / 255:.4f}\n")
+            if not args.plain:
+                kinds[c], rows = make_texture(c)
+                tex_rows[c] = rows
+                write_png(os.path.join(out, f"tex-{name_of[c][1:]}.png"), rows)
+                f.write(f"map_Kd tex-{name_of[c][1:]}.png\n")
+            f.write("\n")
     used = sorted({i for t in world for i in t[:3]})
     new = {old: n + 1 for n, old in enumerate(used)}
+    visual_faces = len(world)
     with open(os.path.join(out, "visual.obj"), "w") as f:
         f.write(f"# {args.name}: made from a Tinkercad export by tools/maps/tinkercad_stage.py\nmtllib visual.mtl\n")
-        for i in used:
-            p = pts[i]
-            f.write(f"v {p[0]:.1f} {p[1]:.1f} {p[2]:.1f}\n")
-        last = None
-        for t in sorted(world, key=lambda t: palette.index(remap[t[3]])):
-            c = remap[t[3]]
-            if c != last:
-                f.write(f"usemtl {name_of[c]}\n")
-                last = c
-            f.write(f"f {new[t[0]]} {new[t[1]]} {new[t[2]]}\n")
+        if args.plain:
+            for i in used:
+                p = pts[i]
+                f.write(f"v {p[0]:.1f} {p[1]:.1f} {p[2]:.1f}\n")
+            last = None
+            for t in sorted(world, key=lambda t: palette.index(remap[t[3]])):
+                c = remap[t[3]]
+                if c != last:
+                    f.write(f"usemtl {name_of[c]}\n")
+                    last = c
+                f.write(f"f {new[t[0]]} {new[t[1]]} {new[t[2]]}\n")
+        else:
+            # Every face cut into squares that each show their colour's texture once.
+            # The underside of the lowest floor is never seen: left out. A very big
+            # map gets bigger squares, so the game still loads it quickly.
+            low = min(pts[i][1] for i in used)
+            seen = [t for t in world if not (all(pts[i][1] <= low + 0.5 for i in t[:3]) and faces_down(pts, t))]
+            cell = args.texture_size * args.scale
+            faces = textured_faces(pts, seen, remap, cell)
+            while len(faces) > MAX_DRAWN and cell < 64 * args.texture_size * args.scale:
+                cell *= 2
+                faces = textured_faces(pts, seen, remap, cell)
+            if cell != args.texture_size * args.scale:
+                print(f"note: a big map: texture squares widened to {cell / args.scale:g} mm "
+                      f"to keep it under {MAX_DRAWN} drawn faces")
+            texture_mm = cell / args.scale
+            faces.sort(key=lambda fc: palette.index(fc[0]))
+            vi, ti, lines = {}, {}, []
+            last = None
+            for c, tri in faces:
+                if c != last:
+                    lines.append(f"usemtl {name_of[c]}")
+                    last = c
+                ref = []
+                for p, uv in tri:
+                    a = vi.setdefault((round(p[0], 1), round(p[1], 1), round(p[2], 1)), len(vi) + 1)
+                    b = ti.setdefault((round(uv[0], 4), round(uv[1], 4)), len(ti) + 1)
+                    ref.append(f"{a}/{b}")
+                lines.append("f " + " ".join(ref))
+            for p in vi:                         # (dicts keep the order things were added in)
+                f.write(f"v {p[0]:.1f} {p[1]:.1f} {p[2]:.1f}\n")
+            for uv in ti:
+                f.write(f"vt {uv[0]:.4f} {uv[1]:.4f}\n")
+            f.write("\n".join(lines) + "\n")
+            visual_faces = len(faces)
+            drawn = faces
 
     # Collision: whole units; faces that rounding flattens to nothing dropped.
     ipts = {i: tuple(int(round(v)) for v in pts[i]) for i in used}
@@ -392,7 +894,7 @@ def main():
         f.write("# A custom map made in Tinkercad (tools/maps/tinkercad_stage.py, docs/MAPS.md).\n"
                 "# Engine world units; y is down as in the game.\n")
         f.write(f'id = {args.id}\nname = "{args.name}"\nkind = "custom"\n')
-        f.write(f"visual_faces = {len(world)}\ncollision_polygons = {polys}\n")
+        f.write(f"visual_faces = {visual_faces}\ncollision_polygons = {polys}\n")
         f.write("# 1v1: one AC at each side's start. Teams: teammates side by side there.\n")
         f.write(f"start_1 = {st(1)}\nstart_2 = {st(2)}\n")
         f.write("# Every marker as placed (team 1 green / players, team 2 red / enemies).\n")
@@ -402,6 +904,15 @@ def main():
 
     print(f"{args.name}: {len(world)} faces, {len(palette)} colours, "
           f"{width / args.scale:.0f} x {depth / args.scale:.0f} mm = {int(width)} x {int(depth)} units")
+    if not args.plain:
+        print("textures: " + ", ".join(f"#{name_of[c][1:]} {kinds[c]}" for c in palette)
+              + f"; {visual_faces} drawn faces ({texture_mm:g} mm squares; --plain for none)")
+    if drawn and not args.no_preview:
+        try:                                   # a picture is never worth losing the map over
+            write_preview(os.path.join(out, "preview.png"), drawn, tex_rows, width, depth, min(pts[i][1] for i in used))
+            print(f"preview: {os.path.join(out, 'preview.png')}")
+        except Exception as e:                 # noqa: BLE001
+            print(f"note: no preview picture ({e}); the map itself is fine")
     print(f"start 1 {st(1)}  start 2 {st(2)}")
     print(f"written to {out}  ->  run the game with ACR_STAGE={args.id}")
 

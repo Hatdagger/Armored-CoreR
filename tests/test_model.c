@@ -202,8 +202,13 @@ int main(int argc, char **argv) {
     CHECK(mesh.tri_count == 3);                              /* the quad is fanned */
     CHECK(mesh.material[0] == 1 && mesh.material[1] == 0 && mesh.material[2] == 0);
     CHECK(mesh.v[0].p[2] == 3 && mesh.v[3].uv[0] == 0.25f && mesh.v[8].p[0] == 0 && mesh.v[8].n[1] == 1);
+    CHECK(!mesh.has_colour && mesh.v[0].c[0] == 1 && mesh.v[8].c[2] == 1);   /* no colours: white */
     acr_mesh_free(&mesh);
     CHECK(!acr_obj_parse("v 0 0 0\nf 1 2 3\n", &mtl, &mesh));   /* bad index */
+    /* Point colours (the lit stage export): r g b after x y z. */
+    CHECK(acr_obj_parse("v 0 0 0 0.5 0.25 1\nv 1 0 0 0.5 0.25 1\nv 0 1 0\nf 1 2 3\n", &mtl, &mesh));
+    CHECK(mesh.has_colour && mesh.v[0].c[0] == 0.5f && mesh.v[1].c[1] == 0.25f && mesh.v[2].c[0] == 1);
+    acr_mesh_free(&mesh);
 
     /* ---- colour ramp ---- */
     const uint8_t cols[4][3] = { { 63, 0, 31 }, { 16, 16, 16 }, { 0, 0, 0 }, { 31, 31, 31 } };

@@ -167,6 +167,8 @@ static void test_save(void) {
     strcpy(h.pilot_name, "PILOT");
     h.owned[ACR_GEN1_CAT_HEAD][0] = 3;
     h.colours[3][2] = 63;
+    acr_gen1_paint_set(h.paint, ACR_GEN1_PAINT_LEGS, ACR_GEN1_COLOUR_JOINT, 2, 64);
+    acr_gen1_paint_set(h.paint, ACR_GEN1_PAINT_HEAD, ACR_GEN1_COLOUR_BASE, 0, 7);
     h.fitted[ACR_GEN1_SLOT_BLADE] = ACR_GEN1_NO_PART;
     h.stock[ACR_GEN1_CAT_ARMS][12] = 2;
     char buf[4096];
@@ -185,10 +187,12 @@ static void test_save(void) {
     EXPECT(!memcmp(r.owned, h.owned, sizeof r.owned));
     EXPECT(!memcmp(r.stock, h.stock, sizeof r.stock));
     EXPECT(r.colours[3][2] == 63);
+    EXPECT(!memcmp(r.paint, h.paint, sizeof r.paint) && r.paint[3][3][2] == 64 && r.paint[0][0][0] == 7);
 
     /* Rejected: a newer format, another generation, bad numbers. */
     acr_gen1_hangar keep = r;
-    EXPECT(!acr_gen1_save_read(&r, "format = 3\ngeneration = \"gen1\"\n"));
+    EXPECT(!acr_gen1_save_read(&r, "format = 4\ngeneration = \"gen1\"\n"));
+    EXPECT(!acr_gen1_save_read(&r, "format = 3\ngeneration = \"gen1\"\npaint = [1, 2]\n"));   /* not 48 values */
     EXPECT(!acr_gen1_save_read(&r, "format = 1\ngeneration = \"gen2\"\n"));
     EXPECT(!acr_gen1_save_read(&r, "format = 1\ngeneration = \"gen1\"\n[owned]\ncore = [0, 99x]\n"));
     EXPECT(!acr_gen1_save_read(&r, "format = 1\ngeneration = \"gen1\"\n[ac]\ncore = 64\n"));
@@ -200,6 +204,28 @@ static void test_save(void) {
     /* Format 1 (no [shop]) still reads, with an empty shop stock. */
     EXPECT(acr_gen1_save_read(&r, "format = 1\ngeneration = \"gen1\"\n[owned]\nhead = [0]\n"));
     EXPECT(r.owned[ACR_GEN1_CAT_HEAD][0] == 1 && r.stock[ACR_GEN1_CAT_ARMS][12] == 0);
+    /* Format 2 (no paint): every part takes the 4 colours. */
+    EXPECT(acr_gen1_save_read(&r, "format = 2\ngeneration = \"gen1\"\ncolours = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12]\n"));
+    EXPECT(r.paint[0][0][0] == 1 && r.paint[3][3][2] == 12 && r.paint[2][1][1] == 5 && r.paint[1][2][0] == 7);
+}
+
+/* CHANGE COLOR: one part at a time, or GENERAL over all four; 0..64. */
+static void test_paint(void) {
+    uint8_t p[4][4][3];
+    const uint8_t c[4][3] = { { 30, 31, 32 }, { 1, 2, 3 }, { 4, 5, 6 }, { 7, 8, 70 } };
+    acr_gen1_paint_fill(p, c);
+    EXPECT(p[2][0][2] == 32 && p[3][3][2] == 64);           /* clamped */
+    acr_gen1_paint_set(p, ACR_GEN1_PAINT_ARMS, ACR_GEN1_COLOUR_DETAIL, 1, 99);
+    EXPECT(p[2][2][1] == 64 && p[1][2][1] == 5);
+    acr_gen1_paint_set(p, ACR_GEN1_PAINT_HEAD, ACR_GEN1_COLOUR_BASE, 0, -3);
+    EXPECT(p[0][0][0] == 0);
+    /* GENERAL edits the core and copies the core's colours over the others */
+    acr_gen1_paint_set(p, ACR_GEN1_PAINT_GENERAL, ACR_GEN1_COLOUR_JOINT, 0, 40);
+    for (int k = 0; k < 4; ++k) EXPECT(!memcmp(p[k], p[ACR_GEN1_PAINT_CORE], sizeof p[k]));
+    EXPECT(p[0][0][0] == 30 && p[2][2][1] == 5 && p[3][3][0] == 40);
+    EXPECT(acr_gen1_paint_get((const uint8_t (*)[4][3])p, ACR_GEN1_PAINT_GENERAL, ACR_GEN1_COLOUR_JOINT, 0) == 40);
+    acr_gen1_paint_set(p, 9, 0, 0, 1);                       /* out of range: ignored */
+    EXPECT(acr_gen1_paint_get((const uint8_t (*)[4][3])p, 9, 0, 0) == 0);
 }
 
 /* Test builds: every part owned, nothing for sale; sold parts can be bought back. */
@@ -261,6 +287,7 @@ int main(void) {
     test_new_and_shop();
     test_fit();
     test_save();
+    test_paint();
     test_test_kit();
     if (failures) { printf("%d failure(s)\n", failures); return 1; }
     printf("gen1 garage: all passed\n");
