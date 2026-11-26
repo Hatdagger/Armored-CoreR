@@ -110,6 +110,11 @@ darker or yellower green is grass).
   big map gets wider squares by itself (the script says so).
 - `--texture-size 20`: bigger squares. `--plain`: no textures, flat colours
   as before.
+- Every conversion also writes **`preview.png`** in the stage's folder: a
+  rough picture of the textured map from above one corner (the picture
+  above is one). It isn't the game's renderer, but it shows the colours and
+  patterns without starting the game, and it's handy for showing a map
+  around. `--no-preview` skips it.
 - The pictures are `tex-RRGGBB.png` in the stage's folder (64 x 128: the
   upper half for walls, the lower for floors). You can **paint over one**
   in any paint program and the game shows yours; converting the map again
@@ -156,7 +161,7 @@ ACR_STAGE=50 ./armored-corer
 
 The script writes `stages/<id>/` in the import folder: `stage.toml` (name,
 starts), `visual.obj` / `visual.mtl` and the `tex-*.png` textures (what's
-drawn) and `collision.obj`
+drawn), `preview.png` (a picture for you; the game doesn't read it) and `collision.obj`
 (what's solid), in the same layout acr-import writes for the disc's stages
 (`docs/research/gen1-stages.md`, "Import"). It warns when a start has no floor
 under it.

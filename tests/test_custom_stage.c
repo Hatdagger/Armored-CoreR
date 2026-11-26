@@ -87,7 +87,26 @@ int main(int argc, char **argv) {
         }
         EXPECT(outside == 0 && walls > 0 && floors > 0);
     }
-    if (sample) EXPECT(textured > 0);
+    if (sample) {
+        EXPECT(textured > 0);
+        /* The converter's own picture of the map (preview.png): there, and a PNG. */
+        char path[1400];
+        snprintf(path, sizeof path, "%s/preview.png", dir);
+        FILE *f = fopen(path, "rb");
+        EXPECT(f != NULL);
+        if (f) {
+            static unsigned char png[2 * 1024 * 1024];
+            const size_t n = fread(png, 1, sizeof png, f);
+            fclose(f);
+            acr_image img;
+            const int ok = acr_png_decode(png, n, &img);
+            EXPECT(ok);
+            if (ok) {
+                EXPECT(img.w == 640 && img.h == 400);
+                acr_image_free(&img);
+            }
+        }
+    }
     acr_mesh_free(&mesh);
 
     acr_gen1_stage s;

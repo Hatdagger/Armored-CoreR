@@ -22,6 +22,7 @@ Writes <import dir>/stages/<id>/:
     stage.toml     name, starts
     visual.obj/mtl what is drawn (Tinkercad's colours, each with a texture
                    made here: tex-RRGGBB.png; --plain for none)
+    preview.png    a rough picture of the textured map (not used by the game)
     collision.obj  what ACs stand on, run into and shoot
 
 No packages needed: plain Python 3.
@@ -495,6 +496,73 @@ def write_png(path, rows):
                 + chunk(b"IDAT", zlib.compress(raw, 9)) + chunk(b"IEND", b""))
 
 
+def write_preview(path, faces, textures, width, depth, low, size=(640, 400)):
+    """A rough picture of the textured map, seen from above its south-west
+    corner (--preview). Not the game's renderer: it is for checking colours
+    and patterns without starting the game, and for showing a map around."""
+    W, H = size
+    span = max(width, depth)
+    eye = (-0.15 * width, low + 0.15 * span, -0.46 * depth)
+    look = (0.06 * width, low + 0.03 * span, 0.05 * depth)
+    f = [look[i] - eye[i] for i in range(3)]
+    n = math.sqrt(sum(v * v for v in f))
+    f = [v / n for v in f]
+    r = [f[2], 0.0, -f[0]]
+    n = math.hypot(r[0], r[2])
+    r = [v / n for v in r]
+    u = [f[1] * r[2] - f[2] * r[1], f[2] * r[0] - f[0] * r[2], f[0] * r[1] - f[1] * r[0]]
+    if u[1] < 0:
+        u = [-v for v in u]
+    foc = (W / 2) / math.tan(math.radians(32))
+    near = span * 0.004
+    zb = [[1e30] * W for _ in range(H)]
+    img = [[(18, 22, 34)] * W for _ in range(H)]
+    light = (0.3, 0.9, 0.3)                    # the game's fixed stage light
+    for c, tri in faces:
+        P = [v[0] for v in tri]
+        UV = [v[1] for v in tri]
+        cam = []
+        for p in P:
+            d = [p[i] - eye[i] for i in range(3)]
+            cam.append((sum(d[i] * r[i] for i in range(3)), sum(d[i] * u[i] for i in range(3)),
+                        sum(d[i] * f[i] for i in range(3))))
+        if min(v[2] for v in cam) < near:
+            continue
+        S = [(W / 2 + v[0] * foc / v[2], H / 2 - v[1] * foc / v[2], 1.0 / v[2]) for v in cam]
+        x0, x1 = max(0, int(min(v[0] for v in S))), min(W - 1, int(max(v[0] for v in S)) + 1)
+        y0, y1 = max(0, int(min(v[1] for v in S))), min(H - 1, int(max(v[1] for v in S)) + 1)
+        den = (S[1][1] - S[2][1]) * (S[0][0] - S[2][0]) + (S[2][0] - S[1][0]) * (S[0][1] - S[2][1])
+        if x0 > x1 or y0 > y1 or abs(den) < 1e-9:
+            continue
+        e1 = [P[1][i] - P[0][i] for i in range(3)]
+        e2 = [P[2][i] - P[0][i] for i in range(3)]
+        nn = (e1[1] * e2[2] - e1[2] * e2[1], e1[2] * e2[0] - e1[0] * e2[2], e1[0] * e2[1] - e1[1] * e2[0])
+        ln = math.sqrt(sum(v * v for v in nn)) or 1.0
+        lit = 0.55 + 0.45 * abs(sum(nn[i] * light[i] for i in range(3)) / ln)
+        rows = textures[c]
+        shade = {}
+        for y in range(y0, y1 + 1):
+            py = y + 0.5
+            for x in range(x0, x1 + 1):
+                px = x + 0.5
+                a = ((S[1][1] - S[2][1]) * (px - S[2][0]) + (S[2][0] - S[1][0]) * (py - S[2][1])) / den
+                b = ((S[2][1] - S[0][1]) * (px - S[2][0]) + (S[0][0] - S[2][0]) * (py - S[2][1])) / den
+                d = 1 - a - b
+                if a < -1e-6 or b < -1e-6 or d < -1e-6:
+                    continue
+                iz = a * S[0][2] + b * S[1][2] + d * S[2][2]
+                if 1 / iz >= zb[y][x]:
+                    continue
+                zb[y][x] = 1 / iz
+                tu = (a * UV[0][0] * S[0][2] + b * UV[1][0] * S[1][2] + d * UV[2][0] * S[2][2]) / iz
+                tv = (a * UV[0][1] * S[0][2] + b * UV[1][1] * S[1][2] + d * UV[2][1] * S[2][2]) / iz
+                t = rows[min(2 * TEX - 1, max(0, int((1.0 - tv) * 2 * TEX)))][min(TEX - 1, max(0, int(tu * TEX)))]
+                if t not in shade:
+                    shade[t] = tuple(min(255, int(k * lit)) for k in t)
+                img[y][x] = shade[t]
+    write_png(path, img)
+
+
 def faces_down(pts, t):
     """A face whose front looks straight down. (y is up here, but the world
     is left-handed: a front that looks down has a cross product that points up.)"""
@@ -616,6 +684,8 @@ def main():
     ap.add_argument("--texture-size", type=float, default=10.0,
                     help="mm one square of a texture covers (default 10: two AC widths and a half)")
     ap.add_argument("--plain", action="store_true", help="no textures: Tinkercad's plain colours, as before")
+    ap.add_argument("--no-preview", action="store_true",
+                    help="skip preview.png (a rough picture of the textured map; it takes a second or two)")
     args = ap.parse_args()
     files = list(args.inputs)
     import_dir = args.import_dir
@@ -736,12 +806,13 @@ def main():
     palette = sorted(set(remap.values()))
     name_of = {c: f"c{c[0]:02x}{c[1]:02x}{c[2]:02x}" for c in palette}
 
-    kinds = {}
+    kinds, tex_rows, drawn = {}, {}, []
     with open(os.path.join(out, "visual.mtl"), "w") as f:
         for c in palette:
             f.write(f"newmtl {name_of[c]}\nKd {c[0] / 255:.4f} {c[1] / 255:.4f} {c[2] / 255:.4f}\n")
             if not args.plain:
                 kinds[c], rows = make_texture(c)
+                tex_rows[c] = rows
                 write_png(os.path.join(out, f"tex-{name_of[c][1:]}.png"), rows)
                 f.write(f"map_Kd tex-{name_of[c][1:]}.png\n")
             f.write("\n")
@@ -795,6 +866,7 @@ def main():
                 f.write(f"vt {uv[0]:.4f} {uv[1]:.4f}\n")
             f.write("\n".join(lines) + "\n")
             visual_faces = len(faces)
+            drawn = faces
 
     # Collision: whole units; faces that rounding flattens to nothing dropped.
     ipts = {i: tuple(int(round(v)) for v in pts[i]) for i in used}
@@ -835,6 +907,12 @@ def main():
     if not args.plain:
         print("textures: " + ", ".join(f"#{name_of[c][1:]} {kinds[c]}" for c in palette)
               + f"; {visual_faces} drawn faces ({texture_mm:g} mm squares; --plain for none)")
+    if drawn and not args.no_preview:
+        try:                                   # a picture is never worth losing the map over
+            write_preview(os.path.join(out, "preview.png"), drawn, tex_rows, width, depth, min(pts[i][1] for i in used))
+            print(f"preview: {os.path.join(out, 'preview.png')}")
+        except Exception as e:                 # noqa: BLE001
+            print(f"note: no preview picture ({e}); the map itself is fine")
     print(f"start 1 {st(1)}  start 2 {st(2)}")
     print(f"written to {out}  ->  run the game with ACR_STAGE={args.id}")
 
