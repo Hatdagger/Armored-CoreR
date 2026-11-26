@@ -9,6 +9,7 @@ SRCS = $(CURDIR)/main.c \
        $(ACR)/src/gen1/acr_gen1_anim.c $(ACR)/src/gen1/acr_gen1_sim.c \
        $(ACR)/src/gen1/acr_gen1_pose.c \
        $(ACR)/src/gen1/acr_gen1_battle.c $(ACR)/src/gen1/acr_gen1_garage.c \
+       $(ACR)/src/gen1/acr_gen1_perf.c \
        $(ACR)/src/gen1/acr_gen1_ai.c $(ACR)/src/gen1/acr_gen1_stage.c \
        $(ACR)/src/gen1/acr_gen1_mission.c $(ACR)/src/gen1/acr_gen1_missions.c \
        $(ACR)/src/render/acr_light.c

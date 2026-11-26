@@ -158,6 +158,26 @@ enters it. The briefing is a connection code (`src/net/acr_brief.h`):
   briefing screen and enters it; player 1 then sends to player 2 five
   times a second ("punching"), which opens player 1's router for player
   2's packets. Player 2 keeps trying for 5 minutes.
+- **The router (UPnP):** while the briefing is prepared, the game also asks
+  the home router to forward a UDP port to this PC (UPnP, which most home
+  routers have on). If it agrees, the briefing carries the router's address
+  and that port, so step 1 works even on routers that would otherwise block
+  player 2's first packet; the screen says ROUTER: PORT 7777 OPENED FOR THIS
+  GAME (UPNP), and the DIRECT IP line shows the same address. If another PC
+  already has 7777, a different outside port is used (the briefing carries
+  it). The forward is taken away when the session ends, and runs out by
+  itself after 2 hours if the game crashes. No UPnP, a router that says no,
+  or a router behind another router (its own outside address is private):
+  the briefing is built from STUN as before, and the read-back still works.
+  Player 2's side asks its router too, which helps its read-back. Takes up
+  to about 6 seconds before the briefing shows. `ACR_UPNP=0` turns it off.
+  - `src/net/acr_upnp.{h,c}`: the text side (search answers, the router's
+    description, SOAP requests and errors), tested in `tests/test_upnp.c`.
+  - `src/platform/sdl3/net_upnp.{h,c}`: the talking (SSDP search, HTTP),
+    run on a thread by `net_link`; `tests/test_upnp_io.c` runs it against
+    a fake router (a taken port, a router that only takes permanent
+    forwards, one that refuses, none at all). `ACR_UPNP_SSDP=host:port`
+    sends the search to one address instead of the whole network.
 - **Entering a code:** each field is a drop-down list (A opens it, up/down
   scrolls, LB/RB or left/right pages, A picks); on a keyboard, typing
   jumps in the list. Either code can always be copied (X on a pad, C or
@@ -165,7 +185,8 @@ enters it. The briefing is a connection code (`src/net/acr_brief.h`):
   check ("code not recognised"); a read-back entered where a briefing
   belongs is spotted and named.
 - **What still can't connect:** two routers that both change the port for
-  every destination (some mobile and carrier-grade NAT). Then: LAN, or
+  every destination (some mobile and carrier-grade NAT), unless player 1's
+  router opened a port with UPnP. Then: LAN, or
   direct IP with port 7777 forwarded (player 1's screen shows the address),
   or later a relay on a player-run server.
 - **Testing on one PC:** `--host-online`, `--join-brief "TEXT"`,
@@ -184,8 +205,8 @@ libjuice / full ICE: short codes only have room for one address.
 
 - Co-op: the Arena's rankers as the AI ACs once the Arena work lands; a
   friendly-fire switch if wanted.
-- Online: UPnP port opening (makes step 1 work more often), clickable
-  `acr://` links for codes.
+- Online: clickable `acr://` links for codes (UPnP port opening done,
+  2026-11-25); NAT-PMP / PCP for routers that have those instead of UPnP.
 - Lockstep mode for LAN, spectators, more players (host-run model), Xbox
   System Link.
 - Replays: the pads of a match are all it takes (REC on the HUD).

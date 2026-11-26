@@ -230,21 +230,93 @@ arena code (FDAT 197, loaded at `0x8009EFE8`) has the box handler at
 bytes x 256 (min +0x22..+0x24, max +0x25..+0x27), bit +0x28, tested for
 both player blocks (`0x80045198` and +0x3A0) by `0x8009F34C`; bits 1 and 2
 also copy the box to the player block (+0x21E / +0x22E, for the map?).
-Its creator `0x8009F580` is stage object type 35 (the type table at the
-code's start, entry 8 + type; the arena engine calls entry + 0x20 + type
-x 4, `0x8007F03C`). **Not found yet: which records make the type 35
-objects.** Chunk 13's records carry other numbers at +0x0E, Green Silo's
-arena code has no box handler at all (enclosed: nothing to leave), and the
-60 empty model 8 areas in Green Silo / 8 model 14 areas in Ocean Platform
-are under the floor / over the sea, not the arena's edges.
 
-In the engine: `acr_gen1_stage_bound` boxes on the stage, the bits
-(`acr_gen1_stage_area_bits`), `acr_gen1_battle_out_of_area` (0 / 1
-warning / 2 out) and the round result (out counts as down; both out is a
-draw). No stage imports its boxes yet, so the rule is off in play; AC TEST
-has a **test boundary** (F8 / Back + Right: box 1 1,500 past the starts,
-box 2 500 wider on x and narrower on z) to try the warning and the loss.
-`tests/test_gen1_stage.c` walks an AC out of a shrunk boundary.
+**Where the boxes come from (read 2026-11-25).** The arena engine's stage
+loader (FDAT 210, `0x80056338`-`0x800564A8`) hands **chunk 10** to
+`0x80079798`: 128 stage objects of 32 bytes (s16 x, y, z; s16 kind at +6,
+-1 = none; bytes +0x10..+0x1F go to the object's +0x22..+0x31 in RAM, 52
+bytes an object from `0x801D6F40`). A kind k calls the stage code's word
+40 + k (table at the code's start, `0x8009EFE8` + 0xA0 + k x 4). The box
+creator starts a task running the handler. (Chunk 13's points are not
+objects: the arena engine copies only records 1 and 2, the starts,
+`0x80079E08`.) The handler works in 16 bits: centre + byte x 256 is
+stored as a halfword, so Ocean Platform's box 0 (z -768, max byte -126)
+wraps round to 32,512. The end check (`0x800528E4`) is player block
++0x08 & 7 == 1: inside box 0 and outside boxes 1 and 2. Outside box 0 as
+well is not out of area.
+
+| Stage | Code | Kind | Box handler | Box 0 (engine x) | Box 1 | Box 2 |
+|---|---|---|---|---|---|---|
+| Garden Plaza (25) | FDAT 127 | 2 | `0x8009F364` | x -31,386..31,846, y -32,017..2,799, z -31,488..32,000 | x -11,196..11,332, y -10,001..1,775, z -11,264..11,264 | x -13,005..13,107, y -16,657..2,287, z -13,056..13,056 |
+| Green Silo (27) | FDAT 137 | - | none | - | - | - |
+| Night City (36) | FDAT 182 | 2 | `0x8009F364` | x -29,684..30,988, y -30,720..0, z -29,479..30,425 | x -12,384..12,704, y -20,480..0, z -8,706..11,262 | x -17,291..17,781, y -29,696..0, z -13,854..16,354 |
+| Ocean Platform (39) | FDAT 197 | 3 | `0x8009F490` | x -31,744..32,256, y -32,000..0, z -32,256..32,512 | x -13,696..13,952, y -10,496..0, z -13,568..14,080 | x -16,000..16,512, y -16,384..0, z -16,448..16,320 |
+
+acr-import finds the handler by its code (the six box bytes and the bit
+read from the object, then the player blocks) and writes the boxes to
+`stage.toml` as `out_of_area` (engine axes). The engine loads them into
+`acr_gen1_stage_bound`; `acr_gen1_battle_out_of_area` gives 0 / 1 warning
+/ 2 out, and the round result counts out as down (both out: a draw).
+AC TEST's F8 / Back + Right swaps in the old **test boundary** (box 1
+1,500 past the starts, box 2 500 wider on x and narrower on z) and back.
+`tests/test_gen1_stage.c` walks an AC out of a shrunk boundary and, with
+`ACR_STAGE_DIR`, checks the real boxes: both starts inside; a walk
+straight out ends at a wall on all three (Garden Plaza inside box 2, Ocean
+Platform inside box 2 with the warning, Night City inside box 1), so the
+area is left by flying over the edge.
+
+## Stage lights (read and applied 2026-11-25)
+
+- **Light sets:** 32 records of 44 bytes in **FDAT 205 chunk 7** (common
+  to every stage), copied to `0x800B51C8` by the loader and expanded by
+  `0x8005D9E8` into 104-byte sets at `0x801ACDF0`: light matrix +0x00
+  (three light directions, one per row, 4096 = 1), the same matrix turned
+  a quarter, half and three quarters (+0x14 / +0x28 / +0x3C, `0x8005DAE4`
+  calling `0x800139F8`: each row (x, y, z) becomes (-z, y, x), (-x, y, -z),
+  (z, y, -x)), colour matrix +0x50 (file +0x14), back colour +0x62 (file
+  +0x26: r, g, b), fog value +0x66 (file +0x2A; when not 0:
+  `SetFogNearFar(v / 16, v / 4, 160)`, far colour black).
+- **Which set:** byte 0 of the area record's word +0x28 in the file
+  (+0x30 in RAM, copied at `0x800784E0`). Only the first 512 records are
+  areas (the bytes after them aren't). Garden Plaza and Ocean Platform: set
+  0. Green Silo: set 0, with the four middle areas (model 12, the floor
+  under the dome) on set 10 (2 more records carry 10 too). Night City: set 1 on most areas, set 0 on 87.
+- Set 0: one light straight down plus two side lights, colour matrix 1.0,
+  back colour 255, no fog. Set 1: the same three directions, colour 0.73,
+  back colour 200, fog 20,000. Set 10: the light from above at 0.49, the two
+  side lights at 0.34 / 0.49 / 0.34 (green), back colour 100, fog 30,000.
+- **Setting the set:** the area draw `0x80063844` (FDAT 210) calls
+  `SetColorMatrix(set + 0x50)` (`0x80029B84`), `SetBackColor(r, g, b)`
+  (`0x80029CE4`: each << 4 into RBK/GBK/BBK) and
+  `SetLightMatrix(set + k * 0x14)` (`0x80029B54`) with k = (-quarter) & 3,
+  the area's quarter turns (RAM +0x16, already reduced to 0-3). The
+  models' normals stay in model space; the turned light matrix makes up
+  for the area's turn.
+- **How it's drawn:** the stage draw is `0x8006E77C` (or `0x8006F57C`),
+  not `0x8006CAEC`: that one is the object draw (ACs and other models,
+  `0x8006C978`, records of 0x7C bytes), which does use `NCS` / `NCDS` /
+  `DCPL`, the per-corner lamp table at `0x800A40A8` and fog. The stage
+  draw switches on the TMD mode & 0xFC: 0x24 (textured triangle), 0x2C
+  (textured quad), 0x6C (quad; bit 6 is dropped from the GPU code). Every
+  face is lit once with **`NCCS`** (sf, lm): its normal (the word after
+  the texture words) and the colour 0x404040 (`0x1F800390`). So per
+  channel: IR = lim(LLM x N >> 12), then lim((BK << 4 << 12 + LCM x IR)
+  >> 12), and the colour = (0x40 << 4) x IR >> 12 >> 4, 0-255, where 128
+  is the texel as it is (the GPU doubles). The GPU code is the TMD mode
+  itself, so modes with bit 0 (0x25 / 0x2D) draw the texture unlit, and
+  bit 1 is semi-transparency. No depth cue in this draw, so the fog value
+  doesn't touch the stage (only objects). Faces near the camera (+7 of a
+  corner) take another path (`0x8006EB58`, not read); a corner with +0xB set takes its own
+  colour word (`0x8006E744`) — not seen on the arena stages' floors and
+  walls; not applied.
+- **Applied:** acr-import (`acr_stages_moa.c`, `acr_moa_light_face`) works
+  out every face's colour with the same integer maths and writes it on
+  the face's own points in `visual.obj` (`v x y z r g b`, colour x 255 =
+  the PS1 value). The engine's stage draw uses it instead of the fixed
+  light (older imports and custom maps keep the fixed light). No fog.
+- **Not read:** what the object draw's per-corner lamps (`0x80063FFC`
+  builds 4 x 16 colours from a per-object list) light, and the far-level
+  draw's colour (we draw every area at full detail).
 
 ## The sky (chunk 3, read 2026-11-19)
 
@@ -259,8 +331,14 @@ acr-import reads that layout for triangles by their length.
 
 Ocean Platform's chunk 3 has no sphere: entry 0 is a small object (24
 points, up at y -1,000..-2,261, page (512, 0)), entry 1 a flat plane of
-104 points, 47,000 across at y 0 (page (320, 0), 4-bit, palette row 507):
-the sea. Not drawn yet; how the game places it is not read.
+104 points, 47,000 model units (11,750 world units) across at y 0 (page
+(320, 0), 4-bit, palette row 507): the sea. Garden Plaza's entry 0 is
+the same kind of plane with grass. Both are mode 0x2E (see-through). How
+the game places them is not read. acr-import writes them as `far.obj`
+(lit like an area on light set 0); the engine tiles them out to the
+horizon just under the stage (ARENA.md, "Backgrounds"). Night City's
+chunk 3 is empty (its background is black in the game). Ocean's small
+object isn't drawn.
 
 acr-import writes spheres around their origin as `sky.obj` / `sky.mtl` /
 `sky-NN.png` (only Green Silo has one). The engine draws them around the
@@ -289,7 +367,8 @@ facing numbers stay the same.
 `acr-import` writes `stages/<NN>/` for every stage 20-40:
 
 - `stage.toml`: name, `start_1` / `start_2` (x, y down, z, facing),
-  the area boxes;
+  the area boxes, and `out_of_area` (the stage's own out-of-area boxes,
+  imports from 2026-11-25 on; none on Green Silo);
 - `visual.obj` + `visual.mtl` + `texture-NN.png`: chunk 1's textured
   models placed by the areas, a PNG per page and palette used (256 x 256,
   palette = the CLUT, 0x0000 see-through);
@@ -311,8 +390,8 @@ y = -game y). Open them in Blender to look around.
 - Shots and missiles stop at the stage (`battle.stage`).
 - AC TEST loads Green Silo when the import has it (F7 / Back+Left: the
   open test floor), drawn from the textured models (an import from before
-  the textures falls back to the flat green ones). Lit by a fixed light
-  until the stage lights are read.
+  the textures falls back to the flat green ones). Lit by the stage lights
+  (2026-11-25; an older import: a fixed light).
 - The arch feet on the four diagonals are solid (user: in the game they
   can't be passed through): chunk 7's model 0 has them as leaning walls
   from the floor to about 2,500 up, inner face about 6,350 from the
@@ -814,5 +893,6 @@ Still open: state 11, which code sends events 0-4 (the decision timing),
    in Ocean Platform. Page 448's texture.
 5. The out-of-area boxes' records (see "Out of area"); the game's own
    touchdown code; AC against stage objects.
-3. Stage lights (`0x801A8D80` light sets by area +0x30 byte 0) and fog.
+3. Done 2026-11-25: stage lights (see "Stage lights"). Fog isn't used by
+   the stage draw.
 4. Chunks 6, 9-12 and the stage objects in chunk 13.

@@ -1,0 +1,2 @@
+rootProject.name = 'Armored-CoreR'
+include ':app'

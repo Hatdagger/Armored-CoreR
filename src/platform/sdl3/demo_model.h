@@ -38,6 +38,11 @@ typedef struct demo_model {
  * leaves the stand-in to be drawn) when the import has no models. */
 int  demo_model_load(const char *import_dir, int set, const int parts[SLOT_COUNT],
                      const uint8_t colours[4][3], demo_model *m);
+/* The same with each body part painted on its own, as CHANGE COLOR keeps
+ * it: paint[part][colour][rgb], parts head, core, arms, legs; colours BASE,
+ * OPTIONAL, DETAIL, JOINT; 0..64 per channel. NULL: the textures' own colours. */
+int  demo_model_load_paint(const char *import_dir, int set, const int parts[SLOT_COUNT],
+                           const uint8_t paint[4][4][3], demo_model *m);
 void demo_model_free(demo_model *m);
 
 /* Draws the AC standing at (x, y, z) (engine world, y up) facing `yaw`
@@ -57,5 +62,22 @@ int demo_model_bounds(const demo_model *m, int anim, unsigned tick, float mn[3],
  * posed: right, up and forward of the AC's feet, in world units (`scale`
  * as drawn). Where a weapon's shots leave from. 0 when none is drawn. */
 int demo_model_part_tip(const demo_model *m, const acr_pose *pose, unsigned kinds, float scale, float out[3]);
+
+/* A garage model on its own (acr-import's models/menu/<kind>/NN: one OBJ,
+ * its MTL and texture.png), as the OPTIONAL PARTS page shows a part. */
+typedef struct demo_object {
+    int ok;
+    acr_mtl mtl;
+    acr_mesh mesh;
+    uint32_t texture;
+    float center[3], radius;   /* the model's middle and how far it reaches */
+} demo_object;
+
+int  demo_object_load(const char *import_dir, const char *kind, int index, demo_object *o);
+/* Frees the mesh (the renderer keeps textures, as demo_model_free does). */
+void demo_object_free(demo_object *o);
+/* Draws it centred on the origin, `size` world units across, turned by
+ * `yaw` (radians) about the vertical and tipped by `pitch`. */
+void demo_object_draw(const demo_object *o, float size, float yaw, float pitch, const acr_lighting *light);
 
 #endif
