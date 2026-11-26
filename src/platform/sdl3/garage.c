@@ -26,7 +26,8 @@ static const char *const k_menu[M_COUNT] = {
 };
 /* Not built yet: shown, not chosen. */
 static int menu_ready(int id) {
-    return id != M_MISSIONS;
+    (void)id;
+    return 1;
 }
 static const int k_page_main[] = { M_GARAGE, M_SHOP, M_ARENA, M_MISSIONS, M_NETWORK, M_ROGUE, M_SYSTEM };
 static const int k_page_garage[] = { M_ASSEMBLY, M_OPTIONS, M_PERFORMANCE, M_COLOR, M_TEST, M_BACK };
@@ -291,6 +292,7 @@ garage_command garage_input(garage_ui *ui, garage_data *d, garage_action a) {
         case M_SHOP: ui->screen = 2; ui->confirm = 0; ui->shop = ui->shop_top = 0; return GC_NONE;
         case M_ROGUE: return GC_ROGUE;
         case M_ARENA: return GC_ARENA;
+        case M_MISSIONS: return GC_MISSIONS;
         case M_CONTROLS: return GC_CONTROLS;
         case M_VIDEO: return GC_VIDEO;
         case M_AUDIO: return GC_AUDIO;

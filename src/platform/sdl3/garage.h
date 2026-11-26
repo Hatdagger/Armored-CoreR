@@ -22,6 +22,7 @@ typedef enum garage_command {
     GC_NETWORK,     /* the NETWORK screen (host or join a match; the build passed the check) */
     GC_ROGUE,       /* ROGUE ARENA */
     GC_ARENA,       /* ARENA: the ranked ladders */
+    GC_MISSIONS,    /* MISSIONS: the mission list, briefings and sorties */
     GC_CONTROLS,    /* SYSTEM > SETTINGS > CONTROLS: the controller mapping page */
     GC_VIDEO,       /* SYSTEM > SETTINGS > VIDEO */
     GC_AUDIO,       /* SYSTEM > SETTINGS > AUDIO */

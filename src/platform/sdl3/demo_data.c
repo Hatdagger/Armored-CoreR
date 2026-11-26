@@ -294,6 +294,8 @@ int demo_load(const char *import_dir, const int parts[SLOT_COUNT], demo_ac *out,
                 const long kind = get_int(t, e, "kind", s == SLOT_BACK_L || s == SLOT_BACK_R ? 1 : 0);
                 w->kind = kind == 1 ? ACR_GEN1_MISSILE : ACR_GEN1_GUN;
                 w->ammo = (uint16_t)get_int(t, e, "ammo", 0);
+                w->ammo_price = (uint16_t)get_int(t, e, "ammo_price", 0);
+                w->solid = (uint8_t)((get_int(t, e, "ammo_flags", 0) & 0x10) != 0);
                 w->range = (int32_t)get_int(t, e, "range", 6000);
                 w->energy = (uint8_t)get_int(t, e, "energy_damage", 0);
                 w->lock_ms = (uint16_t)(cls < 4 ? 1 : 0);
