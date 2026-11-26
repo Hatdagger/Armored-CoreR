@@ -2141,7 +2141,7 @@ int main(int argc, char **argv) {
             else if (mode == 3 && net && net_online) {
                 net_addr me;
                 const int stun = net_link_public(net, &me);
-                if (g_net_host) brief_draw_host(hud_w, stun, &me, net_readback, (int)((now_ms - net_open_ms) / 1000), brief_msg, elapsed);
+                if (g_net_host) brief_draw_host(hud_w, stun, &me, net_readback, (int)((now_ms - net_open_ms) / 1000), brief_msg, net_link_router(net, NULL));
                 else brief_draw_guest(hud_w, stun, &me, now_ms - net_open_ms, brief_msg);
             }
             else if (mode == 3) net_menu_draw_status(hud_w, "NETWORK MATCH", net_status);

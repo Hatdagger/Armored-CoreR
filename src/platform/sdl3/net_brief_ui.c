@@ -235,8 +235,7 @@ void brief_edit_draw(brief_edit *e, float hud_w, int elapsed_ms) {
 /* ---------------- waiting screens ---------------- */
 
 void brief_draw_host(float hud_w, int stun, const net_addr *me, int readback, int waited_s,
-                     const char *message, int elapsed_ms) {
-    (void)elapsed_ms;
+                     const char *message, int router) {
     const float px = hud_w / 2 - PANEL_W / 2, x = px + 12;
     const int cols = (PANEL_W - 24) / 8;
     acr_hud_text(px, 12, "HOST ONLINE (PLAYER 1)", GOLD);
@@ -245,6 +244,8 @@ void brief_draw_host(float hud_w, int stun, const net_addr *me, int readback, in
     char text[400];
     if (stun == 0) {
         y = wrapped(x, y + 6, cols, "CONTACTING THE NETWORK FOR YOUR BRIEFING...", WHITE);
+        if (router == NET_ROUTER_ASKING)
+            y = wrapped(x, y + 4, cols, "ASKING YOUR ROUTER TO OPEN A PORT FOR THIS GAME...", DIM);
     } else if (stun < 0) {
         y = wrapped(x, y + 6, cols,
                     "COULD NOT FIND YOUR INTERNET ADDRESS: NO ANSWER FROM THE NETWORK.\n\n"
@@ -262,8 +263,22 @@ void brief_draw_host(float hud_w, int stun, const net_addr *me, int readback, in
         } else {
             y = wrapped(x, y + 4, cols, "READ-BACK RECEIVED. LINKING UP WITH PLAYER 2...", GREEN);
         }
-        SDL_snprintf(text, sizeof text, "\nWAITING FOR PLAYER 2...  %d S\n\nDIRECT IP (IF UDP PORT %d IS FORWARDED): %d.%d.%d.%d:%d",
-                     waited_s, NET_PORT_DEFAULT, me->ip[0], me->ip[1], me->ip[2], me->ip[3], NET_PORT_DEFAULT);
+        if (router == NET_ROUTER_OPENED) {
+            SDL_snprintf(text, sizeof text, "\nROUTER: PORT %d OPENED FOR THIS GAME (UPNP).", me->port);
+            y = wrapped(x, y, cols, text, GREEN);
+        } else if (router == NET_ROUTER_BEHIND) {
+            y = wrapped(x, y, cols, "\nROUTER: OPENED A PORT, BUT IT'S BEHIND ANOTHER ROUTER, SO IT WON'T HELP.", DIM);
+        } else if (router == NET_ROUTER_REFUSED || router == NET_ROUTER_NONE) {
+            y = wrapped(x, y, cols, router == NET_ROUTER_REFUSED
+                                        ? "\nROUTER: WOULDN'T OPEN A PORT. MOST GAMES STILL CONNECT."
+                                        : "\nROUTER: NO UPNP. MOST GAMES STILL CONNECT.", DIM);
+        }
+        if (router == NET_ROUTER_OPENED)
+            SDL_snprintf(text, sizeof text, "\nWAITING FOR PLAYER 2...  %d S\n\nDIRECT IP: %d.%d.%d.%d:%d",
+                         waited_s, me->ip[0], me->ip[1], me->ip[2], me->ip[3], me->port);
+        else
+            SDL_snprintf(text, sizeof text, "\nWAITING FOR PLAYER 2...  %d S\n\nDIRECT IP (IF UDP PORT %d IS FORWARDED): %d.%d.%d.%d:%d",
+                         waited_s, NET_PORT_DEFAULT, me->ip[0], me->ip[1], me->ip[2], me->ip[3], NET_PORT_DEFAULT);
         y = wrapped(x, y, cols, text, DIM);
     }
     if (message && message[0]) acr_hud_text(px, 442, message, GOLD);
