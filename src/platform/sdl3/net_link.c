@@ -2,6 +2,7 @@
 #  define _POSIX_C_SOURCE 200112L   /* getaddrinfo under strict C11 */
 #endif
 #include "net_link.h"
+#include "../../net/acr_msg.h"
 #include "net_upnp.h"
 #include "acr_upnp.h"
 
@@ -28,12 +29,14 @@ typedef int sock_t;
 #  define close_sock close
 #endif
 
-#define VERSION 3   /* 2: co-op (mode and AI in WELCOME and the beacon); options travel with the parts. 3: both */
+#define VERSION 4   /* 2: co-op (mode and AI in WELCOME and the beacon); options travel with the parts. 3: both.
+                       4: Rogue Arena co-op (in WELCOME and the beacon), pilot names, menu messages */
 enum { H_HELLO = 1, H_WELCOME = 2, H_REFUSE = 3, H_READY = 4, H_PING = 5, H_PONG = 6, H_PUNCH = 7 };
 enum { R_DATA = 1, R_VERSION = 2, R_BUSY = 3, R_STAGE = 4 };
 
 #define HELD_MAX 512
 #define PKT_MAX  256
+_Static_assert(ACR_MSG_PACKET_MAX <= PKT_MAX, "menu message packets fit");
 
 typedef struct held { uint64_t due; int len; uint8_t data[PKT_MAX]; } held;
 
@@ -47,8 +50,8 @@ struct net_link {
     const char *import_dir;
     uint32_t data_hash;
     int parts[NET_PARTS];
-    char name[NET_NAME + 1];
-    int stage, delay, port_shown, coop_ai, ai_preset;
+    char name[NET_NAME + 1], pilot[NET_NAME + 1];
+    int stage, delay, port_shown, coop_ai, ai_preset, rogue;
     char join[256];
     uint64_t start_ms, last_send_ms, last_rx_ms, last_ping_ms, last_beacon_ms;
     int got_match;               /* guest: the host's match packets have started */
@@ -71,6 +74,9 @@ struct net_link {
     int have_punch;
     uint64_t last_punch_ms;
     int strict;                  /* testing: act like a strict router (ACR_NET_STRICT) */
+    /* Rogue Arena co-op: menu messages */
+    acr_msg *msg;
+    int peer_left;
     /* the router: UPnP port forward, asked on a thread (net_upnp.c) */
     SDL_Thread *upnp_thread;
     SDL_AtomicInt upnp_done;
@@ -317,6 +323,11 @@ net_link *net_link_open(const net_setup *s, char *err, int err_size) {
     l->import_dir = s->import_dir;
     for (int i = 0; i < NET_PARTS; ++i) l->parts[i] = s->parts[i];
     SDL_strlcpy(l->name, s->ac_name ? s->ac_name : "", sizeof l->name);
+    SDL_strlcpy(l->pilot, s->pilot_name ? s->pilot_name : "", sizeof l->pilot);
+    l->rogue = s->rogue != 0;
+    l->msg = (acr_msg *)SDL_malloc(sizeof *l->msg);
+    if (!l->msg) { SDL_free(l); return NULL; }
+    acr_msg_init(l->msg);
     l->stage = s->stage;
     l->delay = s->delay;
     l->coop_ai = s->coop_ai < 0 ? 0 : s->coop_ai > 2 ? 2 : s->coop_ai;
@@ -326,7 +337,7 @@ net_link *net_link_open(const net_setup *s, char *err, int err_size) {
     l->rng = (uint32_t)SDL_GetTicksNS() | 1u;
     l->data_hash = net_data_check(s->import_dir);
     l->s = socket(AF_INET, SOCK_DGRAM, IPPROTO_UDP);
-    if (l->s == BAD_SOCK) { SDL_snprintf(err, (size_t)err_size, "Could not open a network socket."); SDL_free(l); return NULL; }
+    if (l->s == BAD_SOCK) { SDL_snprintf(err, (size_t)err_size, "Could not open a network socket."); SDL_free(l->msg); SDL_free(l); return NULL; }
 #ifdef _WIN32
     u_long nb = 1;
     ioctlsocket(l->s, FIONBIO, &nb);
@@ -349,6 +360,7 @@ net_link *net_link_open(const net_setup *s, char *err, int err_size) {
     if (bind(l->s, (const struct sockaddr *)&sa, sizeof sa) != 0) {
         SDL_snprintf(err, (size_t)err_size, "Could not use port %d (is another copy already hosting on it?).", s->port);
         close_sock(l->s);
+        SDL_free(l->msg);
         SDL_free(l);
         return NULL;
     }
@@ -357,6 +369,7 @@ net_link *net_link_open(const net_setup *s, char *err, int err_size) {
         if (!resolve(l->join, NET_PORT_DEFAULT, &l->peer)) {
             SDL_snprintf(err, (size_t)err_size, "Can't understand the address \"%s\". Use the host's address, like 192.168.1.20 or 192.168.1.20:7777.", l->join);
             close_sock(l->s);
+            SDL_free(l->msg);
             SDL_free(l);
             return NULL;
         }
@@ -386,6 +399,7 @@ void net_link_close(net_link *l) {
         net_upnp_close(&l->upnp);      /* takes the forward away again */
     }
     close_sock(l->s);
+    SDL_free(l->msg);
     SDL_free(l);
 }
 
@@ -414,16 +428,17 @@ static void send_simple(net_link *l, const net_addr *to, int type, int arg, uint
 }
 
 static void send_hello(net_link *l, uint64_t now_ms) {
-    uint8_t b[64];
+    uint8_t b[96];
     int n = hs_header(b, H_HELLO);
     put32(b + n, l->data_hash); n += 4;
     for (int i = 0; i < NET_PARTS; ++i) { put16(b + n, l->parts[i]); n += 2; }
     memcpy(b + n, l->name, NET_NAME); n += NET_NAME;
+    memcpy(b + n, l->pilot, NET_NAME); n += NET_NAME;
     send_to(l, &l->peer, b, n, now_ms);
 }
 
 static void send_welcome(net_link *l, uint64_t now_ms) {
-    uint8_t b[128];
+    uint8_t b[192];
     int n = hs_header(b, H_WELCOME);
     put32(b + n, l->data_hash); n += 4;
     for (int p = 0; p < 2; ++p)
@@ -435,6 +450,8 @@ static void send_welcome(net_link *l, uint64_t now_ms) {
     for (int p = 0; p < 2; ++p) { memcpy(b + n, l->info.name[p], NET_NAME); n += NET_NAME; }
     b[n++] = (uint8_t)l->info.coop_ai;
     b[n++] = (uint8_t)l->info.ai_preset;
+    b[n++] = (uint8_t)l->info.rogue;
+    for (int p = 0; p < 2; ++p) { memcpy(b + n, l->info.pilot[p], NET_NAME); n += NET_NAME; }
     send_to(l, &l->peer, b, n, now_ms);
 }
 
@@ -483,6 +500,8 @@ int net_link_connect(net_link *l, uint64_t now_ms, net_match_info *info, char *s
             l->info.delay = l->delay;
             l->info.coop_ai = l->coop_ai;
             l->info.ai_preset = l->ai_preset;
+            l->info.rogue = l->rogue;
+            SDL_strlcpy(l->info.pilot[0], l->pilot, sizeof l->info.pilot[0]);
             l->info.seed = (uint32_t)(SDL_GetTicksNS() * 2654435761u) | 1u;
         }
     }
@@ -515,7 +534,7 @@ int net_link_connect(net_link *l, uint64_t now_ms, net_match_info *info, char *s
             continue;
         }
         if (l->host) {
-            if (type == H_HELLO && len >= 6 + 4 + NET_PARTS * 2 + NET_NAME) {
+            if (type == H_HELLO && len >= 6 + 4 + NET_PARTS * 2 + NET_NAME * 2) {
                 if (l->have_peer && !same_addr(&from, &l->peer)) { send_simple(l, &from, H_REFUSE, R_BUSY, now_ms); continue; }
                 if (get32(b + 6) != l->data_hash) {
                     send_simple(l, &from, H_REFUSE, R_DATA, now_ms);
@@ -528,6 +547,8 @@ int net_link_connect(net_link *l, uint64_t now_ms, net_match_info *info, char *s
                 for (int i = 0; i < NET_PARTS; ++i) l->info.parts[1][i] = get16(b + 10 + i * 2);
                 memcpy(l->info.name[1], b + 10 + NET_PARTS * 2, NET_NAME);
                 l->info.name[1][NET_NAME] = 0;
+                memcpy(l->info.pilot[1], b + 10 + NET_PARTS * 2 + NET_NAME, NET_NAME);
+                l->info.pilot[1][NET_NAME] = 0;
                 send_welcome(l, now_ms);
             } else if (type == H_READY && l->have_peer && same_addr(&from, &l->peer)) {
                 l->state = NET_STARTED;
@@ -545,7 +566,7 @@ int net_link_connect(net_link *l, uint64_t now_ms, net_match_info *info, char *s
             if (type == H_REFUSE) {
                 SDL_snprintf(l->error, sizeof l->error, "%s", refusal(len > 6 ? b[6] : 0));
                 l->state = NET_FAILED;
-            } else if (type == H_WELCOME && len >= 6 + 4 + NET_PARTS * 4 + 2 + 8 + NET_NAME * 2 + 2) {
+            } else if (type == H_WELCOME && len >= 6 + 4 + NET_PARTS * 4 + 2 + 8 + NET_NAME * 2 + 3 + NET_NAME * 2) {
                 int n = 6;
                 if (get32(b + n) != l->data_hash) {
                     SDL_snprintf(l->error, sizeof l->error, "%s", refusal(R_DATA));
@@ -562,6 +583,8 @@ int net_link_connect(net_link *l, uint64_t now_ms, net_match_info *info, char *s
                 for (int p = 0; p < 2; ++p) { memcpy(l->info.name[p], b + n, NET_NAME); l->info.name[p][NET_NAME] = 0; n += NET_NAME; }
                 l->info.coop_ai = b[n] > 2 ? 2 : b[n]; ++n;
                 l->info.ai_preset = b[n++];
+                l->info.rogue = b[n++] != 0;
+                for (int p = 0; p < 2; ++p) { memcpy(l->info.pilot[p], b + n, NET_NAME); l->info.pilot[p][NET_NAME] = 0; n += NET_NAME; }
                 l->info.local = 1;
                 if (l->info.stage && net_stage_check(l->import_dir, l->info.stage) != stage_hash) {
                     send_simple(l, &l->peer, H_REFUSE, R_STAGE, now_ms);
@@ -595,6 +618,7 @@ int net_link_connect(net_link *l, uint64_t now_ms, net_match_info *info, char *s
             memcpy(bb + n, l->name, NET_NAME); n += NET_NAME;
             put32(bb + n, l->info.seed); n += 4;      /* tells copies of the same beacon apart from other hosts */
             bb[n++] = (uint8_t)l->coop_ai;
+            bb[n++] = (uint8_t)l->rogue;
             static const net_addr everyone = { { 255, 255, 255, 255 }, NET_BEACON_PORT },
                                   here = { { 127, 0, 0, 1 }, NET_BEACON_PORT };
             raw_send(l, &everyone, bb, n);
@@ -604,11 +628,12 @@ int net_link_connect(net_link *l, uint64_t now_ms, net_match_info *info, char *s
         char addr[64];
         net_local_address(addr, sizeof addr);
         SDL_snprintf(status, (size_t)status_size,
-                     "HOSTING A MATCH (PLAYER 1)\n\n"
+                     "%s\n\n"
                      "TELL PLAYER 2 TO JOIN:  %s:%d\n"
                      "(SAME PC: 127.0.0.1:%d)\n\n"
                      "WAITING FOR PLAYER 2...  %d S\n"
                      "(PLAYER 2 CAN ALSO PICK THIS GAME UNDER GARAGE > NETWORK)\n\n%s%s\n\nB / ESC: CANCEL",
+                     l->rogue ? "HOSTING ROGUE ARENA CO-OP (PLAYER 1, YOUR RUN)" : "HOSTING A MATCH (PLAYER 1)",
                      addr[0] ? addr : "(this PC's address)", l->port_shown,
                      l->port_shown, (int)(waited / 1000),
                      l->refused_once ? "A PLAYER TRIED TO JOIN BUT COULD NOT:\n" : "", l->refused_once ? (l->error[0] ? l->error : refusal(R_DATA)) : "");
@@ -663,6 +688,7 @@ int net_link_recv(net_link *l, void *buf, int cap, uint64_t now_ms) {
             late_handshake(l, &from, b, len, now_ms);
             continue;
         }
+        if (l->have_peer && same_addr(&from, &l->peer) && acr_msg_read(l->msg, b, len)) { l->last_rx_ms = now_ms; continue; }
         if (!is_match(b, len) || !l->have_peer || !same_addr(&from, &l->peer) || len > cap) continue;
         l->last_rx_ms = now_ms;
         l->got_match = 1;
@@ -673,6 +699,46 @@ int net_link_recv(net_link *l, void *buf, int cap, uint64_t now_ms) {
 }
 
 void net_link_touch(net_link *l, uint64_t now_ms) { l->last_rx_ms = now_ms; }
+
+/* ---------------- Rogue Arena co-op: menu messages ---------------- */
+
+int net_link_msg_send(net_link *l, const void *data, int len) { return acr_msg_send(l->msg, data, len); }
+int net_link_msg_recv(net_link *l, void *buf, int cap) {
+    int n;
+    while ((n = acr_msg_recv(l->msg, buf, cap)) < 0) {}   /* too long for the caller: skipped */
+    return n;
+}
+int net_link_peer_left(const net_link *l) { return l->peer_left; }
+
+void net_link_service(net_link *l, uint64_t now_ms, int fight) {
+    if (!l->have_peer) return;
+    if (!fight) {
+        uint8_t b[PKT_MAX];
+        net_addr from;
+        int len;
+        while ((len = raw_recv(l, &from, b, sizeof b)) > 0) {
+            if (!same_addr(&from, &l->peer)) {
+                if (is_hs(b, len)) late_handshake(l, &from, b, len, now_ms);   /* turns other joiners away */
+                continue;
+            }
+            l->last_rx_ms = now_ms;
+            if (is_hs(b, len)) late_handshake(l, &from, b, len, now_ms);
+            else if (acr_msg_read(l->msg, b, len)) {}
+            else if (is_match(b, len) && b[5] == 2) l->peer_left = 1;      /* the goodbye (acr_rollback) */
+        }
+        if (now_ms - l->last_ping_ms >= 500) {
+            uint8_t p[16];
+            int n = hs_header(p, H_PING);
+            put32(p + n, (uint32_t)now_ms); n += 4;
+            send_to(l, &l->peer, p, n, now_ms);
+            l->last_ping_ms = now_ms;
+        }
+    }
+    uint8_t pkt[PKT_MAX];
+    int n;
+    while ((n = acr_msg_write(l->msg, now_ms, pkt, sizeof pkt)) > 0) send_to(l, &l->peer, pkt, n, now_ms);
+    net_link_pump(l, now_ms);
+}
 uint64_t net_link_quiet_ms(const net_link *l, uint64_t now_ms) { return now_ms > l->last_rx_ms ? now_ms - l->last_rx_ms : 0; }
 int net_link_ping_ms(const net_link *l) { return l->ping_ms; }
 
@@ -771,6 +837,7 @@ int net_finder_poll(net_finder *f, uint64_t now_ms, net_found *out, int max) {
         g->same_data = get32(b + 7) == f->data_hash;
         g->stage = b[11];
         g->coop_ai = len >= 12 + NET_NAME + 5 ? b[16 + NET_NAME] : 0;
+        g->rogue = len >= 12 + NET_NAME + 6 ? b[17 + NET_NAME] != 0 : 0;
         memcpy(g->name, b + 12, NET_NAME);
         g->name[NET_NAME] = 0;
         g->seen_ms = now_ms;
@@ -851,6 +918,8 @@ uint32_t net_data_check(const char *import_dir) {
     h = hash_tree(h, import_dir, "motion");
     return h;
 }
+
+uint32_t net_tree_check(const char *import_dir, const char *sub) { return hash_tree(2166136261u, import_dir, sub); }
 
 uint32_t net_stage_check(const char *import_dir, int stage) {
     char sub[32];

@@ -2,6 +2,7 @@
  * solo rules (acr_gen1_rogue.c), this file adds the pairs, the shared
  * stash, the rejoin choice and the final duel. */
 #include "acr_gen1_coop.h"
+#include "acr_gen1_garage.h"
 
 #include <string.h>
 
@@ -556,5 +557,114 @@ int acr_gen1_coop_read(acr_gen1_coop *out, const char *text) {
         g = next;
     }
     *out = c;
+    return 1;
+}
+
+/* ---- online: the whole run, and one player's side ---- */
+
+
+static const char *const k_mark[4] = { "#--- acr-coop garage 1 ---\n", "#--- acr-coop garage 2 ---\n",
+                                       "#--- acr-coop net ---\n", "#--- acr-coop side ---\n" };
+
+static size_t append(char *buf, size_t size, size_t at, const char *s) {
+    for (; *s; ++s, ++at)
+        if (at + 1 < size) buf[at] = *s;
+    if (size) buf[at < size ? at : size - 1] = 0;
+    return at;
+}
+
+size_t acr_gen1_coop_state_write(const acr_gen1_coop *c, char *buf, size_t size) {
+    size_t n = acr_gen1_coop_write(c, buf, size);
+    for (int p = 0; p < PLAYERS; ++p) {
+        n = append(buf, size, n, k_mark[p]);
+        n += acr_gen1_save_write(&c->player[p].hangar, n < size ? buf + n : NULL, n < size ? size - n : 0);
+    }
+    n = append(buf, size, n, k_mark[2]);
+    outbuf o = { n < size ? buf + n : NULL, n < size ? size - n : 0, 0 };
+    put_kv(&o, "hold1", (uint64_t)(c->hold[0] + 1));
+    put_kv(&o, "hold2", (uint64_t)(c->hold[1] + 1));
+    return n + o.len;
+}
+
+/* Cuts text at the marks (into a copy): part[i] starts after mark i - 1. */
+static int split(const char *text, char *copy, size_t cap, const char *const marks[], int nmarks, char *part[]) {
+    const size_t len = strlen(text);
+    if (len + 1 > cap) return 0;
+    memcpy(copy, text, len + 1);
+    part[0] = copy;
+    for (int i = 0; i < nmarks; ++i) {
+        char *m = strstr(part[i], marks[i]);
+        if (!m) return 0;
+        *m = 0;
+        part[i + 1] = m + strlen(marks[i]);
+    }
+    return 1;
+}
+
+int acr_gen1_coop_state_read(acr_gen1_coop *out, const char *text) {
+    if (!text) return 0;
+    static char copy[96 * 1024];
+    static acr_gen1_coop c;
+    char *part[4];
+    if (!split(text, copy, sizeof copy, k_mark, 3, part)) return 0;
+    memset(&c, 0, sizeof c);
+    for (int p = 0; p < PLAYERS; ++p)
+        if (!acr_gen1_save_read(&c.player[p].hangar, part[1 + p])) return 0;
+    if (!acr_gen1_coop_read(&c, part[0])) return 0;
+    const char *ne = part[3] + strlen(part[3]);
+    for (int p = 0; p < PLAYERS; ++p) {
+        const long h = get_num(part[3], ne, p ? "hold2" : "hold1", 0) - 1;
+        c.hold[p] = (int8_t)(h >= 0 && h < c.stash_n ? h : -1);
+    }
+    if (c.hold[0] >= 0 && c.hold[0] == c.hold[1]) c.hold[1] = -1;
+    *out = c;
+    return 1;
+}
+
+size_t acr_gen1_coop_side_write(const acr_gen1_coop *c, int p, char *buf, size_t size) {
+    if (p < 0 || p >= PLAYERS) { if (size) buf[0] = 0; return 0; }
+    const acr_gen1_rogue *r = &c->player[p];
+    size_t n = acr_gen1_save_write(&r->hangar, buf, size);
+    n = append(buf, size, n, k_mark[3]);
+    outbuf o = { n < size ? buf + n : NULL, n < size ? size - n : 0, 0 };
+    put_kv(&o, "player", (uint64_t)p);
+    put_kv(&o, "prize_wins", r->prize_wins); put_kv(&o, "reroll_win", r->reroll_win);
+    put_kv(&o, "income", r->income); put_kv(&o, "plus", r->plus); put_kv(&o, "opts", r->opts);
+    put_kv(&o, "points", r->points); put_kv(&o, "spent", r->spent);
+    uint8_t sv[2 * ACR_GEN1_ROGUE_SAVED_MAX];
+    for (int i = 0; i < r->saved_n; ++i) { sv[2 * i] = r->saved[i][0]; sv[2 * i + 1] = r->saved[i][1]; }
+    put_list(&o, "saved", sv, 2 * r->saved_n);
+    return n + o.len;
+}
+
+int acr_gen1_coop_side_read(acr_gen1_coop *c, int p, const char *text) {
+    if (!text || p < 0 || p >= PLAYERS) return 0;
+    static char copy[32 * 1024];
+    char *part[2];
+    if (!split(text, copy, sizeof copy, &k_mark[3], 1, part)) return 0;
+    static acr_gen1_rogue r;
+    r = c->player[p];
+    if (!acr_gen1_save_read(&r.hangar, part[0])) return 0;
+    const char *b = part[1], *e = b + strlen(b);
+    if (get_num(b, e, "player", -1) != p) return 0;
+    r.prize_wins = (uint8_t)get_num(b, e, "prize_wins", 0);
+    r.reroll_win = (uint8_t)get_num(b, e, "reroll_win", 0);
+    r.income = (uint8_t)get_num(b, e, "income", 0);
+    r.plus = (uint8_t)get_num(b, e, "plus", 0);
+    r.opts = (uint8_t)get_num(b, e, "opts", 0);
+    r.points = (uint16_t)get_num(b, e, "points", 0);
+    r.spent = (uint16_t)get_num(b, e, "spent", 0);
+    if (r.prize_wins > c->wins) return 0;
+    uint8_t sv[2 * ACR_GEN1_ROGUE_SAVED_MAX];
+    const int ns = get_list(b, e, "saved", sv, 2 * ACR_GEN1_ROGUE_SAVED_MAX);
+    if (ns < 0 || ns % 2 || ns > 2 * ACR_GEN1_ROGUE_SAVED_MAX) return 0;
+    r.saved_n = 0;
+    for (int i = 0; i < ns; i += 2) {
+        if (sv[i] >= ACR_GEN1_CAT_COUNT || sv[i + 1] >= ACR_GEN1_PART_MAX) return 0;
+        r.saved[r.saved_n][0] = sv[i];
+        r.saved[r.saved_n][1] = sv[i + 1];
+        ++r.saved_n;
+    }
+    c->player[p] = r;
     return 1;
 }

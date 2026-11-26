@@ -2,15 +2,21 @@
  * "same game data?" check. The match itself (rollback) is acr_rollback.
  *
  * Handshake (packets start "ACRH"):
- *   guest -> host  HELLO    data check, guest's parts, AC name
+ *   guest -> host  HELLO    data check, guest's parts, AC name, pilot name
  *   host  -> guest WELCOME  data check, both players' parts, stage, input
  *                           delay, random seed, AC names, mode (VS, or
- *                           co-op against 1 or 2 AI ACs) and the AI's style
+ *                           co-op against 1 or 2 AI ACs, or Rogue Arena
+ *                           co-op), the AI's style and the pilot names
  *                  REFUSE   with a reason (other game data, version, full)
  *   guest -> host  READY    stage loaded and its data matches
  * Each side repeats its packet until it hears the next one, so lost packets
  * only cost time. The guest starts the match on WELCOME; the host on READY
  * (or the guest's first match packet).
+ *
+ * Rogue Arena co-op keeps the link open between fights: menu messages
+ * ("ACRM", acr_msg.h: whole, in order, sent again until they arrive) go
+ * both ways with net_link_msg_send / _recv; fights use match packets as
+ * any netplay match does.
  *
  * Testing: fake lag (each way), jitter and packet loss on what this side
  * sends, so two copies on one PC can feel a bad connection; and
@@ -46,6 +52,8 @@ typedef struct net_setup {
     int guest_port;               /* guest: bind this port (0: any; testing) */
     int online;                   /* over the internet with briefing codes: find our internet
                                      address (STUN); the guest waits longer for the host */
+    int rogue;                    /* host: Rogue Arena co-op (the run is the host's) */
+    const char *pilot_name;
 } net_setup;
 
 typedef struct net_match_info {
@@ -53,6 +61,8 @@ typedef struct net_match_info {
     char name[2][NET_NAME + 1];
     int stage, delay;
     int coop_ai, ai_preset;       /* see net_setup */
+    int rogue;                    /* Rogue Arena co-op: menus and fights follow (rogue_coop.inc) */
+    char pilot[2][NET_NAME + 1];
     uint32_t seed;
     int local;                    /* our player: 0 or 1 */
 } net_match_info;
@@ -80,6 +90,19 @@ void net_link_touch(net_link *l, uint64_t now_ms);
 uint64_t net_link_quiet_ms(const net_link *l, uint64_t now_ms);
 /* Round trip in ms, from the handshake and match pings (0 = not known yet). */
 int net_link_ping_ms(const net_link *l);
+
+/* Rogue Arena co-op's menu messages (1 to ACR_MSG_MAX bytes; acr_msg.h).
+ * send: 1 = queued, 0 = no room yet. recv: the next whole message's
+ * length, 0 when none. */
+int  net_link_msg_send(net_link *l, const void *data, int len);
+int  net_link_msg_recv(net_link *l, void *buf, int cap);
+/* Call once a frame while the link is open between fights (fight = 0:
+ * reads the socket, dropping late match packets, noting a goodbye) and
+ * during fights (fight = 1: net_link_recv reads; this only sends). Sends
+ * the message packets due and pings. */
+void net_link_service(net_link *l, uint64_t now_ms, int fight);
+/* The other player said goodbye (closed the link). */
+int  net_link_peer_left(const net_link *l);
 
 /* Over the internet (briefing codes, acr_brief.h). The link asks public
  * STUN servers (ACR_STUN="host:port" overrides them, for tests) which
@@ -115,6 +138,7 @@ typedef struct net_found {
     char name[NET_NAME + 1];  /* the host's AC */
     int stage;
     int coop_ai;              /* the host's mode: 0 VS, else co-op against that many AI */
+    int rogue;                /* the host plays Rogue Arena co-op */
     int same_data;            /* its game data matches ours */
     int this_pc;              /* the host is another copy on this PC */
     uint32_t id;
@@ -134,5 +158,7 @@ void net_local_address(char *out, int size);
  * machines' fights are built from), and of a stage's files. */
 uint32_t net_data_check(const char *import_dir);
 uint32_t net_stage_check(const char *import_dir, int stage);
+/* The same for any folder of the import ("arena": Rogue Arena's opponents). */
+uint32_t net_tree_check(const char *import_dir, const char *sub);
 
 #endif

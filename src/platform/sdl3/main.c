@@ -567,6 +567,7 @@ static int parse_args(int argc, char **argv, const char **dir, int parts[SLOT_CO
         if (!strcmp(argv[i], "--readback") && i + 1 < argc) { g_net_readback = argv[++i]; continue; }
         if (!strcmp(argv[i], "--net-delay") && i + 1 < argc) { g_net_delay = atoi(argv[++i]); continue; }
         if (!strcmp(argv[i], "--coop") && i + 1 < argc) { g_net_coop = atoi(argv[++i]); continue; }
+        if (!strcmp(argv[i], "--rogue-coop")) { g_net_coop = NET_MODE_ROGUE; continue; }   /* host Rogue Arena co-op */
         if (!strcmp(argv[i], "--net-lag") && i + 1 < argc) { g_net_lag = atoi(argv[++i]); continue; }
         if (!strcmp(argv[i], "--net-jitter") && i + 1 < argc) { g_net_jitter = atoi(argv[++i]); continue; }
         if (!strcmp(argv[i], "--net-loss") && i + 1 < argc) { g_net_loss = atoi(argv[++i]); continue; }
@@ -951,7 +952,9 @@ static net_link *net_open(const char *dir, const char *join, int online, int sta
     ns.ac_name = g_hangar.ac_name;
     ns.stage = stage;
     ns.delay = delay < 0 ? 0 : delay > ACR_RB_MAX_DELAY ? ACR_RB_MAX_DELAY : delay;
-    ns.coop_ai = coop_ai;
+    ns.rogue = coop_ai == NET_MODE_ROGUE;          /* Rogue Arena co-op: the host's run */
+    ns.coop_ai = ns.rogue ? 0 : coop_ai;
+    ns.pilot_name = g_hangar.pilot_name;
     ns.ai_preset = ai_preset > 0 && ai_preset < ACR_GEN1_AI_PRESETS ? ai_preset : ACR_GEN1_AI_BALANCED;
     ns.lag_ms = g_net_lag;
     ns.jitter_ms = g_net_jitter;
@@ -1317,6 +1320,7 @@ int main(int argc, char **argv) {
      * session runs it from here. */
     static acr_gen1_battle net_start;
     static acr_rb net_rb;
+    static int net_rate_was = 60;             /* the step rate before an online Rogue Arena co-op fight */
     int net_skip_cool = 0, net_lost = 0;
     unsigned net_skips = 0;
     Uint64 net_wait_since = 0;                /* when the match started waiting for the other player */
@@ -1751,7 +1755,46 @@ int main(int argc, char **argv) {
             const char *auto_ = SDL_getenv("ACR_ROGUE_AUTOWIN");
             const Uint64 auto_ms_ = SDL_getenv("ACR_AUTOEND_MS") ? (Uint64)SDL_atoi(SDL_getenv("ACR_AUTOEND_MS")) : 1500;
             const int autowin = auto_ && SDL_GetTicks() - autowin_at > auto_ms_;
-            if (rogue_give_up || rogue_done || autowin) {
+            /* Online co-op: the host ends the fight once every step of it is
+             * confirmed (rollback can't change it any more) and sends the
+             * result; the guest waits for that. Giving up, the other player
+             * leaving or a lost connection abandons it (result 0). */
+            const rogue_fight *onf = g_rogue_fight == 4 && g_net ? rogue_fight_info() : NULL;
+            int net_res = -1, net_d0 = 0, net_d1 = 0;
+            if (onf && onf->online) {
+                const rogue_command tc = rogue_tick(SDL_GetTicks(), 1);
+                if (rogue_give_up || tc == RC_NET_CLOSE || net_lost == 2) net_res = 0;
+                else if (onf->net_local == 0) {
+                    const int sure = net_rb.cur.round_over && net_rb.remote_next >= net_rb.frame;
+                    const char *dn = SDL_getenv("ACR_ROGUE_DOWN");
+                    if (autowin) { net_res = 1; net_d0 = dn && SDL_strchr(dn, '1') != NULL; net_d1 = dn && SDL_strchr(dn, '2') != NULL; }
+                    else if (sure && rogue_over_at && SDL_GetTicks() - rogue_over_at > 4000) {
+                        net_res = net_rb.cur.result;
+                        net_d0 = battle.f[0].ap <= 0;
+                        net_d1 = battle.f[1].ap <= 0;
+                    }
+                } else if (rogue_coop_net_result(&net_res, &net_d0, &net_d1)) {
+                    /* the host's word */
+                } else net_res = -1;
+                rogue_give_up = rogue_done = 0;
+                if (net_res >= 0) {
+                    autowin_at = 0;
+                    rogue_coop_fight_over(net_res, net_d0, net_d1);
+                    battle.count = 0;
+                    g_plus_ai[0] = g_plus_ai[1] = 0;
+                    two_players = SDL_getenv("ACR_TWO") != NULL;
+                    g_paint_on[0] = g_paint_on[1] = g_paint_on[2] = g_paint_on[3] = 0;
+                    g_rogue_fight = 0;
+                    g_round_start_ms = ROUND_MS; g_round_clock = 1;
+                    g_ai_mode = 0; g_autopilot = 0; g_plus2 = 0; human_plus = 0;
+                    rogue_over_at = 0;
+                    g_net = 0;                         /* the link stays open for the menus */
+                    g_tick_rate = net_rate_was;
+                    if (!rogue_coop_online() && net) { net_link_close(net); net = NULL; }
+                    mode = MODE_ROGUE;
+                }
+            }
+            if (!(onf && onf->online) && (rogue_give_up || rogue_done || autowin)) {
                 autowin_at = 0;
                 const int res_ = autowin ? (SDL_strcmp(auto_, "lose") ? 1 : 2) : rogue_give_up || !round_over ? 2 : round_result;
                 const int was_arena_ = g_rogue_fight == 2, was_mission_ = g_rogue_fight == 3;
@@ -1873,9 +1916,19 @@ int main(int argc, char **argv) {
             }
         }
         if (mode == MODE_ROGUE) {
+            /* Online co-op: messages, the connection, the fight's countdown. */
+            const rogue_command tc = rogue_tick(SDL_GetTicks(), 0);
+            if (tc == RC_NET_CLOSE) { if (net) net_link_close(net); net = NULL; g_net = 0; }
+            else if (tc != RC_NONE && rcmd == RC_NONE) rcmd = tc;
             garage_action d = pad_direction(pads[0], SDL_GetTicks());
             if (d == GA_NONE) d = script_action();
             if (d != GA_NONE) { const rogue_command c = rogue_input(d); if (c != RC_NONE) rcmd = c; }
+            if (rcmd == RC_NETWORK) {          /* co-op's PLAY ONLINE: NETWORK with ROGUE ARENA CO-OP picked */
+                mode = 0; gui.screen = 0;
+                nmenu.coop_ai = NET_MODE_ROGUE;
+                nmenu.row = 0;
+                gcmd = GC_NETWORK;
+            }
             if (rcmd == RC_LEAVE) {            /* back to the main garage and its AC */
                 mode = 0; gui.screen = 0; gui.rogue = 0; gdata = gdata_main;
                 int f_[SLOT_COUNT];
@@ -1940,6 +1993,50 @@ int main(int argc, char **argv) {
                 SETUP_FIGHTERS();
                 for (int k = 2; k < acr_gen1_battle_fighters(&battle); ++k)
                     acr_gen1_ai_init(&g_ai[k], &rf->pair_ai[k - 2], 0x1234u + (uint32_t)k * 977u + (uint32_t)(++g_ai_round) * 7919u);
+                if (rf->humans == 2 && rf->online && net) {
+                    /* Online co-op: both PCs build this same fight from the
+                     * host's run and run it on rollback (as NETWORK does);
+                     * the pair's pilots fly inside the match on both. */
+                    net_rate_was = g_tick_rate;
+                    g_tick_rate = 60;
+                    g_landing_anim = 0;
+                    show_help = 0;
+                    g_options[0] = g_options[1] = 0;   /* the same on both PCs */
+                    for (int k = 0; k < acr_gen1_battle_fighters(&battle); ++k) {
+                        set_rate(&clock, &ac_data[k].def, g_tick_rate);
+                        ac_data[k].def.stage = g_stage_on ? &g_stage.collision : NULL;
+                        ac_data[k].def.landing_from_anim = 0;
+                    }
+                    battle.stage = g_stage_on ? &g_stage.collision : NULL;
+                    battle.step_ms = (uint16_t)(1000 / g_tick_rate);
+                    battle.step_rate = def->step_rate;
+                    battle.gen1_rate = def->gen1_rate;
+                    SETUP_FIGHTERS();
+                    net_start = battle;
+                    net_start.rng = rf->net_seed;
+                    net_start.tick_phase = 0;
+                    acr_gen1_match_rules rules;
+                    SDL_zero(rules);
+                    rules.round_ms = 0;                /* no time limit */
+                    rules.next_round_ms = 0;           /* one round */
+                    rules.arena_half = g_stage_on ? 0 : ARENA;
+                    rules.ai_half = g_stage_on ? g_stage.half : ARENA;
+                    rules.ai_seed = rf->net_seed;
+                    for (int k = 2; k < battle.count; ++k) {
+                        rules.ai_mask |= (uint8_t)(1u << k);
+                        rules.ai[k] = rf->pair_ai[k - 2];
+                    }
+                    acr_rb_init(&net_rb, rf->net_local, rf->net_delay, &net_start, &rules);
+                    battle = net_rb.cur.b;
+                    net_info.local = rf->net_local;
+                    net_info.delay = rf->net_delay;
+                    net_skip_cool = 0; net_lost = 0; net_skips = 0; net_wait_since = 0;
+                    switch_pressed[0] = switch_pressed[1] = blade_pressed[0] = blade_pressed[1] = 0;
+                    target_pressed[0] = target_pressed[1] = 0;
+                    back_held = 0;
+                    g_net = 1;
+                    net_link_touch(net, SDL_GetTicks());
+                }
                 prevs[0] = *P; prevs[1] = *T;
                 for (int k = 2; k < acr_gen1_battle_fighters(&battle); ++k) prevs[k] = battle.f[k].ac;
                 last = SDL_GetTicksNS();
@@ -2202,6 +2299,19 @@ int main(int argc, char **argv) {
                         net_link_close(net);
                         net = NULL;
                         mode = 4;
+                    } else if (st == NET_STARTED && net_info.rogue) {
+                        /* Rogue Arena co-op: its screens take over and the link
+                         * stays open between fights (rogue_coop_net.inc). */
+                        SDL_Log("netplay: Rogue Arena co-op, you are player %d (%s and %s)", net_info.local + 1,
+                                net_info.pilot[0], net_info.pilot[1]);
+                        net_finder_close(finder);
+                        finder = NULL;
+                        SDL_StopTextInput(window);
+                        rogue_open(g_hangar.pilot_name, g_hangar.ac_name);
+                        rogue_coop_online_begin(net, &net_info);
+                        mode = MODE_ROGUE;
+                        net_link_touch(net, SDL_GetTicks());
+                        continue;
                     } else if (st == NET_STARTED) {
                         /* The match starts: both PCs build the same one. Player 1
                          * is the host's garage build, player 2 the guest's, on the
@@ -3128,6 +3238,18 @@ int main(int argc, char **argv) {
             running = 0;
         }
         SDL_GL_SwapWindow(window);
+        {   /* Testing aid: ACR_FPS=30 caps the frame rate (two copies on one
+             * slow machine, or a window without vsync, would otherwise run
+             * flat out and starve each other). */
+            static int fps_cap = -1;
+            static Uint64 frame_due;
+            if (fps_cap < 0) fps_cap = SDL_getenv("ACR_FPS") ? SDL_atoi(SDL_getenv("ACR_FPS")) : 0;
+            if (fps_cap > 0) {
+                const Uint64 now_fc = SDL_GetTicksNS(), step_fc = 1000000000ull / (Uint64)fps_cap;
+                if (frame_due > now_fc) SDL_DelayNS(frame_due - now_fc);
+                frame_due = (frame_due > now_fc ? frame_due : now_fc) + step_fc;
+            }
+        }
     }
 
     if (net && g_net) {

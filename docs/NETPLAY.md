@@ -18,6 +18,9 @@ In the game: **NETWORK** on the main menu.
   with left / right): waits for player 2 and shows this PC's address.
   - **MODE**: VS (the two of you against each other), CO-OP against 1 AI,
     or CO-OP against 2 AI.
+    Or ROGUE ARENA CO-OP: the host's Rogue Arena co-op run, played
+    together ([ROGUE-ARENA-COOP.md](ROGUE-ARENA-COOP.md#online)); its
+    stages are picked in the run.
   - **AI PILOT**: the AI's style in co-op (BALANCED, AGGRESSOR, SNIPER,
     DUELIST, EVASIVE: the AC1Recomp AI card presets).
 - **GAMES ON YOUR NETWORK**: hosts on the same network (or another copy on
@@ -54,7 +57,8 @@ armored-corer --join 192.168.1.20     (or 192.168.1.20:8000; 127.0.0.1 = this PC
 Host options: `--stage 27` (Green Silo, the default), `--stage 39` (Ocean
 Platform), `--stage 0` (open test floor); `--net-delay N` input delay in
 steps (default 1); `--coop 1` or `--coop 2` co-op against that many AI,
-with `--ai balanced|aggressor|sniper|duelist|evasive`.
+with `--ai balanced|aggressor|sniper|duelist|evasive`; `--rogue-coop`
+Rogue Arena co-op (the host's run).
 
 Testing a bad connection (each side's own sending, so use it on both):
 `--net-lag 50` (ms each way), `--net-jitter 20`, `--net-loss 5` (percent).
@@ -114,6 +118,10 @@ The round is the usual two minutes: a team loses when all its ACs are down
   connect handshake (HELLO / WELCOME / REFUSE / READY), the data check
   (hash of the import's `parts`, `motion` and the stage's folder, line
   endings ignored), pings, and the fake lag / jitter / loss for testing.
+  Protocol version 4 (2026-11-25): pilot names in HELLO and WELCOME, the
+  Rogue Arena co-op mode in WELCOME and the beacon, and menu messages
+  ("ACRM", `src/net/acr_msg.{h,c}`: whole messages in order, sent again
+  until they arrive) for Rogue Arena co-op's screens between fights.
 - Co-op: the battle takes up to 4 ACs (`battle.count`, per fighter `team`
   and `target`, picked every step by `acr_gen1_battle_retarget`; count 0
   is the old 1v1). The AI pilots run **inside** `acr_gen1_match_step`

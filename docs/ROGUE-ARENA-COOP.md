@@ -6,7 +6,9 @@ battles, AI pilots inside matches and online joining (see
 [ROADMAP.md](ROADMAP.md) and [NETPLAY.md](NETPLAY.md)).
 
 **Status (2026-11-25):** the rules and the whole run work **on one PC
-with two controllers** (branch `rogue-coop`). Online comes next.
+with two controllers** (branch `rogue-coop`) and **online** (branch
+`rogue-coop-online`, on top of it), play-tested with two copies on one
+machine (below). Next: a play-test on two real PCs.
 
 ## A run
 
@@ -18,8 +20,9 @@ flowchart TD
     P --> RJ{"A partner was<br/>destroyed?"}
     RJ -- yes --> CH["That player picks:<br/>KEEP old AC (pays own saved parts + all P)<br/>or NEW RANDOM AC (free)"]
     RJ -- no --> PZ
-    CH --> PZ["Prize screens:<br/>player 1, then player 2"]
-    PZ --> NX{"Rank 1 pair beaten?"}
+    CH --> PZ["Prize screens:<br/>one PC: player 1, then player 2<br/>online: both at once"]
+    PZ --> RD["Both press READY<br/>(online)"]
+    RD --> NX{"Rank 1 pair beaten?"}
     NX -- no --> R2["Next rank up"] --> F
     NX -- yes --> D["Final duel: player 1 vs player 2<br/>on the host's stage"]
     D -- "a draw" --> D
@@ -31,8 +34,10 @@ flowchart TD
 
 ## Rules
 
-- **Two players:** one host and one partner. Online they join as in
-  NETWORK (rollback netplay); for now both play on one PC.
+- **Two players:** one host and one partner, on one PC (split screen) or
+  online: they join as in NETWORK (rollback netplay). Either way it's the
+  host's run (the same files), so a run started on one PC can go on online
+  and back. (User, 2026-11-25: "split screen or online co-op".)
 - **ROGUE ARENA** asks **SOLO** (as before) or **CO-OP (2 PLAYERS)**.
   (Confirmed 2026-11-25.)
 - **Every rank is a pair:** still 19 ranks, so 38 of the disc's arena
@@ -56,7 +61,13 @@ flowchart TD
   - The same rule for the host and the guest. The choice comes before the
     prize screens (so P can't be spent first and dodged).
 - **Prize screens:** each player has their own (solo's screen, the same
-  offers rules), player 1 first, then player 2.
+  offers rules). On one PC player 1 first, then player 2; **online both at
+  once**, each on their own PC (user, 2026-11-25).
+- **Only the destroyed player** gets the KEEP / NEW RANDOM AC choice after
+  a win (user, 2026-11-25); the other goes straight to their prize screen.
+- **Names:** online, player 2 shows as their NETWORK name (the pilot and
+  AC names in their garage); on one PC, PLAYER 2 / PARTNER (user,
+  2026-11-25).
 - **Everything is individual except the shared stash:** each player has
   their own AC, P, prize screens and upgrades. Parts saved for later go
   into one shared stash (room for 48, what both could save in solo), each
@@ -78,10 +89,60 @@ flowchart TD
   apart (`coop_spawn`, as co-op netplay).
 - **Friendly fire** is on, but lock-on never picks a teammate.
 - **Next round** starts when both players are done (rejoin choice and
-  prize screens). Online, both confirm ready.
+  prize screens). Online, both press **READY** on the hub (NEXT BATTLE is
+  READY there; pressing it again cancels); the fight starts 3 seconds
+  after the second READY. The final duel is the same.
 - **Disconnect (online):** the run is saved on the host and both can try
   it again. **The host keeps the run.** Whoever joins takes over the
   guest's AC, P and build, whether it's the same person or someone new.
+  A fight that is cut off (a player leaves, gives up with Esc twice, or
+  the connection is lost) doesn't count: the run is as it was before it.
+
+## Online
+
+- **Starting:** the host picks NETWORK > MODE **ROGUE ARENA CO-OP** (or
+  ROGUE ARENA > CO-OP > PLAY ONLINE, which opens NETWORK with it picked)
+  and hosts on the network or online with a mission briefing; the other
+  player joins as in NETWORK (the list marks it ROGUE ARENA CO-OP). Both
+  PCs need the same disc import: the arena opponents and the four stages
+  are checked too.
+- **The host chooses** on the co-op menu: CONTINUE the saved run, RETRY,
+  NEW ARENA or LEAVE. The guest waits meanwhile ("THE HOST IS CHOOSING").
+- **Each PC shows its own player:** your rejoin choice, your prize screen,
+  SWAP PARTS for your own AC (the shared stash: a part your partner is
+  highlighting is marked PARTNER ON IT and can't be taken). The hub says
+  what your partner is doing (choosing, on the prize screen, ready).
+- **The host picks STAGE**; the guest's STAGE row says so.
+- **Fights:** each PC shows its own player full screen; when you're down
+  the view follows your partner. The pair's pilots fly inside the match
+  on both PCs, so only the two players' controls cross the network
+  (rollback, as NETWORK). No time limit. The host ends the fight once every
+  step of it is confirmed and sends the result.
+- **Leaving:** LEAVE on the hub (or the co-op menu), or Esc twice in a
+  fight. The other PC shows why the session ended; the host's run is saved.
+
+### How it works
+
+- The host's run is the run: its files, its rules
+  (`src/gen1/acr_gen1_coop.c`). After every change it sends the guest the
+  whole run as text (`acr_gen1_coop_state_write`: the run file, both
+  garages and the stash lock, about 4 KB). The guest keeps a copy and
+  never saves it; leaving brings back its own one-PC run.
+- What the guest does goes to the host as a message, and the host applies
+  it with the same rules and sends the run back: the rejoin choice, its
+  side after its prize screen (`acr_gen1_coop_side_write`: garage, P,
+  prize state, upgrades, parts saved for later, which the host then puts in
+  the stash), the stash part it highlights and takes (named by category,
+  part and owner, so a stash that moved on can't mix them up), READY.
+- The messages (`src/net/acr_msg.{h,c}`, tested in `tests/test_msg.c`):
+  whole messages in order over UDP, cut into 200-byte chunks with running
+  numbers, each sent again every 250 ms until the other side's ack says
+  it arrived; a keep-alive once a second. The same socket as the fights
+  (`net_link_msg_send` / `_recv`, packets "ACRM"). The list of messages
+  is at the top of `src/platform/sdl3/rogue_coop_net.inc`.
+- Fights: both PCs build the fight from the same run (the host's seed in
+  the start message) and run it with `acr_rollback` as NETWORK does; the
+  pair's AI pilots are the match's (`rules.ai_mask`, `rules.ai[]`).
 
 ## Where it lives
 
@@ -100,6 +161,11 @@ flowchart TD
 - Files beside the save: `rogue-coop-run.toml` (the run: ladder, ghosts,
   stash with owners, each player's P and prize state) and
   `rogue-coop-p1.toml` / `rogue-coop-p2.toml` (each player's garage).
+- Online: `src/platform/sdl3/rogue_coop_net.inc` (the session, messages,
+  READY, starting fights), `src/net/acr_msg.{h,c}` (the message
+  channel), the ROGUE ARENA CO-OP mode in `net_link` / `net_menu`
+  (protocol version 4) and the online fight in `main.c` (look for
+  `rf->online`).
 
 ## Try it (one PC)
 
@@ -113,15 +179,62 @@ flowchart TD
    `ACR_ROGUE_DOWN=2` (or 1, or 12) marks that player destroyed in it,
    `ACR_ROGUE_SEED=...` fixes the ladder.
 
+## Try it (online, two PCs or two copies on one PC)
+
+1. Both PCs: the same disc imported (each player's own garage names are
+   their NETWORK names).
+2. Host: NETWORK > MODE < ROGUE ARENA CO-OP > > HOST ON THIS NETWORK (or
+   HOST ONLINE). Or ROGUE ARENA > CO-OP > PLAY ONLINE.
+3. Other PC: NETWORK > pick the game marked ROGUE ARENA CO-OP (or join by
+   address / mission briefing).
+4. Host: CONTINUE or NEW ARENA. Both: READY on the hub, fight together.
+5. After a win, each answers their own screens at the same time, then
+   READY again.
+6. From a terminal: `armored-corer --host --rogue-coop` and
+   `armored-corer --join 127.0.0.1` (two copies on one PC). With
+   `ACR_ROGUE_AUTOWIN=1` on the host, the host wins each fight after 1.5 s
+   (`ACR_ROGUE_DOWN=2` marks player 2 destroyed). On a slow machine (or
+   with software rendering) add `ACR_FPS=20` to both: it caps the frame
+   rate so the two copies don't starve each other.
+
+### Two-copy play-test (2026-11-25)
+
+Two copies on one machine (software rendering, the user's Master of Arena
+disc data), host `--host --rogue-coop`, guest `--join 127.0.0.1` with its
+own garage names (HAWK / SECOND). All worked:
+
+- Connecting; the guest waits while the host chooses NEW ARENA / CONTINUE.
+- READY on both hubs starts the fight 3 s later; each PC flies its own AC
+  full screen; the host's win (player 2 destroyed) reaches the guest.
+- At the same time: the guest's HAWK REJOINS screen (KEEP / NEW RANDOM AC)
+  while the host is on RAVEN PRIZE; the guest's NEW RANDOM AC and its PASS
+  went through the host (both at 2 P, then 3 P after the next win). The hub
+  shows "RAVEN IS ON THE PRIZE SCREEN" and so on.
+- A second fight at rank 19 after both READY again.
+- Resume: a new session on the host's saved run put the guest straight
+  back on its pending rejoin choice.
+- The final duel (run file edited to rank 1's pair beaten): both READY, a
+  1v1, the guest's CLEARED screen (RANK 1 RAVEN, RANK 2 HAWK, the host
+  chooses).
+- The stash over the link: a part the host highlights shows PARTNER ON IT
+  on the guest's SWAP PARTS; the guest equipping player 1's saved FCS
+  reached the host's run and garage.
+- Leaving: the other PC says THE OTHER PLAYER LEFT; the host's run stays.
+
+Found and fixed on the way: without a frame cap two copies on a 2-CPU
+machine stalled each other for seconds (ACR_FPS added for testing); after
+equipping a stash part, the "partner is on that part" line hid
+"EQUIPPED.".
+
 ## Work to do
 
 1. **Rules:** ~~no time limit; ladder of pairs; two players' runs plus a
    shared stash and its lock; rejoin choice; final duel; results for
    both; save / resume.~~ Done 2026-11-25.
-2. **Online:** the host's save holds the whole run (done: one file plus
-   both garages); the handshake sends the guest's side to whoever joins;
-   resume after a disconnect; ready / confirm from both; the stash lock
-   over the link; menus sync as plain messages, only fights need rollback.
+2. **Online:** ~~the host's save holds the whole run; whoever joins takes
+   over the guest's side; resume after a disconnect; ready from both; the
+   stash lock over the link; menus as plain messages, fights on
+   rollback~~. Done 2026-11-25 (branch `rogue-coop-online`).
 3. **Fights:** ~~the pair's builds, colours, AI and Human PLUS in fighters
    2 and 3; spectate view (follow your partner); bring the partner back
    next fight~~ (done, one PC). Still to do: Garden Plaza's own starts
@@ -130,7 +243,8 @@ flowchart TD
    yet, solo included).
 4. **Screens:** ~~ROGUE ARENA > SOLO / CO-OP; the ladder shows pairs;
    whose turn on the prize screen; the stash in SWAP PARTS; rejoin; duel;
-   results~~ (done). Still to do: host / join like NETWORK; each player's
-   GARAGE in co-op; player 2's own names (on one PC: PLAYER 2 / PARTNER);
-   co-op VS and victory screens in solo's style (3D ACs, emblems).
-5. **Play-test** on one PC with two controllers now, then on two PCs.
+   results; host / join like NETWORK; player 2's own names online~~
+   (done). Still to do: each player's GARAGE in co-op; co-op VS and victory
+   screens in solo's style (3D ACs, emblems).
+5. **Play-test** on one PC with two controllers, then on two PCs (two
+   copies on one machine: done 2026-11-25, above).

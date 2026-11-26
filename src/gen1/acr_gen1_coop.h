@@ -122,4 +122,17 @@ size_t acr_gen1_coop_write(const acr_gen1_coop *c, char *buf, size_t size);
 /* Reads the run; c->player[k].hangar must already hold each garage. 1 = ok. */
 int acr_gen1_coop_read(acr_gen1_coop *c, const char *text);
 
+/* ---- online (the host keeps the run; docs/ROGUE-ARENA-COOP.md) ---- */
+/* The whole run in one text: the run file, both garages and the stash
+ * lock (what the host sends whenever something changes). Returns the
+ * length (>= size: too small). */
+size_t acr_gen1_coop_state_write(const acr_gen1_coop *c, char *buf, size_t size);
+/* Reads it whole. 1 = ok (c is left alone on a bad text). */
+int acr_gen1_coop_state_read(acr_gen1_coop *c, const char *text);
+/* One player's own side after their prize screen: garage, P, prize state,
+ * upgrades and the parts saved for later (not yet in the stash). */
+size_t acr_gen1_coop_side_write(const acr_gen1_coop *c, int p, char *buf, size_t size);
+/* Puts that side in as player p's (the rest of the run stays). 1 = ok. */
+int acr_gen1_coop_side_read(acr_gen1_coop *c, int p, const char *text);
+
 #endif
