@@ -139,6 +139,12 @@ add_test(NAME brief COMMAND test_brief)
 add_executable(test_light tests/test_light.c)
 target_link_libraries(test_light PRIVATE acr_light)
 add_test(NAME light COMMAND test_light)
+# Replays: a fight saved as its pads and played back through the same rules
+# (docs/REPLAYS.md). Part of acr_net.
+target_sources(acr_net PRIVATE src/net/acr_replay.c)
+add_executable(test_replay tests/test_replay.c)
+target_link_libraries(test_replay PRIVATE acr_net)
+add_test(NAME replay COMMAND test_replay)
 add_executable(test_models tests/test_models.c)
 target_link_libraries(test_models PRIVATE acr_import_lib)
 add_test(NAME models COMMAND test_models ${CMAKE_CURRENT_BINARY_DIR}/test_models.png)
