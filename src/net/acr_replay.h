@@ -28,7 +28,10 @@
  * The bytes are written a record at a time and never changed afterwards,
  * so a replay can be saved while the fight is still going on; one that
  * stops without its end record (the game closed mid-fight) still plays as
- * far as it goes. Format: docs/REPLAYS.md. */
+ * far as it goes. The same goes for a replay that is still arriving: fed
+ * the bytes as they are recorded, a spectator (or a player joining late)
+ * runs the fight from its first step and follows along (acr_replay_grow).
+ * Format: docs/REPLAYS.md. */
 #ifndef ACR_REPLAY_H
 #define ACR_REPLAY_H
 
@@ -162,6 +165,14 @@ typedef struct acr_replay_reader {
 /* Reads a loaded replay and checks it through, end to end. Returns
  * ACR_REPLAY_OK or why not. */
 int acr_replay_open(acr_replay_reader *rd, const uint8_t *data, uint32_t len);
+
+/* More of the same replay has come in (a spectator's feed, a player who
+ * joins late and catches up, a file still being written): `data` is
+ * everything so far, the earlier bytes unchanged (it may have moved), `len`
+ * its new length. Playback carries on from where it was. Returns
+ * ACR_REPLAY_OK, or ACR_REPLAY_DAMAGED if the new bytes don't add up (the
+ * reader is then left as it was). */
+int acr_replay_grow(acr_replay_reader *rd, const uint8_t *data, uint32_t len);
 
 /* Can this build, with this data, play it? ACR_REPLAY_OK, _OTHER_RULES or
  * _OTHER_DATA. */

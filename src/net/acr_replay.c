@@ -225,24 +225,12 @@ uint32_t acr_replay_rec_end_rollback(acr_replay_rec *rec, acr_rb *rb) {
 
 /* ---------------- playing back ---------------- */
 
-int acr_replay_open(acr_replay_reader *rd, const uint8_t *data, uint32_t len) {
-    memset(rd, 0, sizeof *rd);
-    if (!data || len < ACR_REPLAY_HEADER || memcmp(data, "ACRP", 4) != 0) return ACR_REPLAY_NOT_A_REPLAY;
-    if (data[4] > ACR_REPLAY_FORMAT) return ACR_REPLAY_NEWER_FORMAT;
-    const uint32_t setup_len = get16(data + 24);
-    if (data[4] == 0 || data[5] > ACR_REPLAY_BATTLE || data[6] < 1 || data[6] > ACR_REPLAY_TRACKS ||
-        data[7] != PAD_BYTES || setup_len > ACR_REPLAY_SETUP_MAX || len - ACR_REPLAY_HEADER < setup_len)
-        return ACR_REPLAY_DAMAGED;
-    if (fnv(fnv(FNV_START, data, 28), data + ACR_REPLAY_HEADER, setup_len) != get32(data + 28)) return ACR_REPLAY_DAMAGED;
-
-    const uint32_t tracks = data[6], first = ACR_REPLAY_HEADER + setup_len;
-    uint32_t pos = first, steps = 0;
-    acr_replay_end end;
-    int complete = 0;
-    memset(&end, 0, sizeof end);
-    /* Through every record once: nothing unknown, the step count and the
-     * last hash right. A record cut short by the end of the file is where a
-     * replay that was never closed stops. */
+/* Through the records from `pos` on, once: nothing unknown, the step count
+ * and the last hash right. A record cut short by the end of the bytes is
+ * where a replay that was never closed (or hasn't all arrived) stops. */
+static int scan(const uint8_t *data, uint32_t len, uint32_t tracks, uint32_t first, uint32_t *pos_io,
+                uint32_t *steps_io, acr_replay_end *end, int *complete) {
+    uint32_t pos = *pos_io, steps = *steps_io;
     while (pos < len) {
         const uint32_t op = data[pos], left = len - pos;
         if (op <= OP_RUN_MAX) {
@@ -261,16 +249,38 @@ int acr_replay_open(acr_replay_reader *rd, const uint8_t *data, uint32_t len) {
             if (get32(data + pos + 1) != steps) return ACR_REPLAY_DAMAGED;
             if (fnv(FNV_START, data + first, pos + END_SEALED - first) != get32(data + pos + END_SEALED))
                 return ACR_REPLAY_DAMAGED;
-            end.steps = steps;
-            end.hash = get32(data + pos + 5);
-            end.result = data[pos + 9]; end.rounds = data[pos + 10];
-            end.wins[0] = data[pos + 11]; end.wins[1] = data[pos + 12];
-            complete = 1;
+            end->steps = steps;
+            end->hash = get32(data + pos + 5);
+            end->result = data[pos + 9]; end->rounds = data[pos + 10];
+            end->wins[0] = data[pos + 11]; end->wins[1] = data[pos + 12];
+            *complete = 1;
             break;
         } else {
             return ACR_REPLAY_DAMAGED;
         }
     }
+    *pos_io = pos;
+    *steps_io = steps;
+    return ACR_REPLAY_OK;
+}
+
+int acr_replay_open(acr_replay_reader *rd, const uint8_t *data, uint32_t len) {
+    memset(rd, 0, sizeof *rd);
+    if (!data || len < ACR_REPLAY_HEADER || memcmp(data, "ACRP", 4) != 0) return ACR_REPLAY_NOT_A_REPLAY;
+    if (data[4] > ACR_REPLAY_FORMAT) return ACR_REPLAY_NEWER_FORMAT;
+    const uint32_t setup_len = get16(data + 24);
+    if (data[4] == 0 || data[5] > ACR_REPLAY_BATTLE || data[6] < 1 || data[6] > ACR_REPLAY_TRACKS ||
+        data[7] != PAD_BYTES || setup_len > ACR_REPLAY_SETUP_MAX || len - ACR_REPLAY_HEADER < setup_len)
+        return ACR_REPLAY_DAMAGED;
+    if (fnv(fnv(FNV_START, data, 28), data + ACR_REPLAY_HEADER, setup_len) != get32(data + 28)) return ACR_REPLAY_DAMAGED;
+
+    const uint32_t first = ACR_REPLAY_HEADER + setup_len;
+    uint32_t pos = first, steps = 0;
+    acr_replay_end end;
+    int complete = 0;
+    memset(&end, 0, sizeof end);
+    const int err = scan(data, len, data[6], first, &pos, &steps, &end, &complete);
+    if (err != ACR_REPLAY_OK) return err;
     rd->data = data;
     rd->first = first;
     rd->last = pos;
@@ -287,6 +297,25 @@ int acr_replay_open(acr_replay_reader *rd, const uint8_t *data, uint32_t len) {
     rd->complete = (uint8_t)complete;
     rd->end = end;
     acr_replay_rewind(rd);
+    return ACR_REPLAY_OK;
+}
+
+int acr_replay_grow(acr_replay_reader *rd, const uint8_t *data, uint32_t len) {
+    if (!rd->data || !data || len < rd->last) return ACR_REPLAY_DAMAGED;
+    if (!rd->complete) {
+        uint32_t pos = rd->last, steps = rd->steps;
+        acr_replay_end end;
+        int complete = 0;
+        memset(&end, 0, sizeof end);
+        const int err = scan(data, len, rd->info.tracks, rd->first, &pos, &steps, &end, &complete);
+        if (err != ACR_REPLAY_OK) return err;
+        rd->last = pos;
+        rd->steps = steps;
+        rd->complete = (uint8_t)complete;
+        rd->end = end;
+    }
+    rd->data = data;
+    rd->setup = data + ACR_REPLAY_HEADER;
     return ACR_REPLAY_OK;
 }
 

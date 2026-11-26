@@ -19,6 +19,11 @@ goes to the Xbox as it is.
   a file). Jumping back is copying the reader along with the match.
 - Saving **while the fight goes on**: a replay that was never closed (the
   game shut mid-fight) still plays as far as it goes.
+- **Following a fight that is still going**: fed the bytes as they are
+  recorded, in pieces of any size, a spectator runs the fight from its
+  first step and follows along. A player who joins late catches up the
+  same way (a minute of fight replays in a fraction of a second), so no
+  snapshot has to be sent.
 - Refusing what can't play: damaged files, files from a build whose fights
   play out differently, files made from different game data. Each with its
   own message.
@@ -29,7 +34,8 @@ goes to the Xbox as it is.
 - The **REC** light on the HUD: on only while a replay is being recorded,
   in the Arena and VS, never in missions (user, 2026-11-19).
 - A REPLAY screen to pick and watch one, and the replay cameras.
-- Spectating, which is a replay fed live.
+- Spectating: the replay's bytes sent to the watchers as they are recorded
+  (the reading side is in: `acr_replay_grow`).
 
 ## Size
 

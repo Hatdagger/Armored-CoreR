@@ -337,6 +337,42 @@ int main(int argc, char **argv) {
         EXPECT(acr_replay_match_step(&rd, &m2, &start, &rules) == 0);   /* stays at the end */
     }
 
+    /* ---- A spectator: joins when a third of the fight is over, gets the
+     * bytes so far, catches up from the first step, then follows the feed
+     * in pieces of any size (cut anywhere, even inside a record). ---- */
+    {
+        acr_replay_reader sp;
+        uint32_t have = len / 3;
+        int grows = 0;
+        seed = 31337;
+        EXPECT(acr_replay_open(&sp, file_a, have) == ACR_REPLAY_OK && !sp.complete);
+        acr_gen1_match_init(&m2, &start, &rules);
+        while (acr_replay_match_step(&sp, &m2, &start, &rules)) {}
+        EXPECT(m2.frame == sp.steps && sp.steps > 0 && sp.steps < (uint32_t)FRAMES && sp.mismatch == 0);
+        while (have < len) {
+            have += 1 + rnd() % 200;
+            if (have > len) have = len;
+            /* (the feed's buffer is allowed to move: here a fresh copy each time) */
+            memcpy(scratch, file_a, have);
+            EXPECT(acr_replay_grow(&sp, scratch, have) == ACR_REPLAY_OK);
+            const uint32_t before = m2.frame;
+            while (acr_replay_match_step(&sp, &m2, &start, &rules)) {}
+            EXPECT(m2.frame == sp.steps && m2.frame >= before);
+            ++grows;
+        }
+        EXPECT(sp.complete && sp.mismatch == 0 && sp.steps == (uint32_t)FRAMES && grows > 20);
+        EXPECT(acr_gen1_match_hash(&m2) == h_end && sp.end.hash == h_end);
+        /* a feed that goes wrong is refused and the reader stays as it was */
+        EXPECT(acr_replay_open(&sp, file_a, len / 2) == ACR_REPLAY_OK);
+        const uint32_t steps_before = sp.steps, last_before = sp.last;
+        memcpy(scratch, file_a, len);
+        scratch[len - 20] ^= 0x40;
+        EXPECT(acr_replay_grow(&sp, scratch, len) == ACR_REPLAY_DAMAGED);
+        EXPECT(sp.steps == steps_before && sp.last == last_before && sp.data == file_a && !sp.complete);
+        EXPECT(acr_replay_grow(&sp, file_a, len) == ACR_REPLAY_OK && sp.complete);
+        EXPECT(acr_replay_grow(&sp, file_a, len) == ACR_REPLAY_OK);          /* nothing new: fine */
+    }
+
     /* ---- A fight that goes differently is noticed at the next check. ---- */
     {
         static acr_gen1_battle other;
