@@ -229,8 +229,10 @@ Fixes after the first play-test (2026-11-19):
    precision matters; then delay-based lockstep for LAN; then a
    host-runs-the-game model for more players. First version: 1v1 rollback
    over LAN / direct IP from the command line (`--host`, `--join`), data
-   check, desync check, fake lag for testing. Next: in-game host / join
-   screen with LAN discovery, co-op against the AI.
+   check, desync check, fake lag for testing. Done since: in-game host /
+   join screen with LAN discovery, co-op against the AI, internet play with
+   mission-briefing codes, and UPnP port opening on the host's router
+   (branch `netplay-upnp`, 2026-11-25).
 7. **Arena**: finish step 4 (the stages' own area boxes, the other stages,
    stage lights, rankings, opponents and rewards). **Ranked ladder done**
    (branch `arena-ladder`, 2026-11-24; `docs/ARENA.md`): main menu > ARENA
