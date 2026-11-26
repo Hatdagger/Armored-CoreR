@@ -33,7 +33,9 @@ typedef struct voice {
 } voice;
 static voice g_v[VOICES];
 static SDL_AudioStream *g_stream;
-static float g_master = 0.7f;
+static float g_master = 0.7f;   /* fight sounds */
+static float g_menu = 0.7f;     /* menu and screen sounds */
+static int g_env_volume;        /* ACR_SFX_VOLUME given: it wins over the settings */
 static int g_log, g_tried, g_ok;
 
 /* ---- the mixer (the audio thread; the stream's lock guards g_v) ---- */
@@ -129,9 +131,9 @@ int sfx_open(const char *import_dir) {
     if (g_tried) return g_ok;
     g_tried = 1;
     const char *e = SDL_getenv("ACR_SFX_VOLUME");
-    if (e) g_master = SDL_clamp(SDL_atoi(e), 0, 100) / 100.0f;
+    if (e) { g_master = g_menu = SDL_clamp(SDL_atoi(e), 0, 100) / 100.0f; g_env_volume = 1; }
     g_log = SDL_getenv("ACR_SFX_LOG") != NULL;
-    if (g_master <= 0) return 0;
+    if (g_env_volume && g_master <= 0) return 0;   /* ACR_SFX_VOLUME=0: no audio at all */
     int any = 0;
     for (int n = 1; n < S_COUNT; ++n) any |= load_wav(n, import_dir);
     static const char *const k_menu[4] = { "menu-back", "menu-cursor", "menu-ok", "menu-equip" };
@@ -201,10 +203,16 @@ const float *sfx_sample(int n, int *frames) {
     return g_s[n].pcm;
 }
 
+void sfx_set_volume(float fight, float menu) {
+    if (g_env_volume) return;
+    g_master = SDL_clamp(fight, 0.0f, 1.0f);
+    g_menu = SDL_clamp(menu, 0.0f, 1.0f);
+}
+
 void sfx_ui(int id) {
     if (!g_ok || id < 0 || id >= SFX_UI_COUNT || !g_ui[id].pcm) return;
     if (g_log) SDL_Log("sfx ui %d", id);
-    const float vol = g_master;
+    const float vol = g_menu;
     SDL_LockAudioStream(g_stream);
     int pick = -1;
     for (int i = 0; i < VOICES && pick < 0; ++i) if (g_v[i].s == &g_ui[id] && id <= SFX_UI_EQUIP) pick = i;   /* a click restarts */

@@ -54,6 +54,7 @@
 #include "rogue.h"
 #include "arena.h"
 #include "controls.h"
+#include "settings.h"
 #include "battle_hud.h"
 #include "fx.h"
 #include "sfx.h"
@@ -61,6 +62,7 @@
 /* HUD framing: the PS1's 4:3 layout in the middle (default) or spread to a
  * wide screen's edges (F9 / --hud-wide). */
 static int g_hud_frame = BATTLE_HUD_FRAME_43;
+static int g_hud_frame_arg;   /* --hud-wide given: it wins over SETTINGS > VIDEO */
 #include "net_link.h"
 #include "net_menu.h"
 #include "net_brief_ui.h"
@@ -84,6 +86,7 @@ static const char *g_net_readback;
 static int g_net_guest_port;              /* --guest-port N: the guest's own port (testing) */        /* --readback "TEXT": host enters player 2's read-back (testing) */
 static int g_part_args;                   /* parts were given on the command line */
 #include "acr_import.h"
+#include "disc_pick.h"
 #include "../../render/acr_render.h"
 #include "../../render/acr_light.h"
 
@@ -102,15 +105,15 @@ static SDL_Gamepad *open_first_gamepad(void) {
 }
 
 static acr_gen1_input read_input(SDL_Gamepad *pad, int keyboard) {
-    const bool *k = SDL_GetKeyboardState(NULL);
     acr_gen1_input in = { 0 };
     if (keyboard) {
-    in.move = (int8_t)((k[SDL_SCANCODE_W] || k[SDL_SCANCODE_UP]) - (k[SDL_SCANCODE_S] || k[SDL_SCANCODE_DOWN]));
-    in.turn = (int8_t)((k[SDL_SCANCODE_D] || k[SDL_SCANCODE_RIGHT]) - (k[SDL_SCANCODE_A] || k[SDL_SCANCODE_LEFT]));
-    in.strafe = (int8_t)(k[SDL_SCANCODE_E] - k[SDL_SCANCODE_Q]);
-    in.boost = (uint8_t)(k[SDL_SCANCODE_SPACE] || k[SDL_SCANCODE_J]);
+    /* The keys as mapped on the CONTROLS page (controls.c). */
+    in.move = (int8_t)(controls_key_held(CK_FORWARD) - controls_key_held(CK_BACKWARD));
+    in.turn = (int8_t)(controls_key_held(CK_TURN_R) - controls_key_held(CK_TURN_L));
+    in.strafe = (int8_t)(controls_key_held(CK_STRAFE_R) - controls_key_held(CK_STRAFE_L));
+    in.boost = (uint8_t)controls_key_held(CK_BOOST);
     {
-        const int up = k[SDL_SCANCODE_PAGEUP], down = k[SDL_SCANCODE_PAGEDOWN];
+        const int up = controls_key_held(CK_LOOK_UP), down = controls_key_held(CK_LOOK_DOWN);
         in.look = (int8_t)(up && down ? 2 : up - down);
     }
     }
@@ -267,17 +270,28 @@ static struct { acr_aim_state st; Uint64 last_ns; int ok; } g_aiming[ACR_GEN1_MA
 static int g_paint_on[ACR_GEN1_MAX_FIGHTERS];
 static uint8_t g_paint[ACR_GEN1_MAX_FIGHTERS][4][3], g_model_paint[ACR_GEN1_MAX_FIGHTERS][4][3];
 static int g_model_paint_on[ACR_GEN1_MAX_FIGHTERS];
+/* The player's own AC (fighter 0 when nothing else paints it): CHANGE
+ * COLOR's per-part paint from the garage. */
+static acr_gen1_hangar g_hangar;
+static uint8_t g_model_hangar_paint[4][4][3];
+static int g_model_hangar_painted;
+static int g_hangar_fighter;   /* which fighter flies the garage's AC (online: your own player) */
 
 static void refresh_model(int who, const char *dir, const int parts[SLOT_COUNT], int set) {
+    const int hangar_paint = who == g_hangar_fighter && !g_paint_on[who] && !g_part_args;
     if (g_model_set[who] == set && !memcmp(g_model_parts[who], parts, sizeof g_model_parts[who]) &&
-        g_model_paint_on[who] == g_paint_on[who] && (!g_paint_on[who] || !memcmp(g_model_paint[who], g_paint[who], sizeof g_paint[who])))
+        g_model_paint_on[who] == g_paint_on[who] && (!g_paint_on[who] || !memcmp(g_model_paint[who], g_paint[who], sizeof g_paint[who])) &&
+        (who != g_hangar_fighter || (g_model_hangar_painted == hangar_paint &&
+                      (!hangar_paint || !memcmp(g_model_hangar_paint, g_hangar.paint, sizeof g_model_hangar_paint)))))
         return;
     g_aiming[who].ok = 0;
     demo_model_free(&g_model[who]);
     g_model_paint_on[who] = g_paint_on[who];
     memcpy(g_model_paint[who], g_paint[who], sizeof g_paint[who]);
-    demo_model_load(dir, set, parts, g_paint_on[who] ? (const uint8_t (*)[3])g_paint[who]
-                                     : who >= 2 ? k_colours_ai : who ? k_colours_p2 : NULL, &g_model[who]);
+    if (who == g_hangar_fighter) { g_model_hangar_painted = hangar_paint; memcpy(g_model_hangar_paint, g_hangar.paint, sizeof g_model_hangar_paint); }
+    if (hangar_paint) demo_model_load_paint(dir, set, parts, (const uint8_t (*)[4][3])g_hangar.paint, &g_model[who]);
+    else demo_model_load(dir, set, parts, g_paint_on[who] ? (const uint8_t (*)[3])g_paint[who]
+                                          : who >= 2 ? k_colours_ai : who ? k_colours_p2 : NULL, &g_model[who]);
     memcpy(g_model_parts[who], parts, sizeof g_model_parts[who]);
     g_model_set[who] = set;
 }
@@ -475,6 +489,7 @@ static int next_part(const char *dir, int parts[SLOT_COUNT], int slot, demo_ac *
 #define MODE_ROGUE      10
 #define MODE_CONTROLS   11
 #define MODE_ARENA      12
+#define MODE_SETTINGS   13
 static int g_ai_mode = 0;
 static acr_gen1_ai_profile g_rogue_prof;
 static int g_plus2 = 0;                  /* the opponent's Human PLUS level (Rogue Arena) */
@@ -531,7 +546,7 @@ static int parse_args(int argc, char **argv, const char **dir, int parts[SLOT_CO
         if (!strcmp(argv[i], "--tick") && i + 1 < argc) { g_tick_rate = atoi(argv[++i]); continue; }
         if (!strcmp(argv[i], "--credits") && i + 1 < argc) { g_new_credits = atol(argv[++i]); continue; }
         if (!strcmp(argv[i], "--test")) { g_direct_test = 1; continue; }
-        if (!strcmp(argv[i], "--hud-wide")) { g_hud_frame = BATTLE_HUD_FRAME_WIDE; continue; }
+        if (!strcmp(argv[i], "--hud-wide")) { g_hud_frame = BATTLE_HUD_FRAME_WIDE; g_hud_frame_arg = 1; continue; }
         if (!strcmp(argv[i], "--ai") && i + 1 < argc) { g_ai_mode = ai_preset_of(argv[++i]); if (!g_ai_mode) g_ai_mode = 1; continue; }
         if (!strcmp(argv[i], "--ai-file") && i + 1 < argc) { load_ai_file(argv[++i]); continue; }
         if (!strcmp(argv[i], "--ai-vs-ai")) { g_autopilot = 1; if (!g_ai_mode) g_ai_mode = 1; continue; }
@@ -563,7 +578,7 @@ static int parse_args(int argc, char **argv, const char **dir, int parts[SLOT_CO
  * stocks what you sell it). A release turns this off and sets the starting
  * credits instead. */
 static const int k_test_kit = 1;
-static acr_gen1_hangar g_hangar;
+static uint8_t g_paint_default[4][3];   /* the disc's default colours (models/colours.toml): CHANGE COLOR's DEFAULT */
 /* Each player's optional parts (bit n = option n): player 1's from the
  * garage, player 2's a copy of them offline (the same build), each
  * player's own online. */
@@ -625,14 +640,7 @@ static void save_path(char *out, size_t size) {
 static void hangar_open(const int start[SLOT_COUNT]) {
     char path[1200];
     save_path(path, sizeof path);
-    char *text = SDL_LoadFile(path, NULL);
-    const int ok = text && acr_gen1_save_read(&g_hangar, text);
-    SDL_free(text);
-    if (ok) return;
-    uint8_t s[SLOT_COUNT];
-    for (int i = 0; i < SLOT_COUNT; ++i) s[i] = (uint8_t)start[i];
-    acr_gen1_hangar_new(&g_hangar, s, 0, (int32_t)g_new_credits);
-    if (k_test_kit) acr_gen1_hangar_give_all(&g_hangar, &g_catalog);
+    /* The disc's default colours (CHANGE COLOR's DEFAULT, a new game's paint). */
     char cpath[1200];
     SDL_snprintf(cpath, sizeof cpath, "%s/models/colours.toml", g_import_dir);
     char *ct = SDL_LoadFile(cpath, NULL);
@@ -642,18 +650,28 @@ static void hangar_open(const int start[SLOT_COUNT]) {
             char *end;
             const long x = SDL_strtol(v + 1, &end, 10);
             if (end == v + 1 || x < 0 || x > 63) break;
-            g_hangar.colours[k / 3][k % 3] = (uint8_t)x;
+            g_paint_default[k / 3][k % 3] = (uint8_t)x;
             v = end;
             while (*v == ' ') ++v;
             if (*v != ',') break;
         }
     SDL_free(ct);
+    char *text = SDL_LoadFile(path, NULL);
+    const int ok = text && acr_gen1_save_read(&g_hangar, text);
+    SDL_free(text);
+    if (ok) return;
+    uint8_t s[SLOT_COUNT];
+    for (int i = 0; i < SLOT_COUNT; ++i) s[i] = (uint8_t)start[i];
+    acr_gen1_hangar_new(&g_hangar, s, 0, (int32_t)g_new_credits);
+    if (k_test_kit) acr_gen1_hangar_give_all(&g_hangar, &g_catalog);
+    memcpy(g_hangar.colours, g_paint_default, sizeof g_hangar.colours);
+    acr_gen1_paint_fill(g_hangar.paint, (const uint8_t (*)[3])g_paint_default);   /* CHANGE COLOR starts on the default */
     SDL_strlcpy(g_hangar.ac_name, "AC", sizeof g_hangar.ac_name);
     SDL_strlcpy(g_hangar.pilot_name, "RAVEN", sizeof g_hangar.pilot_name);
 }
 
 static int hangar_save(void) {
-    char path[1200], text[4096];
+    char path[1200], text[8192];
     save_path(path, sizeof path);
     const size_t n = acr_gen1_save_write(&g_hangar, text, sizeof text);
     return n < sizeof text && SDL_SaveFile(path, text, n);
@@ -717,6 +735,26 @@ static garage_action button_action(int b) {
     case SDL_GAMEPAD_BUTTON_NORTH: return GA_INFO;
     default: return GA_NONE;
     }
+}
+
+/* OPTIONAL PARTS: the highlighted option's own model turning in the middle
+ * of the screen (models/menu/option/NN, loaded once each). */
+static void draw_option_model(int bit, int ph, float hx, float hy, float hw, float hh, unsigned tick) {
+    static demo_object objs[ACR_GEN1_OPTION_MAX];
+    static uint8_t tried[ACR_GEN1_OPTION_MAX];
+    if (bit < 0 || bit >= ACR_GEN1_OPTION_MAX) return;
+    if (!tried[bit]) { tried[bit] = 1; demo_object_load(g_import_dir, "option", bit, &objs[bit]); }
+    if (!objs[bit].ok) return;
+    const float s = (float)ph / 480.0f;
+    const int x = (int)(hx * s), y = (int)(hy * s), w = (int)(hw * s), h = (int)(hh * s);
+    if (w < 8 || h < 8) return;
+    float proj[16], viewm[16];
+    acr_mat_perspective(proj, 30.0f * 3.14159265f / 180.0f, (float)w / (float)h, 50.0f, 40000.0f);
+    const float eye[3] = { 0, 0, -4000.0f }, fwd[3] = { 0, 0, 1 }, up[3] = { 0, 1, 0 };
+    acr_mat_look(viewm, eye, fwd, up);
+    for (int k = 0; k < 4; ++k) viewm[4 * k] = -viewm[4 * k];
+    acr_render_view3d(x, y, w, h, proj, viewm, NULL);
+    demo_object_draw(&objs[bit], 1500.0f, (float)tick * 0.02f, 0.35f, &g_light);
 }
 
 /* The garage's AC: turning slowly, standing, in the middle of the screen. */
@@ -906,24 +944,47 @@ int main(int argc, char **argv) {
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD)) return 1;
 
     char default_dir[1024];
+#ifdef SDL_PLATFORM_ANDROID
+    /* Android: the import lives in the app's own storage, with the saves. */
+    char *pref_dir = SDL_GetPrefPath("Hatdagger", "Armored-CoreR");
+    SDL_snprintf(default_dir, sizeof default_dir, "%simport", pref_dir ? pref_dir : "");
+    SDL_free(pref_dir);
+#else
     SDL_snprintf(default_dir, sizeof default_dir, "%simport", SDL_GetBasePath() ? SDL_GetBasePath() : "");
+#endif
     const char *dir = default_dir;
     int parts[SLOT_COUNT];
     parse_args(argc, argv, &dir, parts);
 
     /* OpenGL 2.1 at the screen's own resolution, 4x anti-aliasing when the
-     * driver offers it. */
+     * driver offers it (the GLES build: OpenGL ES 3.0, else 2.0). */
+#ifdef ACR_GLES
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+#else
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 1);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_COMPATIBILITY);
+#endif
     SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
     SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+#ifdef SDL_PLATFORM_ANDROID
+    const SDL_WindowFlags wflags = SDL_WINDOW_OPENGL | SDL_WINDOW_FULLSCREEN | SDL_WINDOW_HIGH_PIXEL_DENSITY;
+#else
     const SDL_WindowFlags wflags = SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY;
+#endif
     SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 1);
     SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, 4);
-    /* ACR_WINDOW=WxH: the window's size (screenshots at other shapes). */
+    /* SETTINGS > VIDEO picks the window's size and fullscreen; ACR_WINDOW=WxH
+     * wins over it (screenshots at other shapes). */
+    settings_load();
     int win_w = 1280, win_h = 720;
-    if (SDL_getenv("ACR_WINDOW") && SDL_sscanf(SDL_getenv("ACR_WINDOW"), "%dx%d", &win_w, &win_h) != 2) { win_w = 1280; win_h = 720; }
+    settings_window_size(g_settings.window, &win_w, &win_h);
+    if (!g_hud_frame_arg) g_hud_frame = g_settings.hud_wide ? BATTLE_HUD_FRAME_WIDE : BATTLE_HUD_FRAME_43;
+    g_smooth_anim = g_settings.smooth_anim;
+    const int window_env = SDL_getenv("ACR_WINDOW") != NULL;
+    if (window_env && SDL_sscanf(SDL_getenv("ACR_WINDOW"), "%dx%d", &win_w, &win_h) != 2) { win_w = 1280; win_h = 720; }
     SDL_Window *window = SDL_CreateWindow("Armored-CoreR test build", win_w, win_h, wflags);
     SDL_GLContext gl = window ? SDL_GL_CreateContext(window) : NULL;
     if (!gl) {
@@ -933,13 +994,26 @@ int main(int argc, char **argv) {
         window = SDL_CreateWindow("Armored-CoreR test build", win_w, win_h, wflags);
         gl = window ? SDL_GL_CreateContext(window) : NULL;
     }
+#ifdef ACR_GLES
+    if (!gl) {
+        if (window) SDL_DestroyWindow(window);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
+        window = SDL_CreateWindow("Armored-CoreR test build", win_w, win_h, wflags);
+        gl = window ? SDL_GL_CreateContext(window) : NULL;
+    }
+#endif
     if (!gl || !acr_render_init(gl_proc)) {
         SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Armored-CoreR",
+#ifdef ACR_GLES
+                                 "This device's graphics driver does not offer OpenGL ES 2.0.", window);
+#else
                                  "This computer's graphics driver does not offer OpenGL 2.1.", window);
+#endif
         SDL_Quit();
         return 1;
     }
     SDL_GL_SetSwapInterval(1);
+    if (g_settings.fullscreen && !window_env) SDL_SetWindowFullscreen(window, true);
     acr_light_default(&g_light);
     SDL_Gamepad *pad = open_first_gamepad();
 
@@ -960,14 +1034,44 @@ int main(int argc, char **argv) {
         char text[1600];
         SDL_snprintf(text, sizeof text,
                      "ARMORED-CORER TEST BUILD\n\n"
+#ifdef SDL_PLATFORM_ANDROID
+                     "PRESS A (OR TAP THE SCREEN) TO CHOOSE YOUR\n"
+                     "MASTER OF ARENA DISC IMAGE (THE .BIN FILE).\n"
+                     "IT IS IMPORTED INTO THE APP (ABOUT 1 GB).\n\n"
+                     "BACK: QUIT\n\n%s", err);
+#else
                      "DROP YOUR MASTER OF ARENA DISC (.CUE OR .BIN)\n"
-                     "ON THIS WINDOW TO IMPORT IT.\n\n"
+                     "ON THIS WINDOW TO IMPORT IT,\n"
+                     "OR PRESS A / ENTER TO CHOOSE IT.\n\n"
                      "ESC / BACK: QUIT\n\n%s", err);
+#endif
         show_message(window, text);
         SDL_Event e;
         if (!SDL_WaitEvent(&e)) continue;
+        /* the system's file picker: A, Enter or a tap opens it */
+        if (e.type == SDL_EVENT_GAMEPAD_ADDED && !pad) pad = SDL_OpenGamepad(e.gdevice.which);
+        if ((e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && e.gbutton.button == SDL_GAMEPAD_BUTTON_SOUTH) ||
+            (e.type == SDL_EVENT_KEY_DOWN && (e.key.scancode == SDL_SCANCODE_RETURN || e.key.scancode == SDL_SCANCODE_SPACE)) ||
+            e.type == SDL_EVENT_FINGER_UP || (e.type == SDL_EVENT_MOUSE_BUTTON_UP && e.button.which != SDL_TOUCH_MOUSEID)) {
+            disc_pick_open(window);
+            continue;
+        }
+        char picked[2048];
+        const int pick = disc_pick_poll(picked, sizeof picked);
+        if (pick == 1) {
+            disc_pick_file keep;
+            char local[1200];
+            err[0] = 0;
+            if (disc_pick_local(picked, &keep, local, sizeof local, err, sizeof err)) {
+                dir = default_dir;
+                if (import_disc(window, local, dir, err, sizeof err))
+                    loaded = demo_load(dir, parts, &ac_data[0], err, sizeof err);
+                disc_pick_close(&keep);
+            }
+            continue;
+        }
         if (e.type == SDL_EVENT_QUIT ||
-            (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_ESCAPE) ||
+            (e.type == SDL_EVENT_KEY_DOWN && (e.key.scancode == SDL_SCANCODE_ESCAPE || e.key.scancode == SDL_SCANCODE_AC_BACK)) ||
             (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && e.gbutton.button == SDL_GAMEPAD_BUTTON_BACK)) {
             SDL_Quit();
             return 0;
@@ -1003,6 +1107,7 @@ int main(int argc, char **argv) {
     g_options[0] = g_options[1] = g_part_args ? 0 : g_hangar.options;
     acr_import_refresh(dir);          /* older imports: the menu sounds, the emblems, the mission units */
     sfx_open(dir);                    /* the menus' clicks too */
+    sfx_set_volume((float)g_settings.fx_volume / 10.0f, (float)g_settings.menu_volume / 10.0f);
     rogue_init(dir, &g_catalog, g_part_names);
     rogue_set_ac_drawer(rogue_draw_ac);
     arena_init(dir, &g_hangar, &g_catalog, g_part_names);
@@ -1010,10 +1115,15 @@ int main(int argc, char **argv) {
     controls_load();
     controls_ui cui;
     controls_open(&cui);
+    settings_ui sui;
+    settings_open(&sui, 0);
     int mode = g_direct_test ? 1 : 0;   /* MODE_GARAGE, MODE_FIGHT, the network screens, MODE_ROGUE, MODE_CONTROLS */
     garage_ui gui;
     garage_init(&gui);
-    const garage_data gdata_main = { &g_hangar, &g_catalog, g_part_names, 0 };
+    static demo_part_specs specs;     /* the disc's type names and shop texts */
+    demo_part_specs_load(dir, &specs);
+    const garage_data gdata_main = { &g_hangar, &g_catalog, g_part_names, 0, &specs,
+                                     (const uint8_t (*)[3])g_paint_default };
     garage_data gdata = gdata_main;
     if (!g_direct_test) {
         int fitted[SLOT_COUNT];
@@ -1218,6 +1328,13 @@ int main(int argc, char **argv) {
             if (e.type == SDL_EVENT_GAMEPAD_REMOVED)
                 for (int k = 0; k < 2; ++k)
                     if (pads[k] && SDL_GetGamepadID(pads[k]) == e.gdevice.which) { SDL_CloseGamepad(pads[k]); pads[k] = NULL; }
+            if (mode == MODE_SETTINGS) {   /* SETTINGS > VIDEO / AUDIO */
+                garage_action ga = GA_NONE;
+                if (e.type == SDL_EVENT_KEY_DOWN) ga = key_action(e.key.scancode);
+                if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) ga = button_action(e.gbutton.button);
+                if (settings_input(&sui, ga)) { mode = 0; gui.screen = 0; }
+                continue;
+            }
             if (mode == MODE_CONTROLS) {   /* the CONTROLS page: a button to map, or the menu */
                 if (controls_capture(&cui, &e)) continue;
                 garage_action ga = GA_NONE;
@@ -1332,9 +1449,9 @@ int main(int argc, char **argv) {
                  * keys and the mapped pad buttons), plus Esc / Back + Start
                  * to leave. Every test key (F1-F9, the number keys, the
                  * Back + button combinations) is off. */
-                if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_TAB) switch_pressed[0] = 1;
-                if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_V) blade_pressed[0] = 1;
-                if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_X) target_pressed[0] = 1;
+                if (controls_key_pressed(&e, CK_SWITCH)) switch_pressed[0] = 1;
+                if (controls_key_pressed(&e, CK_BLADE)) blade_pressed[0] = 1;
+                if (controls_key_pressed(&e, CK_TARGET)) target_pressed[0] = 1;
                 if (modern_of(net_info.local)) {          /* SP-MODERN: its own fixed layout */
                     if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && !back_held) {
                         if (e.gbutton.button == SDL_GAMEPAD_BUTTON_NORTH) switch_pressed[0] = 1;
@@ -1364,9 +1481,17 @@ int main(int argc, char **argv) {
             if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode >= SDL_SCANCODE_1 && e.key.scancode <= SDL_SCANCODE_8)
                 e.key.scancode = (SDL_Scancode)(SDL_SCANCODE_F1 + (e.key.scancode - SDL_SCANCODE_1));
             if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_F1) show_help = !show_help;
-            if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_F5) g_smooth_anim = !g_smooth_anim;
-            if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && (e.key.scancode == SDL_SCANCODE_F9 || e.key.scancode == SDL_SCANCODE_9))
+            /* F5 / F9 change the same settings as SETTINGS > VIDEO (and save them). */
+            if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_F5) {
+                g_smooth_anim = !g_smooth_anim;
+                g_settings.smooth_anim = g_smooth_anim;
+                settings_save();
+            }
+            if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && (e.key.scancode == SDL_SCANCODE_F9 || e.key.scancode == SDL_SCANCODE_9)) {
                 g_hud_frame = !g_hud_frame;
+                g_settings.hud_wide = g_hud_frame == BATTLE_HUD_FRAME_WIDE;
+                settings_save();
+            }
             if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_F3) g_landing_anim = !g_landing_anim;
             int cycle_ai = 0, toggle_autopilot = 0;
             if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_F4) cycle_ai = 1;
@@ -1451,8 +1576,8 @@ int main(int argc, char **argv) {
             if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_R) {
                 SETUP_FIGHTERS(); prevs[0] = *P; prevs[1] = *T;
             }
-            if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_TAB) switch_pressed[0] = 1;
-            if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_V) blade_pressed[0] = 1;
+            if (controls_key_pressed(&e, CK_SWITCH)) switch_pressed[0] = 1;
+            if (controls_key_pressed(&e, CK_BLADE)) blade_pressed[0] = 1;
             int toggle_two = 0;
             if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_F2) toggle_two = 1;
             int cycle_rate = 0, cycle_slot = -1, toggle_plus = 0, cycle_who = 0;
@@ -1491,7 +1616,7 @@ int main(int argc, char **argv) {
                 if (!back_combo) target_pressed[!two_players ? 0 : pads[1] ? (player_of(pads, e.gbutton.which, 0) == 1) : 1] = 1;
                 back_held = 0;
             }
-            if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_X) target_pressed[0] = 1;
+            if (controls_key_pressed(&e, CK_TARGET)) target_pressed[0] = 1;
             if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_T) cycle_rate = 1;
             if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_B) cycle_slot = SLOT_BOOSTER;
             if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_G) cycle_slot = SLOT_GEN;
@@ -1540,6 +1665,7 @@ int main(int argc, char **argv) {
             net_link_close(net);
             net = NULL;
             g_net = 0;
+            g_hangar_fighter = 0;
             battle.count = 0;                           /* back to the 1v1 test arena */
             two_players = SDL_getenv("ACR_TWO") != NULL;
             hangar_parts(parts);
@@ -1599,7 +1725,9 @@ int main(int argc, char **argv) {
                 LOAD_PLAYER_BUILD(af->parts[0]);
                 memcpy(parts2, af->parts[1], sizeof parts2);
                 demo_load(dir, parts2, &ac_data[1], err, sizeof err);
-                for (int k = 0; k < 2; ++k) { g_paint_on[k] = 1; memcpy(g_paint[k], af->colours[k], sizeof g_paint[k]); }
+                /* the opponent's own colours; the player's AC keeps its CHANGE COLOR paint */
+                g_paint_on[0] = 0;
+                g_paint_on[1] = 1; memcpy(g_paint[1], af->colours[1], sizeof g_paint[1]);
                 g_rogue_prof = af->ai;
                 g_ai_mode = AI_ROGUE; g_autopilot = 0; two_players = 0;
                 human_plus = 0; g_plus2 = af->plus[1];
@@ -1681,6 +1809,38 @@ int main(int argc, char **argv) {
                 if (controls_input(&cui, d)) { mode = 0; gui.screen = 0; }
             }
         }
+        if (mode == MODE_SETTINGS) {
+            garage_action d = pad_direction(pads[0], SDL_GetTicks());
+            if (d == GA_NONE) d = script_action();
+            if (settings_input(&sui, d)) mode = 0;
+            if (sui.apply) {   /* put the changed settings into effect */
+                sui.apply = 0;
+                if (!window_env) {
+                    SDL_SetWindowFullscreen(window, g_settings.fullscreen != 0);
+                    if (!g_settings.fullscreen) {
+                        int ww, wh;
+                        settings_window_size(g_settings.window, &ww, &wh);
+                        SDL_SetWindowSize(window, ww, wh);
+                    }
+                }
+                g_hud_frame = g_settings.hud_wide ? BATTLE_HUD_FRAME_WIDE : BATTLE_HUD_FRAME_43;
+                g_smooth_anim = g_settings.smooth_anim;
+                sfx_set_volume((float)g_settings.fx_volume / 10.0f, (float)g_settings.menu_volume / 10.0f);
+                if (sui.page == 1) sfx_ui(SFX_UI_CURSOR);   /* hear the new menu volume */
+            }
+        }
+        if (mode == MODE_SETTINGS) {
+            static Uint64 settings_last_ms;
+            const Uint64 now_ms = SDL_GetTicks();
+            const int elapsed = settings_last_ms ? (int)(now_ms - settings_last_ms) : 0;
+            settings_last_ms = now_ms;
+            int pw = 0, ph = 0;
+            SDL_GetWindowSizeInPixels(window, &pw, &ph);
+            if (pw < 1 || ph < 1) { SDL_Delay(10); continue; }
+            acr_render_begin(pw, ph, 18, 22, 28);
+            settings_draw(&sui, acr_render_hud(0, 0, pw, ph), elapsed);
+            goto present;
+        }
         if (mode == MODE_CONTROLS) {
             static Uint64 controls_last_ms;
             const Uint64 now_ms = SDL_GetTicks();
@@ -1738,6 +1898,7 @@ int main(int argc, char **argv) {
             if (gcmd == GC_ROGUE) { rogue_open(g_hangar.pilot_name, g_hangar.ac_name); mode = MODE_ROGUE; }
             if (gcmd == GC_ARENA) { arena_open(); mode = MODE_ARENA; }
             if (gcmd == GC_CONTROLS) { controls_open(&cui); mode = MODE_CONTROLS; }
+            if (gcmd == GC_VIDEO || gcmd == GC_AUDIO) { settings_open(&sui, gcmd == GC_AUDIO); mode = MODE_SETTINGS; }
             if (gcmd == GC_QUIT) running = 0;
             if (gcmd == GC_NETWORK) {
                 mode = 2;
@@ -1920,6 +2081,7 @@ int main(int argc, char **argv) {
                         show_help = 0;             /* test readouts off: no test keys online */
                         two_players = 1;
                         g_net = 1;
+                        g_hangar_fighter = net_info.local;
                         for (int k = 0; k < acr_gen1_battle_fighters(&battle); ++k) {
                             set_rate(&clock, &ac_data[k].def, g_tick_rate);
                             /* Everything the fight reads is fixed before the first snapshot. */
@@ -1979,7 +2141,7 @@ int main(int argc, char **argv) {
             else if (mode == 3 && net && net_online) {
                 net_addr me;
                 const int stun = net_link_public(net, &me);
-                if (g_net_host) brief_draw_host(hud_w, stun, &me, net_readback, (int)((now_ms - net_open_ms) / 1000), brief_msg, elapsed);
+                if (g_net_host) brief_draw_host(hud_w, stun, &me, net_readback, (int)((now_ms - net_open_ms) / 1000), brief_msg, net_link_router(net, NULL));
                 else brief_draw_guest(hud_w, stun, &me, now_ms - net_open_ms, brief_msg);
             }
             else if (mode == 3) net_menu_draw_status(hud_w, "NETWORK MATCH", net_status);
@@ -2000,7 +2162,13 @@ int main(int argc, char **argv) {
             if (pw < 1 || ph < 1) { SDL_Delay(10); continue; }
             acr_render_begin(pw, ph, 18, 22, 28);
             refresh_model(0, dir, parts, ac_data[0].model);
-            draw_garage_ac(pw, ph, 480.0f * (float)pw / (float)ph, (unsigned)(now_ms / 16));
+            {
+                const float hud_w_ = 480.0f * (float)pw / (float)ph;
+                float ox, oy, ow, oh;
+                const int obit = garage_option_model(&gui, &gdata, hud_w_, &ox, &oy, &ow, &oh);
+                if (obit >= 0) draw_option_model(obit, ph, ox, oy, ow, oh, (unsigned)(now_ms / 16));
+                else draw_garage_ac(pw, ph, hud_w_, (unsigned)(now_ms / 16));
+            }
             garage_draw(&gui, &gdata, acr_render_hud(0, 0, pw, ph), elapsed);
             goto present;
         }
@@ -2043,9 +2211,8 @@ int main(int argc, char **argv) {
             in2[0].boost = (uint8_t)v[3];
             hold_fire = v[4];
         }
-        const bool *keys = SDL_GetKeyboardState(NULL);
         acr_gen1_actions act[2] = { { 0 }, { 0 } };
-        act[0].fire = (uint8_t)(hold_fire || (!mod[0] && (keys[SDL_SCANCODE_F] || keys[SDL_SCANCODE_LCTRL])) ||
+        act[0].fire = (uint8_t)(hold_fire || (!mod[0] && controls_key_held(CK_FIRE)) ||
                                 (ctl[0] && !back_held && (mod[0] ? SDL_GetGamepadAxis(ctl[0], SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) > 8000
                                                                  : controls_held(ctl[0], CT_FIRE))));
         if (two_players)
@@ -2353,11 +2520,12 @@ int main(int argc, char **argv) {
             for (int c = 0; c < 3; ++c) cam_fwd[c] = fwd[c];
             for (int k = 0; k < 4; ++k) viewm[4 * k] = -viewm[4 * k];
         }
-        const acr_fog fog = { 30000.0f, 60000.0f, 18, 22, 28 };
+        acr_fog fog = { 30000.0f, 60000.0f, 18, 22, 28 };
+        if (g_stage_on) demo_stage_fog(&g_stage, &fog);   /* our backdrop's horizon haze */
         acr_render_view3d(vx, 0, vpw, ph, proj, viewm, &fog);
 
         /* the arena (its sky first, around the eye), or the open floor's grid and walls */
-        if (g_stage_on) demo_stage_draw_sky(&g_stage, sky_eye);
+        if (g_stage_on) demo_stage_draw_sky(&g_stage, sky_eye, (float)SDL_GetTicks() / 1000.0f);
         if (g_stage_on) demo_stage_draw(&g_stage, 0);
         if (g_stage_on && g_stage_id >= 0 && g_stage_id < 20) {
             if (g_units.map != g_stage_id) {

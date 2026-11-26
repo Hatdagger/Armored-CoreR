@@ -24,6 +24,17 @@ typedef struct demo_stage {
     /* The sky (sky.obj, imports from 2026-11-19 on): drawn around the eye. */
     struct { acr_vtx *v; int count; uint32_t texture; } sky[4];
     int skies;
+    /* The far plane (far.obj, chunk 3: Ocean Platform's sea, Garden Plaza's
+     * grass), tiled out to the horizon just under the stage. */
+    struct { acr_vtx *v; int count; uint32_t texture; } far[4];
+    int fars;
+    /* Our own backdrop (not from the disc) for stages without a sky: a
+     * colour gradient around the eye and a cloud layer high up. */
+    int backdrop;
+    uint8_t zenith[3], horizon[3], cloud[3];
+    float cloud_cover;              /* 0..1 */
+    acr_vtx *dome; int dome_count;
+    uint32_t cloud_tex;
     int textured;                   /* 1: the textured models; 0: the flat green ones */
     int32_t half;                   /* half width of a square inside the walls, for the AI */
     /* The stage's own out-of-area boxes (stage.toml out_of_area, imports
@@ -39,7 +50,11 @@ void demo_stage_free(demo_stage *s);
 /* Draws it in the current 3D view: pass 0 = solid faces and outlines,
  * pass 1 = see-through faces (after everything else). */
 void demo_stage_draw(const demo_stage *s, int pass);
-/* The sky around the eye (world position), before demo_stage_draw. */
-void demo_stage_draw_sky(const demo_stage *s, const float eye[3]);
+/* The sky around the eye (world position), before demo_stage_draw; `t`
+ * seconds move the clouds. */
+void demo_stage_draw_sky(const demo_stage *s, const float eye[3], float t);
+/* 1 and the distance haze to use when the stage has our backdrop (the far
+ * planes fade into its horizon colour); 0 to keep the default. */
+int  demo_stage_fog(const demo_stage *s, acr_fog *out);
 
 #endif
