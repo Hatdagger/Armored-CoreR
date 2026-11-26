@@ -1,6 +1,6 @@
 # Measuring Gen 1 feel in the recomp
 
-Scripts that drive the [AC1Recomp](https://github.com/Hatdagger/AC1Recomp) build of
+Scripts that drive the AC1Recomp build (repo retired 2026-11-26; you need your own local copy) of
 Master of Arena through its debug port, play scripted inputs, and record the
 AC's state every logic step. Results go in `docs/research/`.
 

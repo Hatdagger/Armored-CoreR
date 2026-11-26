@@ -11,9 +11,9 @@ Time: "tick" = one Gen 1 game step (22 a second). The engine keeps every
 counter in ticks and spreads movement over its own steps, so a fight plays
 the same per second at 60 steps a second.
 
-[battle-system.md]: https://github.com/Hatdagger/AC1Recomp/blob/master/docs/mapping/battle-system.md
-[stat-block.md]: https://github.com/Hatdagger/AC1Recomp/blob/master/docs/mapping/stat-block.md
-[parts-tables.md]: https://github.com/Hatdagger/AC1Recomp/blob/master/docs/mapping/parts-tables.md
+[battle-system.md]: recomp/mapping/battle-system.md
+[stat-block.md]: recomp/mapping/stat-block.md
+[parts-tables.md]: recomp/mapping/parts-tables.md
 
 ## Weapon detail tables (24 bytes per weapon)
 
