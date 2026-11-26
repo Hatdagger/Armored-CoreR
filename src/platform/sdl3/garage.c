@@ -10,18 +10,18 @@
 
 /* The game's main menu and its sub-menus (user, 2026-11-19): GARAGE,
  * SHOP, ARENA, MISSIONS, NETWORK, ROGUE ARENA, SYSTEM. GARAGE holds
- * ASSEMBLY and AC TEST; SYSTEM holds SAVE, LOAD and SETTINGS (CONTROLS,
+ * ASSEMBLY, PERFORMANCE and AC TEST; SYSTEM holds SAVE, LOAD and SETTINGS (CONTROLS,
  * VIDEO, AUDIO). Entries for modes not built yet are shown dimmed. In a
  * Rogue Arena run the garage is assembly only: parts come from the prize
  * screen, so no shop and no AC TEST. */
 enum {
     M_GARAGE, M_SHOP, M_ARENA, M_MISSIONS, M_NETWORK, M_ROGUE, M_SYSTEM,
-    M_ASSEMBLY, M_TEST, M_SAVE, M_LOAD, M_SETTINGS, M_CONTROLS, M_VIDEO, M_AUDIO, M_QUIT, M_BACK, M_EXIT_RUN,
+    M_ASSEMBLY, M_PERFORMANCE, M_TEST, M_SAVE, M_LOAD, M_SETTINGS, M_CONTROLS, M_VIDEO, M_AUDIO, M_QUIT, M_BACK, M_EXIT_RUN,
     M_COUNT
 };
 static const char *const k_menu[M_COUNT] = {
     "GARAGE", "SHOP", "ARENA", "MISSIONS", "NETWORK", "ROGUE ARENA", "SYSTEM",
-    "ASSEMBLY", "AC TEST", "SAVE", "LOAD", "SETTINGS", "CONTROLS", "VIDEO", "AUDIO", "EXIT GAME", "BACK",
+    "ASSEMBLY", "PERFORMANCE", "AC TEST", "SAVE", "LOAD", "SETTINGS", "CONTROLS", "VIDEO", "AUDIO", "EXIT GAME", "BACK",
     "BACK TO THE ARENA"
 };
 /* Not built yet: shown, not chosen. */
@@ -29,7 +29,7 @@ static int menu_ready(int id) {
     return id != M_MISSIONS && id != M_VIDEO && id != M_AUDIO;
 }
 static const int k_page_main[] = { M_GARAGE, M_SHOP, M_ARENA, M_MISSIONS, M_NETWORK, M_ROGUE, M_SYSTEM };
-static const int k_page_garage[] = { M_ASSEMBLY, M_TEST, M_BACK };
+static const int k_page_garage[] = { M_ASSEMBLY, M_PERFORMANCE, M_TEST, M_BACK };
 static const int k_page_system[] = { M_SAVE, M_LOAD, M_SETTINGS, M_QUIT, M_BACK };
 static const int k_page_settings[] = { M_CONTROLS, M_VIDEO, M_AUDIO, M_BACK };
 static const int k_page_rogue[] = { M_ASSEMBLY, M_EXIT_RUN };
@@ -38,7 +38,7 @@ static const int k_page_parent[GARAGE_PAGES] = { GARAGE_PAGE_MAIN, GARAGE_PAGE_M
 static int menu_items(const garage_ui *ui, const int **ids) {
     if (ui->rogue) { *ids = k_page_rogue; return 2; }
     switch (ui->page) {
-    case GARAGE_PAGE_GARAGE: *ids = k_page_garage; return 3;
+    case GARAGE_PAGE_GARAGE: *ids = k_page_garage; return 4;
     case GARAGE_PAGE_SYSTEM: *ids = k_page_system; return 5;
     case GARAGE_PAGE_SETTINGS: *ids = k_page_settings; return 4;
     default: *ids = k_page_main; return 7;
@@ -174,6 +174,14 @@ garage_command garage_input(garage_ui *ui, garage_data *d, garage_action a) {
         case M_SETTINGS: open_page(ui, GARAGE_PAGE_SETTINGS); return GC_NONE;
         case M_BACK: ui->page = k_page_parent[ui->page]; return GC_NONE;
         case M_ASSEMBLY: ui->screen = 1; ui->list_open = 0; return GC_NONE;
+        case M_PERFORMANCE: {
+            /* The game opens the page only on a complete AC (menu 0x80092BB4's caller). */
+            acr_gen1_perf_build b;
+            acr_gen1_garage_perf_build(d->hangar, d->cat, 0, &b);
+            if (acr_gen1_perf_complete(&b)) ui->screen = 3;
+            else say(ui, "YOUR EQUIPMENT IS INCOMPLETE.");
+            return GC_NONE;
+        }
         case M_SHOP: ui->screen = 2; ui->confirm = 0; ui->shop = ui->shop_top = 0; return GC_NONE;
         case M_ROGUE: return GC_ROGUE;
         case M_ARENA: return GC_ARENA;
@@ -194,6 +202,11 @@ garage_command garage_input(garage_ui *ui, garage_data *d, garage_action a) {
                     fail & ACR_GEN1_FAIL_WEIGHT ? "TOO HEAVY FOR THESE LEGS." :
                     "TOO MANY OPTIONAL PARTS FOR THIS CORE.");
         }
+        return GC_NONE;
+    }
+
+    if (ui->screen == 3) {   /* PERFORMANCE: a display page, closed by either button */
+        if (a == GA_OK || a == GA_CANCEL) ui->screen = 0;
         return GC_NONE;
     }
 
@@ -366,10 +379,63 @@ static void totals(const garage_data *d, float x, float y) {
     }
 }
 
+/* PERFORMANCE (Master of Arena's garage page, AC1Recomp menus-screens.md
+ * §2k): the AC's name, the rated rows with sub-items indented, OVERALL and
+ * the GRADE on the left; AP, WEIGHT and PRICE on the right. */
+static void performance_page(const garage_data *d, float lx, float rx) {
+    acr_gen1_perf_build b;
+    acr_gen1_perf o;
+    acr_gen1_garage_perf_build(d->hangar, d->cat, 0, &b);
+    acr_gen1_performance(&b, &o);
+    const struct { const char *label; int sub; int32_t value; } rows[] = {
+        { "OFFENSIVE POINT", 0, o.offensive }, { "DEFENSIVE POINT", 0, o.defensive },
+        { "STABILITY", 0, o.stability }, { "MOBILITY", 0, o.mobility },
+        { "MOVING SPEED", 1, o.moving_speed }, { "TURNING SPEED", 1, o.turning_speed },
+        { "BOOST ABILITY", 1, o.boost_ability }, { "SUPPORT SYSTEM", 0, o.support },
+        { "RADAR RANGE", 1, o.radar_range }, { "FCS PERFORMANCE", 1, o.fcs_performance },
+    };
+    char line[64];
+    acr_hud_text(lx + 10, 46, d->hangar->ac_name[0] ? d->hangar->ac_name : "AC", HILITE);
+    float y = 72;
+    for (unsigned i = 0; i < sizeof rows / sizeof rows[0]; ++i, y += 20) {
+        acr_hud_text(lx + (rows[i].sub ? 24 : 10), y, rows[i].label, rows[i].sub ? 150 : 220,
+                     rows[i].sub ? 165 : 230, rows[i].sub ? 175 : 235);
+        SDL_snprintf(line, sizeof line, "%6ld", (long)rows[i].value);
+        acr_hud_text(lx + 186, y, line, WHITE);
+    }
+    acr_hud_rect(lx + 8, y - 2, PANEL_W - 16, 1, 70, 90, 100, 255, 1);
+    y += 8;
+    acr_hud_text(lx + 10, y, "OVERALL", 220, 230, 235);
+    SDL_snprintf(line, sizeof line, "%6ld", (long)o.overall);
+    acr_hud_text(lx + 186, y, line, HILITE);
+    y += 34;
+    acr_hud_text(lx + 10, y, "GRADE", 220, 230, 235);
+    static const uint8_t k_grade_rgb[5][3] = {
+        { 255, 90, 70 }, { 220, 230, 235 }, { 120, 220, 150 }, { 120, 200, 255 }, { 255, 220, 120 } };
+    const uint8_t *g = k_grade_rgb[o.grade];
+    acr_hud_text(lx + 100, y, acr_gen1_grade_name(o.grade), g[0], g[1], g[2]);
+
+    acr_hud_text(rx + 10, 46, "AC STATUS", HILITE);
+    SDL_snprintf(line, sizeof line, "AP        %8ld", (long)o.ap);
+    acr_hud_text(rx + 10, 72, line, WHITE);
+    SDL_snprintf(line, sizeof line, "WEIGHT    %8ld", (long)o.weight);
+    acr_hud_text(rx + 10, 92, line, WHITE);
+    SDL_snprintf(line, sizeof line, "PRICE     %8ld", (long)o.price);
+    acr_hud_text(rx + 10, 112, line, WHITE);
+    acr_hud_text(rx + 10, 150, "GRADE BY OVERALL", DIM);
+    static const char *const k_scale[] = {
+        "25000+  SUPERFINE", "20000+  GREAT", "15000+  FINE", "10000+  OK", "BELOW   POOR" };
+    for (int i = 0; i < 5; ++i) {
+        const int lit = 4 - i == (int)o.grade;
+        if (lit) acr_hud_text(rx + 18, 168 + i * 16, k_scale[i], HILITE);
+        else acr_hud_text(rx + 18, 168 + i * 16, k_scale[i], DIM);
+    }
+}
+
 void garage_draw(garage_ui *ui, const garage_data *d, float hud_w, int elapsed_ms) {
     char line[96];
     const float lx = 16, rx = hud_w - PANEL_W - 16;
-    static const char *const k_title[] = { "GARAGE", "ASSEMBLY", "SHOP" };
+    static const char *const k_title[] = { "GARAGE", "ASSEMBLY", "SHOP", "PERFORMANCE" };
     acr_hud_text(lx, 12, ui->screen == 0 && !ui->rogue ? k_page_title[ui->page] : k_title[ui->screen], HILITE);
     if (ui->rogue) SDL_snprintf(line, sizeof line, "BALANCE %6ld P", (long)d->hangar->credits);
     else SDL_snprintf(line, sizeof line, "CREDITS %10ld", (long)d->hangar->credits);
@@ -432,6 +498,8 @@ void garage_draw(garage_ui *ui, const garage_data *d, float hud_w, int elapsed_m
         } else {
             totals(d, rx + 10, 46);
         }
+    } else if (ui->screen == 3) {
+        performance_page(d, lx, rx);
     } else {
         const int cat = k_shop_cats[ui->shop_cat];
         const int n = shop_list(ui, d, list);
@@ -468,7 +536,8 @@ void garage_draw(garage_ui *ui, const garage_data *d, float hud_w, int elapsed_m
     static const char *const k_hints[] = {
         "A: SELECT   B: BACK",
         "A: EQUIP   B: BACK   LEFT/RIGHT: PAGE",
-        "A: BUY/SELL   B: BACK   LEFT/RIGHT: CATEGORY   LB/RB: BUY OR SELL" };
-    const int hint = ui->screen == 1 ? 1 : ui->screen;
+        "A: BUY/SELL   B: BACK   LEFT/RIGHT: CATEGORY   LB/RB: BUY OR SELL",
+        "A/B: BACK" };
+    const int hint = ui->screen;
     acr_hud_text(lx, 460, k_hints[hint], DIM);
 }

@@ -102,15 +102,15 @@ static SDL_Gamepad *open_first_gamepad(void) {
 }
 
 static acr_gen1_input read_input(SDL_Gamepad *pad, int keyboard) {
-    const bool *k = SDL_GetKeyboardState(NULL);
     acr_gen1_input in = { 0 };
     if (keyboard) {
-    in.move = (int8_t)((k[SDL_SCANCODE_W] || k[SDL_SCANCODE_UP]) - (k[SDL_SCANCODE_S] || k[SDL_SCANCODE_DOWN]));
-    in.turn = (int8_t)((k[SDL_SCANCODE_D] || k[SDL_SCANCODE_RIGHT]) - (k[SDL_SCANCODE_A] || k[SDL_SCANCODE_LEFT]));
-    in.strafe = (int8_t)(k[SDL_SCANCODE_E] - k[SDL_SCANCODE_Q]);
-    in.boost = (uint8_t)(k[SDL_SCANCODE_SPACE] || k[SDL_SCANCODE_J]);
+    /* The keys as mapped on the CONTROLS page (controls.c). */
+    in.move = (int8_t)(controls_key_held(CK_FORWARD) - controls_key_held(CK_BACKWARD));
+    in.turn = (int8_t)(controls_key_held(CK_TURN_R) - controls_key_held(CK_TURN_L));
+    in.strafe = (int8_t)(controls_key_held(CK_STRAFE_R) - controls_key_held(CK_STRAFE_L));
+    in.boost = (uint8_t)controls_key_held(CK_BOOST);
     {
-        const int up = k[SDL_SCANCODE_PAGEUP], down = k[SDL_SCANCODE_PAGEDOWN];
+        const int up = controls_key_held(CK_LOOK_UP), down = controls_key_held(CK_LOOK_DOWN);
         in.look = (int8_t)(up && down ? 2 : up - down);
     }
     }
@@ -1332,9 +1332,9 @@ int main(int argc, char **argv) {
                  * keys and the mapped pad buttons), plus Esc / Back + Start
                  * to leave. Every test key (F1-F9, the number keys, the
                  * Back + button combinations) is off. */
-                if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_TAB) switch_pressed[0] = 1;
-                if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_V) blade_pressed[0] = 1;
-                if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_X) target_pressed[0] = 1;
+                if (controls_key_pressed(&e, CK_SWITCH)) switch_pressed[0] = 1;
+                if (controls_key_pressed(&e, CK_BLADE)) blade_pressed[0] = 1;
+                if (controls_key_pressed(&e, CK_TARGET)) target_pressed[0] = 1;
                 if (modern_of(net_info.local)) {          /* SP-MODERN: its own fixed layout */
                     if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && !back_held) {
                         if (e.gbutton.button == SDL_GAMEPAD_BUTTON_NORTH) switch_pressed[0] = 1;
@@ -1451,8 +1451,8 @@ int main(int argc, char **argv) {
             if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_R) {
                 SETUP_FIGHTERS(); prevs[0] = *P; prevs[1] = *T;
             }
-            if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_TAB) switch_pressed[0] = 1;
-            if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_V) blade_pressed[0] = 1;
+            if (controls_key_pressed(&e, CK_SWITCH)) switch_pressed[0] = 1;
+            if (controls_key_pressed(&e, CK_BLADE)) blade_pressed[0] = 1;
             int toggle_two = 0;
             if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_F2) toggle_two = 1;
             int cycle_rate = 0, cycle_slot = -1, toggle_plus = 0, cycle_who = 0;
@@ -1491,7 +1491,7 @@ int main(int argc, char **argv) {
                 if (!back_combo) target_pressed[!two_players ? 0 : pads[1] ? (player_of(pads, e.gbutton.which, 0) == 1) : 1] = 1;
                 back_held = 0;
             }
-            if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_X) target_pressed[0] = 1;
+            if (controls_key_pressed(&e, CK_TARGET)) target_pressed[0] = 1;
             if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_T) cycle_rate = 1;
             if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_B) cycle_slot = SLOT_BOOSTER;
             if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_G) cycle_slot = SLOT_GEN;
@@ -2043,9 +2043,8 @@ int main(int argc, char **argv) {
             in2[0].boost = (uint8_t)v[3];
             hold_fire = v[4];
         }
-        const bool *keys = SDL_GetKeyboardState(NULL);
         acr_gen1_actions act[2] = { { 0 }, { 0 } };
-        act[0].fire = (uint8_t)(hold_fire || (!mod[0] && (keys[SDL_SCANCODE_F] || keys[SDL_SCANCODE_LCTRL])) ||
+        act[0].fire = (uint8_t)(hold_fire || (!mod[0] && controls_key_held(CK_FIRE)) ||
                                 (ctl[0] && !back_held && (mod[0] ? SDL_GetGamepadAxis(ctl[0], SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) > 8000
                                                                  : controls_held(ctl[0], CT_FIRE))));
         if (two_players)

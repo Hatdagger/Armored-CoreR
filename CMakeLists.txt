@@ -29,6 +29,7 @@ add_library(acr_gen1 STATIC
     src/gen1/acr_gen1_battle.c
     src/gen1/acr_gen1_mission.c
     src/gen1/acr_gen1_garage.c
+    src/gen1/acr_gen1_perf.c
     src/gen1/acr_gen1_ai.c
     src/gen1/acr_gen1_stage.c
     src/gen1/acr_gen1_rogue.c
@@ -85,6 +86,9 @@ add_test(NAME gen1 COMMAND test_gen1)
 add_executable(test_gen1_fit tests/test_gen1_fit.c)
 target_link_libraries(test_gen1_fit PRIVATE acr_gen1)
 add_test(NAME gen1_fit COMMAND test_gen1_fit)
+add_executable(test_gen1_perf tests/test_gen1_perf.c)
+target_link_libraries(test_gen1_perf PRIVATE acr_gen1)
+add_test(NAME gen1_perf COMMAND test_gen1_perf)
 add_executable(test_gen1_anim tests/test_gen1_anim.c)
 target_link_libraries(test_gen1_anim PRIVATE acr_gen1)
 add_test(NAME gen1_anim COMMAND test_gen1_anim)

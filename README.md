@@ -105,7 +105,17 @@ The controller buttons for boost, fire, switch weapon, blade, strafe and
 view tilt can be changed on **SYSTEM > SETTINGS > CONTROLS** (pick a row, then
 press the button you want; a button already in use swaps places). Moving
 and turning stay on the left stick / d-pad; Start and Back keep their jobs.
-The mapping is saved in `controls.toml` beside the save.
+Left / right on that page switches to the **KEYBOARD** tab, where every
+key in the table below (moving and turning included) can be changed the
+same way; the arrow keys always move and turn, and Esc, Enter, Backspace,
+the F and number keys and the test keys (R, T, B, G, C, L, H) keep their
+jobs. Both mappings are saved in `controls.toml` beside the save. The
+keyboard column below is the standard layout.
+
+**GARAGE > PERFORMANCE** shows the AC's ratings as Master of Arena works
+them out (offensive, defensive, stability, mobility, support, OVERALL) and
+its GRADE: 25,000+ SUPERFINE, 20,000+ GREAT, 15,000+ FINE, 10,000+ OK,
+else POOR.
 
 | Action | Controller | Keyboard |
 | --- | --- | --- |
@@ -124,6 +134,8 @@ The mapping is saved in `controls.toml` beside the save.
 | AI against AI (player 1 on autopilot, to watch) | Back + d-pad down | F6 |
 | Landing pause: guess / landing animation's length (test) | Back + R3 | F3 |
 | Switch target (2+ enemies in the sight; with one gun or missile, weapon switch does it too) | Back (tap) | X |
+| Tilt the view up / down (both: level) | LT / RT | Page Up / Page Down |
+| Blade (its own button) | B | V |
 | Change step rate (22, 30, 45, 60 steps a second; same game pace) | | T |
 | Reset | Start | R |
 | Hide help | | F1 |

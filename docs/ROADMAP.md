@@ -215,8 +215,20 @@ Fixes after the first play-test (2026-11-19):
 - **CONTROLS page** (SYSTEM > SETTINGS, user): remap the controller's boost,
   fire, switch weapon, blade, strafe and view tilt (any face button,
   shoulder, trigger, stick click or paddle; a button in use swaps), saved
-  to `controls.toml`. Stick / d-pad movement, Start and Back stay fixed;
-  the keyboard isn't remapped yet.
+  to `controls.toml`. Stick / d-pad movement, Start and Back stay fixed.
+  **Keyboard too (2026-11-25):** a KEYBOARD tab (left / right) remaps
+  forward, back, turn, strafe, boost, fire, switch weapon, blade, switch
+  target and view tilt (a key in use swaps), saved in the same file
+  (`key_*` lines; older files keep the standard keys). The arrow keys
+  always move and turn; Esc, Enter, Backspace, the F and number keys and
+  the test letter keys (R, T, B, G, C, L, H) keep their jobs.
+- **PERFORMANCE and GRADE** (GARAGE > PERFORMANCE, 2026-11-25): Master of
+  Arena's page with its own sums (AC1Recomp `menus-screens.md` §2k,
+  `src/gen1/acr_gen1_perf.c`, tested): offensive, defensive, stability,
+  mobility (moving, turning, boost), support (radar range, FCS), OVERALL
+  and the GRADE, plus AP, weight and price. Matches the recomp's check
+  build (OVERALL 12,641). Human PLUS (5,120 radar with no radar) is ready
+  for when the garage gets it.
 - **Both back weapons work** (only the left one was a weapon): the AC now
   carries up to 4 (arm weapon, back left, back right, blade); a two-slot
   unit is one weapon.
@@ -350,8 +362,7 @@ part tables, renderer, menus): see `docs/research/gen1-weapons.md` for the
 fight, `gen1-movement.md` for energy and turning, `gen1-fitting-rules.md`
 for the garage and shop. Still to bring over:
 
-- Garage: PERFORMANCE page and GRADE (OVERALL 25,000+ SUPERFINE, 20,000+
-  GREAT, 15,000+ FINE, 10,000+ OK, else POOR), the 15 paint patterns
+- Garage: the 15 paint patterns
   (HEAD_T head + 18v, CORE_T core + 11v, ARMS_T arms + 24v, LEG_T legs +
   40v; colours MENU_TIM 26 + 4v + scheme), default paint, EDIT EMBLEM
   (64 x 64, 16 colours, colour 0 see-through), shop texts (MIS.T 385),
