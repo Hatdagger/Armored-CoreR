@@ -99,6 +99,13 @@ darker or yellower green is grass).
 
 ![A map shaped like Stage 1 (a white container, blue 10 x 10 x 20 mm blocks) with its made textures. A rough preview drawn outside the game, not a screenshot](maps/preview.png)
 
+**To see them all in the game:** drag `texture-gallery.zip` (beside the
+.bat in the download; `tools/maps/` in the repo) onto
+`play-tinkercad-map.bat`. It is a white container with a floor plate and a
+block in each of the other kinds:
+
+![The texture gallery map, as the converter's preview draws it](maps/gallery.png)
+
 - A picture covers a square of about **10 mm** (two and a half AC widths).
   Each shape gets its own squares, stretched a little so a whole number
   fits: a 10 x 10 x 20 mm block is one square wide and two tall on every

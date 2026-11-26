@@ -48,7 +48,8 @@ jobs:
           done
           cp README.md out/
           if [ "$RUNNER_OS" = "Windows" ]; then cp tools/netplay/*.bat tools/maps/*.bat out/; fi
-          cp tools/maps/tinkercad_stage.py docs/MAPS.md out/
+          cp tools/maps/tinkercad_stage.py tools/maps/texture-gallery.zip docs/MAPS.md out/
+          mkdir -p out/maps && cp docs/maps/*.png out/maps/
 
       - uses: actions/upload-artifact@v4
         with:
