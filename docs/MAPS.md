@@ -91,6 +91,8 @@ hard pixels, like the PS1 games' own); nothing is taken from the disc.
 | Orange, brown, dark red | crate | a container's ribs, rust, a frame | ribs the other way |
 | Anything else (purple, dark green...) | panel | painted slabs in that colour | |
 
+![The six patterns as the script draws them: white, dark grey, blue, yellow, orange and purple; walls above, floors below](maps/textures.png)
+
 Clear green and clear red stay the start markers and are never drawn.
 
 - A picture covers a square of about **10 mm** (two and a half AC widths).
