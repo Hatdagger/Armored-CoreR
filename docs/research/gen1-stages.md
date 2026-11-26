@@ -331,8 +331,14 @@ acr-import reads that layout for triangles by their length.
 
 Ocean Platform's chunk 3 has no sphere: entry 0 is a small object (24
 points, up at y -1,000..-2,261, page (512, 0)), entry 1 a flat plane of
-104 points, 47,000 across at y 0 (page (320, 0), 4-bit, palette row 507):
-the sea. Not drawn yet; how the game places it is not read.
+104 points, 47,000 model units (11,750 world units) across at y 0 (page
+(320, 0), 4-bit, palette row 507): the sea. Garden Plaza's entry 0 is
+the same kind of plane with grass. Both are mode 0x2E (see-through). How
+the game places them is not read. acr-import writes them as `far.obj`
+(lit like an area on light set 0); the engine tiles them out to the
+horizon just under the stage (ARENA.md, "Backgrounds"). Night City's
+chunk 3 is empty (its background is black in the game). Ocean's small
+object isn't drawn.
 
 acr-import writes spheres around their origin as `sky.obj` / `sky.mtl` /
 `sky-NN.png` (only Green Silo has one). The engine draws them around the

@@ -477,7 +477,7 @@ static int write_textured(const char *dir, const char *name, const char *unpacke
                "# placed by the area records. Engine world: x = -(game x), y up = -(game y),\n"
                "# z = game z; world units. Materials tNN = texture NN, cRRGGBB = flat colour.\n"
                "%s"
-               "mtllib %s.mtl\n", strcmp(name, "visual") ? "3, the sky, around the origin" : "1", stage,
+               "mtllib %s.mtl\n", !strcmp(name, "sky") ? "3, the sky, around the origin" : !strcmp(name, "far") ? "3, the far plane, around the origin" : "1", stage,
             lights ? "# Lit by the stage's light sets (FDAT 205 chunk 7): each face has its own points,\n"
                      "# coloured as the game lights it (r g b x 255 = the PS1 colour, 128 = texel as is).\n" : "",
             name);
@@ -832,7 +832,12 @@ static int write_toml(const char *dir, unsigned stage, const chunk *pts, const a
  * spheres. Written as sky.obj around the origin; the engine draws it
  * around the eye, behind everything (how the game places it is not read
  * yet). Only models that are spheres around their origin count. */
-static unsigned sky_areas(const chunk *set, area *out, unsigned max) {
+/* want_plane 0: spheres around their origin (skies); 1: flat planes over
+ * 20,000 model units across at the origin's height: Ocean Platform's sea
+ * and Garden Plaza's grass, 11,750 world units square, see-through (mode
+ * 0x2E). How the game places them isn't read; the engine tiles them out
+ * to the horizon under the stage. Written as far.obj. */
+static unsigned chunk3_areas(const chunk *set, area *out, unsigned max, int want_plane) {
     if (set->n < 4) return 0;
     const unsigned count = u16(set->p);
     size_t o = 4;
@@ -854,7 +859,16 @@ static unsigned sky_areas(const chunk *set, area *out, unsigned max) {
                     c[0] += x; c[1] += y; c[2] += z;
                 }
                 const double off = sqrt(c[0] * c[0] + c[1] * c[1] + c[2] * c[2]) / obj[0].nv;
-                if (hi > 0 && lo > hi * 0.9 && off < hi * 0.05) {
+                int ylo = 32767, yhi = -32768, xlo = 32767, xhi = -32768;
+                for (uint32_t i = 0; i < obj[0].nv; ++i) {
+                    const int x = s16(obj[0].vert + i * 8), y = s16(obj[0].vert + i * 8 + 2);
+                    if (y < ylo) ylo = y;
+                    if (y > yhi) yhi = y;
+                    if (x < xlo) xlo = x;
+                    if (x > xhi) xhi = x;
+                }
+                const int plane = ylo == 0 && yhi == 0 && xhi - xlo > 20000;
+                if (want_plane ? plane : (hi > 0 && lo > hi * 0.9 && off < hi * 0.05)) {
                     area a;
                     memset(&a, 0, sizeof a);
                     a.model = (int16_t)k;
@@ -908,7 +922,7 @@ int acr_export_moa_stages(const char *unpacked_dir, const char *out_dir, uint32_
         }
         {
             area sky[4];
-            const unsigned nsky = sky_areas(&ch[3], sky, 4);
+            const unsigned nsky = chunk3_areas(&ch[3], sky, 4, 0);
             uint32_t sf = 0, st = 0;
             char path2[1300];
             snprintf(path2, sizeof path2, "%s/sky.obj", dir);
@@ -916,6 +930,16 @@ int acr_export_moa_stages(const char *unpacked_dir, const char *out_dir, uint32_
             if (nsky && !write_textured(dir, "sky", unpacked_dir, s, &ch[3], sky, nsky, NULL, &sf, &st)) {
                 free(d);
                 set_err(err, err_size, "cannot write the sky in", dir);
+                return 0;
+            }
+            area far[4];
+            const unsigned nfar = chunk3_areas(&ch[3], far, 4, 1);
+            snprintf(path2, sizeof path2, "%s/far.obj", dir);
+            remove(path2);
+            /* Lit like an area on set 0 (the stages' floors around it). */
+            if (nfar && !write_textured(dir, "far", unpacked_dir, s, &ch[3], far, nfar, nlights ? lights : NULL, &sf, &st)) {
+                free(d);
+                set_err(err, err_size, "cannot write the far plane in", dir);
                 return 0;
             }
         }

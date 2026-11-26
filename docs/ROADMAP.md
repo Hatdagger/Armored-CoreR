@@ -253,7 +253,9 @@ Fixes after the first play-test (2026-11-19):
    each with its own out-of-area boxes from the disc, no match timer
    (user). **Stage lights done** (branch `stage-lights`, 2026-11-25):
    each area lit by its own light set from the disc, the game's maths;
-   no fog (user: off by default).
+   no fog (user: off by default). **Backgrounds** (branch
+   `stage-backgrounds`, 2026-11-25): far planes tiled to the horizon,
+   our own gradient skies with clouds (user: made-up assets are fine).
 8. **UI**: the game's menus and garage screens to Master of Arena's design
    (and the split-screen HUD). **Main menu** (first version done,
    2026-11-19, user's layout): GARAGE (ASSEMBLY, AC TEST), SHOP, ARENA,

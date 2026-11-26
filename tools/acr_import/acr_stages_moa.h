@@ -10,6 +10,7 @@
  *   <out>/<NN>/visual.obj/.mtl the stage's flat-coloured models (FDAT 5s+4 chunk 4),
  *                              placed by the area records (chunk 8)
  *   <out>/<NN>/collision.obj   the collision polygons (chunk 7), placed the same way
+ *   <out>/<NN>/sky.obj, far.obj chunk 3's sky sphere / far plane around the origin
  *
  * NN = stage number: 0-19 are the mission maps, 20-40 the arena / VS
  * stages (Green Silo is 27). Both OBJ files are in the

@@ -54,7 +54,8 @@ the core, tools and tests, add `-DACR_BUILD_GAME=OFF`.
 
 ## Importing your disc
 
-Re-import after updating to this version: the stages gained the game's own
+Re-import after updating to this version: Ocean Platform's sea and Garden
+Plaza's grass now reach the horizon (`far.obj`). Before that, the stages gained the game's own
 stage lights (an older import keeps one fixed light). Before that, Rogue Arena needed the game's
 arena opponents (`arena/`), the fight sounds need the game's shared fight
 bank (`sfx/`; without it fights are silent) and the weapon effects need the
