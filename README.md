@@ -117,6 +117,17 @@ them out (offensive, defensive, stability, mobility, support, OVERALL) and
 its GRADE: 25,000+ SUPERFINE, 20,000+ GREAT, 15,000+ FINE, 10,000+ OK,
 else POOR.
 
+**GARAGE > OPTIONAL PARTS** fits and removes optional parts, with each
+one's slots, the disc's description and its model. **GARAGE > CHANGE
+COLOR > EDIT COLOR** paints the head, core, arms and legs (four colours
+each; GENERAL paints them all; DEFAULT goes back to the game's colours):
+up / down picks R, G or B, left / right changes it (LB / RB by 2),
+Y / Tab the next colour, A keeps, B cancels.
+
+**SYSTEM > SETTINGS > VIDEO** (fullscreen, window size, fight HUD 4:3 /
+wide, smooth or stepped animation) and **AUDIO** (fight and menu sound
+volume) are saved in `settings.toml` beside the save.
+
 | Action | Controller | Keyboard |
 | --- | --- | --- |
 | Walk forward / back | left stick or d-pad up / down | W / S |

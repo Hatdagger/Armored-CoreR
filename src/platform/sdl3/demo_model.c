@@ -111,8 +111,28 @@ void demo_model_free(demo_model *m) {
     memset(m, 0, sizeof *m);
 }
 
+/* Which part's paint a patterned part kind takes (the game's order: head,
+ * core, arms, legs); -1 for the rest. */
+static int paint_part(int kind) {
+    switch (kind) {
+    case ACR_PART_HEAD: return 0;
+    case ACR_PART_CORE: return 1;
+    case ACR_PART_ARMS: return 2;
+    case ACR_PART_LEGS: return 3;
+    default: return -1;
+    }
+}
+
 int demo_model_load(const char *import_dir, int set, const int parts[SLOT_COUNT],
                     const uint8_t colours[4][3], demo_model *m) {
+    if (!colours) return demo_model_load_paint(import_dir, set, parts, NULL, m);
+    uint8_t paint[4][4][3];
+    for (int k = 0; k < 4; ++k) memcpy(paint[k], colours, sizeof paint[k]);
+    return demo_model_load_paint(import_dir, set, parts, (const uint8_t (*)[4][3])paint, m);
+}
+
+int demo_model_load_paint(const char *import_dir, int set, const int parts[SLOT_COUNT],
+                          const uint8_t paint[4][4][3], demo_model *m) {
     memset(m, 0, sizeof *m);
     char models[1024], path[1100];
     SDL_snprintf(models, sizeof models, "%s/models", import_dir);
@@ -127,7 +147,8 @@ int demo_model_load(const char *import_dir, int set, const int parts[SLOT_COUNT]
     SDL_free(t);
     for (int kind = 0; kind < ACR_PART_KINDS; ++kind) {
         const int index = part_index(kind, parts);
-        if (index >= 0) load_part(models, kind, index, colours, &m->part[kind]);
+        const int pp = paint_part(kind);
+        if (index >= 0) load_part(models, kind, index, paint && pp >= 0 ? paint[pp] : NULL, &m->part[kind]);
     }
     m->ok = m->part[ACR_PART_CORE].present && m->part[ACR_PART_LEGS].present;
     if (!m->ok) demo_model_free(m);
@@ -299,4 +320,75 @@ void demo_model_draw_pose(const demo_model *m, const acr_pose *pose, float x, fl
                 acr_render_mesh(g_batch, count * 3, g < ACR_PART_KINDS ? group_tex[g] : 0,
                                 ACR_MESH_PS1_TEXEL | (semi ? ACR_MESH_SEMI : 0));
         }
+}
+
+/* ---- one garage model (OPTIONAL PARTS) ---- */
+
+int demo_object_load(const char *import_dir, const char *kind, int index, demo_object *o) {
+    memset(o, 0, sizeof *o);
+    char dir[1100], path[1200];
+    SDL_snprintf(dir, sizeof dir, "%s/models/menu/%s/%02d", import_dir, kind, index);
+    SDL_snprintf(path, sizeof path, "%s/part.mtl", dir);
+    char *mtl = load_text(path);
+    if (!mtl || !acr_mtl_parse(mtl, &o->mtl)) { SDL_free(mtl); return 0; }
+    SDL_free(mtl);
+    SDL_snprintf(path, sizeof path, "%s/object0.obj", dir);
+    char *obj = load_text(path);
+    const int ok = obj && acr_obj_parse(obj, &o->mtl, &o->mesh) && o->mesh.tri_count > 0;
+    SDL_free(obj);
+    if (!ok) { acr_mesh_free(&o->mesh); return 0; }
+    float mn[3] = { 1e9f, 1e9f, 1e9f }, mx[3] = { -1e9f, -1e9f, -1e9f };
+    for (int i = 0; i < o->mesh.tri_count * 3; ++i)
+        for (int c = 0; c < 3; ++c) {
+            if (o->mesh.v[i].p[c] < mn[c]) mn[c] = o->mesh.v[i].p[c];
+            if (o->mesh.v[i].p[c] > mx[c]) mx[c] = o->mesh.v[i].p[c];
+        }
+    float r = 0;
+    for (int c = 0; c < 3; ++c) {
+        o->center[c] = (mn[c] + mx[c]) * 0.5f;
+        const float h = (mx[c] - mn[c]) * 0.5f;
+        r += h * h;
+    }
+    o->radius = sqrtf(r) > 1.0f ? sqrtf(r) : 1.0f;
+    SDL_snprintf(path, sizeof path, "%s/texture.png", dir);
+    o->texture = load_texture(path, ACR_PART_KINDS, NULL);
+    o->ok = 1;
+    return 1;
+}
+
+void demo_object_free(demo_object *o) {
+    acr_mesh_free(&o->mesh);
+    memset(o, 0, sizeof *o);
+}
+
+void demo_object_draw(const demo_object *o, float size, float yaw, float pitch, const acr_lighting *light) {
+    if (!o->ok) return;
+    const float k = size * 0.5f / o->radius;
+    const float cy = cosf(yaw), sy = sinf(yaw), cp = cosf(pitch), sp = sinf(pitch);
+    int n = 0;
+    for (int t = 0; t < o->mesh.tri_count && n < MAX_MODEL_TRIS; ++t, ++n) {
+        const acr_material *mt = &o->mtl.m[o->mesh.material[t]];
+        const int tex = mt->textured && o->texture;
+        for (int j = 0; j < 3; ++j) {
+            const acr_mesh_vertex *v = &o->mesh.v[t * 3 + j];
+            /* model space: y and z down / back, as the AC parts (see above) */
+            const float px = -(v->p[0] - o->center[0]) * k, py = -(v->p[1] - o->center[1]) * k,
+                        pz = -(v->p[2] - o->center[2]) * k;
+            const float nx0 = -v->n[0], ny0 = -v->n[1], nz0 = -v->n[2];
+            /* turn about y, then tip about x */
+            const float x1 = px * cy + pz * sy, z1 = -px * sy + pz * cy;
+            const float y2 = py * cp - z1 * sp, z2 = py * sp + z1 * cp;
+            const float nx1 = nx0 * cy + nz0 * sy, nz1 = -nx0 * sy + nz0 * cy;
+            const float ny2 = ny0 * cp - nz1 * sp, nz2 = ny0 * sp + nz1 * cp;
+            uint8_t col[3];
+            acr_light_color(light, (int32_t)(nx1 * 4096.0f), (int32_t)(ny2 * 4096.0f), (int32_t)(nz2 * 4096.0f),
+                            tex ? 128 : mt->r, tex ? 128 : mt->g, tex ? 128 : mt->b, col);
+            acr_vtx *out = &g_batch[n * 3 + j];
+            out->x = x1; out->y = y2; out->z = z2;
+            out->r = col[0]; out->g = col[1]; out->b = col[2]; out->a = 255;
+            out->u = v->uv[0];
+            out->v = 1.0f - v->uv[1];
+        }
+    }
+    if (n) acr_render_mesh(g_batch, n * 3, o->texture, ACR_MESH_PS1_TEXEL);
 }

@@ -56,7 +56,8 @@ typedef struct acr_gen1_hangar {
     uint8_t  fitted[ACR_GEN1_SLOT_COUNT];                    /* part number or ACR_GEN1_NO_PART */
     uint16_t options;                                        /* bit n = option n fitted */
     char     ac_name[20], pilot_name[20];
-    uint8_t  colours[4][3];                                  /* 0..63 per channel */
+    uint8_t  colours[4][3];                                  /* Rogue Arena's run paint: 4 slots, 0..63 */
+    uint8_t  paint[4][4][3];   /* CHANGE COLOR: [part][colour][R, G, B], 0..64 (see below) */
     uint8_t  stock[ACR_GEN1_CAT_COUNT][ACR_GEN1_PART_MAX];   /* sold to the shop, can be bought back */
 } acr_gen1_hangar;
 
@@ -128,10 +129,28 @@ unsigned acr_gen1_garage_check(const acr_gen1_hangar *h, const acr_gen1_catalog 
 void acr_gen1_garage_perf_build(const acr_gen1_hangar *h, const acr_gen1_catalog *c,
                                 int human_plus, acr_gen1_perf_build *out);
 
+/* ---- CHANGE COLOR (custom paint, AC1Recomp menus-screens.md §2l) ----
+ * The game's 48 paint bytes: parts in the order head, core, arms, legs;
+ * each with BASE, OPTIONAL, DETAIL and JOINT colours; R, G, B 0..64 (values
+ * above 31 give lighter shadows, acr_colour_ramp). */
+enum { ACR_GEN1_PAINT_HEAD, ACR_GEN1_PAINT_CORE, ACR_GEN1_PAINT_ARMS, ACR_GEN1_PAINT_LEGS,
+       ACR_GEN1_PAINT_GENERAL };   /* GENERAL: the core's colours, copied over the other three */
+enum { ACR_GEN1_COLOUR_BASE, ACR_GEN1_COLOUR_OPTIONAL, ACR_GEN1_COLOUR_DETAIL, ACR_GEN1_COLOUR_JOINT };
+#define ACR_GEN1_PAINT_MAX 64
+
+/* Every part gets the same 4 colours (DEFAULT: the disc's default scheme). */
+void acr_gen1_paint_fill(uint8_t paint[4][4][3], const uint8_t colours[4][3]);
+/* One channel of one colour; `part` ACR_GEN1_PAINT_HEAD..LEGS or GENERAL
+ * (sets the core's, then copies the core's 4 colours over head, arms and
+ * legs, as the game does after every change). Clamped to 0..64. */
+void acr_gen1_paint_set(uint8_t paint[4][4][3], int part, int colour, int channel, int value);
+/* The value the editor shows for a part (GENERAL shows the core's). */
+uint8_t acr_gen1_paint_get(const uint8_t paint[4][4][3], int part, int colour, int channel);
+
 /* ---- save file ----
  * Plain text in the same style as acr-import's part files. `format` is the
  * file's version; readers upgrade older formats. */
-#define ACR_GEN1_SAVE_FORMAT 2   /* 2: the shop's stock ([shop]) */
+#define ACR_GEN1_SAVE_FORMAT 3   /* 2: the shop's stock ([shop]); 3: CHANGE COLOR paint */
 
 /* Writes the save text into buf (always zero-terminated when size > 0).
  * Returns the length it needs, not counting the zero. */

@@ -8,7 +8,8 @@
  * AC; the warnings (perimeter, low AP, energy red zone, forced charging)
  * and the lock beeps are the listening AC's own, as the game's are.
  *
- * ACR_SFX_VOLUME=0..100 sets the volume (default 70; 0 = off).
+ * Volumes come from SETTINGS > AUDIO (sfx_set_volume); ACR_SFX_VOLUME=0..100
+ * sets both instead and wins over the settings (default 70; 0 = off).
  * ACR_SFX_LOG=1 prints each sound as it starts (for headless tests). */
 #ifndef ACR_SFX_H
 #define ACR_SFX_H
@@ -22,6 +23,10 @@
  * menus call it too (their clicks), before any fight. */
 int  sfx_open(const char *import_dir);
 void sfx_close(void);
+
+/* SETTINGS > AUDIO: fight sounds and menu / screen sounds, 0..1 each
+ * (ignored when ACR_SFX_VOLUME is set). */
+void sfx_set_volume(float fight, float menu);
 
 /* The HUD's weapon names for a fighter's weapon slots, as fx_set_weapons:
  * they pick each weapon's firing sound. Kept by pointer. */
