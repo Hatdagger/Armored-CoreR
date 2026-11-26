@@ -19,7 +19,7 @@ static acr_gen1_weapon rifle(void) {
     strcpy(w.name, "RIFLE");
     w.attack = 218; w.ammo = 200; w.range = 6100;
     w.lock_ms = 1; w.box_w = 240; w.box_h = 240; w.inner_w = 200; w.inner_h = 200; w.lock_value = 60;
-    w.interval = 5; w.hold = 13; w.speed = 700; w.shots = 1;
+    w.interval = 5; w.hold = 7; w.speed = 700; w.shots = 1;   /* 7 + 5 + 1 = 13 ticks */
     return w;
 }
 
@@ -675,7 +675,7 @@ int main(void) {
         mb.f[0].cooldown = mb.f[0].hold_left = 0;
         acr_gen1_actions shoot[2] = { { 1 }, { 0 } };
         acr_gen1_battle_step(&mb, none, shoot);
-        EXPECT(mb.f[0].hard_lock && mb.f[0].cooldown == 5 * ACR_GEN1_MODERN_ROCKET_ROF_PCT / 100);
+        EXPECT(mb.f[0].hard_lock && mb.f[0].cooldown == 5 * ACR_GEN1_MODERN_ROCKET_ROF_PCT / 100 + 1);
         {
             int64_t v2 = 0;
             for (int k = 0; k < ACR_GEN1_MAX_SHOTS; ++k)
@@ -688,7 +688,7 @@ int main(void) {
         mb.f[0].hard_lock = 0;
         mb.f[0].cooldown = mb.f[0].hold_left = 0;
         acr_gen1_battle_step(&mb, none, shoot);
-        EXPECT(mb.f[0].cooldown == 5 * ACR_GEN1_MODERN_ROCKET_ROF_PCT / 100);   /* without hard lock too */
+        EXPECT(mb.f[0].cooldown == 5 * ACR_GEN1_MODERN_ROCKET_ROF_PCT / 100 + 1);   /* without hard lock too */
         /* Spread and bloom: rapid fire spreads the shots, then settles; the
          * original controls get none. */
         {
@@ -707,7 +707,7 @@ int main(void) {
                         if (sx > hi) hi = sx;
                     }
             }
-            EXPECT(mb.f[0].bloom == ACR_GEN1_MODERN_BLOOM_MAX);
+            EXPECT(mb.f[0].bloom + 2 * ACR_GEN1_MODERN_BLOOM_DECAY >= ACR_GEN1_MODERN_BLOOM_MAX);   /* fires every other tick */
             EXPECT(hi > 0 && lo < 0);                                   /* shots go both ways off the line */
             for (int k = 0; k < 60; ++k) acr_gen1_battle_step(&mb, none, na);
             EXPECT(mb.f[0].bloom == 0);
@@ -771,6 +771,82 @@ int main(void) {
         acr_gen1_battle_step(&bb, none, sw);
         while (bb.f[0].swing) acr_gen1_battle_step(&bb, none, na);
         EXPECT(bb.f[1].ap < bb.f[1].ap_max && bb.f[0].recover_ms > 0 && bb.f[0].recover_ms <= ACR_GEN1_MODERN_RECOVER_HIT_MS);
+    }
+
+    /* Refire (VS 0x80081034): a wait of n fires every n + 1 ticks, so the
+     * WG-MGA1 (wait 1, no hold) fires every other tick, not every tick. */
+    {
+        static acr_gen1_battle rb;
+        setup(&rb, 3000);
+        rb.f[0].weapons = 1; rb.f[0].weapon[0] = rifle(); rb.f[0].ammo[0] = 200;
+        rb.f[0].weapon[0].interval = 1; rb.f[0].weapon[0].hold = 0;
+        for (int t = 0; t < 20; ++t) acr_gen1_battle_step(&rb, none, fire);
+        EXPECT(rb.f[0].ammo[0] == 190);
+    }
+    /* Hit stagger: a rifle hit (impact 3) on stability 38 is level 3: the
+     * target loses its controls for a while and is pushed back. */
+    {
+        static acr_gen1_ac_def steady;
+        steady = def;
+        steady.stats.stability = 38;
+        static acr_gen1_battle sb;
+        setup(&sb, 1500);
+        sb.f[1].def = &steady;
+        sb.f[0].weapons = 1; sb.f[0].weapon[0] = rifle(); sb.f[0].weapon[0].impact = 3; sb.f[0].ammo[0] = 200;
+        const int32_t z0 = sb.f[1].ac.z;
+        int k = 0;
+        while (sb.f[1].ap == sb.f[1].ap_max && k++ < 200) acr_gen1_battle_step(&sb, none, fire);
+        EXPECT(sb.f[1].ap < sb.f[1].ap_max);
+        EXPECT(sb.f[1].stagger > 0 && sb.f[1].stagger <= ACR_GEN1_STAGGER_BASE + 3 * ACR_GEN1_STAGGER_PER_LEVEL);
+        acr_gen1_battle_step(&sb, none, idle);
+        EXPECT(sb.f[1].ac.z > z0);                              /* pushed away from the shooter */
+        for (int t = 0; t < 30; ++t) acr_gen1_battle_step(&sb, none, idle);
+        EXPECT(sb.f[1].stagger == 0);
+        /* no impact: no stagger */
+        setup(&sb, 1500);
+        sb.f[1].def = &steady;
+        sb.f[0].weapons = 1; sb.f[0].weapon[0] = rifle(); sb.f[0].ammo[0] = 200;
+        k = 0;
+        while (sb.f[1].ap == sb.f[1].ap_max && k++ < 200) acr_gen1_battle_step(&sb, none, fire);
+        EXPECT(sb.f[1].ap < sb.f[1].ap_max && sb.f[1].stagger == 0);
+    }
+    /* Round over: shots still fly but do no damage; a destroyed AC in the
+     * air falls instead of hanging there. */
+    {
+        static acr_gen1_battle ob;
+        setup(&ob, 1500);
+        ob.f[0].weapons = 1; ob.f[0].weapon[0] = rifle(); ob.f[0].ammo[0] = 200;
+        acr_gen1_battle_step(&ob, none, fire);
+        ob.over = 1;
+        for (int t = 0; t < 60; ++t) acr_gen1_battle_step(&ob, none, idle);
+        EXPECT(ob.f[1].ap == ob.f[1].ap_max);
+        setup(&ob, 1500);
+        ob.f[1].ac.y = -1500 * 64;
+        ob.f[1].ac.state = ACR_GEN1_AIR;
+        ob.f[1].ap = 0;
+        for (int t = 0; t < 200; ++t) acr_gen1_battle_step(&ob, none, idle);
+        EXPECT(ob.f[1].ac.y > -100 * 64);                       /* back on the floor (y 0) */
+    }
+    /* The vertical missile (flight kind 4): leaves upward and doesn't drop
+     * before its motor lights. */
+    {
+        static acr_gen1_battle vb;
+        setup(&vb, 4000);
+        acr_gen1_weapon vm = small_missile();
+        vm.flight = (acr_gen1_flight){ 120, 160, 60, 300, 90, 1024, 4 };
+        vm.ignition = 20;
+        vb.f[0].weapons = 1; vb.f[0].weapon[0] = vm; vb.f[0].ammo[0] = 40;
+        int k = 0;
+        while (!shots_alive(&vb) && k++ < 200) acr_gen1_battle_step(&vb, none, fire);
+        EXPECT(shots_alive(&vb));
+        int si = -1;
+        for (int q = 0; q < ACR_GEN1_MAX_SHOTS; ++q) if (vb.shot[q].active) si = q;
+        const int32_t y_launch = vb.shot[si].y;
+        acr_gen1_battle_step(&vb, none, idle);
+        EXPECT(vb.shot[si].vy < 0 && vb.shot[si].y < y_launch);  /* going up */
+        int32_t top_y = vb.shot[si].y;
+        for (int t = 0; t < 10; ++t) { acr_gen1_battle_step(&vb, none, idle); if (vb.shot[si].y < top_y) top_y = vb.shot[si].y; }
+        EXPECT(vb.shot[si].active && top_y < y_launch - 300 * 64);
     }
 
     if (failures) { printf("%d failure(s)\n", failures); return 1; }

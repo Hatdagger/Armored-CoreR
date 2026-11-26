@@ -2629,6 +2629,7 @@ int main(int argc, char **argv) {
             }
             /* The arena's floors and walls (the defs are reloaded on part changes). */
             def->stage = def2->stage = battle.stage = g_stage_on ? &g_stage.collision : NULL;
+            battle.over = (uint8_t)round_over;    /* decided: hits after this don't count */
             acr_gen1_battle_step(&battle, in2, act);
             if (battle.mission.flags & ACR_GEN1_MISSION_SWAP) {
                 /* P4 Altered circumstances: the examiner withdraws and the

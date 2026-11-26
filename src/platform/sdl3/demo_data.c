@@ -282,6 +282,10 @@ int demo_load(const char *import_dir, const int parts[SLOT_COUNT], demo_ac *out,
             SDL_strlcpy(out->weapon_type[out->weapons], ptype[0] && SDL_strcmp(ptype, "ARM UNIT") ? ptype : out->names[s],
                         sizeof out->weapon_type[out->weapons]);
             w->attack = (uint16_t)get_int(t, e, "attack", 0);
+            {   /* knockback: detail +0x16 (blade +0x32) */
+                const long imp = get_int(t, e, "impact", 0);
+                w->impact = (uint8_t)(imp < 0 ? 0 : imp > 255 ? 255 : imp);
+            }
             if (s == SLOT_BLADE) {
                 w->kind = ACR_GEN1_BLADE;
                 w->energy = (uint8_t)((get_int(t, e, "hit_flags", 0x20) & 0x20) != 0);
@@ -305,10 +309,12 @@ int demo_load(const char *import_dir, const int parts[SLOT_COUNT], demo_ac *out,
                 /* Refire wait: detail +0x11 in game ticks (AC +0x48 counts it
                  * down; 5 after a WG-RF35 shot). */
                 w->interval = (uint16_t)get_int(t, e, "fire_interval", 5);
-                /* Post-shot hold (detail +4, 255 none): WG-RF35's hold sets its
-                 * measured 13-tick cadence; longer holds a stand-in. */
+                /* Post-shot hold (detail +4, 255 none): the firing animation,
+                 * during which the refire wait doesn't count down. WG-RF35
+                 * (hold 0, wait 5): 7 + 5 + 1 = its measured 13-tick cadence;
+                 * longer holds a stand-in. */
                 const long hold = get_int(t, e, "post_shot_hold", 255);
-                w->hold = (uint8_t)(hold == 255 || kind == 1 ? 0 : 13 + 2 * hold);
+                w->hold = (uint8_t)(hold == 255 || kind == 1 ? 0 : 7 + 2 * hold);
                 const long pattern = get_int(t, e, "fire_pattern", 0);
                 w->shots = (uint8_t)((pattern & 3) == 1 ? 2 : (pattern & 3) == 2 ? 4 : 1);
                 w->straight = (uint8_t)((get_int(t, e, "sight", 1) & 4) != 0 || (pattern & 4) != 0);

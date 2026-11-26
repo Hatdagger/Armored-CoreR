@@ -79,8 +79,22 @@ all as measured. No distance fall-off.
 
 Impact sets a knockback level, `impact x 256 / (stability x 25 / 4)`,
 0 to 5 (`0x80079AA4`): the blade (11) is level 5 on the default AC, the
-rifle (3) level 3. `acr_gen1_knockback_level` has it; how far each level
-pushes is not read yet, so the engine doesn't push yet (blade aside).
+rifle (3) level 3.
+
+**Hit stagger** (read 2026-11-26, VS `0x80082500`). A hit of level 1 or
+more clears the target's firing animation (AC +0x150, +0x164), so its
+post-shot hold ends, and:
+- crouched (state 34, the cannon stance): `0x8007B454`, taken in the stance;
+- in the air (+0x46 = 192, or pushed up hard): hit state 129, states 41-44
+  by the quarter it was hit from (front / right / back / left), the push
+  added to its motion;
+- on the ground: hit state 128, states 37-40, `0x8007BC6C` plays the hit
+  animation, slows the AC's own motion and moves it by the push.
+The push (`0x80079ADC`): impact x 3,276 x 8 >> 12 along the line from the
+shot to the AC, half that sideways (about 3.2 units a tick per point of
+impact). The engine: `ACR_GEN1_STAGGER_*` (controls taken away for
+2 + 2 x level ticks, a stand-in until the hit animations' lengths are read;
+the push halving each tick).
 
 ## Hit cylinder
 
@@ -92,7 +106,12 @@ middle (y - 106). Was a 65 sphere at 100 up (stand-in).
 
 - **Cadence.** After a shot the refire wait (AC +0x48) is the fire
   interval byte **in ticks** (5 for WG-RF35) and counts down a tick at a
-  time. The earlier "byte x 118 ms" came from the WG-RF35 alone, whose
+  time. Read 2026-11-26 (`0x80081020`-`0x80081040`): a tick that finds the
+  wait above 0 only counts it down, and the gun fires on a tick that finds
+  it at 0, so a wait of n fires every **n + 1** ticks (WG-MGA1, wait 1:
+  every other tick, 11 a second; the engine had every tick). The count
+  also stops while a firing animation plays (+0x6D not 255), for every
+  gun, not only cannons. Missiles: the same (`0x800818F0`). The earlier "byte x 118 ms" came from the WG-RF35 alone, whose
   13-tick cadence (590 ms) is really its **post-shot hold**: weapons with
   detail +4 below 255 (WG-RF35 and WG-PB26 0, cannons WC-GN230 / WC-IR24 1,
   WX-ED2 / WX-C/4 2) play a firing animation on the AC's second layer, and
@@ -174,7 +193,13 @@ id as first thought; `acr-import` now follows the launcher table):
 | 5 | 180 | 200 | 30 | 100 | 50 | +-90 |
 | 11 | 250 | 300 | 30 | 100 | 60 | +-135 |
 
-Each tick: before ignition it coasts under gravity (kind 4 already turns);
+Each tick: before ignition it coasts under gravity. Kind 4 (WM-SMSS24,
+the vertical missile, ignition 20) doesn't: it flies along its heading, 8
+faster a tick up to its top speed, turning toward the target (with lead,
+`0x80088F60`) at its turn rate (`0x80089168` -> `0x8008951C`). Missiles
+leave along the launcher's own joints (`0x800815A4` -> `0x80078888`), which
+for kind 4 point up; the engine launches kind 4 straight up until the
+joints are read;
 at ignition it thrusts along its heading up to the top speed, the heading
 turning at most "turn" toward the target. Once the target has been inside
 the cone, leaving it makes the missile **give up for good** (it flies on,
