@@ -129,6 +129,13 @@ int acr_gen1_rogue_score(const acr_gen1_rogue_foe *f);
  * Returns the slots filled (20 unless the roster is too small). */
 int acr_gen1_rogue_lineup(const acr_gen1_rogue_world *w, uint64_t seed,
                           acr_gen1_rogue_pick out[ACR_GEN1_ROGUE_SLOTS]);
+/* Co-op (acr_gen1_coop.h): the same curve with two opponents a rung, 38
+ * drawn and paired easiest first; every rule that counts rungs (KARASAWA in
+ * the top 10, Human PLUS in the top 8, the tight top 8) counts pairs. Slot
+ * 0 is the players. Returns the rungs filled (20 unless the roster is too
+ * small). */
+int acr_gen1_rogue_lineup_pairs(const acr_gen1_rogue_world *w, uint64_t seed,
+                                acr_gen1_rogue_pick out[ACR_GEN1_ROGUE_SLOTS][2]);
 
 /* A random starting AC that passes the game's checks and carries a real
  * gun (a hand weapon or weapon arms with attack). 1 = ok. */

@@ -1,4 +1,4 @@
-/* Rogue Arena screens for the PC build: the start menu, the hub (NEXT
+/* Rogue Arena screens for the PC build: SOLO / CO-OP, the start menu, the hub (NEXT
  * BATTLE, SWAP PARTS, STAGE, GARAGE), the VS screen, the prize screen, the
  * loss and victory screens. The run's rules are in src/gen1/acr_gen1_rogue.c;
  * this file draws them, keeps the run file and hands fights to main.c.
@@ -16,12 +16,18 @@ typedef enum rogue_command {
 } rogue_command;
 
 typedef struct rogue_fight {
-    int parts[2][SLOT_COUNT];          /* 0 the player, 1 the opponent */
-    uint8_t colours[2][4][3];
-    uint8_t plus[2];                   /* Human PLUS level (0 none, 9 full) */
-    acr_gen1_ai_profile ai;            /* the opponent's pilot */
+    /* Solo and the Arena: 0 the player, 1 the opponent. Co-op (humans 2):
+     * 0 player 1, 1 player 2, 2 and 3 the pair (fighters 4), or the final
+     * duel, player 1 against player 2 (fighters 2). */
+    int parts[4][SLOT_COUNT];
+    uint8_t colours[4][4][3];
+    uint8_t plus[4];                   /* Human PLUS level (0 none, 9 full) */
+    acr_gen1_ai_profile ai;            /* the opponent's pilot (solo, the Arena) */
+    acr_gen1_ai_profile pair_ai[2];    /* co-op: fighters 2 and 3's pilots */
     int stage;                         /* stage id */
-    char name[2][48];
+    int humans;                        /* 0 or 1 solo / the Arena, 2 co-op */
+    int fighters;                      /* co-op: 4 against a pair, 2 the duel */
+    char name[4][48];
 } rogue_fight;
 
 /* main.c draws the ACs of the VS and victory screens: build `parts` in
@@ -50,6 +56,10 @@ int rogue_vs_due(void);
 /* The fight is over: 1 the player won, 2 lost, 3 draw (a loss), as
  * acr_gen1_battle_result. */
 void rogue_fight_over(int result);
+/* A co-op fight is over (rogue_fight_info()->humans == 2): the result as
+ * acr_gen1_battle_result (1 the players' team / player 1 in the duel, 2 the
+ * pair / player 2, 3 a draw) and whether each player's AC was destroyed. */
+void rogue_coop_fight_over(int result, int p1_down, int p2_down);
 
 /* The run's garage (assembly) and its catalogue (prices in P, no shop). */
 garage_data rogue_garage_data(void);

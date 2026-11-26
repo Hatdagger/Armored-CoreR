@@ -40,6 +40,7 @@ add_library(acr_gen1 STATIC
     src/gen1/acr_gen1_ai.c
     src/gen1/acr_gen1_stage.c
     src/gen1/acr_gen1_rogue.c
+    src/gen1/acr_gen1_coop.c
     src/gen1/acr_gen1_arena.c
     src/gen1/acr_gen1_match.c)
 target_include_directories(acr_gen1 PUBLIC src/gen1)
@@ -139,6 +140,9 @@ add_test(NAME gen1_ai COMMAND test_gen1_ai)
 add_executable(test_gen1_rogue tests/test_gen1_rogue.c)
 target_link_libraries(test_gen1_rogue PRIVATE acr_gen1)
 add_test(NAME gen1_rogue COMMAND test_gen1_rogue)
+add_executable(test_gen1_coop tests/test_gen1_coop.c)
+target_link_libraries(test_gen1_coop PRIVATE acr_gen1)
+add_test(NAME gen1_coop COMMAND test_gen1_coop)
 add_executable(test_gen1_arena tests/test_gen1_arena.c)
 target_link_libraries(test_gen1_arena PRIVATE acr_gen1)
 add_test(NAME gen1_arena COMMAND test_gen1_arena)

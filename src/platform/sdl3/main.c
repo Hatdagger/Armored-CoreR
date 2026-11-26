@@ -495,7 +495,8 @@ static int next_part(const char *dir, int parts[SLOT_COUNT], int slot, demo_ac *
 static int g_ai_mode = 0;
 static acr_gen1_ai_profile g_rogue_prof;
 static int g_plus2 = 0;                  /* the opponent's Human PLUS level (Rogue Arena) */
-static int g_rogue_fight = 0;            /* a menu-run fight is on: 1 Rogue Arena, 2 the Arena, 3 a mission */
+static int g_plus_ai[2];                 /* Rogue Arena co-op: fighters 2 and 3's Human PLUS levels */
+static int g_rogue_fight = 0;            /* a menu-run fight is on: 1 Rogue Arena, 2 the Arena, 3 a mission, 4 Rogue Arena co-op */
 static int32_t g_round_start_ms = 120000; /* a round's length (the Arena's timer can change it) */
 static int g_round_clock = 1;            /* 0 = no time limit (the Arena's NONE) */
 /* The fight the menus set up (Rogue Arena's or the Arena's). */
@@ -1233,9 +1234,10 @@ int main(int argc, char **argv) {
         f_->intercept_shot = -1; f_->swing_target = -1; f_->last_missile = -1;        \
         /* Human PLUS at full (level 9): energy rules of VS 0x80083560. */            \
         /* With SP-MODERN only the no-kneel benefit applies (level 0 here). */         \
-        if ((i_ == 0 ? human_plus : g_plus2) && !d_->plus_applied &&                  \
-            acr_gen1_human_plus_level(i_ == 0 ? 9 : (unsigned)g_plus2, i_ == 0 ? g_options[0] : 0)) { \
-            acr_gen1_human_plus_energy(&d_->def.stats, i_ == 0 ? 9 : g_plus2);        \
+        const int lvl_ = i_ == 0 ? 9 : i_ == 1 ? g_plus2 : g_plus_ai[i_ - 2];          \
+        if ((i_ == 0 ? human_plus : lvl_) && !d_->plus_applied &&                     \
+            acr_gen1_human_plus_level((unsigned)lvl_, i_ == 0 ? g_options[0] : 0)) {   \
+            acr_gen1_human_plus_energy(&d_->def.stats, lvl_);                         \
             d_->plus_applied = 1;                                                     \
         }                                                                             \
         f_->def = &d_->def;                                                           \
@@ -1250,7 +1252,7 @@ int main(int argc, char **argv) {
         f_->current = 0;                                                              \
         f_->legs = (uint8_t)(pp[i_][SLOT_LEGS] >= 27 ? ACR_GEN1_LEGS_TRACKS            \
                    : pp[i_][SLOT_LEGS] >= 21 ? ACR_GEN1_LEGS_FOUR : ACR_GEN1_LEGS_TWO); \
-        f_->human_plus = (uint8_t)(i_ == 0 ? human_plus : i_ == 1 && g_plus2 > 0); f_->kneeling = 0; \
+        f_->human_plus = (uint8_t)(i_ == 0 ? human_plus : lvl_ > 0); f_->kneeling = 0; \
         f_->team = (uint8_t)(i_ >= 2);   /* co-op: players 0, 1 against the AI ACs */ \
         f_->target = -1;                                                              \
         /* SP-MODERN: pilots only (the AI flies the original controls). */           \
@@ -1761,7 +1763,17 @@ int main(int argc, char **argv) {
                                             (battle.mission.flags & ACR_GEN1_MISSION_BONUS) != 0))
                         hangar_save();
                 } else if (was_arena_) { if (arena_fight_over(res_)) hangar_save(); }
-                else rogue_fight_over(res_);
+                else if (g_rogue_fight == 4) {
+                    /* Co-op: who was destroyed decides the rejoin choice. */
+                    /* ACR_ROGUE_DOWN=1 / 2 (testing, with ACR_ROGUE_AUTOWIN): that player counts as destroyed. */
+                    const char *dn_ = SDL_getenv("ACR_ROGUE_DOWN");
+                    rogue_coop_fight_over(res_, autowin ? dn_ && SDL_strchr(dn_, '1') != NULL : battle.f[0].ap <= 0,
+                                          autowin ? dn_ && SDL_strchr(dn_, '2') != NULL : battle.f[1].ap <= 0);
+                    battle.count = 0;
+                    g_plus_ai[0] = g_plus_ai[1] = 0;
+                    two_players = SDL_getenv("ACR_TWO") != NULL;
+                    g_paint_on[2] = g_paint_on[3] = 0;
+                } else rogue_fight_over(res_);
                 g_rogue_fight = 0;
                 g_round_start_ms = ROUND_MS; g_round_clock = 1;
                 g_ai_mode = 0; g_autopilot = 0; g_plus2 = 0; human_plus = 0;
@@ -1900,10 +1912,38 @@ int main(int argc, char **argv) {
                 def->stage = def2->stage = battle.stage = g_stage_on ? &g_stage.collision : NULL;
                 set_rate(&clock, def, g_tick_rate);
                 set_rate(&clock, def2, g_tick_rate);
+                /* No time limit: a fight goes on until one side is down
+                 * (user, 2026-11-25; solo too). */
+                g_round_clock = 0;
+                if (rf->humans == 2) {
+                    /* Co-op on this PC: player 1 (fighter 0) and player 2
+                     * (fighter 1, the second controller) on a split screen,
+                     * against the pair (fighters 2, 3) flown by their own
+                     * pilots; or the final duel, player against player. */
+                    battle.count = (uint8_t)(rf->fighters == 4 ? 4 : 0);
+                    for (int k = 0; k < 2 && rf->fighters == 4; ++k) {
+                        memcpy(parts_ai[k], rf->parts[2 + k], sizeof parts_ai[k]);
+                        demo_load(dir, parts_ai[k], &ac_data[2 + k], err, sizeof err);
+                        g_plus_ai[k] = rf->plus[2 + k];
+                    }
+                    for (int k = 0; k < ACR_GEN1_MAX_FIGHTERS; ++k) {
+                        g_paint_on[k] = k < (rf->fighters == 4 ? 4 : 2);
+                        memcpy(g_paint[k], rf->colours[k], sizeof g_paint[k]);
+                    }
+                    g_ai_mode = 0;
+                    two_players = 1;
+                    for (int k = 2; k < acr_gen1_battle_fighters(&battle); ++k) {
+                        set_rate(&clock, &ac_data[k].def, g_tick_rate);
+                        ac_data[k].def.stage = g_stage_on ? &g_stage.collision : NULL;
+                    }
+                }
                 SETUP_FIGHTERS();
+                for (int k = 2; k < acr_gen1_battle_fighters(&battle); ++k)
+                    acr_gen1_ai_init(&g_ai[k], &rf->pair_ai[k - 2], 0x1234u + (uint32_t)k * 977u + (uint32_t)(++g_ai_round) * 7919u);
                 prevs[0] = *P; prevs[1] = *T;
+                for (int k = 2; k < acr_gen1_battle_fighters(&battle); ++k) prevs[k] = battle.f[k].ac;
                 last = SDL_GetTicksNS();
-                g_rogue_fight = 1;
+                g_rogue_fight = rf->humans == 2 ? 4 : 1;
                 rogue_over_at = give_up_until = 0;
                 mode = 1;
             }
@@ -2300,7 +2340,8 @@ int main(int argc, char **argv) {
             if (pads[1]) ctl[1] = pads[1];
             else { ctl[1] = pads[0]; ctl[0] = NULL; }
         }
-        acr_gen1_input in2[2];
+        acr_gen1_input in2[ACR_GEN1_MAX_FIGHTERS];
+        SDL_zeroa(in2);
         /* Online this PC's player is slot 0 here, whichever player it is. */
         const int mod[2] = { g_net ? modern_of(net_info.local) : modern_of(0), !g_net && modern_of(1) };
         in2[0] = mod[0] ? read_modern(ctl[0], cruise_on[0]) : read_input(ctl[0], 1);
@@ -2331,7 +2372,7 @@ int main(int argc, char **argv) {
             in2[0].boost = (uint8_t)v[3];
             hold_fire = v[4];
         }
-        acr_gen1_actions act[2] = { { 0 }, { 0 } };
+        acr_gen1_actions act[ACR_GEN1_MAX_FIGHTERS] = { { 0 } };
         act[0].fire = (uint8_t)(hold_fire || (!mod[0] && controls_key_held(CK_FIRE)) ||
                                 (ctl[0] && !back_held && (mod[0] ? SDL_GetGamepadAxis(ctl[0], SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) > 8000
                                                                  : controls_held(ctl[0], CT_FIRE))));
@@ -2411,6 +2452,7 @@ int main(int argc, char **argv) {
         for (uint32_t i = 0; i < ticks; ++i) {
             prevs[0] = *P;
             prevs[1] = *T;
+            for (int k = 2; k < acr_gen1_battle_fighters(&battle); ++k) prevs[k] = battle.f[k].ac;
             /* Two players: a two-minute round, decided as the VS engine
              * does: a knock-out settles 12 ticks after it (both down is a
              * draw); at time up the higher AP wins, equal AP is a draw. */
@@ -2463,6 +2505,11 @@ int main(int argc, char **argv) {
             for (int k = 0; k < 2; ++k) {
                 const int by_ai = g_ai_mode && ((k == 1 && !two_players) || (k == 0 && g_autopilot));
                 if (!by_ai) continue;
+                acr_gen1_ai_step(&g_ai[k], &battle, k, g_stage_on ? g_stage.half : ARENA, &in2[k], &act[k]);
+                g_in[k] = in2[k];
+            }
+            /* Rogue Arena co-op on this PC: the pair flies itself. */
+            for (int k = 2; g_rogue_fight == 4 && k < acr_gen1_battle_fighters(&battle); ++k) {
                 acr_gen1_ai_step(&g_ai[k], &battle, k, g_stage_on ? g_stage.half : ARENA, &in2[k], &act[k]);
                 g_in[k] = in2[k];
             }
@@ -2573,8 +2620,12 @@ int main(int argc, char **argv) {
         for (int vi = 0; vi < views; ++vi) {
         const int view = g_net ? net_info.local : vi;   /* online: your own player, full screen */
         const int vx = vi * pw / views, vpw = (vi + 1) * pw / views - vx;
-        const acr_gen1_ac ac = battle.f[view].ac;
-        const acr_gen1_ac prev = prevs[view];
+        /* Rogue Arena co-op: once your AC is down, your view follows your
+         * partner's for the rest of the fight. */
+        const int cam_ = g_rogue_fight == 4 && battle.count > 2 && battle.f[view].ap <= 0 && battle.f[1 - view].ap > 0
+                       ? 1 - view : view;
+        const acr_gen1_ac ac = battle.f[cam_].ac;
+        const acr_gen1_ac prev = prevs[cam_];
         /* The AC this view's pilot is aimed at (its target; the other AC in 1v1). */
         const int tgi = acr_gen1_battle_target(&battle, view) >= 0 ? acr_gen1_battle_target(&battle, view) : 1 - view;
         const acr_gen1_ac *const T = &battle.f[tgi].ac;
@@ -2615,7 +2666,7 @@ int main(int argc, char **argv) {
             /* The camera's swing toward the target (acr_gen1_camera: VS
              * 0x8008774C), between ticks; the chase camera clamps the
              * pitch to +-800. */
-            const acr_gen1_fighter *cf = &battle.f[view];
+            const acr_gen1_fighter *cf = &battle.f[cam_];
             const float ct = acr_gen1_tick_fraction(&ac);
             const float cam_p = cf->cam_pitch_prev + (cf->cam_pitch - cf->cam_pitch_prev) * ct,
                         cam_y = cf->cam_yaw_prev + (float)(((cf->cam_yaw - cf->cam_yaw_prev + 2048) & 4095) - 2048) * ct;
