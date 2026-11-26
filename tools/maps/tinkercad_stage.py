@@ -468,7 +468,7 @@ def _clip(poly, idx, bound, keep_above):
         if ina:
             out.append(a)
         if ina != inb:
-            f = (bound - a[idx]) / (b[idx] - a[idx])
+            f = min(1.0, max(0.0, (bound - a[idx]) / (b[idx] - a[idx])))   # (an edge lying along the line)
             out.append(tuple(a[j] + (b[j] - a[j]) * f for j in range(5)))
     return out
 
