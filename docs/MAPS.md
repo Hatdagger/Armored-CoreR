@@ -75,6 +75,40 @@ Anything taller than 2.4 mm stops a walking AC; anything lower it walks over.
 For ramps, use the Tinkercad *Wedge*. ACs climb any slope gentler than 45
 degrees.
 
+## Textures
+
+Tinkercad has no textures, so the converter makes one for every colour on
+the map: the **kind of colour picks the pattern** and the colour itself
+tints it. They are new pictures drawn by the script (small, few shades,
+hard pixels, like the PS1 games' own); nothing is taken from the disc.
+
+| Colour in Tinkercad | Pattern | On walls | On floors and roofs |
+|---|---|---|---|
+| White, light grey | panel | concrete slabs: seams, bolts, streaks, grime at the foot | four slabs with scuffs |
+| Dark grey, black | plate | steel tread plate | the same, in four plates |
+| Blue, light blue | facade | two storeys of windows, some lit | a roof with a parapet and vents |
+| Yellow | hazard | black and yellow stripes | wider stripes |
+| Orange, brown, dark red | crate | a container's ribs, rust, a frame | ribs the other way |
+| Anything else (purple, dark green...) | panel | painted slabs in that colour | |
+
+Clear green and clear red stay the start markers and are never drawn.
+
+- A picture covers a square of about **10 mm** (two and a half AC widths).
+  Each shape gets its own squares, stretched a little so a whole number
+  fits: a 10 x 10 x 20 mm block is one square wide and two tall on every
+  side, so patterns end at a shape's edges instead of being cut off. So
+  **make buildings in multiples of 10 mm** and the windows come out even.
+- Shapes of the same colour that touch count as one shape (a floor and its
+  walls line up).
+- The underside of the lowest floor is never seen and isn't drawn. A very
+  big map gets wider squares by itself (the script says so).
+- `--texture-size 20`: bigger squares. `--plain`: no textures, flat colours
+  as before.
+- The pictures are `tex-RRGGBB.png` in the stage's folder (64 x 128: the
+  upper half for walls, the lower for floors). You can **paint over one**
+  in any paint program and the game shows yours; converting the map again
+  writes the made one back.
+
 ## Things to know
 
 - **Up is Tinkercad's up**, and the map isn't mirrored: seen from above in
@@ -108,12 +142,15 @@ ACR_STAGE=50 ./armored-corer
   overwrites them), so use 50 and up. One map per number.
 - `--name`: the name shown in the game.
 - `--scale`: game units per mm (default 50).
+- `--texture-size`: mm one square of a texture covers (default 10).
+  `--plain`: no textures (see "Textures").
 - `--up z|y`: the file's up axis. The default works it out by itself. This
   only matters for an OBJ from another program (SketchUp, Blockbench and
   Blender also export OBJ; use the same colours for the starts).
 
 The script writes `stages/<id>/` in the import folder: `stage.toml` (name,
-starts), `visual.obj` / `visual.mtl` (what's drawn) and `collision.obj`
+starts), `visual.obj` / `visual.mtl` and the `tex-*.png` textures (what's
+drawn) and `collision.obj`
 (what's solid), in the same layout acr-import writes for the disc's stages
 (`docs/research/gen1-stages.md`, "Import"). It warns when a start has no floor
 under it.
