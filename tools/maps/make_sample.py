@@ -6,10 +6,16 @@ enemies (red) as teammate pairs. Used by the tests; also a starting point to loo
 
     python make_sample.py sample.zip
     python make_sample.py --tiles <folder>
+    python make_sample.py --gallery texture-gallery.zip
 
 --tiles writes a map in three 200 mm tiles instead: "A1.zip" (west end,
 a magenta marker: the older colours), "B1.zip" (east end, cyan) and "A2 rot90.zip" (a
 pillar off its middle, turned a quarter), to check joining.
+
+--gallery writes the texture gallery (tools/maps/texture-gallery.zip is
+one): a white container with a floor plate and a block in each of the other
+colour kinds, to look at every made texture in the game (docs/MAPS.md,
+"Textures").
 """
 import os
 import sys
@@ -25,6 +31,8 @@ def box(x0, y0, z0, x1, y1, z1, m):
 def write(path):
     mats = {"grey": (0.55, 0.55, 0.58), "tan": (0.76, 0.66, 0.48), "orange": (0.9, 0.45, 0.1),
             "magenta": (1, 0, 1), "cyan": (0, 1, 1),
+            "white": (1, 1, 1), "dark": (0.23, 0.23, 0.24), "blue": (0.1, 0.44, 0.77), "yellow": (0.97, 0.79, 0.12),
+            "rust": (0.9, 0.45, 0.1), "purple": (0.48, 0.31, 0.69), "moss": (0.18, 0.42, 0.18),
         "green": (0.2745, 0.7176, 0.2863), "red": (0.9137, 0.1137, 0.1765)}   # Tinkercad's own
 
     obj = ["# sample", "mtllib obj.mtl"]
@@ -87,8 +95,27 @@ def tiles(folder):
     write(os.path.join(folder, "A2 rot90.zip"))
 
 
+def gallery(path):
+    """Every texture kind: the container is the panel; each lane has a floor
+    plate (1 mm: a step ACs walk over) and a 20 x 20 x 30 mm block."""
+    box(-100, -100, 0, 100, 100, 5, "white")                 # floor, top at 5 mm
+    for s in (-1, 1):
+        box(-100, s * 97.5 - 2.5, 5, 100, s * 97.5 + 2.5, 45, "white")
+        box(s * 97.5 - 2.5, -95, 5, s * 97.5 + 2.5, 95, 45, "white")
+    for i, m in enumerate(("dark", "blue", "yellow", "rust", "purple", "moss")):
+        x0 = -88 + i * 30
+        box(x0, -60, 5, x0 + 26, 20, 6, m)
+        box(x0 + 3, 30, 5, x0 + 23, 50, 35, m)
+    for x in (-10, 10):
+        box(x - 2, -87, 5, x + 2, -83, 9, "green")
+        box(x - 2, 68, 5, x + 2, 72, 9, "red")
+    write(path)
+
+
 if __name__ == "__main__":
     if len(sys.argv) > 2 and sys.argv[1] == "--tiles":
         tiles(sys.argv[2])
+    elif len(sys.argv) > 2 and sys.argv[1] == "--gallery":
+        gallery(sys.argv[2])
     else:
         single(sys.argv[1] if len(sys.argv) > 1 else "sample.zip")

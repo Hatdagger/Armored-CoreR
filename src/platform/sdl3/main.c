@@ -53,7 +53,9 @@
 #include "garage.h"
 #include "rogue.h"
 #include "arena.h"
+#include "missions.h"
 #include "controls.h"
+#include "settings.h"
 #include "battle_hud.h"
 #include "fx.h"
 #include "sfx.h"
@@ -61,6 +63,7 @@
 /* HUD framing: the PS1's 4:3 layout in the middle (default) or spread to a
  * wide screen's edges (F9 / --hud-wide). */
 static int g_hud_frame = BATTLE_HUD_FRAME_43;
+static int g_hud_frame_arg;   /* --hud-wide given: it wins over SETTINGS > VIDEO */
 #include "net_link.h"
 #include "net_menu.h"
 #include "net_brief_ui.h"
@@ -75,6 +78,7 @@ static int g_net_port = NET_PORT_DEFAULT;
 static const char *g_net_join;            /* the host's address */
 static int g_net_delay = 1;               /* input delay in steps (host decides) */
 static int g_net_lag, g_net_jitter, g_net_loss;   /* testing: fake bad connection */
+static int g_test_boundary;               /* AC TEST: F8's test boundary in place of the stage's own boxes */
 static int g_net_stage = -1;              /* host: --stage N (-1: ACR_STAGE or Green Silo) */
 static int g_net_coop;                    /* host: --coop N, co-op against N AI ACs (0 = VS) */
 static int g_net_online;                  /* --host-online / --join-brief: over the internet with briefing codes */
@@ -83,6 +87,7 @@ static const char *g_net_readback;
 static int g_net_guest_port;              /* --guest-port N: the guest's own port (testing) */        /* --readback "TEXT": host enters player 2's read-back (testing) */
 static int g_part_args;                   /* parts were given on the command line */
 #include "acr_import.h"
+#include "disc_pick.h"
 #include "../../render/acr_render.h"
 #include "../../render/acr_light.h"
 
@@ -101,15 +106,15 @@ static SDL_Gamepad *open_first_gamepad(void) {
 }
 
 static acr_gen1_input read_input(SDL_Gamepad *pad, int keyboard) {
-    const bool *k = SDL_GetKeyboardState(NULL);
     acr_gen1_input in = { 0 };
     if (keyboard) {
-    in.move = (int8_t)((k[SDL_SCANCODE_W] || k[SDL_SCANCODE_UP]) - (k[SDL_SCANCODE_S] || k[SDL_SCANCODE_DOWN]));
-    in.turn = (int8_t)((k[SDL_SCANCODE_D] || k[SDL_SCANCODE_RIGHT]) - (k[SDL_SCANCODE_A] || k[SDL_SCANCODE_LEFT]));
-    in.strafe = (int8_t)(k[SDL_SCANCODE_E] - k[SDL_SCANCODE_Q]);
-    in.boost = (uint8_t)(k[SDL_SCANCODE_SPACE] || k[SDL_SCANCODE_J]);
+    /* The keys as mapped on the CONTROLS page (controls.c). */
+    in.move = (int8_t)(controls_key_held(CK_FORWARD) - controls_key_held(CK_BACKWARD));
+    in.turn = (int8_t)(controls_key_held(CK_TURN_R) - controls_key_held(CK_TURN_L));
+    in.strafe = (int8_t)(controls_key_held(CK_STRAFE_R) - controls_key_held(CK_STRAFE_L));
+    in.boost = (uint8_t)controls_key_held(CK_BOOST);
     {
-        const int up = k[SDL_SCANCODE_PAGEUP], down = k[SDL_SCANCODE_PAGEDOWN];
+        const int up = controls_key_held(CK_LOOK_UP), down = controls_key_held(CK_LOOK_DOWN);
         in.look = (int8_t)(up && down ? 2 : up - down);
     }
     }
@@ -266,17 +271,28 @@ static struct { acr_aim_state st; Uint64 last_ns; int ok; } g_aiming[ACR_GEN1_MA
 static int g_paint_on[ACR_GEN1_MAX_FIGHTERS];
 static uint8_t g_paint[ACR_GEN1_MAX_FIGHTERS][4][3], g_model_paint[ACR_GEN1_MAX_FIGHTERS][4][3];
 static int g_model_paint_on[ACR_GEN1_MAX_FIGHTERS];
+/* The player's own AC (fighter 0 when nothing else paints it): CHANGE
+ * COLOR's per-part paint from the garage. */
+static acr_gen1_hangar g_hangar;
+static uint8_t g_model_hangar_paint[4][4][3];
+static int g_model_hangar_painted;
+static int g_hangar_fighter;   /* which fighter flies the garage's AC (online: your own player) */
 
 static void refresh_model(int who, const char *dir, const int parts[SLOT_COUNT], int set) {
+    const int hangar_paint = who == g_hangar_fighter && !g_paint_on[who] && !g_part_args;
     if (g_model_set[who] == set && !memcmp(g_model_parts[who], parts, sizeof g_model_parts[who]) &&
-        g_model_paint_on[who] == g_paint_on[who] && (!g_paint_on[who] || !memcmp(g_model_paint[who], g_paint[who], sizeof g_paint[who])))
+        g_model_paint_on[who] == g_paint_on[who] && (!g_paint_on[who] || !memcmp(g_model_paint[who], g_paint[who], sizeof g_paint[who])) &&
+        (who != g_hangar_fighter || (g_model_hangar_painted == hangar_paint &&
+                      (!hangar_paint || !memcmp(g_model_hangar_paint, g_hangar.paint, sizeof g_model_hangar_paint)))))
         return;
     g_aiming[who].ok = 0;
     demo_model_free(&g_model[who]);
     g_model_paint_on[who] = g_paint_on[who];
     memcpy(g_model_paint[who], g_paint[who], sizeof g_paint[who]);
-    demo_model_load(dir, set, parts, g_paint_on[who] ? (const uint8_t (*)[3])g_paint[who]
-                                     : who >= 2 ? k_colours_ai : who ? k_colours_p2 : NULL, &g_model[who]);
+    if (who == g_hangar_fighter) { g_model_hangar_painted = hangar_paint; memcpy(g_model_hangar_paint, g_hangar.paint, sizeof g_model_hangar_paint); }
+    if (hangar_paint) demo_model_load_paint(dir, set, parts, (const uint8_t (*)[4][3])g_hangar.paint, &g_model[who]);
+    else demo_model_load(dir, set, parts, g_paint_on[who] ? (const uint8_t (*)[3])g_paint[who]
+                                          : who >= 2 ? k_colours_ai : who ? k_colours_p2 : NULL, &g_model[who]);
     memcpy(g_model_parts[who], parts, sizeof g_model_parts[who]);
     g_model_set[who] = set;
 }
@@ -474,15 +490,19 @@ static int next_part(const char *dir, int parts[SLOT_COUNT], int slot, demo_ac *
 #define MODE_ROGUE      10
 #define MODE_CONTROLS   11
 #define MODE_ARENA      12
+#define MODE_MISSIONS   13
+#define MODE_SETTINGS   14
 static int g_ai_mode = 0;
 static acr_gen1_ai_profile g_rogue_prof;
 static int g_plus2 = 0;                  /* the opponent's Human PLUS level (Rogue Arena) */
 static int g_plus_ai[2];                 /* Rogue Arena co-op: fighters 2 and 3's Human PLUS levels */
-static int g_rogue_fight = 0;            /* a menu-run fight is on: 1 Rogue Arena, 2 the Arena, 3 Rogue Arena co-op */
+static int g_rogue_fight = 0;            /* a menu-run fight is on: 1 Rogue Arena, 2 the Arena, 3 a mission, 4 Rogue Arena co-op */
 static int32_t g_round_start_ms = 120000; /* a round's length (the Arena's timer can change it) */
 static int g_round_clock = 1;            /* 0 = no time limit (the Arena's NONE) */
 /* The fight the menus set up (Rogue Arena's or the Arena's). */
-static const rogue_fight *menu_fight(void) { return g_rogue_fight == 2 ? arena_fight_info() : rogue_fight_info(); }
+static const rogue_fight *menu_fight(void) {
+    return g_rogue_fight == 3 ? missions_fight_info() : g_rogue_fight == 2 ? arena_fight_info() : rogue_fight_info();
+}
 static acr_gen1_ai g_ai[ACR_GEN1_MAX_FIGHTERS];
 static unsigned g_ai_round = 0;
 static int g_autopilot = 0;              /* player 1 flown by the AI too (AI against AI) */
@@ -531,7 +551,7 @@ static int parse_args(int argc, char **argv, const char **dir, int parts[SLOT_CO
         if (!strcmp(argv[i], "--tick") && i + 1 < argc) { g_tick_rate = atoi(argv[++i]); continue; }
         if (!strcmp(argv[i], "--credits") && i + 1 < argc) { g_new_credits = atol(argv[++i]); continue; }
         if (!strcmp(argv[i], "--test")) { g_direct_test = 1; continue; }
-        if (!strcmp(argv[i], "--hud-wide")) { g_hud_frame = BATTLE_HUD_FRAME_WIDE; continue; }
+        if (!strcmp(argv[i], "--hud-wide")) { g_hud_frame = BATTLE_HUD_FRAME_WIDE; g_hud_frame_arg = 1; continue; }
         if (!strcmp(argv[i], "--ai") && i + 1 < argc) { g_ai_mode = ai_preset_of(argv[++i]); if (!g_ai_mode) g_ai_mode = 1; continue; }
         if (!strcmp(argv[i], "--ai-file") && i + 1 < argc) { load_ai_file(argv[++i]); continue; }
         if (!strcmp(argv[i], "--ai-vs-ai")) { g_autopilot = 1; if (!g_ai_mode) g_ai_mode = 1; continue; }
@@ -563,7 +583,7 @@ static int parse_args(int argc, char **argv, const char **dir, int parts[SLOT_CO
  * stocks what you sell it). A release turns this off and sets the starting
  * credits instead. */
 static const int k_test_kit = 1;
-static acr_gen1_hangar g_hangar;
+static uint8_t g_paint_default[4][3];   /* the disc's default colours (models/colours.toml): CHANGE COLOR's DEFAULT */
 /* Each player's optional parts (bit n = option n): player 1's from the
  * garage, player 2's a copy of them offline (the same build), each
  * player's own online. */
@@ -581,6 +601,22 @@ static int g_stage_id = 27, g_stage_on = 0;
 /* On a mission map (0-19), its mission units where the map's objects stand
  * (drawn only: their mission code isn't read yet). Loaded when first drawn. */
 static demo_units g_units = { .map = -1 };
+/* Armored-CoreR missions: units borrowed from another map (P4's drones). */
+static demo_units g_mission_units = { .map = -1 };
+/* A mission's radio line on screen (text only for now) and until when. */
+static char g_radio[96];
+static Uint64 g_radio_until;
+static void radio_say(const char *t) {
+    if (!t) return;
+    SDL_strlcpy(g_radio, t, sizeof g_radio);
+    g_radio_until = SDL_GetTicks() + 5000;
+    SDL_Log("radio: %s", t);
+}
+/* An Armored-CoreR mission's start (acr_gen1_missions.h spots). */
+static void spot_spawn(acr_gen1_ac *ac, const acr_gen1_ac_def *def, const acr_gen1_mission_spot *s) {
+    acr_gen1_ac_spawn(ac, def, s->x * 64, s->z * 64, (uint16_t)(s->facing & 4095));
+    ac->y = ac->py = ac->sy = s->y * 64;
+}
 
 /* Places fighter k's AC on the stage's start k (x, y down, z, facing). */
 static void stage_spawn(acr_gen1_ac *ac, const acr_gen1_ac_def *def, int k) {
@@ -625,14 +661,7 @@ static void save_path(char *out, size_t size) {
 static void hangar_open(const int start[SLOT_COUNT]) {
     char path[1200];
     save_path(path, sizeof path);
-    char *text = SDL_LoadFile(path, NULL);
-    const int ok = text && acr_gen1_save_read(&g_hangar, text);
-    SDL_free(text);
-    if (ok) return;
-    uint8_t s[SLOT_COUNT];
-    for (int i = 0; i < SLOT_COUNT; ++i) s[i] = (uint8_t)start[i];
-    acr_gen1_hangar_new(&g_hangar, s, 0, (int32_t)g_new_credits);
-    if (k_test_kit) acr_gen1_hangar_give_all(&g_hangar, &g_catalog);
+    /* The disc's default colours (CHANGE COLOR's DEFAULT, a new game's paint). */
     char cpath[1200];
     SDL_snprintf(cpath, sizeof cpath, "%s/models/colours.toml", g_import_dir);
     char *ct = SDL_LoadFile(cpath, NULL);
@@ -642,20 +671,33 @@ static void hangar_open(const int start[SLOT_COUNT]) {
             char *end;
             const long x = SDL_strtol(v + 1, &end, 10);
             if (end == v + 1 || x < 0 || x > 63) break;
-            g_hangar.colours[k / 3][k % 3] = (uint8_t)x;
+            g_paint_default[k / 3][k % 3] = (uint8_t)x;
             v = end;
             while (*v == ' ') ++v;
             if (*v != ',') break;
         }
     SDL_free(ct);
+    char *text = SDL_LoadFile(path, NULL);
+    const int ok = text && acr_gen1_save_read(&g_hangar, text);
+    if (ok) acr_gen1_mission_record_read(missions_record(), text);   /* the save's [missions] */
+    SDL_free(text);
+    if (ok) return;
+    uint8_t s[SLOT_COUNT];
+    for (int i = 0; i < SLOT_COUNT; ++i) s[i] = (uint8_t)start[i];
+    acr_gen1_hangar_new(&g_hangar, s, 0, (int32_t)g_new_credits);
+    if (k_test_kit) acr_gen1_hangar_give_all(&g_hangar, &g_catalog);
+    memcpy(g_hangar.colours, g_paint_default, sizeof g_hangar.colours);
+    acr_gen1_paint_fill(g_hangar.paint, (const uint8_t (*)[3])g_paint_default);   /* CHANGE COLOR starts on the default */
     SDL_strlcpy(g_hangar.ac_name, "AC", sizeof g_hangar.ac_name);
     SDL_strlcpy(g_hangar.pilot_name, "RAVEN", sizeof g_hangar.pilot_name);
 }
 
 static int hangar_save(void) {
-    char path[1200], text[4096];
+    char path[1200];
+    static char text[32768];   /* the garage, its paint and the missions record */
     save_path(path, sizeof path);
-    const size_t n = acr_gen1_save_write(&g_hangar, text, sizeof text);
+    size_t n = acr_gen1_save_write(&g_hangar, text, sizeof text);
+    if (n < sizeof text) n += acr_gen1_mission_record_write(missions_record(), text + n, sizeof text - n);
     return n < sizeof text && SDL_SaveFile(path, text, n);
 }
 
@@ -666,6 +708,7 @@ static int hangar_load(void) {
     char *text = SDL_LoadFile(path, NULL);
     acr_gen1_hangar h;
     const int ok = text && acr_gen1_save_read(&h, text);
+    if (ok) acr_gen1_mission_record_read(missions_record(), text);
     SDL_free(text);
     if (ok) g_hangar = h;
     return ok;
@@ -717,6 +760,26 @@ static garage_action button_action(int b) {
     case SDL_GAMEPAD_BUTTON_NORTH: return GA_INFO;
     default: return GA_NONE;
     }
+}
+
+/* OPTIONAL PARTS: the highlighted option's own model turning in the middle
+ * of the screen (models/menu/option/NN, loaded once each). */
+static void draw_option_model(int bit, int ph, float hx, float hy, float hw, float hh, unsigned tick) {
+    static demo_object objs[ACR_GEN1_OPTION_MAX];
+    static uint8_t tried[ACR_GEN1_OPTION_MAX];
+    if (bit < 0 || bit >= ACR_GEN1_OPTION_MAX) return;
+    if (!tried[bit]) { tried[bit] = 1; demo_object_load(g_import_dir, "option", bit, &objs[bit]); }
+    if (!objs[bit].ok) return;
+    const float s = (float)ph / 480.0f;
+    const int x = (int)(hx * s), y = (int)(hy * s), w = (int)(hw * s), h = (int)(hh * s);
+    if (w < 8 || h < 8) return;
+    float proj[16], viewm[16];
+    acr_mat_perspective(proj, 30.0f * 3.14159265f / 180.0f, (float)w / (float)h, 50.0f, 40000.0f);
+    const float eye[3] = { 0, 0, -4000.0f }, fwd[3] = { 0, 0, 1 }, up[3] = { 0, 1, 0 };
+    acr_mat_look(viewm, eye, fwd, up);
+    for (int k = 0; k < 4; ++k) viewm[4 * k] = -viewm[4 * k];
+    acr_render_view3d(x, y, w, h, proj, viewm, NULL);
+    demo_object_draw(&objs[bit], 1500.0f, (float)tick * 0.02f, 0.35f, &g_light);
 }
 
 /* The garage's AC: turning slowly, standing, in the middle of the screen. */
@@ -906,24 +969,47 @@ int main(int argc, char **argv) {
     if (!SDL_Init(SDL_INIT_VIDEO | SDL_INIT_GAMEPAD)) return 1;
 
     char default_dir[1024];
+#ifdef SDL_PLATFORM_ANDROID
+    /* Android: the import lives in the app's own storage, with the saves. */
+    char *pref_dir = SDL_GetPrefPath("Hatdagger", "Armored-CoreR");
+    SDL_snprintf(default_dir, sizeof default_dir, "%simport", pref_dir ? pref_dir : "");
+    SDL_free(pref_dir);
+#else
     SDL_snprintf(default_dir, sizeof default_dir, "%simport", SDL_GetBasePath() ? SDL_GetBasePath() : "");
+#endif
     const char *dir = default_dir;
     int parts[SLOT_COUNT];
     parse_args(argc, argv, &dir, parts);
 
     /* OpenGL 2.1 at the screen's own resolution, 4x anti-aliasing when the
-     * driver offers it. */
+     * driver offers it (the GLES build: OpenGL ES 3.0, else 2.0). */
+#ifdef ACR_GLES
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 3);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 0);
+    SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_ES);
+#else
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_MINOR_VERSION, 1);
     SDL_GL_SetAttribute(SDL_GL_CONTEXT_PROFILE_MASK, SDL_GL_CONTEXT_PROFILE_COMPATIBILITY);
+#endif
     SDL_GL_SetAttribute(SDL_GL_DEPTH_SIZE, 24);
     SDL_GL_SetAttribute(SDL_GL_DOUBLEBUFFER, 1);
+#ifdef SDL_PLATFORM_ANDROID
+    const SDL_WindowFlags wflags = SDL_WINDOW_OPENGL | SDL_WINDOW_FULLSCREEN | SDL_WINDOW_HIGH_PIXEL_DENSITY;
+#else
     const SDL_WindowFlags wflags = SDL_WINDOW_OPENGL | SDL_WINDOW_RESIZABLE | SDL_WINDOW_HIGH_PIXEL_DENSITY;
+#endif
     SDL_GL_SetAttribute(SDL_GL_MULTISAMPLEBUFFERS, 1);
     SDL_GL_SetAttribute(SDL_GL_MULTISAMPLESAMPLES, 4);
-    /* ACR_WINDOW=WxH: the window's size (screenshots at other shapes). */
+    /* SETTINGS > VIDEO picks the window's size and fullscreen; ACR_WINDOW=WxH
+     * wins over it (screenshots at other shapes). */
+    settings_load();
     int win_w = 1280, win_h = 720;
-    if (SDL_getenv("ACR_WINDOW") && SDL_sscanf(SDL_getenv("ACR_WINDOW"), "%dx%d", &win_w, &win_h) != 2) { win_w = 1280; win_h = 720; }
+    settings_window_size(g_settings.window, &win_w, &win_h);
+    if (!g_hud_frame_arg) g_hud_frame = g_settings.hud_wide ? BATTLE_HUD_FRAME_WIDE : BATTLE_HUD_FRAME_43;
+    g_smooth_anim = g_settings.smooth_anim;
+    const int window_env = SDL_getenv("ACR_WINDOW") != NULL;
+    if (window_env && SDL_sscanf(SDL_getenv("ACR_WINDOW"), "%dx%d", &win_w, &win_h) != 2) { win_w = 1280; win_h = 720; }
     SDL_Window *window = SDL_CreateWindow("Armored-CoreR test build", win_w, win_h, wflags);
     SDL_GLContext gl = window ? SDL_GL_CreateContext(window) : NULL;
     if (!gl) {
@@ -933,13 +1019,26 @@ int main(int argc, char **argv) {
         window = SDL_CreateWindow("Armored-CoreR test build", win_w, win_h, wflags);
         gl = window ? SDL_GL_CreateContext(window) : NULL;
     }
+#ifdef ACR_GLES
+    if (!gl) {
+        if (window) SDL_DestroyWindow(window);
+        SDL_GL_SetAttribute(SDL_GL_CONTEXT_MAJOR_VERSION, 2);
+        window = SDL_CreateWindow("Armored-CoreR test build", win_w, win_h, wflags);
+        gl = window ? SDL_GL_CreateContext(window) : NULL;
+    }
+#endif
     if (!gl || !acr_render_init(gl_proc)) {
         SDL_ShowSimpleMessageBox(SDL_MESSAGEBOX_ERROR, "Armored-CoreR",
+#ifdef ACR_GLES
+                                 "This device's graphics driver does not offer OpenGL ES 2.0.", window);
+#else
                                  "This computer's graphics driver does not offer OpenGL 2.1.", window);
+#endif
         SDL_Quit();
         return 1;
     }
     SDL_GL_SetSwapInterval(1);
+    if (g_settings.fullscreen && !window_env) SDL_SetWindowFullscreen(window, true);
     acr_light_default(&g_light);
     SDL_Gamepad *pad = open_first_gamepad();
 
@@ -960,14 +1059,44 @@ int main(int argc, char **argv) {
         char text[1600];
         SDL_snprintf(text, sizeof text,
                      "ARMORED-CORER TEST BUILD\n\n"
+#ifdef SDL_PLATFORM_ANDROID
+                     "PRESS A (OR TAP THE SCREEN) TO CHOOSE YOUR\n"
+                     "MASTER OF ARENA DISC IMAGE (THE .BIN FILE).\n"
+                     "IT IS IMPORTED INTO THE APP (ABOUT 1 GB).\n\n"
+                     "BACK: QUIT\n\n%s", err);
+#else
                      "DROP YOUR MASTER OF ARENA DISC (.CUE OR .BIN)\n"
-                     "ON THIS WINDOW TO IMPORT IT.\n\n"
+                     "ON THIS WINDOW TO IMPORT IT,\n"
+                     "OR PRESS A / ENTER TO CHOOSE IT.\n\n"
                      "ESC / BACK: QUIT\n\n%s", err);
+#endif
         show_message(window, text);
         SDL_Event e;
         if (!SDL_WaitEvent(&e)) continue;
+        /* the system's file picker: A, Enter or a tap opens it */
+        if (e.type == SDL_EVENT_GAMEPAD_ADDED && !pad) pad = SDL_OpenGamepad(e.gdevice.which);
+        if ((e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && e.gbutton.button == SDL_GAMEPAD_BUTTON_SOUTH) ||
+            (e.type == SDL_EVENT_KEY_DOWN && (e.key.scancode == SDL_SCANCODE_RETURN || e.key.scancode == SDL_SCANCODE_SPACE)) ||
+            e.type == SDL_EVENT_FINGER_UP || (e.type == SDL_EVENT_MOUSE_BUTTON_UP && e.button.which != SDL_TOUCH_MOUSEID)) {
+            disc_pick_open(window);
+            continue;
+        }
+        char picked[2048];
+        const int pick = disc_pick_poll(picked, sizeof picked);
+        if (pick == 1) {
+            disc_pick_file keep;
+            char local[1200];
+            err[0] = 0;
+            if (disc_pick_local(picked, &keep, local, sizeof local, err, sizeof err)) {
+                dir = default_dir;
+                if (import_disc(window, local, dir, err, sizeof err))
+                    loaded = demo_load(dir, parts, &ac_data[0], err, sizeof err);
+                disc_pick_close(&keep);
+            }
+            continue;
+        }
         if (e.type == SDL_EVENT_QUIT ||
-            (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_ESCAPE) ||
+            (e.type == SDL_EVENT_KEY_DOWN && (e.key.scancode == SDL_SCANCODE_ESCAPE || e.key.scancode == SDL_SCANCODE_AC_BACK)) ||
             (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && e.gbutton.button == SDL_GAMEPAD_BUTTON_BACK)) {
             SDL_Quit();
             return 0;
@@ -1003,17 +1132,24 @@ int main(int argc, char **argv) {
     g_options[0] = g_options[1] = g_part_args ? 0 : g_hangar.options;
     acr_import_refresh(dir);          /* older imports: the menu sounds, the emblems, the mission units */
     sfx_open(dir);                    /* the menus' clicks too */
+    sfx_set_volume((float)g_settings.fx_volume / 10.0f, (float)g_settings.menu_volume / 10.0f);
     rogue_init(dir, &g_catalog, g_part_names);
     rogue_set_ac_drawer(rogue_draw_ac);
     arena_init(dir, &g_hangar, &g_catalog, g_part_names);
     arena_set_ac_drawer(rogue_draw_ac);
+    missions_init(dir, &g_hangar, &g_catalog);
     controls_load();
     controls_ui cui;
     controls_open(&cui);
+    settings_ui sui;
+    settings_open(&sui, 0);
     int mode = g_direct_test ? 1 : 0;   /* MODE_GARAGE, MODE_FIGHT, the network screens, MODE_ROGUE, MODE_CONTROLS */
     garage_ui gui;
     garage_init(&gui);
-    const garage_data gdata_main = { &g_hangar, &g_catalog, g_part_names, 0 };
+    static demo_part_specs specs;     /* the disc's type names and shop texts */
+    demo_part_specs_load(dir, &specs);
+    const garage_data gdata_main = { &g_hangar, &g_catalog, g_part_names, 0, &specs,
+                                     (const uint8_t (*)[3])g_paint_default };
     garage_data gdata = gdata_main;
     if (!g_direct_test) {
         int fitted[SLOT_COUNT];
@@ -1090,41 +1226,43 @@ int main(int argc, char **argv) {
     memset(&battle, 0, sizeof battle);
     acr_gen1_ac *const P = &battle.f[0].ac;
     acr_gen1_ac *const T = &battle.f[1].ac;
+    /* Fighter i_ from its demo_ac (parts loaded), at full AP; not placed. */
+    #define SETUP_FIGHTER(i_) do {                                                        \
+        acr_gen1_fighter *f_ = &battle.f[i_];                                         \
+        demo_ac *d_ = &ac_data[i_];                                                   \
+        memset(f_, 0, sizeof *f_);                                                    \
+        f_->intercept_shot = -1; f_->swing_target = -1; f_->last_missile = -1;        \
+        /* Human PLUS at full (level 9): energy rules of VS 0x80083560. */            \
+        /* With SP-MODERN only the no-kneel benefit applies (level 0 here). */         \
+        const int lvl_ = i_ == 0 ? 9 : i_ == 1 ? g_plus2 : g_plus_ai[i_ - 2];          \
+        if ((i_ == 0 ? human_plus : lvl_) && !d_->plus_applied &&                     \
+            acr_gen1_human_plus_level((unsigned)lvl_, i_ == 0 ? g_options[0] : 0)) {   \
+            acr_gen1_human_plus_energy(&d_->def.stats, lvl_);                         \
+            d_->plus_applied = 1;                                                     \
+        }                                                                             \
+        f_->def = &d_->def;                                                           \
+        f_->ap = f_->ap_max = d_->ap;                                                 \
+        f_->shell_factor = d_->shell_factor;                                          \
+        f_->energy_factor = d_->energy_factor;                                        \
+        f_->weapons = (uint8_t)(i_ == 0 || two_players || g_ai_mode ? d_->weapons : 0); \
+        for (int w_ = 0; w_ < d_->weapons; ++w_) {                                    \
+            f_->weapon[w_] = d_->weapon[w_];                                          \
+            f_->ammo[w_] = d_->weapon[w_].ammo;                                       \
+        }                                                                             \
+        f_->current = 0;                                                              \
+        f_->legs = (uint8_t)(pp[i_][SLOT_LEGS] >= 27 ? ACR_GEN1_LEGS_TRACKS            \
+                   : pp[i_][SLOT_LEGS] >= 21 ? ACR_GEN1_LEGS_FOUR : ACR_GEN1_LEGS_TWO); \
+        f_->human_plus = (uint8_t)(i_ == 0 ? human_plus : lvl_ > 0); f_->kneeling = 0; \
+        f_->team = (uint8_t)(i_ >= 2);   /* co-op: players 0, 1 against the AI ACs */ \
+        f_->target = -1;                                                              \
+        /* SP-MODERN: pilots only (the AI flies the original controls). */           \
+        f_->modern = (uint8_t)(i_ < 2 && !(i_ == 0 && g_autopilot) &&                 \
+                               !(i_ == 1 && g_ai_mode && !g_net && !two_players) && modern_of(i_)); \
+        d_->def.cruise_pct = (uint8_t)(f_->legs == ACR_GEN1_LEGS_TWO ? ACR_GEN1_CRUISE_PCT \
+                                       : ACR_GEN1_CRUISE_HEAVY_PCT);                    \
+    } while (0)
     #define SETUP_FIGHTERS() do {                                                         \
-        for (int i_ = 0; i_ < acr_gen1_battle_fighters(&battle); ++i_) {                  \
-            acr_gen1_fighter *f_ = &battle.f[i_];                                         \
-            demo_ac *d_ = &ac_data[i_];                                                   \
-            memset(f_, 0, sizeof *f_);                                                    \
-            f_->intercept_shot = -1; f_->swing_target = -1; f_->last_missile = -1;        \
-            /* Human PLUS at full (level 9): energy rules of VS 0x80083560. */            \
-            /* With SP-MODERN only the no-kneel benefit applies (level 0 here). */         \
-            const int lvl_ = i_ == 0 ? 9 : i_ == 1 ? g_plus2 : g_plus_ai[i_ - 2];         \
-            if ((i_ == 0 ? human_plus : lvl_) && !d_->plus_applied &&                     \
-                acr_gen1_human_plus_level((unsigned)lvl_, i_ == 0 ? g_options[0] : 0)) {   \
-                acr_gen1_human_plus_energy(&d_->def.stats, lvl_);                         \
-                d_->plus_applied = 1;                                                     \
-            }                                                                             \
-            f_->def = &d_->def;                                                           \
-            f_->ap = f_->ap_max = d_->ap;                                                 \
-            f_->shell_factor = d_->shell_factor;                                          \
-            f_->energy_factor = d_->energy_factor;                                        \
-            f_->weapons = (uint8_t)(i_ == 0 || two_players || g_ai_mode ? d_->weapons : 0); \
-            for (int w_ = 0; w_ < d_->weapons; ++w_) {                                    \
-                f_->weapon[w_] = d_->weapon[w_];                                          \
-                f_->ammo[w_] = d_->weapon[w_].ammo;                                       \
-            }                                                                             \
-            f_->current = 0;                                                              \
-            f_->legs = (uint8_t)(pp[i_][SLOT_LEGS] >= 27 ? ACR_GEN1_LEGS_TRACKS            \
-                       : pp[i_][SLOT_LEGS] >= 21 ? ACR_GEN1_LEGS_FOUR : ACR_GEN1_LEGS_TWO); \
-            f_->human_plus = (uint8_t)(i_ == 0 ? human_plus : lvl_ > 0); f_->kneeling = 0; \
-            f_->team = (uint8_t)(i_ >= 2);   /* co-op: players 0, 1 against the AI ACs */ \
-            f_->target = -1;                                                              \
-            /* SP-MODERN: pilots only (the AI flies the original controls). */           \
-            f_->modern = (uint8_t)(i_ < 2 && !(i_ == 0 && g_autopilot) &&                 \
-                                   !(i_ == 1 && g_ai_mode && !g_net && !two_players) && modern_of(i_)); \
-            d_->def.cruise_pct = (uint8_t)(f_->legs == ACR_GEN1_LEGS_TWO ? ACR_GEN1_CRUISE_PCT \
-                                           : ACR_GEN1_CRUISE_HEAVY_PCT);                    \
-        }                                                                                 \
+        for (int i_ = 0; i_ < acr_gen1_battle_fighters(&battle); ++i_) SETUP_FIGHTER(i_); \
         battle.targeted = 0;                                                              \
         if (battle.count > 2) coop_spawn(&battle);                                        \
         else if (g_stage_on) { stage_spawn(P, def, 0); stage_spawn(T, def2, 1); }         \
@@ -1136,6 +1274,22 @@ int main(int argc, char **argv) {
          * map 12's friendly units team 0, with the player). */                 \
         demo_units_join(&g_units, g_import_dir, g_stage_on && !g_rogue_fight ? g_stage_id : -1, &battle,  \
                         g_stage_on ? &g_stage.collision : NULL);                          \
+        /* Armored-CoreR missions: the variant's rule, and P4 Alternate layout's          \
+         * starts and drones (acr_gen1_missions.h). */                                    \
+        g_mission_units.objects = 0;                                                      \
+        if (g_rogue_fight == 3) {                                                         \
+            acr_gen1_mission_start_own(&battle, missions_rule());                         \
+            /* Testing aid: ACR_MISSION_FOE_HURT=1 starts the opponent below half  \
+             * its AP (P4 Altered: the challenger comes at once). */              \
+            if (SDL_getenv("ACR_MISSION_FOE_HURT")) battle.f[1].ap = battle.f[1].ap_max * 49 / 100; \
+            if (missions_rule() == ACR_GEN1_OWN_P4_ALTERNATE && g_stage_on) {             \
+                spot_spawn(P, def, &acr_gen1_p4_alt_start[0]);                            \
+                spot_spawn(T, def2, &acr_gen1_p4_alt_start[1]);                           \
+                demo_units_borrow(&g_mission_units, g_import_dir, ACR_GEN1_P4_DRONE_MAP,  \
+                                  ACR_GEN1_P4_DRONE_RECORD, acr_gen1_p4_alt_drone, 2, &battle,\
+                                  &g_stage.collision);                                    \
+            }                                                                             \
+        }                                                                                 \
         /* Testing aids: ACR_UNITS_DOWN=1 starts with the enemy units in the    \
          * fight destroyed, so a map's script moves on (map 6: the deck opens); \
          * ACR_FRIENDS_DOWN=1 the friendly ones (map 12: the mission fails). */ \
@@ -1198,13 +1352,14 @@ int main(int argc, char **argv) {
     while (running) {
         if (!g_net) {      /* offline: player 2 is built like player 1 */
             g_options[0] = g_part_args ? 0 : g_hangar.options;
-            g_options[1] = g_options[0];
+            g_options[1] = g_rogue_fight == 3 ? missions_foe_options() : g_options[0];   /* a mission's own opponent */
         }
         SDL_Event e;
         garage_command gcmd = GC_NONE;
         int to_garage = 0, rogue_done = 0, rogue_give_up = 0;
         rogue_command rcmd = RC_NONE;
         arena_command acmd = AC_NONE;
+        missions_command mcmd = MC_NONE;
         garage_action net_action = GA_NONE;   /* the network screens' input this frame */
         int net_action_keys = 0;
         int net_copy = 0, net_paste = 0;      /* copy / paste a briefing code this frame */
@@ -1219,6 +1374,13 @@ int main(int argc, char **argv) {
             if (e.type == SDL_EVENT_GAMEPAD_REMOVED)
                 for (int k = 0; k < 2; ++k)
                     if (pads[k] && SDL_GetGamepadID(pads[k]) == e.gdevice.which) { SDL_CloseGamepad(pads[k]); pads[k] = NULL; }
+            if (mode == MODE_SETTINGS) {   /* SETTINGS > VIDEO / AUDIO */
+                garage_action ga = GA_NONE;
+                if (e.type == SDL_EVENT_KEY_DOWN) ga = key_action(e.key.scancode);
+                if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) ga = button_action(e.gbutton.button);
+                if (settings_input(&sui, ga)) { mode = 0; gui.screen = 0; }
+                continue;
+            }
             if (mode == MODE_CONTROLS) {   /* the CONTROLS page: a button to map, or the menu */
                 if (controls_capture(&cui, &e)) continue;
                 garage_action ga = GA_NONE;
@@ -1233,6 +1395,14 @@ int main(int argc, char **argv) {
                 if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) ga = button_action(e.gbutton.button);
                 const arena_command ac = arena_input(ga);
                 if (ac != AC_NONE) acmd = ac;
+                continue;
+            }
+            if (mode == MODE_MISSIONS) {   /* the MISSIONS screens take all other input */
+                garage_action ga = GA_NONE;
+                if (e.type == SDL_EVENT_KEY_DOWN) ga = key_action(e.key.scancode);
+                if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) ga = button_action(e.gbutton.button);
+                const missions_command mc = missions_input(ga);
+                if (mc != MC_NONE) mcmd = mc;
                 continue;
             }
             if (mode == MODE_ROGUE) {   /* Rogue Arena's screens take all other input */
@@ -1333,9 +1503,9 @@ int main(int argc, char **argv) {
                  * keys and the mapped pad buttons), plus Esc / Back + Start
                  * to leave. Every test key (F1-F9, the number keys, the
                  * Back + button combinations) is off. */
-                if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_TAB) switch_pressed[0] = 1;
-                if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_V) blade_pressed[0] = 1;
-                if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_X) target_pressed[0] = 1;
+                if (controls_key_pressed(&e, CK_SWITCH)) switch_pressed[0] = 1;
+                if (controls_key_pressed(&e, CK_BLADE)) blade_pressed[0] = 1;
+                if (controls_key_pressed(&e, CK_TARGET)) target_pressed[0] = 1;
                 if (modern_of(net_info.local)) {          /* SP-MODERN: its own fixed layout */
                     if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && !back_held) {
                         if (e.gbutton.button == SDL_GAMEPAD_BUTTON_NORTH) switch_pressed[0] = 1;
@@ -1365,9 +1535,17 @@ int main(int argc, char **argv) {
             if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode >= SDL_SCANCODE_1 && e.key.scancode <= SDL_SCANCODE_8)
                 e.key.scancode = (SDL_Scancode)(SDL_SCANCODE_F1 + (e.key.scancode - SDL_SCANCODE_1));
             if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_F1) show_help = !show_help;
-            if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_F5) g_smooth_anim = !g_smooth_anim;
-            if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && (e.key.scancode == SDL_SCANCODE_F9 || e.key.scancode == SDL_SCANCODE_9))
+            /* F5 / F9 change the same settings as SETTINGS > VIDEO (and save them). */
+            if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_F5) {
+                g_smooth_anim = !g_smooth_anim;
+                g_settings.smooth_anim = g_smooth_anim;
+                settings_save();
+            }
+            if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && (e.key.scancode == SDL_SCANCODE_F9 || e.key.scancode == SDL_SCANCODE_9)) {
                 g_hud_frame = !g_hud_frame;
+                g_settings.hud_wide = g_hud_frame == BATTLE_HUD_FRAME_WIDE;
+                settings_save();
+            }
             if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_F3) g_landing_anim = !g_landing_anim;
             int cycle_ai = 0, toggle_autopilot = 0;
             if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_F4) cycle_ai = 1;
@@ -1381,11 +1559,15 @@ int main(int argc, char **argv) {
                 /* Test boundary: out-of-area boxes shrunk to just around the
                  * two starts (box 1 1,500 past them, box 2 500 wider on x and
                  * 500 narrower on z), so the warning and the loss can be
-                 * tried on any stage. The stages' own boxes aren't imported
-                 * yet. */
+                 * tried on any stage, Green Silo too (it has no boxes of its
+                 * own). Pressed again: back to the stage's own boxes. */
                 acr_gen1_stage *cs = &g_stage.collision;
-                if (cs->bounds) cs->bounds = 0;
-                else {
+                if (g_test_boundary) {
+                    g_test_boundary = 0;
+                    SDL_memcpy(cs->bound, g_stage.own_bound, sizeof cs->bound);
+                    cs->bounds = g_stage.own_bounds;
+                } else {
+                    g_test_boundary = 1;
                     const int32_t *a = g_stage.start[0], *c = g_stage.start[1];
                     const int32_t x0 = SDL_min(a[0], c[0]) - 1500, x1 = SDL_max(a[0], c[0]) + 1500;
                     const int32_t z0 = SDL_min(a[2], c[2]) - 1500, z1 = SDL_max(a[2], c[2]) + 1500;
@@ -1421,7 +1603,7 @@ int main(int argc, char **argv) {
                     demo_stage tmp;
                     if (demo_stage_load(dir, want_id, &tmp)) {
                         if (g_stage.ok) demo_stage_free(&g_stage);
-                        g_stage = tmp;
+                        g_stage = tmp; g_test_boundary = 0;
                         g_stage_id = want_id;
                         g_stage_on = 1;
                         break;
@@ -1448,8 +1630,8 @@ int main(int argc, char **argv) {
             if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_R) {
                 SETUP_FIGHTERS(); prevs[0] = *P; prevs[1] = *T;
             }
-            if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_TAB) switch_pressed[0] = 1;
-            if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_V) blade_pressed[0] = 1;
+            if (controls_key_pressed(&e, CK_SWITCH)) switch_pressed[0] = 1;
+            if (controls_key_pressed(&e, CK_BLADE)) blade_pressed[0] = 1;
             int toggle_two = 0;
             if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_F2) toggle_two = 1;
             int cycle_rate = 0, cycle_slot = -1, toggle_plus = 0, cycle_who = 0;
@@ -1488,7 +1670,7 @@ int main(int argc, char **argv) {
                 if (!back_combo) target_pressed[!two_players ? 0 : pads[1] ? (player_of(pads, e.gbutton.which, 0) == 1) : 1] = 1;
                 back_held = 0;
             }
-            if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_X) target_pressed[0] = 1;
+            if (controls_key_pressed(&e, CK_TARGET)) target_pressed[0] = 1;
             if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_T) cycle_rate = 1;
             if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_B) cycle_slot = SLOT_BOOSTER;
             if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_G) cycle_slot = SLOT_GEN;
@@ -1537,6 +1719,7 @@ int main(int argc, char **argv) {
             net_link_close(net);
             net = NULL;
             g_net = 0;
+            g_hangar_fighter = 0;
             battle.count = 0;                           /* back to the 1v1 test arena */
             two_players = SDL_getenv("ACR_TWO") != NULL;
             hangar_parts(parts);
@@ -1559,17 +1742,28 @@ int main(int argc, char **argv) {
         if (mode == 1 && g_rogue_fight) {
             if (round_over && !rogue_over_at) rogue_over_at = SDL_GetTicks();
             if (round_over && SDL_GetTicks() - rogue_over_at > 4000) rogue_done = 1;
-            /* Testing aid: ACR_ROGUE_AUTOWIN=1 counts every Rogue Arena fight
-             * as won a moment after it starts (headless screen tests). */
+            /* Testing aid: ACR_ROGUE_AUTOWIN=1 counts every menu fight (Rogue
+             * Arena, Arena, missions) as won a moment after it starts
+             * (headless screen tests); =lose as lost. ACR_AUTOEND_MS sets the
+             * moment (default 1500). */
             static Uint64 autowin_at;
             if (!autowin_at) autowin_at = SDL_GetTicks();
-            const int autowin = SDL_getenv("ACR_ROGUE_AUTOWIN") && SDL_GetTicks() - autowin_at > 1500;
+            const char *auto_ = SDL_getenv("ACR_ROGUE_AUTOWIN");
+            const Uint64 auto_ms_ = SDL_getenv("ACR_AUTOEND_MS") ? (Uint64)SDL_atoi(SDL_getenv("ACR_AUTOEND_MS")) : 1500;
+            const int autowin = auto_ && SDL_GetTicks() - autowin_at > auto_ms_;
             if (rogue_give_up || rogue_done || autowin) {
                 autowin_at = 0;
-                const int res_ = autowin ? 1 : rogue_give_up || !round_over ? 2 : round_result;
-                const int was_arena_ = g_rogue_fight == 2;
-                if (was_arena_) { if (arena_fight_over(res_)) hangar_save(); }
-                else if (g_rogue_fight == 3) {
+                const int res_ = autowin ? (SDL_strcmp(auto_, "lose") ? 1 : 2) : rogue_give_up || !round_over ? 2 : round_result;
+                const int was_arena_ = g_rogue_fight == 2, was_mission_ = g_rogue_fight == 3;
+                if (was_mission_) {
+                    /* The income and expense report: the player's AP and the
+                     * rounds fired are what the bill is figured from. */
+                    if (missions_fight_over(res_, battle.f[0].ap, battle.f[0].ap_max,
+                                            acr_gen1_mission_ammo_cost(&battle.f[0]),
+                                            (battle.mission.flags & ACR_GEN1_MISSION_BONUS) != 0))
+                        hangar_save();
+                } else if (was_arena_) { if (arena_fight_over(res_)) hangar_save(); }
+                else if (g_rogue_fight == 4) {
                     /* Co-op: who was destroyed decides the rejoin choice. */
                     /* ACR_ROGUE_DOWN=1 / 2 (testing, with ACR_ROGUE_AUTOWIN): that player counts as destroyed. */
                     const char *dn_ = SDL_getenv("ACR_ROGUE_DOWN");
@@ -1585,8 +1779,8 @@ int main(int argc, char **argv) {
                 g_ai_mode = 0; g_autopilot = 0; g_plus2 = 0; human_plus = 0;
                 g_paint_on[0] = g_paint_on[1] = 0;
                 rogue_over_at = 0;
-                mode = was_arena_ ? MODE_ARENA : MODE_ROGUE;
-                if (was_arena_) {              /* the garage's own AC again (paint off) */
+                mode = was_mission_ ? MODE_MISSIONS : was_arena_ ? MODE_ARENA : MODE_ROGUE;
+                if (was_arena_ || was_mission_) {   /* the garage's own AC again (paint off) */
                     int f_[SLOT_COUNT];
                     hangar_parts(f_);
                     LOAD_PLAYER_BUILD(f_);
@@ -1598,15 +1792,17 @@ int main(int argc, char **argv) {
             if (d == GA_NONE) d = script_action();
             if (d != GA_NONE) { const arena_command c = arena_input(d); if (c != AC_NONE) acmd = c; }
             if (acmd == AC_LEAVE) { mode = 0; gui.screen = 0; }
-            if (acmd == AC_FIGHT) {
-                /* The garage's AC against the opponent, flown by its own
-                 * pilot, on the stage and with the timer picked on the
-                 * ARENA screen. */
+            if (acmd == AC_FIGHT || arena_vs_due()) {
+                /* After the VS screen: the garage's AC against the opponent,
+                 * flown by its own pilot, on the stage and with the timer
+                 * picked on the ARENA screen. */
                 const rogue_fight *af = arena_fight_info();
                 LOAD_PLAYER_BUILD(af->parts[0]);
                 memcpy(parts2, af->parts[1], sizeof parts2);
                 demo_load(dir, parts2, &ac_data[1], err, sizeof err);
-                for (int k = 0; k < 2; ++k) { g_paint_on[k] = 1; memcpy(g_paint[k], af->colours[k], sizeof g_paint[k]); }
+                /* the opponent's own colours; the player's AC keeps its CHANGE COLOR paint */
+                g_paint_on[0] = 0;
+                g_paint_on[1] = 1; memcpy(g_paint[1], af->colours[1], sizeof g_paint[1]);
                 g_rogue_prof = af->ai;
                 g_ai_mode = AI_ROGUE; g_autopilot = 0; two_players = 0;
                 human_plus = 0; g_plus2 = af->plus[1];
@@ -1614,7 +1810,7 @@ int main(int argc, char **argv) {
                     demo_stage tmp;
                     if (demo_stage_load(dir, af->stage, &tmp)) {
                         if (g_stage.ok) demo_stage_free(&g_stage);
-                        g_stage = tmp;
+                        g_stage = tmp; g_test_boundary = 0;
                         g_stage_id = af->stage;
                     }
                 }
@@ -1628,6 +1824,49 @@ int main(int argc, char **argv) {
                 set_rate(&clock, def2, g_tick_rate);
                 SETUP_FIGHTERS();
                 prevs[0] = *P; prevs[1] = *T;
+                last = SDL_GetTicksNS();
+                rogue_over_at = give_up_until = 0;
+                mode = 1;
+            }
+        }
+        if (mode == MODE_MISSIONS) {
+            garage_action d = pad_direction(pads[0], SDL_GetTicks());
+            if (d == GA_NONE) d = script_action();
+            if (d != GA_NONE) { const missions_command c = missions_input(d); if (c != MC_NONE) mcmd = c; }
+            if (mcmd == MC_LEAVE) { mode = 0; gui.screen = 0; }
+            if (mcmd == MC_SORTIE) {
+                /* The garage's AC on the mission map against the mission's
+                 * opponent (P4: the Nest examiner, the user's card build,
+                 * flown by the balanced AI), with the mission's time limit. */
+                const rogue_fight *mf = missions_fight_info();
+                LOAD_PLAYER_BUILD(mf->parts[0]);
+                memcpy(parts2, mf->parts[1], sizeof parts2);
+                demo_load(dir, parts2, &ac_data[1], err, sizeof err);
+                for (int k = 0; k < 2; ++k) { g_paint_on[k] = 1; memcpy(g_paint[k], mf->colours[k], sizeof g_paint[k]); }
+                g_ai_mode = ACR_GEN1_AI_BALANCED; g_autopilot = 0; two_players = 0;
+                human_plus = 0; g_plus2 = 0;
+                if (!(g_stage.ok && g_stage_id == mf->stage)) {
+                    demo_stage tmp;
+                    if (demo_stage_load(dir, mf->stage, &tmp)) {
+                        if (g_stage.ok) demo_stage_free(&g_stage);
+                        g_stage = tmp;
+                        g_stage_id = mf->stage;
+                    }
+                }
+                g_stage_on = g_stage.ok && g_stage_id == mf->stage;
+                def->stage = def2->stage = battle.stage = g_stage_on ? &g_stage.collision : NULL;
+                const int32_t limit_ = missions_round_ms();
+                g_round_clock = limit_ > 0;
+                g_round_start_ms = limit_ > 0 ? limit_ : ROUND_MS;
+                g_rogue_fight = 3;
+                set_rate(&clock, def, g_tick_rate);
+                set_rate(&clock, def2, g_tick_rate);
+                SETUP_FIGHTERS();
+                prevs[0] = *P; prevs[1] = *T;
+                g_radio_until = 0;
+                radio_say(missions_radio(0));
+                SDL_Log("missions: sortie, variant %d (%s)", missions_variant(),
+                        acr_gen1_mission_variant_name(missions_variant()));
                 last = SDL_GetTicksNS();
                 rogue_over_at = give_up_until = 0;
                 mode = 1;
@@ -1665,7 +1904,7 @@ int main(int argc, char **argv) {
                     demo_stage tmp;
                     if (demo_stage_load(dir, rf->stage, &tmp)) {
                         if (g_stage.ok) demo_stage_free(&g_stage);
-                        g_stage = tmp;
+                        g_stage = tmp; g_test_boundary = 0;
                         g_stage_id = rf->stage;
                     }
                 }
@@ -1704,7 +1943,7 @@ int main(int argc, char **argv) {
                 prevs[0] = *P; prevs[1] = *T;
                 for (int k = 2; k < acr_gen1_battle_fighters(&battle); ++k) prevs[k] = battle.f[k].ac;
                 last = SDL_GetTicksNS();
-                g_rogue_fight = rf->humans == 2 ? 3 : 1;
+                g_rogue_fight = rf->humans == 2 ? 4 : 1;
                 rogue_over_at = give_up_until = 0;
                 mode = 1;
             }
@@ -1715,6 +1954,38 @@ int main(int argc, char **argv) {
                 if (d == GA_NONE) d = script_action();
                 if (controls_input(&cui, d)) { mode = 0; gui.screen = 0; }
             }
+        }
+        if (mode == MODE_SETTINGS) {
+            garage_action d = pad_direction(pads[0], SDL_GetTicks());
+            if (d == GA_NONE) d = script_action();
+            if (settings_input(&sui, d)) mode = 0;
+            if (sui.apply) {   /* put the changed settings into effect */
+                sui.apply = 0;
+                if (!window_env) {
+                    SDL_SetWindowFullscreen(window, g_settings.fullscreen != 0);
+                    if (!g_settings.fullscreen) {
+                        int ww, wh;
+                        settings_window_size(g_settings.window, &ww, &wh);
+                        SDL_SetWindowSize(window, ww, wh);
+                    }
+                }
+                g_hud_frame = g_settings.hud_wide ? BATTLE_HUD_FRAME_WIDE : BATTLE_HUD_FRAME_43;
+                g_smooth_anim = g_settings.smooth_anim;
+                sfx_set_volume((float)g_settings.fx_volume / 10.0f, (float)g_settings.menu_volume / 10.0f);
+                if (sui.page == 1) sfx_ui(SFX_UI_CURSOR);   /* hear the new menu volume */
+            }
+        }
+        if (mode == MODE_SETTINGS) {
+            static Uint64 settings_last_ms;
+            const Uint64 now_ms = SDL_GetTicks();
+            const int elapsed = settings_last_ms ? (int)(now_ms - settings_last_ms) : 0;
+            settings_last_ms = now_ms;
+            int pw = 0, ph = 0;
+            SDL_GetWindowSizeInPixels(window, &pw, &ph);
+            if (pw < 1 || ph < 1) { SDL_Delay(10); continue; }
+            acr_render_begin(pw, ph, 18, 22, 28);
+            settings_draw(&sui, acr_render_hud(0, 0, pw, ph), elapsed);
+            goto present;
         }
         if (mode == MODE_CONTROLS) {
             static Uint64 controls_last_ms;
@@ -1739,6 +2010,19 @@ int main(int argc, char **argv) {
             acr_render_begin(pw, ph, 8, 10, 14);
             g_screen_pw = pw; g_screen_ph = ph;
             arena_draw(acr_render_hud(0, 0, pw, ph), elapsed);
+            goto present;
+        }
+        if (mode == MODE_MISSIONS) {
+            static Uint64 missions_last_ms;
+            const Uint64 now_ms = SDL_GetTicks();
+            const int elapsed = missions_last_ms ? (int)(now_ms - missions_last_ms) : 0;
+            missions_last_ms = now_ms;
+            int pw = 0, ph = 0;
+            SDL_GetWindowSizeInPixels(window, &pw, &ph);
+            if (pw < 1 || ph < 1) { SDL_Delay(10); continue; }
+            acr_render_begin(pw, ph, 8, 10, 14);
+            g_screen_pw = pw; g_screen_ph = ph;
+            missions_draw(acr_render_hud(0, 0, pw, ph), elapsed);
             goto present;
         }
         if (mode == MODE_ROGUE) {
@@ -1772,7 +2056,9 @@ int main(int argc, char **argv) {
             }
             if (gcmd == GC_ROGUE) { rogue_open(g_hangar.pilot_name, g_hangar.ac_name); mode = MODE_ROGUE; }
             if (gcmd == GC_ARENA) { arena_open(); mode = MODE_ARENA; }
+            if (gcmd == GC_MISSIONS) { missions_open(); mode = MODE_MISSIONS; }
             if (gcmd == GC_CONTROLS) { controls_open(&cui); mode = MODE_CONTROLS; }
+            if (gcmd == GC_VIDEO || gcmd == GC_AUDIO) { settings_open(&sui, gcmd == GC_AUDIO); mode = MODE_SETTINGS; }
             if (gcmd == GC_QUIT) running = 0;
             if (gcmd == GC_NETWORK) {
                 mode = 2;
@@ -1941,7 +2227,7 @@ int main(int argc, char **argv) {
                             demo_stage tmp;
                             if (demo_stage_load(dir, net_info.stage, &tmp)) {
                                 if (g_stage.ok) demo_stage_free(&g_stage);
-                                g_stage = tmp;
+                                g_stage = tmp; g_test_boundary = 0;
                                 g_stage_id = net_info.stage;
                             }
                         }
@@ -1955,6 +2241,7 @@ int main(int argc, char **argv) {
                         show_help = 0;             /* test readouts off: no test keys online */
                         two_players = 1;
                         g_net = 1;
+                        g_hangar_fighter = net_info.local;
                         for (int k = 0; k < acr_gen1_battle_fighters(&battle); ++k) {
                             set_rate(&clock, &ac_data[k].def, g_tick_rate);
                             /* Everything the fight reads is fixed before the first snapshot. */
@@ -2014,7 +2301,7 @@ int main(int argc, char **argv) {
             else if (mode == 3 && net && net_online) {
                 net_addr me;
                 const int stun = net_link_public(net, &me);
-                if (g_net_host) brief_draw_host(hud_w, stun, &me, net_readback, (int)((now_ms - net_open_ms) / 1000), brief_msg, elapsed);
+                if (g_net_host) brief_draw_host(hud_w, stun, &me, net_readback, (int)((now_ms - net_open_ms) / 1000), brief_msg, net_link_router(net, NULL));
                 else brief_draw_guest(hud_w, stun, &me, now_ms - net_open_ms, brief_msg);
             }
             else if (mode == 3) net_menu_draw_status(hud_w, "NETWORK MATCH", net_status);
@@ -2035,7 +2322,13 @@ int main(int argc, char **argv) {
             if (pw < 1 || ph < 1) { SDL_Delay(10); continue; }
             acr_render_begin(pw, ph, 18, 22, 28);
             refresh_model(0, dir, parts, ac_data[0].model);
-            draw_garage_ac(pw, ph, 480.0f * (float)pw / (float)ph, (unsigned)(now_ms / 16));
+            {
+                const float hud_w_ = 480.0f * (float)pw / (float)ph;
+                float ox, oy, ow, oh;
+                const int obit = garage_option_model(&gui, &gdata, hud_w_, &ox, &oy, &ow, &oh);
+                if (obit >= 0) draw_option_model(obit, ph, ox, oy, ow, oh, (unsigned)(now_ms / 16));
+                else draw_garage_ac(pw, ph, hud_w_, (unsigned)(now_ms / 16));
+            }
             garage_draw(&gui, &gdata, acr_render_hud(0, 0, pw, ph), elapsed);
             goto present;
         }
@@ -2079,9 +2372,8 @@ int main(int argc, char **argv) {
             in2[0].boost = (uint8_t)v[3];
             hold_fire = v[4];
         }
-        const bool *keys = SDL_GetKeyboardState(NULL);
         acr_gen1_actions act[ACR_GEN1_MAX_FIGHTERS] = { { 0 } };
-        act[0].fire = (uint8_t)(hold_fire || (!mod[0] && (keys[SDL_SCANCODE_F] || keys[SDL_SCANCODE_LCTRL])) ||
+        act[0].fire = (uint8_t)(hold_fire || (!mod[0] && controls_key_held(CK_FIRE)) ||
                                 (ctl[0] && !back_held && (mod[0] ? SDL_GetGamepadAxis(ctl[0], SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) > 8000
                                                                  : controls_held(ctl[0], CT_FIRE))));
         if (two_players)
@@ -2217,7 +2509,7 @@ int main(int argc, char **argv) {
                 g_in[k] = in2[k];
             }
             /* Rogue Arena co-op on this PC: the pair flies itself. */
-            for (int k = 2; g_rogue_fight == 3 && k < acr_gen1_battle_fighters(&battle); ++k) {
+            for (int k = 2; g_rogue_fight == 4 && k < acr_gen1_battle_fighters(&battle); ++k) {
                 acr_gen1_ai_step(&g_ai[k], &battle, k, g_stage_on ? g_stage.half : ARENA, &in2[k], &act[k]);
                 g_in[k] = in2[k];
             }
@@ -2228,6 +2520,36 @@ int main(int argc, char **argv) {
             /* The arena's floors and walls (the defs are reloaded on part changes). */
             def->stage = def2->stage = battle.stage = g_stage_on ? &g_stage.collision : NULL;
             acr_gen1_battle_step(&battle, in2, act);
+            if (battle.mission.flags & ACR_GEN1_MISSION_SWAP) {
+                /* P4 Altered circumstances: the examiner withdraws and the
+                 * challenger (an arena AC, flown by its own AI) drops in
+                 * from above on the east side; the clock gets its extra
+                 * time and the Nest says to go on. */
+                if (missions_challenger()) {
+                    const rogue_fight *cf = missions_fight_info();
+                    memcpy(parts2, cf->parts[1], sizeof parts2);
+                    demo_load(dir, parts2, &ac_data[1], err, sizeof err);
+                    g_paint_on[1] = 1;
+                    memcpy(g_paint[1], cf->colours[1], sizeof g_paint[1]);
+                    g_rogue_prof = cf->ai;
+                    g_ai_mode = AI_ROGUE;
+                    g_plus2 = cf->plus[1];
+                    g_options[1] = missions_foe_options();
+                    SETUP_FIGHTER(1);
+                    acr_gen1_mission_spot drop = acr_gen1_p4_challenger_drop;
+                    drop.y -= ACR_GEN1_P4_DROP_HEIGHT;
+                    spot_spawn(T, def2, &drop);
+                    prevs[1] = *T;
+                    const acr_gen1_ai_profile p_ = ai_profile(g_ai_mode);
+                    acr_gen1_ai_init(&g_ai[1], &p_, 0x5678u + (uint32_t)(++g_ai_round) * 7919u);
+                    battle.targeted = 0;
+                    acr_gen1_battle_retarget(&battle);
+                } else
+                    SDL_Log("missions: the challenger isn't in this import (re-import your disc); the examiner stays");
+                round_ms += missions_extra_ms();
+                acr_gen1_mission_challenger_in(&battle);
+                radio_say(missions_radio(1));
+            }
             if (battle.mission.map) {      /* the map's script: log each step it takes */
                 static acr_gen1_mission last_m;
                 const acr_gen1_mission *m_ = &battle.mission;
@@ -2300,7 +2622,7 @@ int main(int argc, char **argv) {
         const int vx = vi * pw / views, vpw = (vi + 1) * pw / views - vx;
         /* Rogue Arena co-op: once your AC is down, your view follows your
          * partner's for the rest of the fight. */
-        const int cam_ = g_rogue_fight == 3 && battle.count > 2 && battle.f[view].ap <= 0 && battle.f[1 - view].ap > 0
+        const int cam_ = g_rogue_fight == 4 && battle.count > 2 && battle.f[view].ap <= 0 && battle.f[1 - view].ap > 0
                        ? 1 - view : view;
         const acr_gen1_ac ac = battle.f[cam_].ac;
         const acr_gen1_ac prev = prevs[cam_];
@@ -2399,13 +2721,16 @@ int main(int argc, char **argv) {
             for (int c = 0; c < 3; ++c) cam_fwd[c] = fwd[c];
             for (int k = 0; k < 4; ++k) viewm[4 * k] = -viewm[4 * k];
         }
-        const acr_fog fog = { 30000.0f, 60000.0f, 18, 22, 28 };
+        acr_fog fog = { 30000.0f, 60000.0f, 18, 22, 28 };
+        if (g_stage_on) demo_stage_fog(&g_stage, &fog);   /* our backdrop's horizon haze */
         acr_render_view3d(vx, 0, vpw, ph, proj, viewm, &fog);
 
         /* the arena (its sky first, around the eye), or the open floor's grid and walls */
-        if (g_stage_on) demo_stage_draw_sky(&g_stage, sky_eye);
+        if (g_stage_on) demo_stage_draw_sky(&g_stage, sky_eye, (float)SDL_GetTicks() / 1000.0f);
         if (g_stage_on) demo_stage_draw(&g_stage, 0);
-        if (g_stage_on && g_stage_id >= 0 && g_stage_id < 20) {
+        if (g_stage_on && g_rogue_fight == 3 && g_mission_units.objects && battle.units)   /* a mission's borrowed units */
+            demo_units_draw(&g_mission_units, &battle, (float)SDL_GetTicksNS() / (float)ACR_GEN1_TICK_NS, &g_light);
+        if (g_stage_on && g_stage_id >= 0 && g_stage_id < 20 && !g_rogue_fight) {   /* menu fights: no mission units */
             if (g_units.map != g_stage_id) {
                 demo_units_free(&g_units);
                 demo_units_load(g_import_dir, g_stage_id, &g_units);
@@ -2721,8 +3046,9 @@ int main(int argc, char **argv) {
             TEXT(20, 88, "BACK+A (H): HUMAN PLUS  (T): STEP RATE");
             TEXT(20, 100, "BACK+LB (F2): TWO PLAYERS  BACK+R3 (F3): LANDING PAUSE GUESS/ANIMATION");
             TEXT(20, 112, "BACK+UP (F4): OPPONENT STILL / AI PRESETS  BACK+DOWN (F6): AI VS AI (WATCH)");
-            if (g_stage.ok) TEXT(20, 136, g_stage.collision.bounds ? "BACK+RIGHT (F8): TEST BOUNDARY ON (1,500 PAST THE STARTS)"
-                                                                   : "BACK+RIGHT (F8): TEST BOUNDARY OFF");
+            if (g_stage.ok) TEXT(20, 136, g_test_boundary ? "BACK+RIGHT (F8): TEST BOUNDARY ON (1,500 PAST THE STARTS)"
+                                          : g_stage.own_bounds ? "BACK+RIGHT (F8): TEST BOUNDARY OFF (THE STAGE'S OWN AREA)"
+                                                               : "BACK+RIGHT (F8): TEST BOUNDARY OFF (NO OUT OF AREA HERE)");
             TEXT(20, 124, g_stage.ok ? "BACK+LEFT (F7): GREEN SILO / OCEAN PLATFORM / MISSION MAPS 11, 6 / OPEN FLOOR"
                                      : "BACK+LEFT (F7): ARENA STAGE (RE-IMPORT THE DISC FOR STAGES)");
         }
@@ -2739,6 +3065,8 @@ int main(int argc, char **argv) {
                               g_ai_mode == AI_FROM_FILE ? "FROM FILE" : acr_gen1_ai_preset_name(g_ai_mode));
             battle_hud_text(full_w, g_hud_frame, 0, 160.0f - 2.0f * (float)SDL_strlen(who), 42, who, 0, 255, 200, 120);
         }
+        if (g_rogue_fight == 3 && !round_over && SDL_GetTicks() < g_radio_until)   /* a mission's radio */
+            battle_hud_text(full_w, g_hud_frame, 0, 160.0f - 2.0f * (float)SDL_strlen(g_radio), 196, g_radio, 0, 140, 230, 255);
         if (g_rogue_fight && !round_over && SDL_GetTicks() < give_up_until)
             battle_hud_text(full_w, g_hud_frame, 0, 160.0f - 2.0f * 29.0f, 180, "ESC AGAIN: GIVE UP (A LOSS)", 0, 255, 90, 70);
         if (round_over) {

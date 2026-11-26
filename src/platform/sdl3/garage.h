@@ -22,7 +22,10 @@ typedef enum garage_command {
     GC_NETWORK,     /* the NETWORK screen (host or join a match; the build passed the check) */
     GC_ROGUE,       /* ROGUE ARENA */
     GC_ARENA,       /* ARENA: the ranked ladders */
+    GC_MISSIONS,    /* MISSIONS: the mission list, briefings and sorties */
     GC_CONTROLS,    /* SYSTEM > SETTINGS > CONTROLS: the controller mapping page */
+    GC_VIDEO,       /* SYSTEM > SETTINGS > VIDEO */
+    GC_AUDIO,       /* SYSTEM > SETTINGS > AUDIO */
     GC_SAVE,        /* SYSTEM > SAVE */
     GC_LOAD,        /* SYSTEM > LOAD: back to the saved garage */
     GC_QUIT         /* SYSTEM > EXIT GAME (in a Rogue Arena run: back to its hub) */
@@ -42,6 +45,10 @@ typedef struct garage_ui {
     char message[96];
     int message_ms;
     int rogue;                  /* a Rogue Arena run's garage: assembly only, P */
+    int opt, opt_top;           /* OPTIONAL PARTS: cursor in the owned options, first row shown */
+    /* CHANGE COLOR: 0 its menu, 1 the part menu, 2 the colour editor */
+    int paint_step, paint_menu, paint_part_cur, paint_colour, paint_channel;
+    uint8_t paint_backup[4][4][3];   /* the paint as the editor found it (○ puts it back) */
 } garage_ui;
 
 typedef struct garage_data {
@@ -49,6 +56,8 @@ typedef struct garage_data {
     const acr_gen1_catalog *cat;
     char (*names)[ACR_GEN1_PART_MAX][24];
     int have_pad;          /* a controller is connected (SP-MODERN needs one) */
+    const demo_part_specs *specs;   /* the disc's type names and shop texts (may be NULL) */
+    const uint8_t (*paint_default)[3];   /* CHANGE COLOR's DEFAULT: the disc's 4 colours (may be NULL) */
 } garage_data;
 
 void garage_init(garage_ui *ui);
@@ -60,5 +69,9 @@ garage_command garage_input(garage_ui *ui, garage_data *d, garage_action a);
  * drawn by the caller; garage_view_rect gives where, in HUD units. */
 void garage_draw(garage_ui *ui, const garage_data *d, float hud_w, int elapsed_ms);
 void garage_view_rect(float hud_w, float *x, float *y, float *w, float *h);
+/* OPTIONAL PARTS shows the highlighted option's own model turning in a box
+ * (HUD units) instead of the AC: its option bit, or -1 when the page isn't open. */
+int garage_option_model(const garage_ui *ui, const garage_data *d, float hud_w,
+                        float *x, float *y, float *w, float *h);
 
 #endif

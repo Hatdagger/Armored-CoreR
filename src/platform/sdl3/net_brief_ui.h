@@ -44,9 +44,10 @@ void brief_edit_say(brief_edit *e, const char *text);
 void brief_edit_draw(brief_edit *e, float hud_w, int elapsed_ms);
 
 /* Player 1, waiting. `stun`: net_link_public's result; `me` our internet
- * address when stun == 1; `readback`: a read-back has been entered. */
+ * address when stun == 1; `readback`: a read-back has been entered;
+ * `router`: net_link_router's answer (NET_ROUTER_*). */
 void brief_draw_host(float hud_w, int stun, const net_addr *me, int readback, int waited_s,
-                     const char *message, int elapsed_ms);
+                     const char *message, int router);
 /* Player 2, connecting. `since_ms`: time since the briefing was entered. */
 void brief_draw_guest(float hud_w, int stun, const net_addr *me, uint64_t since_ms, const char *message);
 /* Player 2 escalates to a read-back after this long without an answer. */

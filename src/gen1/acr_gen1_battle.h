@@ -37,6 +37,8 @@ typedef struct acr_gen1_weapon {
     char     name[20];
     uint16_t attack;
     uint16_t ammo;          /* 0 = unlimited (blade) */
+    uint16_t ammo_price;    /* per round (detail +0xC): the mission report's ammunition bill */
+    uint8_t  solid;         /* damage flag 0x10: only these are billed for ammunition */
     int32_t  range;         /* world units, already capped by the FCS; blade: reach */
     uint8_t  energy;        /* energy damage (else shell) */
     uint16_t lock_ms;       /* guns: non-zero = locks on (the time itself comes from the FCS
@@ -461,8 +463,9 @@ int acr_gen1_aim(const acr_gen1_battle *b, int i, int16_t aim[3]);
 #define ACR_GEN1_CAM_PITCH_MAX 800
 
 /* Out of area for fighter i (the stage's boxes, acr_gen1_stage_bound):
- * 0 inside, 1 outside the first inner box only (the warning), 2 outside
- * both (that side loses). 0 on a stage without the boxes. */
+ * 0 inside, 1 inside box 0 but outside one inner box (the warning), 2
+ * inside box 0 and outside both inner boxes (that side loses). 0 on a
+ * stage without the boxes, and outside box 0. */
 int acr_gen1_battle_out_of_area(const acr_gen1_battle *b, int i);
 
 /* How a round stands (VS main loop end checks): 0 still fighting, 1 or 2 that

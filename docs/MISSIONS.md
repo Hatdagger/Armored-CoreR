@@ -127,11 +127,11 @@ flowchart LR
     G1["1. Mission maps in engine<br/>done (no lights, sky,<br/>area boxes, water rule)"]:::done
     G2["2. Non-AC enemies<br/>models identified;<br/>export + draw next"]:::doing
     G3["3. More units<br/>beyond 4 ACs / 2 teams"]:::todo
-    G4["4. Mission file<br/>drops, objectives, timer,<br/>triggers, 40/40/20 roll"]:::todo
+    G4["4. Mission file<br/>drops, objectives, timer,<br/>triggers (P4's 40/40/20<br/>roll done)"]:::doing
     G5["5. Mission AI<br/>scripted paths, flee,<br/>wake-on-trigger"]:::todo
-    G6["6. Screens<br/>select, briefing,<br/>MISSION TIME, results"]:::todo
+    G6["6. Screens<br/>list, briefing, report done;<br/>MISSION TIME HUD next"]:::doing
 
-    P4(["P4 Qualifier<br/>playable now"]):::done
+    P4(["P4 Qualifier<br/>MISSIONS menu"]):::done
     INV(["Investigation"]):::todo
     P125(["P1 / P2 / P5"]):::todo
     P3(["P3 vehicles"]):::todo
@@ -149,6 +149,111 @@ flowchart LR
     classDef todo fill:#333,stroke:#888,color:#ddd
 ```
 
-Test order: P4 (now, a 1v1 vs CPU on map 11 in AC TEST) → Investigation
-(after 3-5) → P1 / P2 / P5 (after 2) → P3 (vehicles). Screens can be
-skipped in tests with a direct launcher.
+Test order: P4 (now, from the MISSIONS menu; also still in AC TEST on map
+11) → Investigation (after 3-5) → P1 / P2 / P5 (after 2) → P3 (vehicles).
+Screens can be skipped in tests with a direct launcher.
+
+## MISSIONS screens (2026-11-25)
+
+Main menu > MISSIONS. Code: `src/platform/sdl3/missions.c` (screens),
+`src/gen1/acr_gen1_missions.c` (rules, unit tests in
+`tests/test_gen1_missions.c`), `tools/acr_import/acr_missions_moa.c`
+(what acr-import reads from the disc).
+
+```mermaid
+flowchart LR
+    L["Mission list<br/>P4 + MoA's 20"] -->|A| B["Briefing<br/>mail header, pages,<br/>pictures"]
+    L -->|Tab / Triangle| R["Read-only briefing<br/>(missions not playable yet)"]
+    B -->|A on last page| Q{"Accept?"}
+    Q -->|YES| C{"Sortie check"}
+    C -->|fails| M["The game's message"]
+    C -->|passes| F["Sortie<br/>(P4: map 11, 3:00,<br/>the rolled variant)"]
+    F --> X["Income and<br/>expense report"]
+    X --> L
+```
+
+**What's on the screens and where it comes from**
+
+| What | Source |
+|---|---|
+| MoA's 20 missions: name, requester, sender, reward, briefing pages, pictures | Your disc, through acr-import: `GG/MS/MIS.T` entry 0 (the menu's mission table) and the page / picture entries it points to. Written to `<import>/missions/` |
+| Page markup: `@1 ... @0` yellow words, `%n` picture n | The disc's own markup in the pages; the pictures match (e.g. Eliminate Fugitive's `%0` is the Armored Car) |
+| P4 Qualifier: Raven's Nest, 10,000 C, 3:00, briefing | The user's mockup (Standard variant); its last page follows MoA's "Theater of operations" page with the mockup's facts |
+| P4's examiner AC | The user's AI Battle card ([missions/p4-examiner-card.png](missions/p4-examiner-card.png), format 4): XCA-00, HD-REDEYE, AN-201, LN-1001, WG-MGA1, LS-200G, WC-CN35 + WM-X201, COMDEX-G0, GBG-10000, B-HP25; no options, no Human PLUS, BALANCED AI; the card's paint. Names (user): AC **Anfang**, pilot **NEST EXAMINER** |
+| Sortie check and its three messages | MoA's menu 0x800967C4: incomplete (a part, or a booster on legs that need one) → weight (legs or arm load) → energy. Option slots aren't checked |
+| Income and expense report: picture, digits, row positions, timing | RTIM 63 / 64 (success, picked at random) and 65 (failure), drawn by the missions engine 0x800918E8 |
+| Report maths | See below |
+| Mission record | Saved in the garage's save file, section `[missions]` |
+
+**The report (MoA's rules, read from the disc 2026-11-25).**
+
+- **Reward**: the mission's reward on a success, 0 on a failure.
+- **Special addition / Special deduction**: tallies a MoA mission's own
+  code and breakable structures keep. P4 pays its Altered circumstances
+  bonus (12,000 C for beating the challenger) as the special addition;
+  otherwise they are 0.
+- **Ammunition**: for each solid weapon (damage flag 0x10), rounds fired
+  × its ammo price. Energy weapons cost nothing.
+- **A.C. repair**: (AP max − AP left) × (AC price ÷ 100) ÷ 8,000, rounded
+  down. The AC price is every fitted part but the options. The menu adds
+  it up at launch, and a two-slot back unit counts twice, as on the disc.
+- **Balance** is the sum. **Total credits** = credits + balance, kept
+  between −999,999 and 9,999,999.
+
+A failure still pays ammunition and repair. Mission progress and credits
+go into the same save as the garage.
+
+## P4's three variants (2026-11-25)
+
+The game rolls P4's variant when the MISSIONS screen opens (40 % Standard,
+40 % Alternate layout, 20 % Altered circumstances) and keeps it until P4
+is flown; the next visit rolls again. The list, the briefing and the
+sortie all use the rolled one. Variant 3 is never briefed: its briefing
+reads as Standard's, and the mockup's variant-3 briefing comes as radio
+during the fight. Code: `acr_gen1_mission_roll` / `acr_gen1_mission_variant`
+(`src/gen1/acr_gen1_missions.c`), the rules in `src/gen1/acr_gen1_mission.c`
+(`acr_gen1_mission_start_own`), tests in `tests/test_gen1_missions.c`.
+
+| | Standard | Alternate layout | Altered circumstances |
+|---|---|---|---|
+| Reward | 10,000 C | 12,000 C | 10,000 C + 12,000 C special addition for beating the challenger |
+| Time | 3:00 | 3:00 | 3:00, + 2:00 when the challenger comes (the mockup's 5:00) |
+| Briefing | Standard's | its own (mockup) | Standard's |
+| Starts (map 11) | as before, facing down the middle | you in the south-west corner, the examiner behind the north-east pillar | as Standard |
+| Enemies | examiner (Anfang) | examiner + 2 drone MTs in the north corners (optional: only the examiner counts) | examiner; below half AP it withdraws and the challenger drops in on the east side |
+| Won by | examiner down, or more AP at time up | the same; the drones never count | the challenger down, or more AP than whoever is there at time up |
+
+**Where each piece comes from**
+
+| What | Source |
+|---|---|
+| Rewards, times, briefing text, layout, "only the examiner counts", challenger below half AP, "Continue the test." | The user's mission mockups (2026-11-20) |
+| Drone MTs | Master of Arena's small drone, unit U10, as map 13 has it (records 11-14: AP 950, attack 50; it has 4 animations, so it fights as a turret that turns and fires). The user picked it (2026-11-25). Borrowed from map 13 by `demo_units_borrow` |
+| The examiner in variant 3 | The same Anfang (the user: "use the same examiner I provided before"), not a light build |
+| The challenger | A MoA arena Raven while versus rivals and ghosts don't exist (the user, 2026-11-25): **The Wolf** (pilot Prime, main arena rank 14, no Human PLUS), its own build, paint and AI from your disc's arena table |
+| Radio text | Variant 3 only: "NEST: A shortened test today. Win, and you're through." (the mockup's briefing less the light build) and "NEST: Continue the test." Text on screen for 5 seconds; no voice |
+
+**Choices made here (tell me if you want them different)**
+- Places on map 11 are the mockup's marks moved a little: the hall is
+  about ±11,800 across the mockup's picture and the pillars stand at
+  ±5,700, so the examiner sits at (7,400, 7,400), clear of the pillar, and
+  the drones go deeper into the corners (±9,300, 9,600) so they don't
+  overlap it. The drones' guns reach 7,000, so they only fire once you
+  come north.
+- Variant 3's clock starts at the briefed 3:00 and the challenger adds
+  2:00, so the briefing stays true and the whole test is the mockup's 5:00.
+- The challenger falls in from 2,500 above (8,000, 0) facing west. The
+  examiner just leaves the hall when it comes (there's no exit to walk to).
+- A draw (both down, or equal AP at time up) is a failed mission, as for
+  the Standard variant.
+
+**Testing aids**: `ACR_MISSION_VARIANT=1|2|3` picks P4's variant instead
+of rolling; `ACR_MISSION_FOE_HURT=1` starts the opponent just below half
+its AP (variant 3: the challenger comes at once).
+
+**Not yet**
+- MoA's own missions can't be flown: they're listed and their briefings
+  can be read. Maps 2, 12, 13, 15 already run their rules in AC TEST;
+  they open once the extra AC TEST target is gone and the radio is in.
+- MoA's chapters (which missions are offered when), mail, the "Dummy"
+  slots 20-23 and the table's byte +1160.

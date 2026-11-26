@@ -10,6 +10,7 @@
  *   <out>/<NN>/visual.obj/.mtl the stage's flat-coloured models (FDAT 5s+4 chunk 4),
  *                              placed by the area records (chunk 8)
  *   <out>/<NN>/collision.obj   the collision polygons (chunk 7), placed the same way
+ *   <out>/<NN>/sky.obj, far.obj chunk 3's sky sphere / far plane around the origin
  *
  * NN = stage number: 0-19 are the mission maps, 20-40 the arena / VS
  * stages (Green Silo is 27). Both OBJ files are in the
@@ -20,6 +21,14 @@
  * skipped. */
 int acr_export_moa_stages(const char *unpacked_dir, const char *out_dir, uint32_t *stages,
                           char *err, size_t err_size);
+
+/* The colour a stage face is lit with (docs/research/gen1-stages.md, "Stage
+ * lights"): the GTE's NCCS (sf = 1, lm = 1) on the model normal `n` (4096 =
+ * 1) with a light set's light matrix `llm` (turned for an area of `quarter`
+ * quarter turns, the area draw's way), colour matrix `lcm` and back colour
+ * `bk`, and the colour 0x404040. Each channel 0-255; 128 = the texel as it is. */
+void acr_moa_light_face(const int16_t llm[9], const int16_t lcm[9], const uint8_t bk[3], unsigned quarter,
+                        const int16_t n[3], uint8_t out[3]);
 
 /* Name of a stage number (the arena's stage list), or NULL. */
 const char *acr_moa_stage_name(unsigned stage);

@@ -294,6 +294,8 @@ int demo_load(const char *import_dir, const int parts[SLOT_COUNT], demo_ac *out,
                 const long kind = get_int(t, e, "kind", s == SLOT_BACK_L || s == SLOT_BACK_R ? 1 : 0);
                 w->kind = kind == 1 ? ACR_GEN1_MISSILE : ACR_GEN1_GUN;
                 w->ammo = (uint16_t)get_int(t, e, "ammo", 0);
+                w->ammo_price = (uint16_t)get_int(t, e, "ammo_price", 0);
+                w->solid = (uint8_t)((get_int(t, e, "ammo_flags", 0) & 0x10) != 0);
                 w->range = (int32_t)get_int(t, e, "range", 6000);
                 w->energy = (uint8_t)get_int(t, e, "energy_damage", 0);
                 w->lock_ms = (uint16_t)(cls < 4 ? 1 : 0);
@@ -425,6 +427,51 @@ static const int k_cat_slot[ACR_GEN1_CAT_COUNT] = {
     SLOT_FCS, SLOT_LEGS, -1
 };
 
+/* What the garage's PERFORMANCE page reads from a part file (acr_gen1_perf.h).
+ * Older imports without the named keys fall back to the record's words
+ * (`raw` starts at byte 0x24). */
+static void read_perf(int category, const char *t, const char *e, acr_gen1_perf_part *q) {
+    memset(q, 0, sizeof *q);
+    q->ap = (uint16_t)get_int(t, e, "ap", 0);
+    q->defense_shell = (uint16_t)get_int(t, e, "defense_shell", 0);
+    q->defense_energy = (uint16_t)get_int(t, e, "defense_energy", 0);
+    const long atk = get_int(t, e, "attack", 0);   /* radars have none */
+    q->attack = (uint16_t)(atk > 0 && atk < 65536 ? atk : 0);
+    switch (category) {
+    case ACR_GEN1_CAT_LEGS:
+        q->moving_speed = (uint16_t)get_int(t, e, "moving_speed", list_at(t, e, "raw", 9, 0));
+        q->turn_accel = (uint16_t)get_int(t, e, "turn_accel", list_at(t, e, "raw", 10, 0));
+        q->stability = (uint16_t)get_int(t, e, "stability", list_at(t, e, "raw", 14, 0));
+        break;
+    case ACR_GEN1_CAT_BOOSTER:
+        q->power = (uint16_t)get_int(t, e, "power", list_at(t, e, "raw", 4, 0));
+        break;
+    case ACR_GEN1_CAT_HEAD:
+        q->radar_range = (uint16_t)get_int(t, e, "radar_range", list_at(t, e, "raw", 10, 0));
+        break;
+    case ACR_GEN1_CAT_BACK:
+        if (get_int(t, e, "radar", 0)) {
+            q->radar_unit = 1;
+            q->radar_range = (uint16_t)get_int(t, e, "radar_range", list_at(t, e, "raw", 5, 0));
+        }
+        break;
+    case ACR_GEN1_CAT_FCS: {
+        static const char *const k_class[4] = { "lock_class_0", "lock_class_1", "lock_class_2", "lock_class_3" };
+        q->max_locks = (uint8_t)get_int(t, e, "max_locks", list_at(t, e, "raw", 4, 0));
+        /* each lock class: range, box w, h, inner w, h, lock time (raw words 5 + 6k ...) */
+        q->fcs_range = (uint16_t)list_at(t, e, k_class[0], 0, list_at(t, e, "raw", 5, 0));
+        q->lock_time = (int16_t)list_at(t, e, k_class[0], 5, list_at(t, e, "raw", 10, 0));
+        for (int k = 0; k < 4; ++k) {
+            q->lock_w[k] = (int16_t)list_at(t, e, k_class[k], 1, list_at(t, e, "raw", 6 + 6 * k, 0));
+            q->lock_h[k] = (int16_t)list_at(t, e, k_class[k], 2, list_at(t, e, "raw", 7 + 6 * k, 0));
+        }
+        break;
+    }
+    default:
+        break;
+    }
+}
+
 static void catalog_file(catalog_walk *w, const char *path) {
     char *t = load_text(path);
     if (!t) return;
@@ -442,6 +489,7 @@ static void catalog_file(catalog_walk *w, const char *path) {
             read_part(k_cat_slot[w->category], t, &p->stats, name, sizeof name);
             p->flags = acr_gen1_fit_flags_moa((acr_gen1_slot)k_cat_slot[w->category], (unsigned)index);
             if (w->category == ACR_GEN1_CAT_CORE) p->slots = (uint8_t)get_int(t, e, "option_slots", 0);
+            read_perf(w->category, t, e, &p->perf);
         }
         p->present = 1;
         p->for_sale = 1;   /* the shop's stock is not decoded yet: everything is for sale */
