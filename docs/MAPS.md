@@ -95,6 +95,8 @@ hard pixels, like the PS1 games' own); nothing is taken from the disc.
 
 Clear green and clear red stay the start markers and are never drawn.
 
+![A map shaped like Stage 1 (a white container, blue 10 x 10 x 20 mm blocks) with its made textures. A rough preview drawn outside the game, not a screenshot](maps/preview.png)
+
 - A picture covers a square of about **10 mm** (two and a half AC widths).
   Each shape gets its own squares, stretched a little so a whole number
   fits: a 10 x 10 x 20 mm block is one square wide and two tall on every

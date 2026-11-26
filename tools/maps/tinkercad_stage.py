@@ -525,6 +525,10 @@ def textured_faces(pts, world, remap, cell):
         else:
             sa, ta, top = 0, 1, False          # a wall facing north or south: along x, up y
         tri = [((p[sa] - lo[sa]) / fit[sa], (p[ta] - lo[ta]) / fit[ta], p[0], p[1], p[2]) for p in (A, B, C)]
+        # Walls: every other shape, and every other side of it, shows the picture
+        # mirrored, so a row of the same buildings doesn't light the same windows.
+        na = 0 if sa == 2 else 2               # the axis the wall faces along
+        mirror = not top and (int(round(lo[0] / 50)) * 7 + int(round(lo[2] / 50)) * 13 + sa + (n[na] > 0)) % 2 == 1
         s0, s1 = math.floor(min(v[0] for v in tri) + 1e-6), math.ceil(max(v[0] for v in tri) - 1e-6)
         for i in range(s0, max(s1, s0 + 1)):
             strip = _clip(_clip(tri, 0, i, True), 0, i + 1, False)
@@ -538,6 +542,8 @@ def textured_faces(pts, world, remap, cell):
                 vs = []
                 for s, tt, x, y, z in poly:
                     lu, lv = min(1.0, max(0.0, s - i)), min(1.0, max(0.0, tt - j))
+                    if mirror:
+                        lu = 1.0 - lu
                     row = (0.5 if top else 0.0) + half + (1.0 - lv) * (0.5 - 2 * half)   # down the image
                     vs.append(((x, y, z), (lu, 1.0 - row)))
                 for k in range(1, len(vs) - 1):
