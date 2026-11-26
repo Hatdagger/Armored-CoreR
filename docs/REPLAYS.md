@@ -110,3 +110,10 @@ prints what to do:
   (`acr_rb_pack`), with a check from the fight's hash every 60 steps.
 - **Files:** a `replays/` folder beside the save, written a buffer at a
   time (`acr_replay_rec_drop`).
+- **Spectators and late joiners:** the host sends the replay's bytes as
+  they are recorded and the watcher calls `acr_replay_grow`. The message
+  layer from the Rogue Arena co-op work (`acr_msg`, PR #20) already
+  delivers whole messages in order over UDP, so each saved buffer can go
+  out as one message; nothing new is needed for the transport.
+- **Lockstep matches** (PR #26): every step that runs is final, so the
+  recorder takes `acr_ls_pads` after each tick, a track per player.
