@@ -1,0 +1,18 @@
+// The Android build (docs/ANDROID.md). Same Android Gradle Plugin as the
+// SDL release the game uses (SDL's android-project).
+buildscript {
+    repositories {
+        mavenCentral()
+        google()
+    }
+    dependencies {
+        classpath 'com.android.tools.build:gradle:8.7.3'
+    }
+}
+
+allprojects {
+    repositories {
+        mavenCentral()
+        google()
+    }
+}

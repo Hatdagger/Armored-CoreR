@@ -84,11 +84,41 @@ leaving it completely loses the fight.
   fight with and without a clock, win, pay-out and save. Real opponents,
   their ACs on the ladder panel and the prize part names need the disc.
 
+## Stage lights (2026-11-25, branch `stage-lights`)
+
+Every Arena stage is lit the game's way: each area uses its own light set
+from the disc (three directional lights, a colour matrix and a back
+colour), and every face gets the colour the game's GTE gives it (details:
+`docs/research/gen1-stages.md`, "Stage lights"). Green Silo's middle floor
+and dome use the dim, green-tinted set 10, so it's darker than before;
+Night City's buildings use set 1 (dimmer, cooler); Ocean Platform and
+Garden Plaza use set 0 (floors a little brighter than the texture). Needs
+a re-import (`acr-import`); older imports and custom maps keep the fixed
+light. No fog: the game's stage draw doesn't use it (it only exists to hide
+the PS1's short draw distance), so it stays off.
+
+## Backgrounds (2026-11-25, branch `stage-backgrounds`)
+
+- **Far planes (from the disc):** Ocean Platform's sea and Garden Plaza's
+  grass are flat sheets in the stage file (chunk 3, 11,750 units square).
+  The engine tiles them out to the horizon just under the stage, lit like
+  the stage's floors, so the sea and the grass reach the sky instead of
+  stopping at the stage's edge. (How the game itself places them isn't
+  read yet.)
+- **Skies (our own, not from the disc):** Ocean Platform and Garden Plaza
+  get a daytime gradient (blue overhead, pale haze at the horizon) with
+  drifting clouds high up; Night City (black in the game) a dark navy
+  gradient with faint dark clouds. Green Silo keeps the game's starfield.
+  The colours are in `k_backdrops` in `src/platform/sdl3/demo_stage.c`;
+  the cloud picture is made by the program (no files).
+- **Horizon haze:** on those three stages the distance fades into the
+  sky's horizon colour from 18,000 to 39,000 units, so the far planes meet
+  the sky without a hard edge. This is not the PS1's fog (that stays off);
+  inside the arenas nothing is close enough to be touched by it.
+- Needs a re-import for the far planes (`far.obj`); the skies need none.
+
 ## Still to do (step 7)
 
-- Stage lights: the game's light sets are read (see
-  `docs/research/gen1-stages.md`, "Stage lights"), not applied yet; all
-  stages still share one fixed light.
 - The VS screen before an Arena fight (Rogue Arena has one), opponent
   emblems on the ladder, the "Opponent unavailable, default win" rule
   (opponents killed in missions) once missions count.

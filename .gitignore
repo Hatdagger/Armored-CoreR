@@ -11,3 +11,11 @@ src/platform/xbox/bin/
 src/platform/xbox/*.obj
 src/platform/xbox/*.d
 __pycache__/
+android/.gradle/
+android/gradle/
+android/gradlew
+android/gradlew.bat
+android/local.properties
+android/app/.cxx/
+android/app/build/
+android/build/

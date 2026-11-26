@@ -99,8 +99,9 @@ static int split(const uint8_t *d, size_t size, chunk out[CHUNKS]) {
 }
 
 /* An area record (chunk 8, 52 bytes; 64 in RAM): min x/y/z +0, max +8,
- * centre +0x10, turn +0x16 (quarter turns in bits 10-11), model +0x1E. */
-typedef struct area { int16_t min[3], max[3], centre[3]; uint8_t quarter; int16_t model; } area;
+ * centre +0x10, turn +0x16 (quarter turns in bits 10-11), model +0x1E,
+ * light set +0x28 byte 0 (+0x30 in RAM). */
+typedef struct area { int16_t min[3], max[3], centre[3]; uint8_t quarter, light; int16_t model; } area;
 
 static unsigned read_areas(const chunk *c, area *out) {
     if (c->n < AREAS * AREA_SIZE) return 0;
@@ -116,6 +117,7 @@ static unsigned read_areas(const chunk *c, area *out) {
         if (!a.min[0] && !a.min[1] && !a.min[2] && !a.max[0] && !a.max[1] && !a.max[2]) continue;
         a.quarter = (uint8_t)((u16(r + 0x16) >> 10) & 3);
         a.model = s16(r + 0x1E);
+        a.light = r[0x28];
         out[n++] = a;
     }
     return n;
@@ -264,6 +266,78 @@ static int write_visual(const char *dir, const chunk *tmd, const area *ar, unsig
     return 1;
 }
 
+/* ---- stage lights (docs/research/gen1-stages.md, "Stage lights") ----
+ * 32 light sets of 44 bytes in FDAT 205 chunk 7: light matrix +0x00 (three
+ * light directions, 4096 = 1), colour matrix +0x14, back colour +0x26 (r, g,
+ * b), fog +0x2A. The arena engine's area draw (FDAT 210 0x80063844) sets the
+ * area's set (+0x28 byte 0) with SetColorMatrix, SetBackColor and
+ * SetLightMatrix; the light matrix is the set's own turned by the area's
+ * quarter turns the other way (0x8005DAE4 / 0x800139F8), so the model's own
+ * normals can be used. The stage draws (0x8006E77C, 0x8006F57C) light every
+ * textured face once with NCCS: the face normal and the colour 0x404040.
+ * GPU codes with bit 0 (TMD modes 0x25 / 0x2D) draw the texture as it is, so
+ * those faces keep 128 (= the texel). No depth cue: the fog value is not
+ * used by these draws. */
+#define LIGHT_SETS     32u
+#define LIGHT_SET_SIZE 44u
+
+typedef struct light_set { int16_t llm[9], lcm[9]; uint8_t bk[3]; } light_set;
+
+/* FDAT 205's chunk 7; 0 if it can't be read (stages then go without). */
+static unsigned read_light_sets(const char *unpacked_dir, light_set *out) {
+    char path[1200];
+    snprintf(path, sizeof path, "%s/GG/COM/FDAT/205.bin", unpacked_dir);
+    size_t n = 0;
+    uint8_t *d = read_all(path, &n);
+    if (!d) return 0;
+    size_t o = 0;
+    unsigned got = 0;
+    for (unsigned c = 0; c <= 7 && o + 4 <= n; ++c) {
+        const uint32_t len = u32(d + o);
+        if (len > n - o - 4) break;
+        if (c == 7 && len >= LIGHT_SETS * LIGHT_SET_SIZE) {
+            for (unsigned i = 0; i < LIGHT_SETS; ++i) {
+                const uint8_t *r = d + o + 4 + i * LIGHT_SET_SIZE;
+                for (int k = 0; k < 9; ++k) { out[i].llm[k] = s16(r + 2 * k); out[i].lcm[k] = s16(r + 0x14 + 2 * k); }
+                for (int k = 0; k < 3; ++k) out[i].bk[k] = r[0x26 + k];
+            }
+            got = LIGHT_SETS;
+        }
+        o += 4 + len;
+    }
+    free(d);
+    return got;
+}
+
+static int32_t gte_lim(int64_t v) { return v < 0 ? 0 : v > 0x7FFF ? 0x7FFF : (int32_t)v; }
+
+static void light_face(const light_set *ls, unsigned quarter, const int16_t n[3], uint8_t out[3]) {
+    acr_moa_light_face(ls->llm, ls->lcm, ls->bk, quarter, n, out);
+}
+
+void acr_moa_light_face(const int16_t llm[9], const int16_t lcm[9], const uint8_t bk[3], unsigned quarter,
+                        const int16_t n[3], uint8_t out[3]) {
+    /* 0x800139F8: each light (x, y, z) turned k quarters: (-z, y, x),
+     * (-x, y, -z), (z, y, -x). The area draw uses k = -quarter. */
+    const unsigned k = (4u - (quarter & 3u)) & 3u;
+    int32_t ir[3];
+    for (int i = 0; i < 3; ++i) {
+        const int32_t x = llm[i * 3], y = llm[i * 3 + 1], z = llm[i * 3 + 2];
+        int32_t l[3] = { x, y, z };
+        if (k == 1) { l[0] = -z; l[2] = x; }
+        else if (k == 2) { l[0] = -x; l[2] = -z; }
+        else if (k == 3) { l[0] = z; l[2] = -x; }
+        ir[i] = gte_lim(((int64_t)l[0] * n[0] + (int64_t)l[1] * n[1] + (int64_t)l[2] * n[2]) >> 12);
+    }
+    for (int c = 0; c < 3; ++c) {
+        const int64_t mac = ((int64_t)(bk[c] << 4) << 12) + (int64_t)lcm[c * 3] * ir[0] +
+                            (int64_t)lcm[c * 3 + 1] * ir[1] + (int64_t)lcm[c * 3 + 2] * ir[2];
+        const int32_t i = gte_lim(mac >> 12);
+        const int32_t v = (int32_t)((((int64_t)0x40 << 4) * i >> 12) >> 4);
+        out[c] = (uint8_t)(v > 255 ? 255 : v);
+    }
+}
+
 /* ---- the textured models (chunk 1) and their textures (RTIM <stage>) ----
  * Chunk 1 is a model set (u16 count, then [u32 size][model] entries, size
  * < 5 = empty) holding, at entry k, the textured version of model k: a TMD
@@ -356,8 +430,12 @@ static int page_loaded(const vram *v, unsigned tpage) {
     return v->set[py][px / 64] || v->set[py + 128][px / 64];
 }
 
+/* `lights` (NULL: none) gives every face the colour the game lights it with,
+ * written on its own copies of the face's points ("v x y z r g b", 0-1 =
+ * 0-255; 128 = the texel as it is). */
 static int write_textured(const char *dir, const char *name, const char *unpacked, unsigned stage, const chunk *set,
-                          const area *ar, unsigned areas, uint32_t *faces, uint32_t *textures) {
+                          const area *ar, unsigned areas, const light_set *lights, uint32_t *faces,
+                          uint32_t *textures) {
     *faces = *textures = 0;
     /* The models, by number. */
     const uint8_t *model[256];
@@ -398,7 +476,11 @@ static int write_textured(const char *dir, const char *name, const char *unpacke
     fprintf(f, "# Master of Arena stage models (FDAT 5s+4 chunk %s, textures from RTIM %u),\n"
                "# placed by the area records. Engine world: x = -(game x), y up = -(game y),\n"
                "# z = game z; world units. Materials tNN = texture NN, cRRGGBB = flat colour.\n"
-               "mtllib %s.mtl\n", strcmp(name, "visual") ? "3, the sky, around the origin" : "1", stage, name);
+               "%s"
+               "mtllib %s.mtl\n", !strcmp(name, "sky") ? "3, the sky, around the origin" : !strcmp(name, "far") ? "3, the far plane, around the origin" : "1", stage,
+            lights ? "# Lit by the stage's light sets (FDAT 205 chunk 7): each face has its own points,\n"
+                     "# coloured as the game lights it (r g b x 255 = the PS1 colour, 128 = texel as is).\n" : "",
+            name);
     uint32_t base_v = 1, base_t = 1, nf = 0;
     for (unsigned a = 0; a < areas; ++a) {
         const int m = ar[a].model;
@@ -411,12 +493,17 @@ static int write_textured(const char *dir, const char *name, const char *unpacke
             const tmd_obj *o = &obj[oi];
             if (!o->nv) continue;
             fprintf(f, "o area%u-model%d-%u\n", a, m, oi);
-            for (uint32_t k = 0; k < o->nv; ++k) {
-                double w[3];
-                const uint8_t *vv = o->vert + k * 8;
-                place(&ar[a], s16(vv), s16(vv + 2), s16(vv + 4), w);
-                fprintf(f, "v %.2f %.2f %.2f\n", w[0], w[1], w[2]);
-            }
+            const light_set *ls = lights && ar[a].light < LIGHT_SETS ? &lights[ar[a].light] : NULL;
+            if (!ls)
+                for (uint32_t k = 0; k < o->nv; ++k) {
+                    double w[3];
+                    const uint8_t *vv = o->vert + k * 8;
+                    place(&ar[a], s16(vv), s16(vv + 2), s16(vv + 4), w);
+                    fprintf(f, "v %.2f %.2f %.2f\n", w[0], w[1], w[2]);
+                }
+            /* The object's normals (8 bytes: x, y, z, pad; 4096 = 1). */
+            const uint8_t *nrm = mc.p + 12 + u32(mc.p + 12 + oi * 28 + 8);
+            const uint32_t nn = u32(mc.p + 12 + oi * 28 + 12) & 0xFFFF;
             const uint8_t *p = o->prim;
             char cur[32] = "";
             for (uint32_t k = 0; k < o->np; ++k) {
@@ -457,16 +544,34 @@ static int write_textured(const char *dir, const char *name, const char *unpacke
                 /* TMD quads are in strip order (0 1 2 3 = 0 1 3 2 around). */
                 const unsigned order4[4] = { 0, 1, 3, 2 }, order3[3] = { 0, 1, 2 };
                 const unsigned *ord = n == 4 ? order4 : order3;
+                if (ls) {
+                    /* The face normal follows the texture words (lit layout). */
+                    uint8_t c[3] = { 128, 128, 128 };
+                    const unsigned ni = u16(w + ((mode & 4) ? n : 1) * 4);   /* gouraud: corner 0's */
+                    if (!(mode & 1) && ni < nn && nrm + ni * 8 + 6 <= end) {
+                        const int16_t nv3[3] = { s16(nrm + ni * 8), s16(nrm + ni * 8 + 2), s16(nrm + ni * 8 + 4) };
+                        light_face(ls, ar[a].quarter, nv3, c);
+                    }
+                    for (unsigned j = 0; j < n; ++j) {
+                        double wp[3];
+                        const uint8_t *vv = o->vert + vi[ord[j]] * 8;
+                        place(&ar[a], s16(vv), s16(vv + 2), s16(vv + 4), wp);
+                        fprintf(f, "v %.2f %.2f %.2f %.4f %.4f %.4f\n", wp[0], wp[1], wp[2], c[0] / 255.0, c[1] / 255.0,
+                                c[2] / 255.0);
+                    }
+                }
                 fprintf(f, "f");
                 for (unsigned j = 0; j < n; ++j) {
-                    if (textured) fprintf(f, " %u/%u", base_v + vi[ord[j]], base_t + ord[j]);
-                    else fprintf(f, " %u", base_v + vi[ord[j]]);
+                    const unsigned pv = ls ? base_v + j : base_v + vi[ord[j]];
+                    if (textured) fprintf(f, " %u/%u", pv, base_t + ord[j]);
+                    else fprintf(f, " %u", pv);
                 }
                 fprintf(f, "\n");
+                if (ls) base_v += n;
                 if (textured) base_t += n;
                 ++nf;
             }
-            base_v += o->nv;
+            if (!ls) base_v += o->nv;
         }
     }
     fclose(f);
@@ -727,7 +832,12 @@ static int write_toml(const char *dir, unsigned stage, const chunk *pts, const a
  * spheres. Written as sky.obj around the origin; the engine draws it
  * around the eye, behind everything (how the game places it is not read
  * yet). Only models that are spheres around their origin count. */
-static unsigned sky_areas(const chunk *set, area *out, unsigned max) {
+/* want_plane 0: spheres around their origin (skies); 1: flat planes over
+ * 20,000 model units across at the origin's height: Ocean Platform's sea
+ * and Garden Plaza's grass, 11,750 world units square, see-through (mode
+ * 0x2E). How the game places them isn't read; the engine tiles them out
+ * to the horizon under the stage. Written as far.obj. */
+static unsigned chunk3_areas(const chunk *set, area *out, unsigned max, int want_plane) {
     if (set->n < 4) return 0;
     const unsigned count = u16(set->p);
     size_t o = 4;
@@ -749,7 +859,16 @@ static unsigned sky_areas(const chunk *set, area *out, unsigned max) {
                     c[0] += x; c[1] += y; c[2] += z;
                 }
                 const double off = sqrt(c[0] * c[0] + c[1] * c[1] + c[2] * c[2]) / obj[0].nv;
-                if (hi > 0 && lo > hi * 0.9 && off < hi * 0.05) {
+                int ylo = 32767, yhi = -32768, xlo = 32767, xhi = -32768;
+                for (uint32_t i = 0; i < obj[0].nv; ++i) {
+                    const int x = s16(obj[0].vert + i * 8), y = s16(obj[0].vert + i * 8 + 2);
+                    if (y < ylo) ylo = y;
+                    if (y > yhi) yhi = y;
+                    if (x < xlo) xlo = x;
+                    if (x > xhi) xhi = x;
+                }
+                const int plane = ylo == 0 && yhi == 0 && xhi - xlo > 20000;
+                if (want_plane ? plane : (hi > 0 && lo > hi * 0.9 && off < hi * 0.05)) {
                     area a;
                     memset(&a, 0, sizeof a);
                     a.model = (int16_t)k;
@@ -766,6 +885,8 @@ int acr_export_moa_stages(const char *unpacked_dir, const char *out_dir, uint32_
                           char *err, size_t err_size) {
     *stages = 0;
     static area ar[AREAS];
+    static light_set lights[LIGHT_SETS];
+    const unsigned nlights = read_light_sets(unpacked_dir, lights);
     for (unsigned s = STAGE_FIRST; s <= STAGE_LAST; ++s) {
         char path[1200];
         snprintf(path, sizeof path, "%s/GG/COM/FDAT/%03u.bin", unpacked_dir, s * 5 + 4);
@@ -790,7 +911,8 @@ int acr_export_moa_stages(const char *unpacked_dir, const char *out_dir, uint32_
             free(code);
         }
         if (!make_dir(dir) || !write_visual(dir, &ch[4], ar, areas, &faces) ||
-            !write_textured(dir, "visual", unpacked_dir, s, &ch[1], ar, areas, &tfaces, &textures) ||
+            !write_textured(dir, "visual", unpacked_dir, s, &ch[1], ar, areas, nlights ? lights : NULL, &tfaces,
+                            &textures) ||
             !write_collision(dir, &ch[7], ar, areas, &polys) ||
             !write_collision_game(dir, &ch[7], ar, areas) ||
             !write_toml(dir, s, &ch[13], ar, areas, tfaces ? tfaces : faces, polys, oa, noa)) {
@@ -800,14 +922,24 @@ int acr_export_moa_stages(const char *unpacked_dir, const char *out_dir, uint32_
         }
         {
             area sky[4];
-            const unsigned nsky = sky_areas(&ch[3], sky, 4);
+            const unsigned nsky = chunk3_areas(&ch[3], sky, 4, 0);
             uint32_t sf = 0, st = 0;
             char path2[1300];
             snprintf(path2, sizeof path2, "%s/sky.obj", dir);
             remove(path2);   /* a stage without a sky keeps none from an older import */
-            if (nsky && !write_textured(dir, "sky", unpacked_dir, s, &ch[3], sky, nsky, &sf, &st)) {
+            if (nsky && !write_textured(dir, "sky", unpacked_dir, s, &ch[3], sky, nsky, NULL, &sf, &st)) {
                 free(d);
                 set_err(err, err_size, "cannot write the sky in", dir);
+                return 0;
+            }
+            area far[4];
+            const unsigned nfar = chunk3_areas(&ch[3], far, 4, 1);
+            snprintf(path2, sizeof path2, "%s/far.obj", dir);
+            remove(path2);
+            /* Lit like an area on set 0 (the stages' floors around it). */
+            if (nfar && !write_textured(dir, "far", unpacked_dir, s, &ch[3], far, nfar, nlights ? lights : NULL, &sf, &st)) {
+                free(d);
+                set_err(err, err_size, "cannot write the far plane in", dir);
                 return 0;
             }
         }

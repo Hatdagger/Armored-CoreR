@@ -10,6 +10,7 @@
 
 #include "acr_gen1_stage.h"
 #include "acr_model.h"
+#include "acr_png.h"
 
 static int failures;
 #define EXPECT(c) do { if (!(c)) { printf("FAIL %s:%d %s\n", __FILE__, __LINE__, #c); ++failures; } } while (0)
@@ -52,6 +53,60 @@ int main(int argc, char **argv) {
     EXPECT(acr_mtl_parse(mtl, &m));
     EXPECT(m.count >= 1 && m.count <= ACR_MTL_MAX);
     EXPECT(acr_obj_parse(vis, &m, &mesh) && mesh.tri_count > 0);
+    /* The converter's textures (one per colour, 64 x 128: walls above
+     * floors): each loads with the game's PNG reader, and since stage
+     * textures don't repeat, every face stays inside its picture. */
+    int textured = 0;
+    for (int i = 0; i < m.count; ++i) {
+        if (!m.m[i].textured) continue;
+        ++textured;
+        char path[1400];
+        snprintf(path, sizeof path, "%s/%s", dir, m.m[i].texture);
+        FILE *f = fopen(path, "rb");
+        EXPECT(f != NULL);
+        if (!f) continue;
+        static unsigned char png[65536];
+        const size_t n = fread(png, 1, sizeof png, f);
+        fclose(f);
+        acr_image img;
+        const int ok = acr_png_decode(png, n, &img);
+        EXPECT(ok);
+        if (ok) {
+            EXPECT(img.w == 64 && img.h == 128);
+            acr_image_free(&img);
+        }
+    }
+    if (textured) {
+        EXPECT(textured == m.count);
+        int outside = 0, walls = 0, floors = 0;
+        for (int t = 0; t < mesh.tri_count * 3; ++t) {
+            const float *uv = mesh.v[t].uv;
+            if (uv[0] < 0.0f || uv[0] > 1.0f || uv[1] < 0.0f || uv[1] > 1.0f) ++outside;
+            /* never on the line between the two halves */
+            if (uv[1] > 0.5f) ++walls; else if (uv[1] < 0.5f) ++floors; else ++outside;
+        }
+        EXPECT(outside == 0 && walls > 0 && floors > 0);
+    }
+    if (sample) {
+        EXPECT(textured > 0);
+        /* The converter's own picture of the map (preview.png): there, and a PNG. */
+        char path[1400];
+        snprintf(path, sizeof path, "%s/preview.png", dir);
+        FILE *f = fopen(path, "rb");
+        EXPECT(f != NULL);
+        if (f) {
+            static unsigned char png[2 * 1024 * 1024];
+            const size_t n = fread(png, 1, sizeof png, f);
+            fclose(f);
+            acr_image img;
+            const int ok = acr_png_decode(png, n, &img);
+            EXPECT(ok);
+            if (ok) {
+                EXPECT(img.w == 640 && img.h == 400);
+                acr_image_free(&img);
+            }
+        }
+    }
     acr_mesh_free(&mesh);
 
     acr_gen1_stage s;
