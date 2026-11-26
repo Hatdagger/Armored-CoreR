@@ -34,7 +34,7 @@ flowchart LR
     end
     subgraph Platforms
         R8["8 UI<br/>main menu in"]:::doing
-        R9["9 Android"]:::todo
+        R9["9 Android<br/>first APK"]:::doing
     end
 
     Foundation --> Play --> Online --> Content --> Platforms
@@ -279,6 +279,8 @@ Fixes after the first play-test (2026-11-19):
    renderer (`src/render/`), picking the disc image with Android's file
    picker for the import, controllers first (touch controls later), and an
    APK from the automatic build (installed directly, not via a store).
+   First version (branch `android-build`, 2026-11-25): GLES renderer, disc
+   picker, APK from GitHub Actions; see [ANDROID.md](ANDROID.md).
 
 ## Shortcuts
 

@@ -6,6 +6,12 @@ set(CMAKE_C_STANDARD_REQUIRED ON)
 set(CMAKE_C_EXTENSIONS OFF)
 
 option(ACR_BUILD_GAME "Build the SDL3 window shell (downloads SDL3)" ON)
+# OpenGL ES renderer (src/render/acr_render_gles.c) instead of OpenGL 2.1:
+# always on Android; on a PC it is for testing the GLES path.
+if(ANDROID)
+    set(ACR_RENDER_GLES ON CACHE BOOL "" FORCE)
+endif()
+option(ACR_RENDER_GLES "Draw with OpenGL ES (Android) instead of OpenGL 2.1" OFF)
 
 if(MSVC)
     add_compile_options(/W4 /D_CRT_SECURE_NO_WARNINGS)
@@ -155,23 +161,44 @@ add_test(NAME import COMMAND test_import ${CMAKE_CURRENT_BINARY_DIR}/test_import
 
 if(ACR_BUILD_GAME)
     include(FetchContent)
-    set(SDL_SHARED OFF CACHE BOOL "" FORCE)
-    set(SDL_STATIC ON CACHE BOOL "" FORCE)
+    if(ANDROID)
+        # Android: SDL's Java side loads libSDL3.so and the game's libmain.so.
+        set(SDL_SHARED ON CACHE BOOL "" FORCE)
+        set(SDL_STATIC OFF CACHE BOOL "" FORCE)
+    else()
+        set(SDL_SHARED OFF CACHE BOOL "" FORCE)
+        set(SDL_STATIC ON CACHE BOOL "" FORCE)
+    endif()
     set(SDL_TEST_LIBRARY OFF CACHE BOOL "" FORCE)
     FetchContent_Declare(SDL3
         GIT_REPOSITORY https://github.com/libsdl-org/SDL.git
         GIT_TAG release-3.2.10
         GIT_SHALLOW TRUE)
     FetchContent_MakeAvailable(SDL3)
-    add_executable(armored-corer WIN32 src/platform/sdl3/main.c src/platform/sdl3/demo_data.c src/platform/sdl3/demo_model.c
+    set(ACR_GAME_SOURCES src/platform/sdl3/main.c src/platform/sdl3/demo_data.c src/platform/sdl3/demo_model.c
                    src/platform/sdl3/demo_stage.c src/platform/sdl3/demo_units.c src/platform/sdl3/garage.c src/platform/sdl3/rogue.c src/platform/sdl3/arena.c src/platform/sdl3/controls.c
                    src/platform/sdl3/settings.c
                    src/platform/sdl3/battle_hud.c src/platform/sdl3/net_link.c
                    src/platform/sdl3/net_menu.c src/platform/sdl3/net_brief_ui.c
-                   src/platform/sdl3/fx.c src/platform/sdl3/sfx.c src/platform/sdl3/rogue_sound.c)
-    add_library(acr_render_gl STATIC src/render/acr_render_gl.c)
+                   src/platform/sdl3/fx.c src/platform/sdl3/sfx.c src/platform/sdl3/rogue_sound.c
+                   src/platform/sdl3/disc_pick.c)
+    if(ANDROID)
+        # The game is libmain.so; SDL's Java activity starts it.
+        add_library(armored-corer SHARED ${ACR_GAME_SOURCES})
+        set_target_properties(armored-corer PROPERTIES OUTPUT_NAME main)
+        set(ACR_SDL_TARGET SDL3::SDL3-shared)
+    else()
+        add_executable(armored-corer WIN32 ${ACR_GAME_SOURCES})
+        set(ACR_SDL_TARGET SDL3::SDL3-static)
+    endif()
+    if(ACR_RENDER_GLES)
+        add_library(acr_render_gl STATIC src/render/acr_render_gles.c)
+        target_compile_definitions(armored-corer PRIVATE ACR_GLES=1)
+    else()
+        add_library(acr_render_gl STATIC src/render/acr_render_gl.c)
+    endif()
     target_include_directories(acr_render_gl PUBLIC src/render)
-    target_link_libraries(armored-corer PRIVATE acr_core acr_gen1 acr_import_lib acr_model acr_light acr_render_gl acr_net SDL3::SDL3-static)
+    target_link_libraries(armored-corer PRIVATE acr_core acr_gen1 acr_import_lib acr_model acr_light acr_render_gl acr_net ${ACR_SDL_TARGET})
     if(WIN32)
         target_link_libraries(armored-corer PRIVATE ws2_32)
     endif()
