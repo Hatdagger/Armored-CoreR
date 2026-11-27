@@ -76,6 +76,11 @@ int demo_model_part_tip(const demo_model *m, const acr_pose *pose, unsigned kind
 int demo_model_part_box(const demo_model *m, const acr_pose *pose, unsigned kinds, int side, float scale,
                         float mn[3], float mx[3]);
 
+/* The back face of each nozzle of the parts in `kinds` (booster pods): up
+ * to `max` spots, same space as demo_model_part_box. Returns how many. */
+int demo_model_part_nozzles(const demo_model *m, const acr_pose *pose, unsigned kinds, float scale,
+                            float out[][3], int max);
+
 /* An arm's reach on one side (-1 left, +1 right): `root` its shoulder (the
  * side's first node drawing `kinds`), `tip` its vertex farthest from it.
  * Same space as demo_model_part_box. Where a blade's beam leaves from. */
