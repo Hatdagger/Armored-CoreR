@@ -69,7 +69,9 @@ streak).
 - Blade: during a swing a light-blue beam (picture 15's wide capsule, white
   core) leaves the left hand along the forearm, about 3/4 of the blade's
   reach long, with a glow at the hand and a fading sheet over the last
-  ~0.1 s of the slash. It lights over 60 ms, holds to 900 ms, and is gone
+  ~0.1 s of the slash. It lights (over 60 ms) only once the arm has wound
+  up to its rightmost and starts sweeping left (followed on the posed
+  model; by 700 ms at the latest), holds to 900 ms, and is gone
   by 1,150 ms of the 1,450 ms swing. The game's own blade sprite and
   per-blade colours (MOONLIGHT) are not mapped yet. Each booster's flame
   and each blade's beam now take a colour by part name from a PLACEHOLDER
