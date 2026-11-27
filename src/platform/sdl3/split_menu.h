@@ -1,7 +1,11 @@
-/* MULTIPLAYER > SPLIT SCREEN: two players on this PC. Pick VERSUS (you
- * against each other, on a stage) or CO-OP (the Arena, Rogue Arena or
- * missions together); player 2 has their own save and AC. Player 2 flies with the second controller (or the only one, with
- * player 1 on the keyboard). Draws on the HUD grid like the garage. */
+/* MULTIPLAYER > SPLIT SCREEN: the split hub. Two players on this PC, each
+ * with their own half of the screen, their own cursor and their own
+ * controls (player 1: keyboard / controller 1; player 2: controller 2, or
+ * the only controller with player 1 on the keyboard). The top box (VERSUS /
+ * CO-OP and where) is shared: either player can change it. Each player
+ * picks their save, opens their own garage and says READY; the game starts
+ * once everyone in is ready. B leaves (only that player); A joins again.
+ * When both have left, it's back to the hangar. */
 #ifndef SPLIT_MENU_H
 #define SPLIT_MENU_H
 
@@ -11,24 +15,36 @@
 
 enum { SPLIT_COOP_ARENA, SPLIT_COOP_ROGUE, SPLIT_COOP_MISSIONS, SPLIT_COOP_WHERE };
 
-typedef enum split_menu_command { SM_NONE, SM_VERSUS, SM_COOP, SM_EDIT_P2, SM_P2_SAVE, SM_BACK } split_menu_command;
+typedef enum split_menu_command {
+    SM_NONE,
+    SM_START,      /* everyone in is ready: start (joined[] says who plays) */
+    SM_GARAGE,     /* player `who` opens their garage */
+    SM_SAVE,       /* player `who` picks their save */
+    SM_ALL_LEFT,   /* both players left: back to the hangar */
+    SM_VERSUS_GO,  /* (the caller's own: start the versus fight) */
+} split_menu_command;
 
 typedef struct split_menu {
-    int row;
+    int row[2];                          /* each player's own cursor */
+    int joined[2];
+    int ready[2];
+    int who;                             /* the player the last command is for */
     int coop;                            /* 0 VERSUS, 1 CO-OP */
     int where;                           /* co-op: SPLIT_COOP_... */
-    char p2_ac[32];
-    char p2_save[64];                    /* player 2's save file (set by the caller) */                      /* player 2's AC name (set by the caller) */
+    char ac[2][32];                      /* each player's AC name (set by the caller) */
+    char save[2][64];                    /* each player's save file (set by the caller) */
     int stage_pick;
     int stage_ok[SPLIT_MENU_STAGES];
-    int players_ready;                   /* enough controls for two (set by the caller) */
+    int p2_controls;                     /* player 2 has something to play with (set by the caller) */
     char message[120];
     int message_ms;
 } split_menu;
 
 void split_menu_init(split_menu *m);
+void split_menu_enter(split_menu *m, int p1_in, int p2_in);   /* who is in when the hub opens; nobody ready */
 int split_menu_stage(const split_menu *m);   /* 27 Green Silo, 39 Ocean Platform, 0 open floor */
-split_menu_command split_menu_input(split_menu *m, garage_action a);
+void split_menu_say(split_menu *m, const char *text);
+split_menu_command split_menu_input(split_menu *m, int who, garage_action a);
 void split_menu_draw(split_menu *m, float hud_w, int elapsed_ms);
 
 #endif

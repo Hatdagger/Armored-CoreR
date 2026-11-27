@@ -838,6 +838,22 @@ static void stage_spawn(acr_gen1_ac *ac, const acr_gen1_ac_def *def, int k) {
 /* Split screen co-op is on: arena and mission fights take player 2 along
  * (fighter 1, on player 1's side; the opponent moves to fighter 2). */
 static int g_split_coop;
+/* The split hub's session: started from MULTIPLAYER > SPLIT SCREEN, its
+ * menus lead back there. Either player can leave a fight on their own
+ * (g_split_left); the other plays on. */
+static int g_split_session;
+static int g_split_vs;             /* a split screen VERSUS fight */
+static int g_split_left[2];        /* this player has left the session */
+static int g_split_garage = -1;    /* the hub's garage is open for this player */
+static int g_saves_from_split;     /* the save list was opened from the hub */
+static char g_split_note[96];      /* a line over the fight ("PLAYER 2 LEFT") */
+static Uint64 g_split_note_until;
+static void split_note(const char *t) { SDL_strlcpy(g_split_note, t, sizeof g_split_note); g_split_note_until = SDL_GetTicks() + 3500; }
+/* While a split fight is on: the one player still in, if the other left (-1: both in). */
+static int split_only_view(void) {
+    if (!g_split_session || g_split_left[0] == g_split_left[1]) return -1;
+    return g_split_left[0] ? 1 : 0;
+}
 
 /* Co-op starts: each team at its side's start (the stage's starts 0 and
  * 1, or the open floor's), teammates 500 either side of it. */
@@ -1065,9 +1081,11 @@ static void p2_parts(int parts[SLOT_COUNT]) {
 static int g_p2_editing;   /* player 2 is in the garage (g_hangar is theirs) */
 
 /* Menu input from the controller: d-pad or stick, repeating while held. */
-static garage_action pad_direction(SDL_Gamepad *pad, Uint64 now_ms) {
-    static int held = 0;
-    static Uint64 next_ms = 0;
+static garage_action pad_direction_at(SDL_Gamepad *pad, Uint64 now_ms, int slot) {
+    static int helds[3];
+    static Uint64 nexts[3];
+    int *const held_ = &helds[slot];
+    Uint64 *const next_ = &nexts[slot];
     int dir = 0;
     if (pad) {
         const int ax = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTX), ay = SDL_GetGamepadAxis(pad, SDL_GAMEPAD_AXIS_LEFTY);
@@ -1076,10 +1094,22 @@ static garage_action pad_direction(SDL_Gamepad *pad, Uint64 now_ms) {
         else if (SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_DPAD_LEFT) || ax < -20000) dir = GA_LEFT;
         else if (SDL_GetGamepadButton(pad, SDL_GAMEPAD_BUTTON_DPAD_RIGHT) || ax > 20000) dir = GA_RIGHT;
     }
-    if (!dir) { held = 0; return GA_NONE; }
-    if (dir != held) { held = dir; next_ms = now_ms + 380; return (garage_action)dir; }
-    if (now_ms >= next_ms) { next_ms = now_ms + 70; return (garage_action)dir; }
+    if (!dir) { *held_ = 0; return GA_NONE; }
+    if (dir != *held_) { *held_ = dir; *next_ = now_ms + 380; return (garage_action)dir; }
+    if (now_ms >= *next_) { *next_ = now_ms + 70; return (garage_action)dir; }
     return GA_NONE;
+}
+static garage_action pad_direction(SDL_Gamepad *pad, Uint64 now_ms) { return pad_direction_at(pad, now_ms, 0); }
+
+/* Split screen: player 2's controller (the second one, or the only one
+ * when player 1 has the keyboard). */
+static SDL_Gamepad *p2_pad(SDL_Gamepad *const pads[2]) { return pads[1] ? pads[1] : pads[0]; }
+/* Split screen: which player a key or button belongs to (the keyboard
+ * and controller 1 are player 1, unless controller 1 is the only one). */
+static int split_player_of(SDL_Gamepad *const pads[2], const SDL_Event *e) {
+    if (e->type == SDL_EVENT_GAMEPAD_BUTTON_DOWN || e->type == SDL_EVENT_GAMEPAD_BUTTON_UP)
+        return pads[1] ? player_of(pads, e->gbutton.which, 0) == 1 : 1;
+    return 0;
 }
 
 static garage_action key_action(SDL_Scancode k) {
@@ -1369,6 +1399,7 @@ static int add_phantasma(SDL_Window *r, const char *disc, const char *dir) {
 
 /* Testing aid: ACR_KEYS="ok,down,ok,..." feeds the menus (garage, network,
  * Rogue Arena) one action a frame; "wait" lets half a second pass. */
+static int g_script_who;   /* the player the last scripted action was for */
 static garage_action script_action(void) {
     static const char *script;
     static int script_read;
@@ -1377,6 +1408,8 @@ static garage_action script_action(void) {
     if (!script || !*script || SDL_GetTicks() < wait_until) return GA_NONE;
     garage_action a = GA_NONE;
     static const char *const k_names[] = { "", "up", "down", "left", "right", "ok", "back", "lb", "rb", "info" };
+    g_script_who = 0;
+    if (*script == '2') { g_script_who = 1; ++script; }   /* "2ok": player 2's (split screen) */
     if (!SDL_strncmp(script, "wait", 4)) wait_until = SDL_GetTicks() + 500;
     else
         for (int k = 1; k < 10; ++k)
@@ -1870,6 +1903,7 @@ int main(int argc, char **argv) {
         SDL_Event e;
         garage_command gcmd = GC_NONE;
         int to_garage = 0, rogue_done = 0, rogue_give_up = 0;
+        int split_leave[2] = { 0, 0 }, split_vs_end = 0;
         rogue_command rcmd = RC_NONE;
         arena_command acmd = AC_NONE;
         missions_command mcmd = MC_NONE;
@@ -1905,11 +1939,11 @@ int main(int argc, char **argv) {
                 if (lc != SL_NONE) lcmd = lc;
                 continue;
             }
-            if (mode == MODE_SPLIT) {   /* MULTIPLAYER > SPLIT SCREEN */
+            if (mode == MODE_SPLIT) {   /* MULTIPLAYER > SPLIT SCREEN: each player their own half */
                 garage_action ga = GA_NONE;
                 if (e.type == SDL_EVENT_KEY_DOWN) ga = key_action(e.key.scancode);
                 if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) ga = button_action(e.gbutton.button);
-                const split_menu_command sc = split_menu_input(&smenu, ga);
+                const split_menu_command sc = split_menu_input(&smenu, split_player_of(pads, &e), ga);
                 if (sc != SM_NONE) scmd = sc;
                 continue;
             }
@@ -1956,6 +1990,31 @@ int main(int argc, char **argv) {
                 const rogue_command rc = rogue_input(ga);
                 if (rc != RC_NONE) rcmd = rc;
                 continue;
+            }
+            if (mode == 1 && g_split_session && !g_net) {
+                /* Split screen: Esc (the keyboard, player 1) or Back + Start
+                 * on a controller, twice within 2 seconds, takes that player
+                 * out; the other plays on. */
+                static int split_back[2];
+                static Uint64 split_arm[2];
+                int leave_who = -1;
+                if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_ESCAPE) leave_who = 0;
+                if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN || e.type == SDL_EVENT_GAMEPAD_BUTTON_UP) {
+                    const int w = split_player_of(pads, &e);
+                    const int down = e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN;
+                    if (e.gbutton.button == SDL_GAMEPAD_BUTTON_BACK) split_back[w] = down;
+                    if (down && e.gbutton.button == SDL_GAMEPAD_BUTTON_START && split_back[w]) { leave_who = w; back_combo = 1; }
+                }
+                if (leave_who >= 0) {
+                    if (!g_split_left[leave_who]) {
+                        if (SDL_GetTicks() < split_arm[leave_who]) { split_arm[leave_who] = 0; split_leave[leave_who] = 1; }
+                        else {
+                            split_arm[leave_who] = SDL_GetTicks() + 2000;
+                            split_note(leave_who ? "PLAYER 2: AGAIN TO LEAVE THE FIGHT" : "PLAYER 1: AGAIN TO LEAVE THE FIGHT");
+                        }
+                    }
+                    continue;
+                }
             }
             if (mode == 1 && g_rogue_fight) {
                 /* A Rogue Arena fight: no test keys. Esc (twice) or Back +
@@ -2031,6 +2090,9 @@ int main(int argc, char **argv) {
                 continue;
             }
             if (mode == 0) {   /* the garage takes all other input */
+                if (g_split_garage >= 0 && (pads[0] || pads[1]) &&
+                    (e.type == SDL_EVENT_KEY_DOWN || e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) &&
+                    split_player_of(pads, &e) != g_split_garage) continue;   /* the hub's garage: its own player's controls */
                 garage_action ga = GA_NONE;
                 if (e.type == SDL_EVENT_KEY_DOWN) ga = key_action(e.key.scancode);
                 if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) ga = button_action(e.gbutton.button);
@@ -2258,6 +2320,47 @@ int main(int argc, char **argv) {
                 prevs[1] = *T;
             }
         }
+        {   /* Testing aid: ACR_SPLIT_LEAVE="2@3000" (player, ms into the fight) leaves for them. */
+            static Uint64 fight_at;
+            static int left_done;
+            const char *sl = SDL_getenv("ACR_SPLIT_LEAVE");
+            if (mode != 1 || !g_split_session) fight_at = 0;
+            else if (sl) {
+                if (!fight_at) { fight_at = SDL_GetTicks(); left_done = 0; }
+                const char *at = SDL_strchr(sl, '@');
+                if (!left_done && at && SDL_GetTicks() - fight_at > (Uint64)SDL_atoi(at + 1)) {
+                    left_done = 1;
+                    split_leave[sl[0] == '2'] = 1;
+                }
+            }
+        }
+        for (int w = 0; w < 2; ++w) {
+            if (!split_leave[w] || mode != 1) continue;
+            g_split_left[w] = 1;
+            const int other = 1 - w;
+            SDL_Log("split screen: player %d left the fight", w + 1);
+            if (g_split_left[other]) {                       /* both gone: the fight ends */
+                if (g_rogue_fight) rogue_give_up = 1;        /* (a menu fight counts as given up) */
+                else split_vs_end = 1;
+            } else if (g_split_vs) {                         /* versus: the computer flies their AC */
+                g_ai_mode = ACR_GEN1_AI_BALANCED;
+                if (w == 1) two_players = 0; else g_autopilot = 1;
+                const acr_gen1_ai_profile p_ = ai_profile(g_ai_mode);
+                acr_gen1_ai_init(&g_ai[w], &p_, 0x2468u + (uint32_t)(++g_ai_round) * 7919u);
+                split_note(w ? "PLAYER 2 LEFT. THE COMPUTER FLIES THEIR AC." : "PLAYER 1 LEFT. THE COMPUTER FLIES THEIR AC.");
+            } else {                                         /* co-op: out of the fight, the partner goes on */
+                battle.f[w].ap = 0;
+                split_note(w ? "PLAYER 2 LEFT. PLAYER 1 PLAYS ON." : "PLAYER 1 LEFT. PLAYER 2 PLAYS ON.");
+            }
+        }
+        if (split_vs_end) {                                  /* versus, nobody left: back to the hub */
+            g_split_vs = 0;
+            two_players = SDL_getenv("ACR_TWO") != NULL;
+            g_ai_mode = 0; g_autopilot = 0;
+            split_menu_enter(&smenu, 0, 0);
+            g_split_left[0] = g_split_left[1] = 0;
+            mode = MODE_SPLIT;
+        }
         if (to_garage && g_net) {
             /* Leaving an online match: back to your own build, offline. */
             net_link_close(net);
@@ -2367,7 +2470,7 @@ int main(int argc, char **argv) {
                                             (battle.mission.flags & ACR_GEN1_MISSION_BONUS) != 0))
                         hangar_save();
                 } else if (was_arena_) { if (arena_fight_over(res_)) hangar_save(); }
-                if ((was_arena_ || was_mission_) && g_split_coop) p2_share_rewards(&before_);
+                if ((was_arena_ || was_mission_) && g_split_coop && !g_split_left[1]) p2_share_rewards(&before_);
                 if ((was_arena_ || was_mission_) && g_split_coop) {   /* split screen co-op: back to two fighters */
                     battle.count = 0;
                     g_plus_ai[0] = g_plus_ai[1] = 0;
@@ -2391,6 +2494,17 @@ int main(int argc, char **argv) {
                 g_paint_on[0] = g_paint_on[1] = 0;
                 rogue_over_at = 0;
                 mode = was_mission_ ? MODE_MISSIONS : was_arena_ ? MODE_ARENA : MODE_ROGUE;
+                if (g_split_session && g_split_left[0]) {
+                    /* Player 1 left (it was their career): player 2 back to the hub. */
+                    g_split_coop = 0;
+                    split_menu_enter(&smenu, 0, !g_split_left[1]);
+                    g_split_left[0] = g_split_left[1] = 0;
+                    mode = MODE_SPLIT;
+                } else if (g_split_session && g_split_left[1]) {
+                    g_split_coop = 0;                           /* player 2 left: player 1 goes on alone */
+                    smenu.joined[1] = 0;
+                    g_split_left[1] = 0;
+                }
                 if (was_arena_ || was_mission_) {   /* the garage's own AC again (paint off) */
                     int f_[SLOT_COUNT];
                     hangar_parts(f_);
@@ -2429,7 +2543,7 @@ int main(int argc, char **argv) {
             garage_action d = pad_direction(pads[0], SDL_GetTicks());
             if (d == GA_NONE) d = script_action();
             if (d != GA_NONE) { const arena_command c = arena_input(d); if (c != AC_NONE) acmd = c; }
-            if (acmd == AC_LEAVE) { mode = g_split_coop ? MODE_SPLIT : 0; gui.screen = 0; g_split_coop = 0; }
+            if (acmd == AC_LEAVE) { mode = g_split_session ? MODE_SPLIT : 0; gui.screen = 0; g_split_coop = 0; }
             if (acmd == AC_IMPORT_PP) { disc_pick_open(window); g_pp_picking = 1; }
             if (g_pp_picking) {
                 char picked[2048];
@@ -2488,7 +2602,7 @@ int main(int argc, char **argv) {
             garage_action d = pad_direction(pads[0], SDL_GetTicks());
             if (d == GA_NONE) d = script_action();
             if (d != GA_NONE) { const missions_command c = missions_input(d); if (c != MC_NONE) mcmd = c; }
-            if (mcmd == MC_LEAVE) { mode = g_split_coop ? MODE_SPLIT : 0; gui.screen = 0; g_split_coop = 0; }
+            if (mcmd == MC_LEAVE) { mode = g_split_session ? MODE_SPLIT : 0; gui.screen = 0; g_split_coop = 0; }
             if (mcmd == MC_SORTIE) {
                 /* The garage's AC on the mission map against the mission's
                  * opponent (P4: the Nest examiner, the user's card build,
@@ -2558,7 +2672,7 @@ int main(int argc, char **argv) {
                 gcmd = GC_NETWORK;
             }
             if (rcmd == RC_LEAVE) {            /* back to the main garage and its AC */
-                mode = 0; gui.screen = 0; gui.rogue = 0; gdata = gdata_main;
+                mode = g_split_session ? MODE_SPLIT : 0; gui.screen = 0; gui.rogue = 0; gdata = gdata_main;
                 int f_[SLOT_COUNT];
                 hangar_parts(f_);
                 LOAD_PLAYER_BUILD(f_);
@@ -2705,7 +2819,7 @@ int main(int argc, char **argv) {
             if (d == GA_NONE) d = script_action();
             if (d != GA_NONE) { const save_list_command lc = save_list_input(&slist, d); if (lc != SL_NONE) lcmd = lc; }
             const int p2_pick = slist.mode == SL_MODE_P2;
-            if (lcmd == SL_BACK) { mode = p2_pick ? MODE_SPLIT : 0; gui.screen = 0; }
+            if (lcmd == SL_BACK) { mode = p2_pick || g_saves_from_split ? MODE_SPLIT : 0; gui.screen = 0; g_saves_from_split = 0; }
             if (lcmd == SL_SAVE) {             /* this game into that file; the game is on it from now */
                 SDL_strlcpy(g_cur_save[0], slist.path, sizeof g_cur_save[0]);
                 save_remember(0);
@@ -2725,7 +2839,8 @@ int main(int argc, char **argv) {
                     hangar_parts(fitted);
                     if (demo_load(dir, fitted, &ac_data[0], err, sizeof err)) memcpy(parts, fitted, sizeof fitted);
                     garage_say(&gui, "LOADED.");
-                    mode = 0; gui.screen = 0;
+                    mode = g_saves_from_split ? MODE_SPLIT : 0; gui.screen = 0;
+                    g_saves_from_split = 0;
                 } else {
                     SDL_strlcpy(g_cur_save[0], was, sizeof g_cur_save[0]);
                     save_list_say(&slist, "THIS SAVE CAN'T BE READ.");
@@ -2754,35 +2869,72 @@ int main(int argc, char **argv) {
                 goto present;
             }
         }
-        if (mode == MODE_SPLIT) {   /* MULTIPLAYER > SPLIT SCREEN */
-            smenu.players_ready = pads[0] != NULL || SDL_getenv("ACR_TWO") != NULL;   /* one pad: P1 keyboard, P2 the pad */
+        if (mode == MODE_SPLIT) {   /* MULTIPLAYER > SPLIT SCREEN: the split hub */
+            smenu.p2_controls = pads[0] != NULL || SDL_getenv("ACR_TWO") != NULL;   /* one pad: P1 keyboard, P2 the pad */
             p2_ensure();
-            SDL_strlcpy(smenu.p2_ac, g_hangar2.ac_name, sizeof smenu.p2_ac);
-            {
-                save_init(1);
-                const char *sl_ = SDL_strrchr(g_cur_save[1], '/');
-                SDL_strlcpy(smenu.p2_save, sl_ ? sl_ + 1 : g_cur_save[1], sizeof smenu.p2_save);
-                char *dot_ = SDL_strrchr(smenu.p2_save, '.');
+            SDL_strlcpy(smenu.ac[0], g_hangar.ac_name, sizeof smenu.ac[0]);
+            SDL_strlcpy(smenu.ac[1], g_hangar2.ac_name, sizeof smenu.ac[1]);
+            for (int p_ = 0; p_ < 2; ++p_) {
+                save_init(p_);
+                const char *sl_ = SDL_strrchr(g_cur_save[p_], '/');
+                SDL_strlcpy(smenu.save[p_], sl_ ? sl_ + 1 : g_cur_save[p_], sizeof smenu.save[p_]);
+                char *dot_ = SDL_strrchr(smenu.save[p_], '.');
                 if (dot_) *dot_ = 0;
             }
-            garage_action d = pad_direction(pads[0], SDL_GetTicks());
-            if (d == GA_NONE) d = script_action();
-            if (d != GA_NONE) { const split_menu_command sc = split_menu_input(&smenu, d); if (sc != SM_NONE) scmd = sc; }
-            if (scmd == SM_BACK) { mode = 0; gui.screen = 0; }
-            if (scmd == SM_COOP) {
-                if (smenu.where == SPLIT_COOP_ROGUE) { rogue_open_coop(g_hangar.pilot_name, g_hangar.ac_name); mode = MODE_ROGUE; }
-                else if (smenu.where == SPLIT_COOP_ARENA) { g_split_coop = 1; arena_open_at(0); mode = MODE_ARENA; }
-                else { g_split_coop = 1; missions_open(); mode = MODE_MISSIONS; }
+            {   /* each player's controller, each with its own repeat */
+                const Uint64 now_ = SDL_GetTicks();
+                const garage_action d1 = pad_direction_at(pads[1] ? pads[0] : NULL, now_, 1);
+                const garage_action d2 = pad_direction_at(p2_pad(pads), now_, 2);
+                split_menu_command sc = split_menu_input(&smenu, 0, d1);
+                if (sc != SM_NONE) scmd = sc;
+                sc = split_menu_input(&smenu, 1, d2);
+                if (sc != SM_NONE) scmd = sc;
+                const garage_action ds = script_action();
+                sc = split_menu_input(&smenu, g_script_who, ds);
+                if (sc != SM_NONE) scmd = sc;
             }
-            if (scmd == SM_P2_SAVE) {   /* player 2 picks their save from the list */
+            if (scmd == SM_ALL_LEFT) { mode = 0; gui.screen = 0; g_split_session = 0; }
+            if (scmd == SM_START) {
+                /* Whoever isn't in counts as left from the start. */
+                g_split_session = 1;
+                g_split_left[0] = !smenu.joined[0];
+                g_split_left[1] = !smenu.joined[1];
+                smenu.ready[0] = smenu.ready[1] = 0;
+                if (smenu.coop) {
+                    const int both_ = smenu.joined[1];
+                    if (smenu.where == SPLIT_COOP_ROGUE) {
+                        if (both_) rogue_open_coop(g_hangar.pilot_name, g_hangar.ac_name);
+                        else rogue_open(g_hangar.pilot_name, g_hangar.ac_name);
+                        mode = MODE_ROGUE;
+                    }
+                    else if (smenu.where == SPLIT_COOP_ARENA) { g_split_coop = both_; arena_open_at(0); mode = MODE_ARENA; }
+                    else { g_split_coop = both_; missions_open(); mode = MODE_MISSIONS; }
+                    g_split_left[0] = g_split_left[1] = 0;   /* menus: nobody has left a fight yet */
+                    if (!both_) g_split_left[1] = 1;
+                } else scmd = SM_VERSUS_GO;
+            }
+            if (scmd == SM_SAVE && smenu.who == 1) {   /* player 2 picks their save from the list */
                 save_init(1);
                 save_list_open(&slist, SL_MODE_P2, g_cur_save[1]);
                 mode = MODE_SAVES;
             }
-            if (scmd == SM_EDIT_P2) {   /* player 2's own garage: their save swapped in */
+            if (scmd == SM_SAVE && smenu.who == 0) {   /* player 1's: the usual save list */
+                save_init(0);
+                save_list_open(&slist, SL_MODE_LOAD, g_cur_save[0]);
+                g_saves_from_split = 1;
+                mode = MODE_SAVES;
+            }
+            if (scmd == SM_GARAGE && smenu.who == 0) {   /* player 1's garage, their controls only */
+                g_split_garage = 0;
+                garage_open_assembly(&gui, &gdata);
+                garage_say(&gui, "PLAYER 1'S GARAGE. B: BACK TO SPLIT SCREEN.");
+                mode = 0;
+            }
+            if (scmd == SM_GARAGE && smenu.who == 1) {   /* player 2's own garage: their save swapped in */
                 p2_ensure();
                 p2_swap();
                 g_p2_editing = 1;
+                g_split_garage = 1;
                 int f_[SLOT_COUNT];
                 hangar_parts(f_);
                 if (demo_load(dir, f_, &ac_data[0], err, sizeof err)) memcpy(parts, f_, sizeof f_);
@@ -2790,7 +2942,7 @@ int main(int argc, char **argv) {
                 garage_say(&gui, "PLAYER 2'S GARAGE. B: BACK TO SPLIT SCREEN.");
                 mode = 0;
             }
-            if (scmd == SM_VERSUS) {
+            if (scmd == SM_VERSUS_GO) {
                 const int want_id = split_menu_stage(&smenu);
                 g_stage_on = 0;
                 if (want_id > 0) {
@@ -2809,6 +2961,11 @@ int main(int argc, char **argv) {
                 g_paint_on[1] = 1; memcpy(g_paint[1], g_hangar2.colours, sizeof g_paint[1]);
                 g_ai_mode = 0; g_autopilot = 0; g_rogue_fight = 0;
                 two_players = 1;
+                g_split_vs = 1;
+                if (g_split_left[0] || g_split_left[1]) {   /* alone: the computer flies the other AC */
+                    g_ai_mode = ACR_GEN1_AI_BALANCED;
+                    if (g_split_left[1]) two_players = 0; else g_autopilot = 1;
+                }
                 set_rate(&clock, def, g_tick_rate);
                 set_rate(&clock, def2, g_tick_rate);
                 SETUP_FIGHTERS();
@@ -2906,13 +3063,22 @@ int main(int argc, char **argv) {
             goto present;
         }
         if (mode == 0) {
-            garage_action dir_action = pad_direction(pads[0], SDL_GetTicks());
+            SDL_Gamepad *gpad_ = g_split_garage == 1 ? p2_pad(pads) : g_split_garage == 0 && pads[1] == NULL ? NULL : pads[0];
+            garage_action dir_action = pad_direction(gpad_, SDL_GetTicks());
             if (dir_action == GA_NONE) dir_action = script_action();
             if (dir_action != GA_NONE) {
                 const garage_command c = garage_input(&gui, &gdata, dir_action);
                 if (c != GC_NONE) gcmd = c;
             }
+            if (g_split_garage == 0 && !g_p2_editing && (gui.screen == 0 || gcmd == GC_QUIT)) {   /* player 1 is done */
+                if (gcmd == GC_CHANGED) hangar_save();
+                hangar_save();
+                gcmd = GC_NONE;
+                g_split_garage = -1;
+                mode = MODE_SPLIT;
+            }
             if (g_p2_editing && (gui.screen == 0 || gcmd == GC_QUIT)) {   /* player 2 is done: player 1's save again */
+                g_split_garage = -1;
                 if (gcmd == GC_CHANGED) hangar_save();
                 hangar_save();
                 p2_swap();
@@ -2952,6 +3118,8 @@ int main(int argc, char **argv) {
                 }
                 if (!smenu.stage_ok[smenu.stage_pick]) smenu.stage_pick = 2;
                 smenu.message_ms = 0;
+                split_menu_enter(&smenu, 1, pads[0] != NULL || SDL_getenv("ACR_TWO") != NULL);
+                g_split_session = 0;
                 mode = MODE_SPLIT;
             }
             if (gcmd == GC_LAN || gcmd == GC_ONLINE || gcmd == GC_NETWORK) {
@@ -3575,7 +3743,8 @@ int main(int argc, char **argv) {
         refresh_model(1, dir, parts2, ac_data[1].model);
         for (int k = 2; k < acr_gen1_battle_fighters(&battle); ++k) refresh_model(k, dir, parts_ai[k - 2], ac_data[k].model);
         const int nf = acr_gen1_battle_fighters(&battle);
-        const int views = two_players && !g_net ? 2 : 1;
+        const int split_only = mode == 1 ? split_only_view() : -1;   /* split screen: one left, the other full screen */
+        const int views = split_only >= 0 ? 1 : two_players && !g_net ? 2 : 1;
         {   /* weapon effects: once a frame, watching the fight from outside */
             static int fx_tried;
             if (!fx_tried) { fx_tried = 1; fx_load(g_import_dir); }
@@ -3585,7 +3754,7 @@ int main(int argc, char **argv) {
         {   /* fight sounds: the same, heard from your own AC (player 1 on a shared screen) */
             static int sfx_tried;
             if (!sfx_tried) { sfx_tried = 1; sfx_open(g_import_dir); }
-            const int ear = g_net ? net_info.local : 0;
+            const int ear = g_net ? net_info.local : split_only >= 0 ? split_only : 0;
             for (int k = 0; k < nf; ++k) sfx_set_weapons(k, (const char (*)[24])ac_data[k].weapon_type, ac_data[k].weapons);
             sfx_listen sl;
             SDL_zero(sl);
@@ -3596,7 +3765,7 @@ int main(int argc, char **argv) {
             sfx_update(&battle, &sl, SDL_GetTicksNS());
         }
         for (int vi = 0; vi < views; ++vi) {
-        const int view = g_net ? net_info.local : vi;   /* online: your own player, full screen */
+        const int view = g_net ? net_info.local : split_only >= 0 ? split_only : vi;   /* online: your own player, full screen */
         const int vx = vi * pw / views, vpw = (vi + 1) * pw / views - vx;
         /* Rogue Arena co-op: once your AC is down, your view follows your
          * partner's for the rest of the fight. */
@@ -4060,7 +4229,12 @@ int main(int argc, char **argv) {
         /* Whole-screen HUD: the split line and the result. */
         const float full_w = acr_render_hud(0, 0, pw, ph);
         if (two_players || g_ai_mode) {
-            if (two_players && !g_net) acr_hud_rect(full_w / 2.0f - 1, 0, 2, 480, 0, 0, 0, 255, 1);
+            if (two_players && !g_net && split_only < 0) acr_hud_rect(full_w / 2.0f - 1, 0, 2, 480, 0, 0, 0, 255, 1);
+        }
+        if (g_split_note[0] && SDL_GetTicks() < g_split_note_until) {   /* split screen: someone is leaving / left */
+            const float nw = (float)SDL_strlen(g_split_note) * 8.5f + 16;
+            acr_hud_rect(full_w / 2 - nw / 2, 150, nw, 18, 10, 14, 20, 220, 1);
+            acr_hud_text(full_w / 2 - nw / 2 + 8, 155, g_split_note, 255, 220, 120);
         }
         if (!two_players && g_ai_mode) {
             char who[64];
