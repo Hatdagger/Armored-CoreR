@@ -75,6 +75,9 @@ int main(int argc, char **argv) {
             printf("Wrote %u mission units in %s/units.\n", (unsigned)stats.units, out_dir);
         if (stats.phantasma)
             printf("That was Project Phantasma: its files are in %s/pp, its arena is the main Arena.\n", out_dir);
+        if (stats.ac2_parts)
+            printf("That was Armored Core 2: %u part models and the test AC are in %s/gen2/ac2.\n",
+                   (unsigned)stats.ac2_parts, out_dir);
         if (stats.opponents)
             printf("Wrote %u arena opponents in %s/arena.\n", (unsigned)stats.opponents, out_dir);
         if (stats.missions)

@@ -50,6 +50,7 @@
 #include "demo_model.h"
 #include "demo_stage.h"
 #include "demo_units.h"
+#include "gen2_ac.h"
 #include "../../model/acr_aim.h"
 #include "garage.h"
 #include "rogue.h"
@@ -495,7 +496,17 @@ static void draw_aimed(int who, const demo_model *m, acr_pose *pose, Uint64 now,
     demo_model_draw_pose(m, pose, x, y, z, yaw, ACR_GEN1_MODEL_SCALE, &g_light);
 }
 
+/* Gen 2 proof of concept (gen2_ac.h): the opponent drawn as the Armored
+ * Core 2 test AC. --gen2 or F10 / BACK+L3 in AC TEST. */
+static gen2_ac g_gen2;
+static const char *g_import_dir;   /* (set below) */
+static int g_gen2_on;
+
 static void draw_ac(int who, const acr_gen1_ac *ac, float x, float y, float z, float yaw, float crouch) {
+    if (who == 1 && g_gen2_on && gen2_ac_load(g_import_dir, &g_gen2)) {
+        gen2_ac_draw(&g_gen2, x, y, z, yaw, ACR_GEN1_MODEL_SCALE, 0, &g_light);
+        return;
+    }
     float tick;
     int loop;
     const demo_model *m = &g_model[who];
@@ -694,6 +705,7 @@ static int parse_args(int argc, char **argv, const char **dir, int parts[SLOT_CO
         if (!strcmp(argv[i], "--tick") && i + 1 < argc) { g_tick_rate = atoi(argv[++i]); continue; }
         if (!strcmp(argv[i], "--credits") && i + 1 < argc) { g_new_credits = atol(argv[++i]); continue; }
         if (!strcmp(argv[i], "--test")) { g_direct_test = 1; continue; }
+        if (!strcmp(argv[i], "--gen2")) { g_gen2_on = 1; continue; }
         if (!strcmp(argv[i], "--hud-wide")) { g_hud_frame = BATTLE_HUD_FRAME_WIDE; g_hud_frame_arg = 1; continue; }
         if (!strcmp(argv[i], "--ai") && i + 1 < argc) { g_ai_mode = ai_preset_of(argv[++i]); if (!g_ai_mode) g_ai_mode = 1; continue; }
         if (!strcmp(argv[i], "--ai-file") && i + 1 < argc) { load_ai_file(argv[++i]); continue; }
@@ -2137,7 +2149,7 @@ int main(int argc, char **argv) {
                 }
                 if (e.type == SDL_EVENT_KEY_DOWN) {
                     const SDL_Scancode k = e.key.scancode;
-                    const int test_key = (k >= SDL_SCANCODE_F2 && k <= SDL_SCANCODE_F8 && k != SDL_SCANCODE_F5) ||
+                    const int test_key = (k >= SDL_SCANCODE_F2 && k <= SDL_SCANCODE_F8 && k != SDL_SCANCODE_F5) || k == SDL_SCANCODE_F10 ||
                                          (k >= SDL_SCANCODE_2 && k <= SDL_SCANCODE_8 && k != SDL_SCANCODE_5) ||
                                          k == SDL_SCANCODE_R || k == SDL_SCANCODE_B || k == SDL_SCANCODE_G || k == SDL_SCANCODE_C ||
                                          k == SDL_SCANCODE_L || k == SDL_SCANCODE_H || k == SDL_SCANCODE_T;
@@ -2286,6 +2298,11 @@ int main(int argc, char **argv) {
                 settings_save();
             }
             if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_F3) g_landing_anim = !g_landing_anim;
+            if ((e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_F10) ||
+                (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && back_held && e.gbutton.button == SDL_GAMEPAD_BUTTON_LEFT_STICK)) {
+                g_gen2_on = !g_gen2_on;   /* Gen 2 opponent look (draw_ac) */
+                if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) back_combo = 1;
+            }
             int cycle_ai = 0, toggle_autopilot = 0;
             if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_F4) cycle_ai = 1;
             if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_F6) toggle_autopilot = 1;
@@ -4461,6 +4478,9 @@ int main(int argc, char **argv) {
             TEXT(20, 88, "BACK+A (H): HUMAN PLUS  (T): STEP RATE");
             TEXT(20, 100, "BACK+LB (F2): TWO PLAYERS  BACK+R3 (F3): LANDING PAUSE GUESS/ANIMATION");
             TEXT(20, 112, "BACK+UP (F4): OPPONENT STILL / AI PRESETS  BACK+DOWN (F6): AI VS AI (WATCH)");
+            TEXT(20, 148, !g_gen2_on ? "BACK+L3 (F10): OPPONENT AS GEN 2 (ARMORED CORE 2) TEST AC"
+                          : g_gen2.ok ? "BACK+L3 (F10): GEN 2 TEST AC ON (LOOK ONLY: STILL A GEN 1 BUILD)"
+                                      : "BACK+L3 (F10): NO GEN 2 TEST AC (IMPORT AN ARMORED CORE 2 DISC)");
             if (g_stage.ok) TEXT(20, 136, g_test_boundary ? "BACK+RIGHT (F8): TEST BOUNDARY ON (1,500 PAST THE STARTS)"
                                           : g_stage.own_bounds ? "BACK+RIGHT (F8): TEST BOUNDARY OFF (THE STAGE'S OWN AREA)"
                                                                : "BACK+RIGHT (F8): TEST BOUNDARY OFF (NO OUT OF AREA HERE)");
