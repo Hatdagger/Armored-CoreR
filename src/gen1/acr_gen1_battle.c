@@ -485,6 +485,56 @@ static int blade_gap(const acr_gen1_battle *b, const acr_gen1_ac *me, int t, int
     return 1;
 }
 
+/* The blade's wave type (its MoA blade id), -1 for a blade the disc
+ * doesn't list. */
+static int wave_type(const acr_gen1_weapon *w) {
+    static const char *const ids[5] = { "LS-2001", "LS-200G", "LS-3303", "LS-99-MOONLIGHT", "LS-1000W" };
+    for (int k = 0; k < 5; ++k) if (!strcmp(w->name, ids[k])) return k;
+    return -1;
+}
+
+/* One blade wave shot along yaw `dir` (see ACR_GEN1_WAVE_TICK). */
+static void spawn_wave(acr_gen1_battle *b, int i, int blade, uint16_t dir, uint16_t attack, uint8_t impact,
+                       int energy, int32_t speed, int32_t range) {
+    acr_gen1_shot *s = free_shot(b);
+    if (!s) return;
+    int32_t m[3], fx, fz;
+    muzzle_at(b, i, m);
+    fwd_vec(dir, &fx, &fz);
+    const int32_t sp = per_step(b, speed);
+    s->active = 1;
+    s->owner = (uint8_t)i;
+    s->weapon = (uint8_t)blade;
+    s->x = m[0]; s->y = m[1]; s->z = m[2];
+    s->vx = (int32_t)((int64_t)fx * sp / 4096);
+    s->vz = (int32_t)((int64_t)fz * sp / 4096);
+    s->wave = 1;
+    s->attack = attack;
+    s->wave_impact = impact;
+    s->wave_energy = (uint8_t)energy;
+    s->wave_speed = speed;
+    s->wave_range = range;
+}
+
+static void blade_wave(acr_gen1_battle *b, int i, int blade) {
+    acr_gen1_fighter *f = &b->f[i];
+    const acr_gen1_weapon *w = &f->weapon[blade];
+    const int type = wave_type(w);
+    if (type < 0 || !f->wave_armed) return;
+    if (type != 4 && (!f->human_plus || !f->boost_held)) return;
+    f->wave_armed = 0;
+    const uint16_t yaw = f->ac.yaw;
+    switch (type) {
+    case 0: spawn_wave(b, i, blade, yaw, 1024, 16, 0, 360, 3600); break;
+    case 1: spawn_wave(b, i, blade, yaw, 1792, 16, 0, 360, 3600); break;
+    case 2:
+        for (int k = -1; k <= 1; ++k) spawn_wave(b, i, blade, (uint16_t)((yaw + k * 128) & 4095), 1024, 16, 0, 360, 3600);
+        break;
+    case 3: spawn_wave(b, i, blade, yaw, 5120, 32, 0, 600, 10000); break;
+    default: spawn_wave(b, i, blade, yaw, w->attack, w->impact, w->energy, 360, 3600); break;
+    }
+}
+
 /* Blade: a press starts a swing (see acr_gen1_battle.h). */
 static void blade_step(acr_gen1_battle *b, int i, int blade, int pressed) {
     acr_gen1_fighter *f = &b->f[i];
@@ -499,6 +549,7 @@ static void blade_step(acr_gen1_battle *b, int i, int blade, int pressed) {
     if (pressed && !f->swing && !f->recover_ms && !f->stagger && w->attack && !me->drained && me->energy > cost) {
         me->energy -= cost;
         f->swing = 1;
+        f->wave_armed = 1;
         f->swing_hits = 0;
         f->lunge_done = 0;
         f->lunge_x = f->lunge_z = 0;
@@ -529,6 +580,8 @@ static void blade_step(acr_gen1_battle *b, int i, int blade, int pressed) {
         if (rate < 1) rate = 1;
         acr_gen1_ac_set_yaw(me, (uint16_t)(turn_toward(me->yaw, angle_of(dx, dz), rate) & 4095));
     }
+    if (t0 < tick_ms(ACR_GEN1_WAVE_TICK + 5) && t1 >= tick_ms(ACR_GEN1_WAVE_TICK)) blade_wave(b, i, blade);
+    const int melee = wave_type(w) != 4;          /* LS-1000W: the wave is the whole attack */
     /* Lunge and the two crossings, in time order within the step. */
     const int reach = w->range ? (int)w->range : ACR_GEN1_BLADE_REACH;
     const int cross[2] = { ACR_GEN1_BLADE_LUNGE_MS + tick_ms(ACR_GEN1_BLADE_HIT_TICK),
@@ -539,7 +592,7 @@ static void blade_step(acr_gen1_battle *b, int i, int blade, int pressed) {
         if (to <= t0 || to > t1) { if (c == 2) lunge_move(b, i, from, t1); continue; }
         lunge_move(b, i, from, to);
         from = to;
-        if (c == 2) continue;
+        if (c == 2 || !melee) continue;
         /* The blade's arc hits every AC in it, teammates too. */
         const int r = c == 0 ? reach : reach - (ACR_GEN1_BLADE_REACH - ACR_GEN1_BLADE_REACH2);
         for (int j = 0; j < n; ++j) {
@@ -569,8 +622,18 @@ static void blade_step(acr_gen1_battle *b, int i, int blade, int pressed) {
         }
     }
     f->swing = (uint16_t)(t1 + 1);
-    if (t1 >= ACR_GEN1_BLADE_SWING_MS) {
+    /* The swing ends once its animation (56) has played out, frame 12 at
+     * the earliest (VS 0x8007EFB8: AC +0x76 >= 12 and the animation done);
+     * 26 ticks (1.18 s) on most bodies. Without the track: the measured
+     * swing-to-swing time. */
+    const acr_gen1_root_track *sw = f->def ? f->def->anim[ACR_GEN1_SHOW_SWING] : NULL;
+    const int swing_len = sw && sw->length >= 12 && sw->length <= 64 ? tick_ms(sw->length) : ACR_GEN1_BLADE_SWING_MS;
+    if (t1 >= swing_len) {
         f->swing = 0;
+        /* Master of Arena drops every lock when the swing ends and the
+         * busy bit clears (VS 0x8007EFDC -> 0x80080084); Project Phantasma
+         * keeps them (ACG1PLUS feel-diff.md 4.1 row 7). */
+        drop_locks(f);
         if (f->modern)         /* standing still after the swing: short on a hit, long on a miss */
             f->recover_ms = (uint16_t)(f->swing_hits ? MT(b, recover_hit_ms, RECOVER_HIT_MS)
                                                      : MT(b, recover_miss_ms, RECOVER_MISS_MS));
@@ -1069,7 +1132,7 @@ static void shots_step(acr_gen1_battle *b, int ticks) {
         if (!s->active) continue;
         const int from_unit = is_unit(s->owner);
         const acr_gen1_fighter *owner = &b->f[from_unit ? 0 : s->owner];
-        const acr_gen1_weapon *w = from_unit ? NULL : &owner->weapon[s->weapon];
+        const acr_gen1_weapon *w = from_unit || s->wave ? NULL : &owner->weapon[s->weapon];
         const int32_t x0 = s->x, y0 = s->y, z0 = s->z;
         if (s->missile) {
             for (int t = 0; t < ticks && s->active; ++t) missile_tick(b, k);
@@ -1081,7 +1144,7 @@ static void shots_step(acr_gen1_battle *b, int ticks) {
             s->x += s->vx;
             s->y += s->vy;
             s->z += s->vz;
-            int32_t sp = per_step(b, w ? w->speed : ACR_GEN1_UNIT_SHOT);
+            int32_t sp = per_step(b, w ? w->speed : s->wave ? s->wave_speed : ACR_GEN1_UNIT_SHOT);
             if (w && owner->modern && w->straight) sp = (int32_t)((int64_t)sp * MT(b, rocket_speed_pct, ROCKET_SPEED_PCT) / 100);
             s->travelled += sp / 64;                    /* same range at the slower speed */
         }
@@ -1120,21 +1183,22 @@ static void shots_step(acr_gen1_battle *b, int ticks) {
             hits_wall = acr_gen1_stage_segment(b->stage, a, e, &wall_t);
         }
         const uint16_t attack = w ? w->attack : s->attack;
-        const int energy = w ? w->energy : 0;
+        const int energy = w ? w->energy : s->wave_energy;
+        const uint8_t impact = w ? w->impact : s->wave_impact;
         if (hits_ac && hits_wall) {
             /* How far along the way the AC's middle is, against the wall. */
             if (target_t <= wall_t) {
                 damage_by(b, target, s->owner, attack, energy);
-                if (w) stagger_hit(b, target, w->impact, s->vx, s->vz);
+                stagger_hit(b, target, impact, s->vx, s->vz);
             }
             s->active = 0;
         } else if (hits_ac) {
             damage_by(b, target, s->owner, attack, energy);
-            if (w) stagger_hit(b, target, w->impact, s->vx, s->vz);
+            stagger_hit(b, target, impact, s->vx, s->vz);
             s->active = 0;
         } else if (hits_wall) {
             s->active = 0;                              /* into the arena */
-        } else if ((!s->missile && s->travelled > (w ? w->range : ACR_GEN1_UNIT_RANGE)) || (!b->stage && s->y > 0)) {
+        } else if ((!s->missile && s->travelled > (w ? w->range : s->wave ? s->wave_range : ACR_GEN1_UNIT_RANGE)) || (!b->stage && s->y > 0)) {
             s->active = 0;                              /* out of range or into the floor */
         }
     }
@@ -1282,6 +1346,7 @@ void acr_gen1_battle_step(acr_gen1_battle *b, const acr_gen1_input in[], const a
             acr_gen1_ac_advance(&f->ac, f->def, still, ticks, num, den);
             continue;
         }
+        f->boost_held = (uint8_t)(in[i].boost != 0);
         acr_gen1_input use = kneel_input(b, f, in[i], act[i]);
         if (!f->modern) { use.cruise = use.quick = use.modern = 0; f->hard_lock = 0; }
         else { use = modern_input(b, i, use, act[i], ticks); use.modern = 1; }

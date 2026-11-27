@@ -132,6 +132,8 @@ typedef struct acr_gen1_fighter {
     uint8_t  volley_ticks;                     /* AC +0x47: volleys left x 4, counting down */
     /* Blade */
     uint16_t swing;                            /* ms into the swing, 0 = not swinging */
+    uint8_t  wave_armed;                       /* player block +0x40: a blade wave may still leave this swing */
+    uint8_t  boost_held;                       /* the pilot's boost button (the swing holds the AC's boost) */
     uint8_t  swing_hits;                       /* hits landed this swing (no guard, as in the game) */
     uint8_t  lunge_done;                       /* a hit or body contact ended the lunge */
     int8_t   swing_target;                     /* AC found ahead at the swing's start, -1 none */
@@ -190,6 +192,10 @@ typedef struct acr_gen1_shot {
     uint8_t  ignition, split;                  /* split: ticks after ignition, 0 = never */
     int8_t   target;                           /* missiles: the AC it was launched at */
     acr_gen1_flight flight;
+    /* Blade waves (VS 0x8007EB48 -> shot spawner 0x8008E664): their own
+     * hit record, speed (world units a tick) and range, not the weapon's. */
+    uint8_t  wave, wave_energy, wave_impact;
+    int32_t  wave_speed, wave_range;
 } acr_gen1_shot;
 
 /* ---- Modern controls (the SP-MODERN option) ----
@@ -401,6 +407,21 @@ typedef struct acr_gen1_actions {
 #define ACR_GEN1_BLADE_KNOCK      10
 #define ACR_GEN1_BLADE_SWING_MS   1450    /* swing to swing, measured */
 extern const int16_t acr_gen1_blade_lunge[ACR_GEN1_BLADE_STEPS];
+
+/* Blade waves (VS 0x8007EB48, read 2026-11-27). The wave type is the
+ * blade's id (stat +0x33 = player block +0x283): 0 LS-2001, 1 LS-200G,
+ * 2 LS-3303, 3 LS-99-MOONLIGHT, 4 LS-1000W. At most one wave a swing, in
+ * the hit window (swing frames 7-11):
+ * - types 0-3 only with Human PLUS (stat +0x03, player block +0x253) and
+ *   the boost button held; they carry their own hit record (flags 7, so
+ *   solid damage): attack 1,024 / 1,792 / 1,024 x 3 (a fan at -11.25, 0,
+ *   +11.25 degrees) / 5,120 (MOONLIGHT, impact 32, the rest 16);
+ * - type 4 (LS-1000W) always fires, with the blade's own hit record, and
+ *   its swing has no melee hit at all.
+ * Shots (table 0x80092C20): kind 7 (types 0-2) and 11 (type 4) fly 360 a
+ * tick for 3,600; kind 6 (MOONLIGHT) 600 a tick for 10,000. */
+#define ACR_GEN1_WAVE_TICK 7
+#define ACR_GEN1_SHOW_SWING 56      /* the swing's animation */
 
 /* Missile interceptor (VS 0x800829E4): each tick, chance core +0x34 / 128
  * to look for an enemy missile within 5,000 and +- core +0x35 x 4 of the

@@ -72,6 +72,10 @@ void  acr_hud_text_size(float x, float y, const char *text, float size, uint8_t 
 enum { ACR_HUD_ALPHA = 0, ACR_HUD_ADD = 1, ACR_HUD_HALF = 2 };
 void  acr_hud_sprite(uint32_t texture, int tex_w, int tex_h, float u, float v, float tw, float th,
                      float x, float y, float w, float h, uint8_t r, uint8_t g, uint8_t b, uint8_t a, int blend);
+/* The same, turned by quarter turns (1 anticlockwise, 2 half, 3 clockwise). */
+void  acr_hud_sprite_turned(uint32_t texture, int tex_w, int tex_h, float u, float v, float tw, float th,
+                            float x, float y, float w, float h, uint8_t r, uint8_t g, uint8_t b, uint8_t a,
+                            int blend, int turns);
 
 /* Textures: RGBA8 pixels. `nearest` 1 keeps the sharp PS1 look; 2 is that
  * up close with mipmaps further off (no shimmer in the distance). */

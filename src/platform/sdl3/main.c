@@ -3153,43 +3153,42 @@ int main(int argc, char **argv) {
                     if (seen) {
                         bx = (x0 + x1) * 0.5f; by = (y0 + y1) * 0.5f; bw = x1 - x0; bh = y1 - y0;
                         /* The sight takes the lock's colour once the target is locked. */
-                        const uint8_t cr = me->locked ? 255 : 64, cg = me->locked ? 60 : 144, cb = me->locked ? 50 : 56;
+                        /* (VS 0x800576E0: colours 9 and 10 of 0x8008FDC8) */
+                        const uint8_t cr = me->locked ? 160 : 70, cg = me->locked ? 80 : 150, cb = me->locked ? 50 : 60;
                         for (int c = 0; c < 8; ++c)
                             acr_hud_line(hx[c], hy[c], hx[(c + 1) & 7], hy[(c + 1) & 7], cr, cg, cb, 255);
                     }
                     if (w->kind == ACR_GEN1_MISSILE) {
-                        /* The missile lock cursor (player block +0x20 / +0x22) and the locks held. */
+                        /* The missile lock cursor (player block +0x20 / +0x22): the
+                         * game's diamond, drawn with a missile weapon selected (VS 0x800580EC). */
                         const float cy = tanf(me->cursor_yaw * (6.2831853f / 4096.0f)),
                                     cp = tanf(me->cursor_pitch * (6.2831853f / 4096.0f));
-                        const float cx = bx + cy * proj[0] * g_vw * 0.5f, cyy = by - cp * proj[5] * g_vh * 0.5f;
-                        acr_hud_rect(cx - 6, cyy - 6, 12, 12, 240, 220, 60, 255, 0);
-                        if (me->locks) {
-                            SDL_snprintf(line, sizeof line, "LOCK x%d", (int)me->locks);
-                            float ox, oy, ux, uy;   /* the game's 4 x 5 letters, at this view's HUD scale */
-                            battle_hud_point(g_vw, g_hud_frame, 0, 0, 0, &ox, &oy);
-                            battle_hud_point(g_vw, g_hud_frame, 0, 1, 1, &ux, &uy);
-                            battle_hud_text(g_vw, g_hud_frame, 0, (bx + bw * 0.5f - ox) / (ux - ox) + 3, (by - bh * 0.5f) / uy, line, 0,
-                                            255, 60, 50);
-                        }
+                        battle_hud_missile_cursor(g_vw, g_hud_frame, bx + cy * proj[0] * g_vw * 0.5f,
+                                                  by - cp * proj[5] * g_vh * 0.5f);
                     }
+                    (void)bw; (void)bh;
                 }
+                /* The lock-on marker on the target (VS 0x80057B8C guns and
+                 * cannons, 0x80057E8C missiles): shown while the target is in
+                 * the sight, not for rockets and other straight-firing weapons.
+                 * It eases toward the target a quarter of the way each frame. */
+                static float mk_x[ACR_GEN1_MAX_FIGHTERS], mk_y[ACR_GEN1_MAX_FIGHTERS];
+                static int mk_on[ACR_GEN1_MAX_FIGHTERS];
                 float sx, sy;
-                if (tg_alive && acr_gen1_in_lock_box(&battle, view, w) &&
+                const int vslot = view < ACR_GEN1_MAX_FIGHTERS ? view : 0;
+                if (tg_alive && !w->straight && w->kind != ACR_GEN1_BLADE && acr_gen1_in_lock_box(&battle, view, w) &&
                     to_hud(proj, viewm, v3(mk[0], mk[1], mk[2]), g_vw, &sx, &sy)) {
-                    if (me->locked) {
-                        acr_hud_rect(sx - 18, sy - 18, 36, 36, 255, 60, 50, 255, 0);
-                        {
-                            /* The game's 6 x 7 letters, above the marker; at
-                             * this view's HUD scale. */
-                            float ox, oy, ux, uy;
-                            battle_hud_point(g_vw, g_hud_frame, 0, 0, 0, &ox, &oy);
-                            battle_hud_point(g_vw, g_hud_frame, 0, 1, 1, &ux, &uy);
-                            battle_hud_text(g_vw, g_hud_frame, 0, (sx - ox) / (ux - ox) - 12, (sy - 18) / uy - 10, "LOCK", 1,
-                                            255, 60, 50);
-                        }
-                    } else {
-                        acr_hud_rect(sx - 18, sy - 18, 36, 36, 240, 220, 60, 255, 0);
-                    }
+                    if (!mk_on[vslot]) { mk_x[vslot] = sx; mk_y[vslot] = sy; }
+                    mk_x[vslot] += (sx - mk_x[vslot]) * 0.25f;
+                    mk_y[vslot] += (sy - mk_y[vslot]) * 0.25f;
+                    mk_on[vslot] = 1;
+                    const float ddx = mk[0] - px, ddy = mk[1] - py, ddz = mk[2] - pz;
+                    const int missile = w->kind == ACR_GEN1_MISSILE;
+                    battle_hud_lock_marker(g_vw, g_hud_frame, mk_x[vslot], mk_y[vslot], missile,
+                                           missile ? me->locks > 0 : me->locked,
+                                           (int)sqrtf(ddx * ddx + ddy * ddy + ddz * ddz), missile ? me->locks : 0);
+                } else {
+                    mk_on[vslot] = 0;
                 }
             }
             (void)rc_y;

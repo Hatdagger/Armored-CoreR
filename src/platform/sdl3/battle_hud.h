@@ -70,4 +70,13 @@ void battle_hud_text(float hud_w, int frame, int anchor, float x, float y, const
 enum { BATTLE_HUD_WIN, BATTLE_HUD_LOSE, BATTLE_HUD_DRAW, BATTLE_HUD_TIME_UP };
 void battle_hud_word(float hud_w, int frame, int word, float y, uint8_t r, uint8_t g, uint8_t b);
 
+/* Lock-on markers on a target (VS 0x80057B8C guns, 0x80057E8C missiles),
+ * centred on (hx, hy) in HUD units: the game's brackets (guns) or bars
+ * (missiles), dark green before a lock and dark red once locked, with a
+ * leader line to the distance or LOCK, and for missiles one numbered box
+ * per missile locked on (up to 4). */
+void battle_hud_lock_marker(float hud_w, int frame, float hx, float hy, int missile, int locked, int distance, int locks);
+/* The missile lock cursor (VS 0x800580EC): the diamond, centred on (hx, hy). */
+void battle_hud_missile_cursor(float hud_w, int frame, float hx, float hy);
+
 #endif

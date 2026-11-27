@@ -79,6 +79,33 @@ then kana and kanji. Used for the AC's name.
 - The FCS sight (big frame) is drawn through the camera
   ([gen1-models.md](gen1-models.md), "Camera swing and the FCS box").
 
+## Sight and lock markers (VS engine, read 2026-11-27)
+
+Read from the VS engine (FDAT 209); per view, `0x80066B10` picks by the
+selected weapon's kind: guns draw the target marker `0x80057B8C` (not for
+straight-firing weapons, sight bit 2), missiles one marker per lock record
+`0x80057E8C` plus the cursor `0x800580EC`, cannons `0x80058208`; then the
+sight `0x800576E0`. Colours are the table at `0x8008FDC8` (index: RGB):
+9 (70, 150, 60) sight, 10 (160, 80, 50) sight when locked, 11 (10, 80, 10)
+marker, 12 (80, 10, 10) marker when locked, 13 (20, 120, 20) / 14 (120, 20,
+20) leader lines, 1 (120, 40, 20) missile cursor. Icons come from the
+table at `0x80091A28` (12 bytes: clut, page, u, v, w, h), all on layer 0
+of the HUD sheet; the icon drawer `0x80065494` turns a picture by quarter
+turns (mode 1 anticlockwise, 2 half, 3 clockwise).
+
+| Piece | Icons and offsets (PS1 pixels from the target) |
+|---|---|
+| Gun marker (template `0x8008FE68`) | icon 50 (1, 36, 12 x 8) at (-20, -4) and turned 2 at (8, -4); icon 51 (14, 36, 7 x 2) at (-3, -11) and turned 2 at (-3, 11) |
+| Gun label | LOCK (string `0x80050DE8`) at (14, -15) once locked, else the distance (lock record +4, the sweep's square root) at (15, -15); leader (8, -6) to (14, -10) to the label's end |
+| Missile marker (`0x8008FE90`) | icon 52 (22, 36, 3 x 8) four times: (-15, -4), turned 1 at (-4, 11), turned 2 at (13, -4), turned 3 at (-4, -11); label at (22, 7) / (23, 7), leader (16, 4), (22, 12), end |
+| Missile locks (`0x8008FEB8`) | per missile locked on the target: box icon 54 (41, 36, 7 x 9) with digits 1-4 (icons 57-60) at (-12, -21), (-3, -21), (6, -21), (-12, 15) |
+| Missile cursor | icon 55 (1, 46, 16 x 16), the diamond, centred on the cursor |
+
+The marker eases toward the target a quarter of the way each frame
+(record +0x0C / +0x0E). The sight's aiming guide (bit 1: energy cannons,
+rockets): three short dashes (+-150 wide) stepping toward the shot's lead
+point in colour 12; not drawn by the engine yet.
+
 ## Still open
 
 - Read the HUD draw code (FDAT 210) for exact positions and blend modes,
