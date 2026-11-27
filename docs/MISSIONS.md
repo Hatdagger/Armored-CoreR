@@ -286,8 +286,11 @@ usual income and expense report follows (reward, ammunition, repair).
 - MOA-18 Factory core: the switch and the core are reached by walking into
   them.
 
-**Known gaps:** no radio voices or text, no cutscenes, no chapters
-(everything is offered at once), MoA's mail. Some Phantasma drops may sit
+**Unlocks (user, 2026-11-27):** every mission stays unlocked in the
+MISSIONS menu until play-testing shows they all work; the proper unlock
+structure (chapters) comes after.
+
+**Known gaps:** no radio voices or text, no cutscenes, MoA's mail. Some Phantasma drops may sit
 inside a wall (PP-11 looked wrong in a headless check). Split screen co-op
 on a disc mission still runs with an opponent slot that is put out of the
 fight; not checked.
