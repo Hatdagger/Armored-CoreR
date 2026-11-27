@@ -62,7 +62,7 @@ From the AC1Recomp mapping (`docs/mapping/arena-prizes.md`,
 | Main arena | 50 places: ranks 1-15 the **ranked** list (**MoA ARENA**), 16-50 the **sub arena** (**MoA SUB-ARENA**), each its own row in the ARENA list; Project Phantasma's is **PP ARENA** |
 | Sub arena | in the game each opponent is beaten once and can't be fought again; here they can, as a rematch (below) |
 | Ranked list | opens at the top of the sub arena (rank 16) |
-| Winning | anyone above can be challenged; a win moves you **up one rank** |
+| Winning | ranked ladders (MoA ARENA, PP ARENA, the Ex Arenas): only the rank **just above you** can be challenged (others: CHALLENGE THE RANK JUST ABOVE YOU.); the **MoA SUB-ARENA** is unranked: anyone above you in it, in any order. A win moves you **up one rank** |
 | Prize money | the first win over an opponent only (user, 2026-11-24); credits cap at 99,999,999 |
 | Prize parts | 23 parts on the disc; the part goes into the garage (+1 copy, +1 more for paired back weapons) |
 | Champion / Guest | their part comes only once every opponent there is beaten |

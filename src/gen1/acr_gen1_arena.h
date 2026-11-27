@@ -138,7 +138,8 @@ typedef enum acr_gen1_arena_why {
     ACR_GEN1_ARENA_REFERENCE,    /* at or below the player: "Reference Only" */
     ACR_GEN1_ARENA_DONE,         /* the game's "beaten, can't refight" (unused: rematches are allowed) */
     ACR_GEN1_ARENA_SUB_FIRST,    /* ranked list before the sub arena is cleared: the same message */
-    ACR_GEN1_ARENA_INCOMPLETE    /* the AC fails the garage's checks: "Your equipment is incomplete." */
+    ACR_GEN1_ARENA_INCOMPLETE,   /* the AC fails the garage's checks: "Your equipment is incomplete." */
+    ACR_GEN1_ARENA_NEXT_ONLY     /* ranked ladders: only the rank just above the player (the sub arena: anyone) */
 } acr_gen1_arena_why;
 const char *acr_gen1_arena_why_text(acr_gen1_arena_why why);
 

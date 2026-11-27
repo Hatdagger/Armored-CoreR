@@ -160,6 +160,7 @@ const char *acr_gen1_arena_why_text(acr_gen1_arena_why why) {
     case ACR_GEN1_ARENA_DONE:       return "UNABLE TO CHALLENGE AT THIS TIME.";
     case ACR_GEN1_ARENA_SUB_FIRST:  return "UNABLE TO CHALLENGE AT THIS TIME.";
     case ACR_GEN1_ARENA_INCOMPLETE: return "YOUR EQUIPMENT IS INCOMPLETE.";
+    case ACR_GEN1_ARENA_NEXT_ONLY:  return "CHALLENGE THE RANK JUST ABOVE YOU.";
     }
     return "";
 }
@@ -189,6 +190,10 @@ acr_gen1_arena_why acr_gen1_arena_can_challenge(const acr_gen1_arena *s, int a, 
         if (!acr_gen1_arena_is_rematch(s, a, rank)) return ACR_GEN1_ARENA_REFERENCE;
     } else if (!acr_gen1_arena_is_sub(a, rank) && a == ACR_GEN1_ARENA_MOA && me > ACR_GEN1_ARENA_RANKED + 1) {
         return ACR_GEN1_ARENA_SUB_FIRST;
+    } else if (!acr_gen1_arena_is_sub(a, rank) && rank != me - 1) {
+        /* Ranked ladders (MoA ARENA, PP ARENA, the Ex Arenas): one rank at a
+         * time. The sub arena is unranked: anyone in it, in any order. */
+        return ACR_GEN1_ARENA_NEXT_ONLY;
     }
     if (a >= 1 && a <= 4 && legs_kind != a) return ACR_GEN1_ARENA_WRONG_LEGS;
     if (build_fail) return ACR_GEN1_ARENA_INCOMPLETE;
@@ -289,6 +294,7 @@ int acr_gen1_arena_default_win(acr_gen1_arena *s, int a, int rank, acr_gen1_aren
     const int me = acr_gen1_arena_rank(s, a);
     const int d = acr_gen1_arena_holder(s, a, rank);
     if (!me || !d || rank >= me || l->absent[d - 1] != ACR_GEN1_ARENA_ABSENT) return 0;
+    if (!acr_gen1_arena_is_sub(a, rank) && rank != me - 1) return 0;   /* ranked: the next rank only */
     l->absent[d - 1] = ACR_GEN1_ARENA_ABSENT_DONE;
     l->beaten[d - 1] = 1;
     if (l->challenges < 0xFFFFu) ++l->challenges;
