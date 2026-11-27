@@ -3937,7 +3937,7 @@ int main(int argc, char **argv) {
         if (g_stage_on) demo_stage_draw(&g_stage, 0);
         if (g_stage_on && g_rogue_fight == 3 && g_mission_units.objects && battle.units)   /* a mission's borrowed units */
             demo_units_draw(&g_mission_units, &battle, (float)SDL_GetTicksNS() / (float)ACR_GEN1_TICK_NS, &g_light);
-        if (g_stage_on && g_stage_id >= 0 && g_stage_id < 20 && (!g_rogue_fight || (g_rogue_fight == 3 && missions_solo()))) {   /* menu fights: no mission units, but MoA missions have theirs */
+        if (g_stage_on && acr_gen1_mission_map_ok(g_stage_id) && (!g_rogue_fight || (g_rogue_fight == 3 && missions_solo()))) {   /* menu fights: no mission units, but MoA missions have theirs */
             if (g_units.map != g_stage_id) {
                 demo_units_free(&g_units);
                 demo_units_load(g_import_dir, g_stage_id, &g_units);

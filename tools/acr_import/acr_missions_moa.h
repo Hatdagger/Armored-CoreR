@@ -35,4 +35,14 @@
 int acr_export_moa_missions(const char *unpacked_dir, const char *out_dir, uint32_t *count,
                             char *err, size_t err_size);
 
+/* Project Phantasma's 17 missions (2026-11-27), from <pp>/unpacked: the
+ * same table with 64 slots (names +256, rewards +2560, engine numbers
+ * +2816, a byte +2880, page records +2944). Writes <out>/missions-pp.toml
+ * (map = ACR_PP_MISSION_MAP_BASE + the disc's mission number, the stage id
+ * its map is imported as) and <out>/pp-MM-pic-K.png. */
+#define ACR_PP_MISSION_MAP_BASE 50u
+#define ACR_PP_MISSION_MAPS     17u
+int acr_export_pp_missions(const char *pp_unpacked_dir, const char *out_dir, uint32_t *count,
+                           char *err, size_t err_size);
+
 #endif

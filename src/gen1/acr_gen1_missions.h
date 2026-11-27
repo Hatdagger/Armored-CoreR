@@ -45,17 +45,17 @@
 
 struct acr_gen1_fighter;
 
-#define ACR_GEN1_MISSIONS_MAX   24
+#define ACR_GEN1_MISSIONS_MAX   48   /* P4, MoA's 20, Project Phantasma's 17 */
 #define ACR_GEN1_MISSION_PAGES  8
 #define ACR_GEN1_MISSION_TEXT   400   /* bytes per page (the disc's longest is under 200) */
 #define ACR_GEN1_MISSION_ID     12
 
 typedef struct acr_gen1_mission_info {
-    char     id[ACR_GEN1_MISSION_ID];   /* "MOA-00".."MOA-19", or Armored-CoreR's own ("P4") */
+    char     id[ACR_GEN1_MISSION_ID];   /* "MOA-00".."MOA-19", "PP-00".."PP-16", or Armored-CoreR's own ("P4") */
     char     name[40];
     char     sender[40], requester[40]; /* "" = none on the briefing */
     int32_t  reward;
-    int16_t  map;                       /* mission map 0-19 */
+    int16_t  map;                       /* mission map 0-19 (MoA), 50-66 (Project Phantasma) */
     uint8_t  own;                       /* Armored-CoreR's own mission (not from the disc) */
     uint8_t  playable;                  /* the engine can run it today */
     int32_t  time_ms;                   /* own missions: the time limit; 0 none */
@@ -93,6 +93,9 @@ typedef struct acr_gen1_mission_list {
  * (`toml` may be NULL: none imported). Returns how many MoA missions were
  * read. */
 int acr_gen1_missions_build(acr_gen1_mission_list *list, const char *toml);
+/* Adds another imported list (Project Phantasma's missions-pp.toml: ids
+ * "PP-NN", maps 50-66) after what is there. Returns how many were read. */
+int acr_gen1_missions_append(acr_gen1_mission_list *list, const char *toml);
 
 /* ---- variants ----
  * The roll when a mission is taken: 1 Standard (40 %), 2 Alternate layout
@@ -152,7 +155,7 @@ void acr_gen1_mission_settle(acr_gen1_hangar *h, acr_gen1_mission_report *r, int
                              int32_t addition, int32_t ammo_cost, int32_t repair_cost, int32_t deduction);
 
 /* ---- record of missions played ---- */
-#define ACR_GEN1_MISSION_RECORD_MAX 32
+#define ACR_GEN1_MISSION_RECORD_MAX 48
 #define ACR_GEN1_MISSION_COUNT_CAP  999
 enum { ACR_GEN1_MISSION_DONE_BIT = 2, ACR_GEN1_MISSION_FAILED_BIT = 4 };   /* the game's T+20 bits */
 

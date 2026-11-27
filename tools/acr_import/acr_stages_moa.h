@@ -22,6 +22,14 @@
 int acr_export_moa_stages(const char *unpacked_dir, const char *out_dir, uint32_t *stages,
                           char *err, size_t err_size);
 
+/* Project Phantasma's 17 mission maps (2026-11-27): its FDAT 5m+4 (no
+ * first chunk) and RTIM m, from <pp>/unpacked, written as stages
+ * ACR_PP_STAGE_BASE + m (50-66). Lit with Master of Arena's light sets. */
+#define ACR_PP_STAGE_BASE 50u
+#define ACR_PP_STAGE_MAPS 17u
+int acr_export_pp_mission_stages(const char *pp_unpacked_dir, const char *moa_unpacked_dir, const char *out_dir,
+                                 uint32_t *stages, char *err, size_t err_size);
+
 /* The colour a stage face is lit with (docs/research/gen1-stages.md, "Stage
  * lights"): the GTE's NCCS (sf = 1, lm = 1) on the model normal `n` (4096 =
  * 1) with a light set's light matrix `llm` (turned for an area of `quarter`

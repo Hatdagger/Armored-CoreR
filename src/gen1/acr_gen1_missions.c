@@ -164,7 +164,14 @@ static const char *read_string(const char *p, char *out, size_t cap) {
 int acr_gen1_missions_build(acr_gen1_mission_list *list, const char *toml) {
     memset(list, 0, sizeof *list);
     add_own(list);
+    return toml ? acr_gen1_missions_append(list, toml) : 0;
+}
+
+int acr_gen1_missions_append(acr_gen1_mission_list *list, const char *toml) {
     if (!toml) return 0;
+    /* Project Phantasma's list (missions-pp.toml) says game = "pp" at its top. */
+    const char *pp = strstr(toml, "\ngame = \"pp\"");
+    const char *prefix = pp && (!strstr(toml, "[[mission]]") || pp < strstr(toml, "[[mission]]")) ? "PP" : "MOA";
     int read = 0, in_pages = 0;
     acr_gen1_mission_info *m = NULL;
     for (const char *line = toml; line && *line; ) {
@@ -192,7 +199,7 @@ int acr_gen1_missions_build(acr_gen1_mission_list *list, const char *toml) {
                 p = skip_space(p + 1);
                 if (!strcmp(key, "slot")) {
                     const long s = strtol(p, NULL, 10);
-                    snprintf(m->id, sizeof m->id, "MOA-%02ld", s < 0 || s > 99 ? 0L : s);
+                    snprintf(m->id, sizeof m->id, "%s-%02ld", prefix, s < 0 || s > 99 ? 0L : s);
                 } else if (!strcmp(key, "name")) read_string(p, m->name, sizeof m->name);
                 else if (!strcmp(key, "sender")) read_string(p, m->sender, sizeof m->sender);
                 else if (!strcmp(key, "requester")) read_string(p, m->requester, sizeof m->requester);
@@ -215,9 +222,9 @@ int acr_gen1_missions_build(acr_gen1_mission_list *list, const char *toml) {
     /* Master of Arena's missions fly on their own maps since 2026-11-27:
      * the player alone against the map's units, by the map's script
      * (acr_gen1_mission.h). Maps 3 and 14 run the game's mission clock. */
-    for (int i = 0; i < list->count; ++i) {
+    for (int i = list->count - read; i < list->count; ++i) {
         acr_gen1_mission_info *mi = &list->m[i];
-        if (mi->own || mi->map < 0 || mi->map >= 20) continue;
+        if (mi->own || mi->playable || !acr_gen1_mission_map_ok(mi->map)) continue;
         mi->playable = 1;
         mi->time_ms = (int32_t)((int64_t)acr_gen1_mission_clock_ticks(mi->map) * 1000 / 22);
     }

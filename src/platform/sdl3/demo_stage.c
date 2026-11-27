@@ -8,6 +8,7 @@
 
 #include "acr_model.h"
 #include "acr_png.h"
+#include "../../gen1/acr_gen1_mission.h"
 
 static char *load_text(const char *path) {
     size_t n = 0;
@@ -499,7 +500,7 @@ int demo_stage_load(const char *dir, int id, demo_stage *out) {
          * (docs/research/gen1-stages.md, "Missions"); the target 2,500
          * ahead, facing back. Not 13 (record 0 is outside the map). Imports
          * from before 2026-11-23 have no objects.toml and keep the arena's. */
-        if (!fixed && id >= 0 && id < 20 && id != 13) {
+        if (!fixed && acr_gen1_mission_map_ok(id) && id != 13) {
             SDL_snprintf(path, sizeof path, "%s/objects.toml", sdir);
             char *objs = load_text(path);
             const char *r0 = objs ? SDL_strstr(objs, "[[point]]\nrecord   = 0\n") : NULL;

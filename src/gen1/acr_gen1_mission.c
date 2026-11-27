@@ -89,7 +89,11 @@ static const map6_key k_map6_climb[] = {
 #define MAP12_FAIL_WAIT    19   /* 20, counted down the tick it is set */
 #define MAP12_RADIO_TICKS  66   /* stand-in: radio 59, about 3 seconds */
 
-int acr_gen1_mission_has_script(int map) { return map >= 0 && map < 20; }
+int acr_gen1_mission_map_ok(int map) {
+    return (map >= 0 && map < 20) || (map >= ACR_GEN1_PP_MAP_BASE && map < ACR_GEN1_PP_MAP_BASE + ACR_GEN1_PP_MAPS);
+}
+
+int acr_gen1_mission_has_script(int map) { return acr_gen1_mission_map_ok(map); }
 
 int acr_gen1_mission_team(int map, int record) {
     return map == 12 && record >= MAP12_FIRST_FRIEND && record <= MAP12_LAST_FRIEND ? 0 : 1;
@@ -487,6 +491,17 @@ static void moa_tick(acr_gen1_battle *b, int map) {
         else if (m->phase == 2 && player_in(b, &k_map18_core, 0)) finish(m, 64, 0);
         break;
     default:
+        /* Project Phantasma's maps (50-66): their scripts aren't read yet.
+         * Stand-in: everything in the fight down brings in what waits (the
+         * records the map makes later, flag 0x40), all at once; once that is
+         * down too, accomplished. */
+        if (m->phase == 0 && fight_clear(b)) {
+            int waiting = 0;
+            for (int u = 0; u < b->units; ++u)
+                if (b->unit[u].wait == ACR_GEN1_WAIT_HIDDEN && !destroyed(&b->unit[u])) { join(&b->unit[u]); ++waiting; }
+            m->phase = 1;
+            if (!waiting) finish(m, 0, 0);
+        } else if (m->phase == 1 && fight_clear(b)) finish(m, 0, 0);
         break;
     }
 }

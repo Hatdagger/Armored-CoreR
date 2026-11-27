@@ -382,7 +382,7 @@ int demo_units_join(demo_units *u, const char *import_dir, int map, acr_gen1_bat
     SDL_memset(b->unit, 0, sizeof b->unit);
     for (int i = 0; i < u->objects; ++i) u->object[i].unit = -1;
     acr_gen1_mission_start(b, -1);
-    if (map < 0 || map >= 20) return 0;
+    if (!acr_gen1_mission_map_ok(map)) return 0;
     if (u->map != map) {
         demo_units_free(u);
         demo_units_load(import_dir, map, u);

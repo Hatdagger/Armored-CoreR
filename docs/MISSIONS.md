@@ -251,9 +251,52 @@ during the fight. Code: `acr_gen1_mission_roll` / `acr_gen1_mission_variant`
 of rolling; `ACR_MISSION_FOE_HURT=1` starts the opponent just below half
 its AP (variant 3: the challenger comes at once).
 
-**Not yet**
-- MoA's own missions can't be flown: they're listed and their briefings
-  can be read. Maps 2, 12, 13, 15 already run their rules in AC TEST;
-  they open once the extra AC TEST target is gone and the radio is in.
-- MoA's chapters (which missions are offered when), mail, the "Dummy"
-  slots 20-23 and the table's byte +1160.
+**Not yet** (P4): its radio has no voice.
+
+## The discs' missions (2026-11-27)
+
+Every mission on your two discs can now be flown from MAIN MENU >
+MISSIONS: **Master of Arena's 20** (MOA-00 to MOA-19) and **Project
+Phantasma's 17** (PP-00 to PP-16, listed after them once its disc is
+imported). Re-import (or just start the game: the import refreshes itself)
+to get Phantasma's maps, units and briefings.
+
+How a disc mission flies: your garage AC alone on the mission's own map,
+dropped at the map's record 0, against the map's units (MTs, turrets,
+aircraft, enemy ACs). The map's own rules decide it; when they're done, the
+usual income and expense report follows (reward, ammunition, repair).
+
+| Missions | Rules | State |
+| --- | --- | --- |
+| MoA 2, 6, 12, 13, 15 | the game's, read before (2026-11-24/25) | as before |
+| MoA 1, 3, 4, 5, 7, 8, 10, 11, 14, 17, 19 | the game's own script, read 2026-11-27: objectives, fails, clocks (3: 5:00, 14: 3:00), late arrivals, waves | radio and cutscenes left out |
+| MoA 0, 9, 16, 18 | partly the game's; where its trigger is a stage gimmick (a door, switch, container) a stand-in, see below | playable, check the feel |
+| Phantasma 0-16 | stand-in for all: everything down -> the units the map holds back come in -> everything down wins | scripts not read yet |
+
+**Stand-ins (tell me if any feels wrong):**
+- MOA-00 Eliminate Fugitive: won when the Armored Car is destroyed (the game
+  ends on a door near it; "permission to take him out" in the briefing).
+- MOA-01 Defend Submarine: falling into the sea fails it, as in the game;
+  the submarine itself can't be sunk yet (the engine has no breakable
+  structures), and the ships don't move.
+- MOA-03 Destroy Cannon: the jet and the AC come once four drones are down.
+- MOA-09 Recover material: after the tank-legged AC is down, get within
+  1,000 of the container.
+- MOA-16: when everything's down the next group comes, then the AC.
+- MOA-18 Factory core: the switch and the core are reached by walking into
+  them.
+
+**Known gaps:** no radio voices or text, no cutscenes, no chapters
+(everything is offered at once), MoA's mail. Some Phantasma drops may sit
+inside a wall (PP-11 looked wrong in a headless check). Split screen co-op
+on a disc mission still runs with an opponent slot that is put out of the
+fight; not checked.
+
+**Testing aids:** `ACR_MISSION=MOA-05` (or `PP-03`, `P4`) skips the
+screens and flies that mission at once; `ACR_UNITS_DOWN=1` starts with
+the units in the fight destroyed (the map's next step comes).
+
+Project Phantasma's maps are stages 50-66 (`ACR_STAGE=50` opens one in AC
+TEST). AC1's missions use the same briefing table but a different file
+layout; not imported yet (docs/research/gen1-stages.md, "Armored Core (AC1)
+missions").

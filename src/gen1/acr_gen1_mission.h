@@ -60,7 +60,12 @@ typedef struct acr_gen1_mission {
     int32_t  from[3];      /* map 6: where the big MT's current cutscene key started (1/64 units) */
 } acr_gen1_mission;
 
-/* 1 if map `map` (0-19) has a script here (since 2026-11-27: all 20;
+/* Mission maps: Master of Arena's 0-19 and Project Phantasma's 17,
+ * imported as stages 50-66 (2026-11-27). */
+#define ACR_GEN1_PP_MAP_BASE 50
+#define ACR_GEN1_PP_MAPS     17
+int acr_gen1_mission_map_ok(int map);
+/* 1 if map `map` has a script here (since 2026-11-27: all 20;
  * docs/research/gen1-stages.md "Mission scripts, all maps"). */
 int acr_gen1_mission_has_script(int map);
 /* How chunk 13 record `record` of map `map` waits (ACR_GEN1_WAIT_*). */
