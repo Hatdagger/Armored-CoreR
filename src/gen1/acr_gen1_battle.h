@@ -81,7 +81,10 @@ typedef struct acr_gen1_weapon {
  * caterpillars fire them freely. Human PLUS (level 4 and up, body frame 3)
  * lifts the rule for two legs. */
 enum { ACR_GEN1_LEGS_TWO, ACR_GEN1_LEGS_FOUR, ACR_GEN1_LEGS_TRACKS };
-#define ACR_GEN1_KNEEL_MS 400   /* time to crouch before a cannon fires (stand-in) */
+/* Time to crouch before a cannon fires when the set has no kneel animation;
+ * otherwise the kneel animation (45) plays out first (VS 0x80081C04: state 34,
+ * animation player +0x12 = 0x2A + slot, finished): 8-17 ticks by set. */
+#define ACR_GEN1_KNEEL_MS 400
 
 #define ACR_GEN1_MAX_WEAPONS 4   /* arm weapon, back left, back right, blade */
 #define ACR_GEN1_MAX_SHOTS   128

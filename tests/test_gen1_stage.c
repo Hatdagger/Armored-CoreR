@@ -126,13 +126,13 @@ static void gpoly(char *out, size_t n, const int32_t (*v)[3], const int idx[4], 
 
 int main(void) {
     /* The made-up stage (y down): a floor at 0 from -5000 to 5000; a step
-     * 100 high from x 1000 to 2000; a wall at x = 3000; a ceiling 1,500 up
+     * 60 high from x 1000 to 2000; a wall at x = 3000; a ceiling 1,500 up
      * over x < -2000. */
     acr_gen1_stage st;
     memset(&st, 0, sizeof st);
     quad(&st, -5000, 0, -5000, 5000, 0, -5000, 5000, 0, 5000, -5000, 0, 5000);
-    quad(&st, 1000, -100, -5000, 2000, -100, -5000, 2000, -100, 5000, 1000, -100, 5000);
-    quad(&st, 1000, 0, -5000, 1000, -100, -5000, 1000, -100, 5000, 1000, 0, 5000);   /* step's face */
+    quad(&st, 1000, -60, -5000, 2000, -60, -5000, 2000, -60, 5000, 1000, -60, 5000);
+    quad(&st, 1000, 0, -5000, 1000, -60, -5000, 1000, -60, 5000, 1000, 0, 5000);   /* step's face */
     quad(&st, 3000, 0, -5000, 3000, -3000, -5000, 3000, -3000, 5000, 3000, 0, 5000);
     quad(&st, -5000, -1500, -5000, -2000, -1500, -5000, -2000, -1500, 5000, -5000, -1500, 5000);
     EXPECT(st.polys == 5);
@@ -140,7 +140,7 @@ int main(void) {
 
     int32_t y = 1;
     EXPECT(acr_gen1_stage_floor(&st, 0, 0, -120, &y) && y == 0);
-    EXPECT(acr_gen1_stage_floor(&st, 1500, 0, -120, &y) && y == -100);   /* on the step */
+    EXPECT(acr_gen1_stage_floor(&st, 1500, 0, -120, &y) && y == -60);   /* on the step */
     EXPECT(acr_gen1_stage_floor(&st, 1500, 0, -50, &y) && y == 0);       /* from under it */
     EXPECT(!acr_gen1_stage_floor(&st, 9000, 0, -120, &y));               /* off the stage */
     EXPECT(acr_gen1_stage_ceiling(&st, -3000, 0, -300, &y) && y == -1500);
@@ -172,7 +172,7 @@ int main(void) {
         int on_step = 0;
         for (int t = 0; t < 400; ++t) {
             acr_gen1_ac_step(&ac, &def, fwd);
-            if (ac.x / 64 > 1100 && ac.x / 64 < 1900 && ac.y == -100 * 64) on_step = 1;
+            if (ac.x / 64 > 1100 && ac.x / 64 < 1900 && ac.y == -60 * 64) on_step = 1;
         }
         EXPECT(on_step);
         EXPECT(ac.x / 64 >= 2900 && ac.x / 64 <= 2926);

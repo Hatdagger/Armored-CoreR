@@ -35,6 +35,7 @@ enum {
     ACR_GEN1_ANIM_BACK_START = 14, ACR_GEN1_ANIM_BACK = 15,
     ACR_GEN1_ANIM_JUMP = 22,
     ACR_GEN1_ANIM_LAND = 36,
+    ACR_GEN1_ANIM_KNEEL = 45,   /* cannon stance (46 the right back slot: same length on all but 4 sets) */
     ACR_GEN1_ANIM_COUNT = 64
 };
 
@@ -113,12 +114,15 @@ typedef struct acr_gen1_input {
 #define ACR_GEN1_PITCH_LEVEL_RATE 170
 
 /* Everything fixed for one AC during a match. */
+/* Touchdown faster than this (VS 0x8007BA68) is a hard landing. */
+#define ACR_GEN1_HARD_LANDING 0x1180
+
 typedef struct acr_gen1_ac_def {
     acr_gen1_stats  stats;
     acr_gen1_motion motion;
     const acr_gen1_root_track *anim[ACR_GEN1_ANIM_COUNT];   /* NULL = missing */
-    uint16_t landing_steps;   /* ticks of recovery after a hard landing (measured: about 20 after
-                                 a hop that touched down at 5,000+) */
+    uint16_t landing_steps;   /* ticks of recovery after a hard landing when the set has no landing
+                                 track (measured: about 20 after a hop) */
     /* Steps a second when the engine runs faster than Gen 1's 22 ticks a
      * second (step_rate, with gen1_rate = 22): the game's rules still run
      * 22 times a second, between steps. 0 / 0 = a tick every step. */
@@ -129,10 +133,8 @@ typedef struct acr_gen1_ac_def {
     uint8_t  drive_walk;      /* four-legged and caterpillar legs: walking pushes the AC like
                                  the ground boost (VS 0x80085704), no root motion */
     uint8_t  cruise_pct;      /* the boost toggle's top speed, % of walking pace (0 = CRUISE_PCT) */
-    /* Test: every landing lasts the landing animation's length (animation
-     * 36's track), whatever the fall, as it would if the game's landing
-     * state simply ends with its animation (0x8008389C). 0 = the stand-in
-     * curve from landing_steps. */
+    /* Old test switch, no longer used: a hard landing now always plays the
+     * landing animation out and a soft one has no recovery (touch_down). */
     uint8_t  landing_from_anim;
     /* The arena (NULL = the open test floor at y = 0): its floors carry the
      * AC, its walls stop it (acr_gen1_stage.h; step heights are stand-ins). */
@@ -147,11 +149,16 @@ int32_t acr_gen1_cruise_top(const acr_gen1_ac_def *def);
 /* Energy a quick boost costs on the ground (air = 0) or in the air (1). */
 int32_t acr_gen1_quick_cost(const acr_gen1_ac_def *def, int air);
 
-/* Arena stand-ins until the game's own rules are read: an AC walks up a
- * step this high, follows a floor dropping away by this much (slopes)
- * before it falls, and is a cylinder this wide (its hit cylinder). */
-#define ACR_GEN1_STEP_UP   120
-#define ACR_GEN1_STEP_DOWN 120
+/* Step heights for stages without the game's collision (the simple
+ * floor/wall stage), taken from the game's rules (game_stage_tick):
+ * - down: the ground AC falls once the floor is 50 or more below its feet
+ *   (VS 0x80083960, AC +0x2C - +0x0A >= 0x32);
+ * - up: the game has no step-up height; the AC's box is pushed out of the
+ *   nearest polygon (0x80078C4C), so a ledge lower than the AC's sideways
+ *   push into it is climbed and a taller one is a wall. That push is at
+ *   most one move step, cut to 75 a tick. */
+#define ACR_GEN1_STEP_UP   75
+#define ACR_GEN1_STEP_DOWN 50
 
 enum { ACR_GEN1_GROUND, ACR_GEN1_CROUCH, ACR_GEN1_AIR, ACR_GEN1_LANDING };
 

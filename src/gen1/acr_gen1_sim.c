@@ -201,17 +201,18 @@ static void touch_down(acr_gen1_ac *ac, const acr_gen1_ac_def *def) {
     ac->coast = 0;
     ac->state = ACR_GEN1_LANDING;
     set_anim(ac, ACR_GEN1_ANIM_IDLE);
-    /* Recovery grows with the speed of the fall: none below 2,000, the
-     * full measured stagger at 5,000 and above (a hop's touchdown), so
-     * feathering the booster before landing softens it. In ticks. The
-     * curve below 5,000 is a stand-in until measured; the test switch
-     * landing_from_anim plays the landing animation out instead. */
+    /* The game's touchdown (VS 0x8007BA60): a fall faster than 4,480
+     * (0x1180) is a hard landing, state 0x61, whose handler (0x80084C20)
+     * plays the landing animation (36) out and then cuts to standing; any
+     * softer touchdown is state 0x60, which goes straight to the ground
+     * controls (0x80084834): no recovery at all. In ticks; landing_steps
+     * stands in when the set has no landing track. */
     const int32_t fall = ac->vy_at_touchdown;
     uint32_t ticks = 0;
-    if (fall >= 5000) ticks = def->landing_steps;
-    else if (fall > 2000) ticks = (uint32_t)def->landing_steps * (uint32_t)(fall - 2000) / 3000u;
-    const acr_gen1_root_track *land = def->anim[ACR_GEN1_ANIM_LAND];
-    if (def->landing_from_anim && land && land->length) ticks = land->length;
+    if (fall > ACR_GEN1_HARD_LANDING) {
+        const acr_gen1_root_track *land = def->anim[ACR_GEN1_ANIM_LAND];
+        ticks = land && land->length ? land->length : def->landing_steps;
+    }
     ac->timer = (uint16_t)ticks;
     ac->landing_pause = (uint16_t)ticks;
     if (!ac->timer) ac->state = ACR_GEN1_GROUND;

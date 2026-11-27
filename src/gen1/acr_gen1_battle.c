@@ -1211,7 +1211,11 @@ int acr_gen1_stance_ok(const acr_gen1_fighter *f) {
     switch (f->legs) {
     case ACR_GEN1_LEGS_TRACKS: return 1;
     case ACR_GEN1_LEGS_FOUR: return f->ac.state == ACR_GEN1_GROUND;
-    default: return f->kneeling && f->kneel_ms >= ACR_GEN1_KNEEL_MS;
+    default: {
+        const acr_gen1_root_track *k = f->def ? f->def->anim[ACR_GEN1_ANIM_KNEEL] : NULL;
+        const int need = k && k->length > 0 && k->length <= 64 ? tick_ms(k->length) : ACR_GEN1_KNEEL_MS;
+        return f->kneeling && f->kneel_ms >= need;
+    }
     }
 }
 

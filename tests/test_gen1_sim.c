@@ -102,43 +102,36 @@ int main(void) {
     acr_gen1_ac_spawn(&ac, &d, 0, 0, 0);
     for (int i = 0; i < 9; ++i) acr_gen1_ac_step(&ac, &d, k_up);
     EXPECT(ac.state == ACR_GEN1_AIR && ac.vy == -3200 - 64);
-    /* Let go: falls back and lands, then waits. */
+    /* Let go: falls back and lands (hard or soft by the touchdown speed). */
     int steps = 0;
     while (ac.state == ACR_GEN1_AIR && steps < 200) { acr_gen1_ac_step(&ac, &d, k_none); ++steps; }
-    EXPECT(ac.state == ACR_GEN1_LANDING && ac.y == 0);
+    EXPECT(ac.y == 0 && ac.state == (ac.vy_at_touchdown > ACR_GEN1_HARD_LANDING ? ACR_GEN1_LANDING : ACR_GEN1_GROUND));
     for (int i = 0; i < 20; ++i) acr_gen1_ac_step(&ac, &d, k_none);
     EXPECT(ac.state == ACR_GEN1_GROUND);
 
-    /* Landing check: the pause and the touchdown speed are kept; with the
-     * test switch on, a landing lasts the landing animation (here 13 ticks)
-     * whatever the fall. */
+    /* Landing (VS 0x8007BA60): above 4,480 a hard landing that lasts the
+     * landing animation (here 13 ticks), or landing_steps without one;
+     * 4,480 or less a soft one with no pause. */
     {
         static const acr_gen1_root_key k_land[] = { { 13, 0, 0, 0 } };
         static acr_gen1_root_track land = { 13, 1, k_land };
         acr_gen1_ac_def dl = make_def();
-        dl.anim[ACR_GEN1_ANIM_LAND] = &land;
-        for (int use_anim = 0; use_anim < 2; ++use_anim) {
-            dl.landing_from_anim = (uint8_t)use_anim;
+        for (int with_track = 0; with_track < 2; ++with_track) {
+            dl.anim[ACR_GEN1_ANIM_LAND] = with_track ? &land : NULL;
             acr_gen1_ac_spawn(&ac, &dl, 0, 0, 0);
             ac.state = ACR_GEN1_AIR; ac.y = -64; ac.vy = 6000;
             acr_gen1_ac_step(&ac, &dl, k_none);
             EXPECT(ac.state == ACR_GEN1_LANDING && ac.vy_at_touchdown == 6256);
-            EXPECT(ac.landing_pause == (use_anim ? 13 : 20));
+            EXPECT(ac.landing_pause == (with_track ? 13 : 20));
             int n = 0;
             while (ac.state == ACR_GEN1_LANDING && n < 100) { acr_gen1_ac_step(&ac, &dl, k_none); ++n; }
-            EXPECT(n == (use_anim ? 13 : 20));
+            EXPECT(n == (with_track ? 13 : 20));
         }
-        /* A soft touchdown: no pause from the guess, the full animation when switched. */
-        dl.landing_from_anim = 1;
+        dl.anim[ACR_GEN1_ANIM_LAND] = &land;
         acr_gen1_ac_spawn(&ac, &dl, 0, 0, 0);
-        ac.state = ACR_GEN1_AIR; ac.y = -64; ac.vy = 1000;
+        ac.state = ACR_GEN1_AIR; ac.y = -64; ac.vy = 4480 - 256;   /* touches down at exactly 4,480 */
         acr_gen1_ac_step(&ac, &dl, k_none);
-        EXPECT(ac.landing_pause == 13);
-        dl.landing_from_anim = 0;
-        acr_gen1_ac_spawn(&ac, &dl, 0, 0, 0);
-        ac.state = ACR_GEN1_AIR; ac.y = -64; ac.vy = 1000;
-        acr_gen1_ac_step(&ac, &dl, k_none);
-        EXPECT(ac.landing_pause == 0 && ac.state == ACR_GEN1_GROUND);
+        EXPECT(ac.vy_at_touchdown == 4480 && ac.landing_pause == 0 && ac.state == ACR_GEN1_GROUND);
     }
 
     /* Boost hop: boost forward, let go one tick, press again -> airborne at speed. */
