@@ -12,8 +12,9 @@
 
 /* Where the AC stands, in HUD units (the mockup's silhouette box). */
 void hangar_ac_rect(float hud_w, float *x, float *y, float *w, float *h);
-/* The console bezel; gives the CRT's rectangle (HUD units) and draws the
- * header line ("RAVEN NET // HANGAR", the AC's name, its COAM). */
+/* The pilot's terminal: desk, CRT monitor (its label strip shows "RAVEN
+ * NET // HANGAR", the AC's name and its COAM), keyboard and props. Gives
+ * the CRT glass's rectangle (HUD units). */
 void hangar_console(float hud_w, const char *ac_name, long coam, float *cx, float *cy, float *cw, float *ch);
 /* The CRT's glass: the dark green screen (before its contents). */
 void hangar_crt_back(float cx, float cy, float cw, float ch);

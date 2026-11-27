@@ -1015,7 +1015,7 @@ static void draw_hangar_ac(int ph, float hud_w, unsigned ms) {
     hangar3d_camera(height, half_w, eye, target, &hv);
     float proj[16], viewm[16];
     acr_mat_perspective(proj, 52.0f * 3.14159265f / 180.0f, (float)w / (float)h, 30.0f, 80000.0f);
-    proj[9] = -0.30f;   /* lens shift: the AC sits in the top part of the screen, over the console */
+    proj[9] = -0.36f;   /* lens shift: the AC sits in the top part of the screen, over the console */
     const float fwd[3] = { target[0] - eye[0], target[1] - eye[1], target[2] - eye[2] }, up[3] = { 0, 1, 0 };
     acr_mat_look(viewm, eye, fwd, up);
     for (int k = 0; k < 4; ++k) viewm[4 * k] = -viewm[4 * k];
