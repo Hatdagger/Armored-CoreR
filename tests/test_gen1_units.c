@@ -584,7 +584,15 @@ int main(void) {
         EXPECT(!b.mission.end_ticks && !b.unit[0].active);
         AT(-5437, -2900, 18375); TICKS(1);
         EXPECT(b.unit[0].active && b.unit[1].active);
+        /* Its locked pair (areas 92 / 93): unlocked once radio 114 is done. */
+        acr_gen1_gimmicks_parse("door 92 92 0 0 0 0 500 750 6 500 120 3 0 0 0 0 1 93\n"
+                                "door 93 93 0 0 0 0 500 750 6 500 120 1 0 0 0 0 1 92\n", &b.gim);
+        b.gim.stage = 19;
         KILL(4); KILL(5); TICKS(1);
+        EXPECT(b.gim.door[0].radio == 120 && b.gim.door[0].state == 0);
+        TICKS(70);
+        EXPECT(b.gim.door[0].radio == 0 && b.gim.door[0].state >= 4);
+        EXPECT(b.gim.door[1].radio == 0 && b.gim.door[1].state >= 4);
         AT(0, -2500, 22375); TICKS(1);
         EXPECT(b.mission.end_ticks == 164);
 #undef SOLO

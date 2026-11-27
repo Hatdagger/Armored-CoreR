@@ -494,8 +494,14 @@ static void moa_tick(acr_gen1_battle *b, int map) {
     }
     case 18:
         if (m->phase == 0 && player_in(b, &k_map18_switch, 750)) { join_records(b, 4, 5); m->phase = 1; }
-        else if (m->phase == 1 && all_down(b, 4, 5)) m->phase = 2;
+        else if (m->phase == 1 && all_down(b, 4, 5)) { m->phase = 2; m->timer2 = RADIO_TICKS; }
         else if (m->phase == 2 && player_in(b, &k_map18_core, 0)) finish(m, 64, 0);
+        /* The game (0x800A28B8): both ACs down -> radio 114; once it is
+         * done, message 0x8201 to areas 92 and 93 (unlock, open for good). */
+        if (m->phase == 2 && count_down(&m->timer2)) {
+            acr_gen1_door_unlock(&b->gim, acr_gen1_door_find(&b->gim, 92));
+            acr_gen1_door_unlock(&b->gim, acr_gen1_door_find(&b->gim, 93));
+        }
         break;
     default:
         /* Project Phantasma's maps (50-66): their scripts aren't read yet.
