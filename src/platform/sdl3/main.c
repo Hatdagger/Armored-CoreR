@@ -2591,7 +2591,10 @@ int main(int argc, char **argv) {
                 gcmd = GC_NONE;
             }
             if (gcmd == GC_ROGUE) { rogue_open(g_hangar.pilot_name, g_hangar.ac_name); mode = MODE_ROGUE; }
-            if (gcmd == GC_ARENA) { arena_open_at(gui.arena_row); mode = MODE_ARENA; }
+            if (gcmd == GC_ARENA) {
+                arena_open_at(gui.arena_row); mode = MODE_ARENA;
+                if (arena_take_import()) { disc_pick_open(window); g_pp_picking = 1; }   /* hub PP ARENA, no disc yet */
+            }
             if (gcmd == GC_MISSIONS) { missions_open(); mode = MODE_MISSIONS; }
             if (gcmd == GC_CONTROLS) { controls_open(&cui); mode = MODE_CONTROLS; }
             if (gcmd == GC_VIDEO || gcmd == GC_AUDIO) { settings_open(&sui, gcmd == GC_AUDIO); mode = MODE_SETTINGS; }

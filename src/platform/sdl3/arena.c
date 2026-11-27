@@ -36,6 +36,7 @@ static struct {
     const acr_gen1_catalog *cat;
     char (*names)[ACR_GEN1_PART_MAX][24];
     int screen, cur;                     /* AS_PICK: the row */
+    int want_import;                     /* the hub's PP ARENA with no disc yet: ask for it */
     int only;                            /* opened from a hub entry: 0 the whole list, 1 one ladder (B leaves), 2 Ex Arenas only */
     int arena, page, lcur, ltop;         /* AS_LADDER: arena, page (arena 0: 0 ranked, 1 sub), row, scroll */
     int ask;                             /* (unused: the challenge window is the stage select now) */
@@ -206,8 +207,12 @@ void arena_open_at(int row) {
     if (row >= 3) { A.only = 2; A.cur = 3; return; }
     A.cur = row;
     /* Locked, or no data yet: stay on the list on that row, saying why. */
-    if (enter_row(row) == 1) A.only = 1;
+    const int e = enter_row(row);
+    if (e == 1) A.only = 1;
+    if (e < 0) A.want_import = 1;   /* no Phantasma disc yet: pick it now */
 }
+
+int arena_take_import(void) { const int w = A.want_import; A.want_import = 0; return w; }
 
 /* ---- the ladder ---- */
 
@@ -452,6 +457,7 @@ int arena_hub_available(int row) {
             if (row_open(r) == ACR_GEN1_ARENA_OK && A.s.a[row_arena(r)].places) return 1;
         return 0;
     }
+    if (row == ROW_PP && !A.s.a[ACR_GEN1_ARENA_PP].places) return 1;   /* pressing it adds the disc */
     return row >= 0 && A.s.a[row_arena(row)].places && row_open(row) == ACR_GEN1_ARENA_OK;
 }
 
