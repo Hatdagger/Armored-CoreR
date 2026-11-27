@@ -101,7 +101,11 @@ F_GROUPS = [(3400, 3411), (3420, 3425), (3430, 3452), (3460, 3490), (3500, 3506)
             (3700, 3724), (3730, 3738), (3750, 3765)]
 
 
+AC2_GROUPS = True  # AC2's category sizes; Another Age adds parts, so its groups differ
+
+
 def join_index(i):
+    if not AC2_GROUPS: return None
     for lo, hi in F_GROUPS:
         if lo <= i <= hi: return i - lo
     return None
@@ -152,6 +156,7 @@ def split(path):
     hit = locate(path)
     if not hit: print(f"!! No AC2DATA.BIN / AC25DATA.BIN (or .iso holding one) found in {path}"); return False
     label, v, out = hit
+    global AC2_GROUPS; AC2_GROUPS = label == "AC2DATA.BIN"
     print(f"\n== {label}  ({v.size:,} bytes)  from {path}")
     ents = read_table(v); print(f"   table: {len(ents)} files, IDs {min(ents)}..{max(ents)}")
     found, block_shift = detect(v, ents)
@@ -168,7 +173,7 @@ def split(path):
     os.makedirs(out, exist_ok=True)
     log = open(os.path.join(out, f"split_log_{label.split('.')[0]}.txt"), "w")
     log.write(f"{label}: global shift {best} sectors\nID\ttable_off\tshift\tstart\tbytes\n")
-    total_sec = v.size // SECTOR; written = 0; fok = fbad = 0; bad = []
+    total_sec = v.size // SECTOR; prev_idx = -1; written = 0; fok = fbad = 0; bad = []
     for n_, i in enumerate(order):
         st = starts[i]
         end = starts[order[n_ + 1]] if n_ + 1 < len(order) else total_sec
@@ -178,15 +183,18 @@ def split(path):
         open(os.path.join(d, f"{i:05d}.bin"), "wb").write(b); written += len(b)
         log.write(f"{i}\t{ents[i][0]}\t{starts[i] - ents[i][0]}{'' if i in found else '?'}\t{st}\t{len(b)}\n")
         if group(i) in ("F", "G") and b[:4] == b"JOIN":
-            ji = join_index(i)
-            if name_ok(b) and (ji is None or struct.unpack_from("<I", b, 0x10)[0] == ji): fok += 1
+            ji = join_index(i); idx = struct.unpack_from("<I", b, 0x10)[0]
+            # AA: no fixed group table, so the index must restart at 0 or follow the previous ID's
+            seq = idx == 0 or idx == prev_idx + 1
+            prev_idx = idx
+            if name_ok(b) and (idx == ji if ji is not None else seq): fok += 1
             else: fbad += 1; bad.append(i)
         if n_ % 200 == 0: print(f"   writing... {n_}/{len(order)}", end="\r")
     log.close()
     print(f"   wrote {len(order)} files, {written / 1e6:.0f} MB -> {out}          ")
     print(f"   CHECK shop packages with name record intact: {fok} ok, {fbad} bad"
           + (f"  (bad IDs: {bad[:20]})" if bad else ""))
-    print(f"   expected: every shop package ok (AC2: 234 + the unknown 3780/3800/3801 may fail)")
+    print(f"   expected: every shop package ok (the unknown 3780/3800/3801 may fail)")
     return True
 
 
