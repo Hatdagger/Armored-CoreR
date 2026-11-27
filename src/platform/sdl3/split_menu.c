@@ -15,7 +15,11 @@
 
 static const int k_stage[SPLIT_MENU_STAGES] = { 27, 39, 0 };
 /* Each player's rows: the shared two at the top, then their own. */
-enum { ROW_MODE, ROW_STAGE, ROW_SAVE, ROW_GARAGE, ROW_READY, ROWS };
+enum { ROW_MODE, ROW_STAGE, ROW_SCREEN, ROW_SOUND, ROW_SAVE, ROW_GARAGE, ROW_READY, ROWS };
+static int shared_row(int r) { return r <= ROW_SOUND; }
+/* SCREEN is only there with a second monitor. */
+static int row_shown(const split_menu *m, int r) { return r != ROW_SCREEN || m->screens > 0; }
+static int sound_count(const split_menu *m) { return SPLIT_SOUND_DEVICE + m->audio_outs; }
 static const char *const k_where[SPLIT_COOP_WHERE] = { "ARENA", "ROGUE ARENA", "MISSIONS" };
 
 void split_menu_init(split_menu *m) {
@@ -64,17 +68,22 @@ split_menu_command split_menu_input(split_menu *m, int who, garage_action a) {
         return SM_NONE;
     }
     int *row = &m->row[who];
-    if (a == GA_UP) { *row = (*row + ROWS - 1) % ROWS; return SM_NONE; }
-    if (a == GA_DOWN) { *row = (*row + 1) % ROWS; return SM_NONE; }
+    if (a == GA_UP || a == GA_DOWN) {
+        do *row = (*row + (a == GA_UP ? ROWS - 1 : 1)) % ROWS; while (!row_shown(m, *row));
+        return SM_NONE;
+    }
     if (a == GA_CANCEL) {                        /* this player leaves (the other stays) */
         if (m->ready[who]) { m->ready[who] = 0; return SM_NONE; }   /* first B: not ready any more */
         m->joined[who] = 0;
         if (m->joined[1 - who]) { m->who = 1 - who; return SM_SOLO; }   /* the other plays on, solo */
         return SM_ALL_LEFT;
     }
-    if (a == GA_LEFT || a == GA_RIGHT || (a == GA_OK && (*row == ROW_MODE || *row == ROW_STAGE))) {
-        if (*row != ROW_MODE && *row != ROW_STAGE) return SM_NONE;
+    if (a == GA_LEFT || a == GA_RIGHT || (a == GA_OK && shared_row(*row))) {
+        if (!shared_row(*row)) return SM_NONE;
         const int d = a == GA_LEFT ? -1 : 1;
+        /* Where player 2 is shown and heard: no need to say ready again. */
+        if (*row == ROW_SCREEN) { m->screen_pick = (m->screen_pick + d + m->screens + 1) % (m->screens + 1); return SM_NONE; }
+        if (*row == ROW_SOUND) { m->sound_pick = (m->sound_pick + d + sound_count(m)) % sound_count(m); return SM_NONE; }
         if (*row == ROW_MODE) m->coop = !m->coop;
         else if (m->coop) m->where = (m->where + d + SPLIT_COOP_WHERE) % SPLIT_COOP_WHERE;
         else step_stage(m, d);
@@ -100,18 +109,33 @@ void split_menu_draw(split_menu *m, float hud_w, int elapsed_ms) {
     const float tx = hud_w / 2 - TOP_W / 2;
     acr_hud_text(tx, 12, "MULTIPLAYER  >  SPLIT SCREEN", HILITE);
     /* The shared box: either player changes it (their cursor on it shows). */
-    acr_hud_rect(tx, 30, TOP_W, 50, 10, 14, 20, 210, 1);
-    acr_hud_rect(tx, 30, TOP_W, 50, 70, 90, 100, 255, 0);
-    const int on_mode = (m->joined[0] && m->row[0] == ROW_MODE) || (m->joined[1] && m->row[1] == ROW_MODE);
-    const int on_stage = (m->joined[0] && m->row[0] == ROW_STAGE) || (m->joined[1] && m->row[1] == ROW_STAGE);
+    if (m->screen_pick > m->screens) m->screen_pick = 0;
+    if (m->sound_pick >= sound_count(m)) m->sound_pick = SPLIT_SOUND_SIDES;
+    const float box_h = m->screens ? 86 : 68;
+    acr_hud_rect(tx, 30, TOP_W, box_h, 10, 14, 20, 210, 1);
+    acr_hud_rect(tx, 30, TOP_W, box_h, 70, 90, 100, 255, 0);
+#define ON(r_) ((m->joined[0] && m->row[0] == (r_)) || (m->joined[1] && m->row[1] == (r_)))
+    const int on_mode = ON(ROW_MODE), on_stage = ON(ROW_STAGE);
     SDL_snprintf(line, sizeof line, "MODE    < %s >", m->coop ? "CO-OP  (TOGETHER, AGAINST THE GAME)" : "VERSUS  (YOU AGAINST EACH OTHER)");
     row_text(tx + 12, 40, TOP_W, on_mode, line);
     if (m->coop) SDL_snprintf(line, sizeof line, "PLAY    < %s >", k_where[m->where]);
     else SDL_snprintf(line, sizeof line, "STAGE   < %s >", net_menu_stage_name(split_menu_stage(m)));
     row_text(tx + 12, 58, TOP_W, on_stage, line);
+    float sy = 76;
+    if (m->screens) {
+        if (m->screen_pick) SDL_snprintf(line, sizeof line, "SCREEN  < PLAYER 2 ON %s >", m->screen_name[m->screen_pick - 1]);
+        else SDL_strlcpy(line, "SCREEN  < ONE SCREEN, SPLIT IN TWO >", sizeof line);
+        row_text(tx + 12, sy, TOP_W, ON(ROW_SCREEN), line);
+        sy += 18;
+    }
+    if (m->sound_pick == SPLIT_SOUND_SIDES) SDL_strlcpy(line, "SOUND   < SPLIT: P1 LEFT, P2 RIGHT >", sizeof line);
+    else if (m->sound_pick == SPLIT_SOUND_SHARED) SDL_strlcpy(line, "SOUND   < SHARED: PLAYER 1'S, STEREO >", sizeof line);
+    else SDL_snprintf(line, sizeof line, "SOUND   < P2 ON %s >", m->audio_name[m->sound_pick - SPLIT_SOUND_DEVICE]);
+    row_text(tx + 12, sy, TOP_W, ON(ROW_SOUND), line);
+#undef ON
 
     /* The two halves. */
-    const float gap = 12, pw = (hud_w - 3 * gap) / 2, py = 92, ph = 200;
+    const float gap = 12, pw = (hud_w - 3 * gap) / 2, py = 30 + box_h + 12, ph = 200;
     for (int p = 0; p < 2; ++p) {
         const float px = gap + p * (pw + gap), x = px + 12;
         const int in = m->joined[p];
@@ -129,8 +153,8 @@ void split_menu_draw(split_menu *m, float hud_w, int elapsed_ms) {
             continue;
         }
         const int r = m->row[p];
-        const int top_sel = r == ROW_MODE || r == ROW_STAGE;
-        if (top_sel) acr_hud_text(x, y, "^ CHANGING THE MODE ABOVE", HILITE);
+        const int top_sel = shared_row(r);
+        if (top_sel) acr_hud_text(x, y, "^ CHANGING THE SETTINGS ABOVE", HILITE);
         y += 18;
         SDL_snprintf(line, sizeof line, "SAVE:   %s", m->save[p][0] ? m->save[p] : "-");
         row_text(x, y, pw, r == ROW_SAVE, line); y += 18;

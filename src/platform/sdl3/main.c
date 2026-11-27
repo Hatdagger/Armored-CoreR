@@ -789,7 +789,7 @@ static demo_units g_mission_units = { .map = -1 };
 /* The fight's warnings (battle_warn.h): one per AC, run once a game tick;
  * the listening AC's beeps wait in g_warn_beeps for the sounds. */
 static battle_warn g_warn[ACR_GEN1_MAX_FIGHTERS];
-static unsigned g_warn_beeps;
+static unsigned g_warn_beeps, g_warn_beeps2;   /* (2: player 2's, split audio) */
 /* A replay is being captured (arena and VS fights only; the HUD's REC).
  * Nothing records fights yet (docs/REPLAYS.md), so it stays 0 until the
  * recorder sets it. */
@@ -842,6 +842,75 @@ static int g_split_coop;
  * menus lead back there. Either player can leave a fight on their own
  * (g_split_left); the other plays on. */
 static int g_split_session;
+/* Split screen on two monitors: player 2's view in a window of its own,
+ * full screen on the hub's SCREEN pick, drawn with the same GL context.
+ * `on` 0 closes it. ACR_SPLIT_SCREEN2=1 (testing, one monitor) opens it as
+ * a 640x360 window instead. */
+static SDL_Window *g_window2;
+static SDL_DisplayID g_window2_on;
+static void p2_window(SDL_DisplayID on, SDL_Window *main_w, SDL_GLContext gl) {
+    if (g_window2 && g_window2_on != on) {
+        SDL_GL_MakeCurrent(main_w, gl);
+        SDL_DestroyWindow(g_window2);
+        g_window2 = NULL; g_window2_on = 0;
+    }
+    if (!on || g_window2) return;
+    const int test = SDL_getenv("ACR_SPLIT_SCREEN2") != NULL;
+    SDL_PropertiesID p = SDL_CreateProperties();
+    SDL_SetStringProperty(p, SDL_PROP_WINDOW_CREATE_TITLE_STRING, "Armored-CoreR - PLAYER 2");
+    SDL_SetNumberProperty(p, SDL_PROP_WINDOW_CREATE_X_NUMBER, test ? SDL_WINDOWPOS_UNDEFINED : (Sint64)SDL_WINDOWPOS_CENTERED_DISPLAY(on));
+    SDL_SetNumberProperty(p, SDL_PROP_WINDOW_CREATE_Y_NUMBER, test ? SDL_WINDOWPOS_UNDEFINED : (Sint64)SDL_WINDOWPOS_CENTERED_DISPLAY(on));
+    SDL_SetNumberProperty(p, SDL_PROP_WINDOW_CREATE_WIDTH_NUMBER, 640);
+    SDL_SetNumberProperty(p, SDL_PROP_WINDOW_CREATE_HEIGHT_NUMBER, 360);
+    SDL_SetBooleanProperty(p, SDL_PROP_WINDOW_CREATE_OPENGL_BOOLEAN, true);
+    SDL_SetBooleanProperty(p, SDL_PROP_WINDOW_CREATE_FULLSCREEN_BOOLEAN, !test);
+    SDL_SetBooleanProperty(p, SDL_PROP_WINDOW_CREATE_HIGH_PIXEL_DENSITY_BOOLEAN, true);
+    g_window2 = SDL_CreateWindowWithProperties(p);
+    SDL_DestroyProperties(p);
+    if (!g_window2) { SDL_Log("split screen: player 2's window could not open (%s)", SDL_GetError()); return; }
+    g_window2_on = on;
+    SDL_GL_MakeCurrent(main_w, gl);
+    SDL_Log("split screen: player 2 on their own screen");
+}
+
+/* The split hub's SCREEN and SOUND lists: the other monitors and the sound
+ * outputs, as SDL ids (matching split_menu's names). */
+static SDL_DisplayID g_screen_id[SPLIT_MENU_OUTS];
+static SDL_AudioDeviceID g_audio_id[SPLIT_MENU_OUTS];
+static void split_outputs(split_menu *m, SDL_Window *window) {
+    const SDL_DisplayID here = SDL_GetDisplayForWindow(window);
+    const SDL_DisplayID was_screen = m->screen_pick ? g_screen_id[m->screen_pick - 1] : 0;
+    const SDL_AudioDeviceID was_audio = m->sound_pick >= SPLIT_SOUND_DEVICE ? g_audio_id[m->sound_pick - SPLIT_SOUND_DEVICE] : 0;
+    int n = 0;
+    SDL_DisplayID *d = SDL_GetDisplays(&n);
+    m->screens = 0;
+    for (int i = 0; d && i < n && m->screens < SPLIT_MENU_OUTS; ++i) {
+        if (d[i] == here) continue;
+        const char *nm = SDL_GetDisplayName(d[i]);
+        char *o = m->screen_name[m->screens];
+        SDL_snprintf(o, sizeof m->screen_name[0], "SCREEN %d %s", i + 1, nm ? nm : "");
+        for (char *c = o; *c; ++c) *c = (char)SDL_toupper((unsigned char)*c);
+        g_screen_id[m->screens++] = d[i];
+    }
+    SDL_free(d);
+    SDL_AudioDeviceID *a = SDL_GetAudioPlaybackDevices(&n);
+    m->audio_outs = 0;
+    for (int i = 0; a && i < n && m->audio_outs < SPLIT_MENU_OUTS; ++i) {
+        const char *nm = SDL_GetAudioDeviceName(a[i]);
+        char *o = m->audio_name[m->audio_outs];
+        SDL_strlcpy(o, nm ? nm : "SOUND OUTPUT", sizeof m->audio_name[0]);
+        for (char *c = o; *c; ++c) *c = (char)SDL_toupper((unsigned char)*c);
+        g_audio_id[m->audio_outs++] = a[i];
+    }
+    SDL_free(a);
+    /* keep the picks on the same outputs if the lists moved */
+    m->screen_pick = 0;
+    for (int i = 0; i < m->screens; ++i) if (g_screen_id[i] == was_screen) m->screen_pick = i + 1;
+    if (was_audio) {
+        m->sound_pick = SPLIT_SOUND_SIDES;
+        for (int i = 0; i < m->audio_outs; ++i) if (g_audio_id[i] == was_audio) m->sound_pick = SPLIT_SOUND_DEVICE + i;
+    }
+}
 static int g_split_vs;             /* a split screen VERSUS fight */
 static Uint64 g_split_vs_quit_at;  /* a player quit the versus fight (they lose): when */
 static int g_split_left[2];        /* this player has left the session */
@@ -1834,7 +1903,7 @@ int main(int argc, char **argv) {
         fx_reset();                                                                       \
         sfx_reset();                                                                      \
         for (int w_ = 0; w_ < ACR_GEN1_MAX_FIGHTERS; ++w_) battle_warn_reset(&g_warn[w_]);    \
-        g_warn_beeps = 0;                                                                 \
+        g_warn_beeps = g_warn_beeps2 = 0;                                                 \
         round_ms = g_round_start_ms; round_over = 0; round_result = 0; ko_ms = 0;         \
         for (int i_ = 0; i_ < 2; ++i_) {                                                  \
             const acr_gen1_ai_profile p_ = ai_profile(g_ai_mode);                         \
@@ -1885,6 +1954,7 @@ int main(int argc, char **argv) {
         SDL_free(ids);
     }
     while (running) {
+        if (mode != 1 && g_window2) p2_window(0, window, gl);   /* out of the fight: player 2's screen closes */
         if (!g_net) {      /* offline: player 2 is built like player 1 */
             g_options[0] = g_part_args ? 0 : g_hangar.options;
             g_options[1] = g_rogue_fight == 3 ? missions_foe_options() : g_options[0];   /* a mission's own opponent */
@@ -2880,6 +2950,10 @@ int main(int argc, char **argv) {
         }
         if (mode == MODE_SPLIT) {   /* MULTIPLAYER > SPLIT SCREEN: the split hub */
             smenu.p2_controls = pads[0] != NULL || SDL_getenv("ACR_TWO") != NULL;   /* one pad: P1 keyboard, P2 the pad */
+            {   /* the monitors and sound outputs, once a second */
+                static Uint64 outs_at;
+                if (!outs_at || SDL_GetTicks() - outs_at > 1000) { outs_at = SDL_GetTicks(); split_outputs(&smenu, window); }
+            }
             p2_ensure();
             SDL_strlcpy(smenu.ac[0], g_hangar.ac_name, sizeof smenu.ac[0]);
             SDL_strlcpy(smenu.ac[1], g_hangar2.ac_name, sizeof smenu.ac[1]);
@@ -3678,6 +3752,7 @@ int main(int argc, char **argv) {
                         wi_.edge = wi_.out_of_area ? area_edge(battle.stage, wf_->ac.x / 64, wf_->ac.y / 64, wf_->ac.z / 64) : -1;
                         const unsigned bp_ = battle_warn_tick(&g_warn[k_], &wi_);
                         if (k_ == ear_) g_warn_beeps |= bp_;
+                        else if (k_ == 1 && two_players && !g_net) g_warn_beeps2 |= bp_;
                     }
             }
             if (battle.mission.flags & ACR_GEN1_MISSION_SWAP) {
@@ -3796,11 +3871,39 @@ int main(int argc, char **argv) {
             sl.beeps = g_warn_beeps;
             g_warn_beeps = 0;
             sl.round_over = round_over;
+            /* Split screen, both still in: each player hears their own AC,
+             * mono on their own side, or on their own output (the hub's
+             * SOUND). */
+            const int split_sound_ = two_players && !g_net && split_only < 0 && g_split_session;
+            sl.split = split_sound_ && smenu.sound_pick != SPLIT_SOUND_SHARED;
+            sl.view2 = 1;
+            sl.beeps2 = g_warn_beeps2;
+            g_warn_beeps2 = 0;
+            sfx_p2_output(sl.split && smenu.sound_pick >= SPLIT_SOUND_DEVICE ? g_audio_id[smenu.sound_pick - SPLIT_SOUND_DEVICE] : 0);
             sfx_update(&battle, &sl, SDL_GetTicksNS());
         }
-        for (int vi = 0; vi < views; ++vi) {
+        /* Two monitors (the hub's SCREEN): player 2's view goes to their own
+         * window, drawn first; then player 1's fills this one. */
+        {
+            const int want_ = views == 2 && g_split_session && !g_net &&
+                              (smenu.screen_pick > 0 || SDL_getenv("ACR_SPLIT_SCREEN2"));
+            p2_window(!want_ ? 0 : smenu.screen_pick > 0 ? g_screen_id[smenu.screen_pick - 1] : 1, window, gl);
+        }
+        const int dual = views == 2 && g_window2 != NULL;
+        const int ph_main = ph;
+        for (int vo_ = 0; vo_ < views; ++vo_) {
+        const int vi = dual ? 1 - vo_ : vo_;
         const int view = g_net ? net_info.local : split_only >= 0 ? split_only : vi;   /* online: your own player, full screen */
-        const int vx = vi * pw / views, vpw = (vi + 1) * pw / views - vx;
+        int pw2_ = 0, ph2_ = 0;
+        if (dual && vi == 1) {
+            SDL_GL_MakeCurrent(g_window2, gl);
+            SDL_GetWindowSizeInPixels(g_window2, &pw2_, &ph2_);
+            if (pw2_ < 1 || ph2_ < 1) { pw2_ = 640; ph2_ = 360; }
+            acr_render_begin(pw2_, ph2_, 18, 22, 28);
+        }
+        const int ph = dual && vi == 1 ? ph2_ : ph_main;
+        const int vx = dual ? 0 : vi * pw / views;
+        const int vpw = dual ? (vi ? pw2_ : pw) : (vi + 1) * pw / views - vx;
         /* Rogue Arena co-op: once your AC is down, your view follows your
          * partner's for the rest of the fight. */
         const int cam_ = (g_rogue_fight == 4 || g_split_coop) && battle.count > 2 && battle.f[view].ap <= 0 && battle.f[1 - view].ap > 0
@@ -4259,11 +4362,30 @@ int main(int argc, char **argv) {
             TEXT(20, 124, g_stage.ok ? "BACK+LEFT (F7): GREEN SILO / OCEAN PLATFORM / MISSION MAPS 11, 6 / OPEN FLOOR"
                                      : "BACK+LEFT (F7): ARENA STAGE (RE-IMPORT THE DISC FOR STAGES)");
         }
+        if (dual && vi == 1) {   /* player 2's screen done: show it, back to this window */
+            const char *shot2_ = SDL_getenv("ACR_SHOT2");   /* testing: player 2's window as a picture */
+            if (shot2_ && (SDL_GetTicksNS() - start_ns) / 1000000 + 100 >= (Uint64)SDL_atoi(SDL_getenv("ACR_SHOT_MS") ? SDL_getenv("ACR_SHOT_MS") : "2000")) {
+                SDL_Surface *img_ = SDL_CreateSurface(pw2_, ph2_, SDL_PIXELFORMAT_RGBA32);
+                uint8_t *buf_ = img_ ? malloc((size_t)pw2_ * (size_t)ph2_ * 4) : NULL;
+                if (buf_) {
+                    acr_render_read(pw2_, ph2_, buf_);
+                    for (int y_ = 0; y_ < ph2_; ++y_)
+                        memcpy((uint8_t *)img_->pixels + (size_t)y_ * (size_t)img_->pitch,
+                               buf_ + (size_t)(ph2_ - 1 - y_) * (size_t)pw2_ * 4, (size_t)pw2_ * 4);
+                    SDL_SaveBMP(img_, shot2_);
+                }
+                free(buf_);
+                if (img_) SDL_DestroySurface(img_);
+            }
+            SDL_GL_SwapWindow(g_window2);
+            SDL_GL_MakeCurrent(window, gl);
+            acr_render_begin(pw, ph_main, 18, 22, 28);
+        }
         }
         /* Whole-screen HUD: the split line and the result. */
         const float full_w = acr_render_hud(0, 0, pw, ph);
         if (two_players || g_ai_mode) {
-            if (two_players && !g_net && split_only < 0) acr_hud_rect(full_w / 2.0f - 1, 0, 2, 480, 0, 0, 0, 255, 1);
+            if (two_players && !g_net && split_only < 0 && !dual) acr_hud_rect(full_w / 2.0f - 1, 0, 2, 480, 0, 0, 0, 255, 1);
         }
         if (g_split_note[0] && SDL_GetTicks() < g_split_note_until) {   /* split screen: someone is leaving / left */
             const float nw = (float)SDL_strlen(g_split_note) * 8.5f + 16;
