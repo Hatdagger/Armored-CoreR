@@ -16,6 +16,7 @@
 typedef enum missions_command {
     MC_NONE,
     MC_SORTIE,      /* start the sortie in missions_fight_info() */
+    MC_PARTNER,     /* split screen: confirmed; ask about player 2 (partner_gate.h), then missions_go() + the sortie */
     MC_LEAVE        /* back to the main menu */
 } missions_command;
 
@@ -49,8 +50,12 @@ int missions_challenger(void);
  * the report into the garage and books the record; returns 1 (the garage
  * changed: save it). */
 int missions_fight_over(int result, int32_t ap_left, int32_t ap_max, int32_t ammo_cost, int bonus);
+void missions_settle_other(acr_gen1_hangar *h, int result, int32_t ap_left, int32_t ap_max, int32_t ammo_cost, int bonus);
 
 /* The record of missions played, as the save file keeps it. */
 acr_gen1_mission_record *missions_record(void);
+void missions_swap_record(void);
+void missions_partner_gate(int on);   /* split screen: confirming a sortie returns MC_PARTNER */
+void missions_go(void);               /* after MC_PARTNER: the sortie goes ahead (start it as MC_SORTIE) */   /* split screen: player 1's / player 2's record */
 
 #endif

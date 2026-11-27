@@ -34,7 +34,7 @@ static const uint16_t k_weight[S_COUNT] = {
 static int weight_of(int n) { return n > 0 && n < S_COUNT && k_weight[n] ? k_weight[n] : 1000; }
 
 #define RATE 22050
-#define VOICES 32      /* the game has 22 for the fight; the rest are for the menus' own sounds */
+#define VOICES 48      /* the game has 22 for the fight (twice with split audio); the rest are for the menus' own sounds */
 
 typedef struct sample { float *pcm; int frames, loop_start; } sample;
 static sample g_s[S_COUNT];
@@ -48,10 +48,17 @@ typedef struct voice {
     int key;              /* > 0: a held loop, found again by key */
     int weight;           /* priority (k_weight) */
     int n;                /* fight bank sample, 0 for menu sounds */
+    int side;             /* split audio: the listener it was started for (0 / 1) */
 } voice;
 static voice g_v[VOICES];
 static SDL_AudioStream *g_stream;
 static SDL_AudioDeviceID g_dev;
+/* Split audio with player 2 on their own output: player 2's voices (side
+ * 1) are mixed into g_stream2 on that device, everyone else's into
+ * g_stream. g_v stays under g_stream's lock (g_stream2's feed takes it). */
+static SDL_AudioStream *g_stream2;
+static SDL_AudioDeviceID g_dev2;
+static int g_dual;
 static float g_master = 0.7f;   /* fight sounds */
 static float g_menu = 0.7f;     /* menu and screen sounds */
 static int g_env_volume;        /* ACR_SFX_VOLUME given: it wins over the settings */
@@ -66,7 +73,8 @@ static uint64_t g_fight_ns;
 /* ---- the mixer (the audio thread; the stream's lock guards g_v) ---- */
 
 static void SDLCALL feed(void *user, SDL_AudioStream *stream, int additional, int total) {
-    (void)user; (void)total;
+    (void)total;
+    const int out = user != NULL;   /* 1: player 2's own output */
     float buf[2 * 512];
     if (SDL_GetTicksNS() - g_fight_ns > LOOP_TIMEOUT_NS)
         for (int i = 0; i < VOICES; ++i) if (g_v[i].key) { g_v[i].s = NULL; g_v[i].key = 0; }
@@ -76,6 +84,7 @@ static void SDLCALL feed(void *user, SDL_AudioStream *stream, int additional, in
         for (int i = 0; i < VOICES; ++i) {
             voice *v = &g_v[i];
             if (!v->s) continue;
+            if (g_dual ? (v->side == 1) != out : out) continue;
             for (int f = 0; f < frames; ++f) {
                 int p = (int)v->pos;
                 if (p >= v->s->frames) {
@@ -190,7 +199,42 @@ int sfx_open(const char *import_dir) {
     return 1;
 }
 
+/* Player 2's own output's feed: the same mixer, under g_stream's lock. */
+static void SDLCALL feed2(void *user, SDL_AudioStream *stream, int additional, int total) {
+    SDL_LockAudioStream(g_stream);
+    feed(user, stream, additional, total);
+    SDL_UnlockAudioStream(g_stream);
+}
+
+int sfx_p2_output(uint32_t device) {
+    if (!g_ok) return 0;
+    if (device && device == g_dev2) return 1;
+    SDL_LockAudioStream(g_stream);
+    g_dual = 0;
+    SDL_UnlockAudioStream(g_stream);
+    if (g_stream2) SDL_DestroyAudioStream(g_stream2);
+    if (g_dev2) SDL_CloseAudioDevice(g_dev2);
+    g_stream2 = NULL; g_dev2 = 0;
+    if (!device) return 1;
+    const SDL_AudioSpec spec = { SDL_AUDIO_F32, 2, RATE };
+    const SDL_AudioDeviceID dev = SDL_OpenAudioDevice((SDL_AudioDeviceID)device, NULL);
+    SDL_AudioStream *st = dev ? SDL_CreateAudioStream(&spec, NULL) : NULL;
+    if (!st || !SDL_SetAudioStreamGetCallback(st, feed2, (void *)1) || !SDL_BindAudioStream(dev, st)) {
+        if (st) SDL_DestroyAudioStream(st);
+        if (dev) SDL_CloseAudioDevice(dev);
+        SDL_Log("sfx: player 2's sound output could not be opened (%s)", SDL_GetError());
+        return 0;
+    }
+    g_stream2 = st; g_dev2 = dev;
+    SDL_LockAudioStream(g_stream);
+    g_dual = 1;
+    SDL_UnlockAudioStream(g_stream);
+    SDL_Log("sfx: player 2 on their own sound output");
+    return 1;
+}
+
 void sfx_close(void) {
+    sfx_p2_output(0);
     if (g_stream) SDL_DestroyAudioStream(g_stream);
     g_stream = NULL;
     if (g_dev) SDL_CloseAudioDevice(g_dev);
@@ -202,8 +246,31 @@ void sfx_close(void) {
 
 /* ---- starting and holding sounds (main thread) ---- */
 
-static uint64_t g_last_start[S_COUNT];   /* ms: the game plays a sound once a frame at most */
-static float g_clock_ms;
+/* Split audio (one shared screen, two players): each player's sounds are
+ * heard from their own AC, in mono on their own side (player 1 left,
+ * player 2 right). Everything that follows a listener is kept per side. */
+static int g_split;        /* split audio on */
+static int g_side;         /* the listener sounds are started for just now */
+
+static struct ear {
+    uint64_t last_start[S_COUNT];   /* ms: the game plays a sound once a frame at most */
+    float clock_ms;
+} g_E[2];
+#define g_last_start (g_E[g_side].last_start)
+#define g_clock_ms (g_E[g_side].clock_ms)
+
+/* A voice's left and right levels: placed by pan, or (split audio) mono
+ * on the listener's own side. */
+static void set_levels(voice *v, float vol, float pan) {
+    v->side = g_side;
+    if (!g_split || g_dual) {   /* (player 2 on their own output: stereo there) */
+        v->l = vol * SDL_min(1.0f, 1.0f - pan);
+        v->r = vol * SDL_min(1.0f, 1.0f + pan);
+        return;
+    }
+    v->l = g_side ? 0.0f : vol;
+    v->r = g_side ? vol : 0.0f;
+}
 
 /* The game's pitch offset (sixteenths of a semitone, record note + offset /
  * 16) as a playback rate. */
@@ -215,7 +282,7 @@ static double pitch_rate(int sixteenths) { return sixteenths ? pow(2.0, (double)
  * Under the stream's lock. */
 static int pick_voice(int n, int w) {
     for (int i = 0; i < VOICES; ++i) if (!g_v[i].s) return i;
-    for (int i = 0; i < VOICES; ++i) if (n && g_v[i].n == n && !g_v[i].key) return i;
+    for (int i = 0; i < VOICES; ++i) if (n && g_v[i].n == n && !g_v[i].key && g_v[i].side == g_side) return i;
     int pick = -1, low = w;
     for (int i = 0; i < VOICES; ++i)
         if (!g_v[i].key && g_v[i].weight < low) { low = g_v[i].weight; pick = i; }
@@ -226,7 +293,7 @@ static void play_ex(int n, float vol, float pan, int sixteenths, int weight) {
     if (!g_ok || n <= 0 || n >= S_COUNT || !g_s[n].pcm || vol <= 0.01f) return;
     if (g_last_start[n] && g_clock_ms - (float)g_last_start[n] < 30.0f) return;   /* once a frame (0x80045178) */
     g_last_start[n] = (uint64_t)g_clock_ms + 1;
-    if (g_log) SDL_Log("sfx #%02d vol %.2f pan %+.2f pitch %+d", n, (double)vol, (double)pan, sixteenths);
+    if (g_log) SDL_Log("sfx #%02d vol %.2f pan %+.2f pitch %+d%s", n, (double)vol, (double)pan, sixteenths, g_split ? (g_side ? " (P2 side)" : " (P1 side)") : "");
     vol *= g_master;
     SDL_LockAudioStream(g_stream);
     const int pick = pick_voice(n, weight);
@@ -234,8 +301,7 @@ static void play_ex(int n, float vol, float pan, int sixteenths, int weight) {
         voice *v = &g_v[pick];
         v->s = &g_s[n]; v->pos = 0; v->key = 0; v->n = n; v->weight = weight;
         v->rate = pitch_rate(sixteenths);
-        v->l = vol * SDL_min(1.0f, 1.0f - pan);
-        v->r = vol * SDL_min(1.0f, 1.0f + pan);
+        set_levels(v, vol, pan);
     }
     SDL_UnlockAudioStream(g_stream);
 }
@@ -281,7 +347,7 @@ void sfx_ui(int id) {
     }
     if (pick >= 0) {
         voice *v = &g_v[pick];
-        v->s = &g_ui[id]; v->pos = 0; v->key = 0; v->n = 0; v->weight = 1000; v->rate = 1.0;
+        v->s = &g_ui[id]; v->pos = 0; v->key = 0; v->n = 0; v->weight = 1000; v->rate = 1.0; v->side = -1;
         v->l = v->r = vol;
     }
     SDL_UnlockAudioStream(g_stream);
@@ -299,6 +365,7 @@ void sfx_ui_stop(int id) {
  * voice with that handle only gets its new volume and pitch). Held voices
  * are never taken for another sound. */
 static void hold_ex(int key, int n, int on, float vol, float pan, int sixteenths) {
+    key += g_side * 1000;   /* each listener's own held sounds */
     if (!g_ok || n <= 0 || n >= S_COUNT || !g_s[n].pcm) return;
     vol *= g_master;
     SDL_LockAudioStream(g_stream);
@@ -316,8 +383,7 @@ static void hold_ex(int key, int n, int on, float vol, float pan, int sixteenths
         }
         if (v) {
             v->rate = pitch_rate(sixteenths);
-            v->l = vol * SDL_min(1.0f, 1.0f - pan);
-            v->r = vol * SDL_min(1.0f, 1.0f + pan);
+            set_levels(v, vol, pan);
         }
     }
     SDL_UnlockAudioStream(g_stream);
@@ -404,8 +470,8 @@ static int leg_kind(const acr_gen1_fighter *f) {
     return f->def->drive_walk ? LEG_FOUR : LEG_TWO;
 }
 
-static struct { uint8_t on, blast; int32_t travelled; uint16_t age; float p[3]; } g_seen[ACR_GEN1_MAX_SHOTS];
-static struct {
+typedef struct { uint8_t on, blast; int32_t travelled; uint16_t age; float p[3]; } seen_shot;
+typedef struct {
     int32_t ap;
     uint8_t boosting, state, locked, locks, tones, swinging, swing_frame;
     int32_t sx, sz;          /* shown position last update (footsteps by distance) */
@@ -414,15 +480,25 @@ static struct {
     float hard_land_ms;      /* > 0: the hard landing's thud is due at this clock */
     uint8_t anim;            /* the sim's animation and frame last update (footsteps) */
     uint16_t anim_frame;
-} g_was[ACR_GEN1_MAX_FIGHTERS];
-static int g_was_ok;
-static uint64_t g_last_ns;
-static float g_ear[3], g_ear_yaw;
+} was_fighter;
+/* What a listener saw last update (per side with split audio). */
+static struct listener {
+    seen_shot seen[ACR_GEN1_MAX_SHOTS];
+    was_fighter was[ACR_GEN1_MAX_FIGHTERS];
+    int was_ok;
+    uint64_t last_ns;
+    float ear[3], ear_yaw;
+} g_L[2];
+#define g_seen (g_L[g_side].seen)
+#define g_was (g_L[g_side].was)
+#define g_was_ok (g_L[g_side].was_ok)
+#define g_last_ns (g_L[g_side].last_ns)
+#define g_ear (g_L[g_side].ear)
+#define g_ear_yaw (g_L[g_side].ear_yaw)
 
 void sfx_reset(void) {
-    SDL_memset(g_seen, 0, sizeof g_seen);
-    SDL_memset(g_was, 0, sizeof g_was);
-    g_was_ok = 0;
+    SDL_memset(g_L, 0, sizeof g_L);
+    SDL_memset(g_E, 0, sizeof g_E);
     if (g_ok) {
         SDL_LockAudioStream(g_stream);
         SDL_memset(g_v, 0, sizeof g_v);
@@ -472,7 +548,29 @@ static void ac_pos(const acr_gen1_battle *b, int k, float p[3]) {
 /* Held-sound keys, one set per fighter. */
 enum { KEY_BOOST = 1, KEY_TURN = 1 + ACR_GEN1_MAX_FIGHTERS, KEY_DRIVE = 1 + 2 * ACR_GEN1_MAX_FIGHTERS };
 
+static void update_one(const acr_gen1_battle *b, const sfx_listen *l, uint64_t now_ns);
+
 void sfx_update(const acr_gen1_battle *b, const sfx_listen *l, uint64_t now_ns) {
+    const int split = l->split && b->count >= 2;
+    if (split != g_split && g_ok) {   /* switching: the held sounds start over on their new sides */
+        SDL_LockAudioStream(g_stream);
+        for (int i = 0; i < VOICES; ++i) if (g_v[i].key) { g_v[i].s = NULL; g_v[i].key = 0; }
+        SDL_UnlockAudioStream(g_stream);
+    }
+    g_split = split;
+    g_side = 0;
+    update_one(b, l, now_ns);
+    if (split) {
+        sfx_listen l2 = *l;
+        l2.view = l->view2;
+        l2.beeps = l->beeps2;
+        g_side = 1;
+        update_one(b, &l2, now_ns);
+        g_side = 0;
+    }
+}
+
+static void update_one(const acr_gen1_battle *b, const sfx_listen *l, uint64_t now_ns) {
     g_fight_ns = SDL_GetTicksNS();
     float dt = g_last_ns ? (float)(now_ns - g_last_ns) / 1e6f : 0.0f;
     if (dt > 100.0f) dt = 100.0f;

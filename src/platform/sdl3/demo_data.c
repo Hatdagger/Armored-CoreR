@@ -318,7 +318,11 @@ int demo_load(const char *import_dir, const int parts[SLOT_COUNT], demo_ac *out,
                 w->hold = (uint8_t)(hold == 255 || hold < 0 || kind == 1 ? 0 : 7 + hold);
                 const long pattern = get_int(t, e, "fire_pattern", 0);
                 w->shots = (uint8_t)((pattern & 3) == 1 ? 2 : (pattern & 3) == 2 ? 4 : 1);
-                w->straight = (uint8_t)((get_int(t, e, "sight", 1) & 4) != 0 || (pattern & 4) != 0);
+                /* Fires straight ahead: sight bit 2, or fire pattern bit 2 on
+                 * guns and cannons. Missiles' fire pattern is their own
+                 * (every back missile has bit 2 set), so it doesn't count:
+                 * it hid their lock marker and made them rockets. */
+                w->straight = (uint8_t)((get_int(t, e, "sight", 1) & 4) != 0 || (kind != 1 && (pattern & 4) != 0));
                 /* Aim table (detail +3; "firing_anim" in older part files' notes)
                  * and its axis: the gun routine passes fire pattern bit 3, the
                  * cannon routine always y (VS 0x80080FB4, 0x80081CE4). */

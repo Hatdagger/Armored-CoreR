@@ -85,7 +85,16 @@ static void file_path(char *out, size_t size) {
     SDL_free(pref);
 }
 
+static int g_gate;      /* split screen: confirming asks about player 2 first */
+void arena_partner_gate(int on) { g_gate = on; }
+static void vs_start(void);
+void arena_go(void) { vs_start(); A.screen = AS_VS; }
+static int g_swapped;   /* split screen: A.s is player 2's ladder just now */
+static acr_gen1_arena g_other;
+static int g_other_set;
+
 static void save(void) {
+    if (g_swapped) return;   /* player 2's ladder goes in player 2's save only */
     static char text[32768];
     char path[1200];
     const size_t n = acr_gen1_arena_write(&A.s, text, sizeof text);
@@ -401,6 +410,44 @@ int arena_fight_over(int result) {
     return booked && A.pay.won;
 }
 
+/* Split screen co-op: the other player's prize for the fight just won (on
+ * their own save; the ladder is player 1's and is not moved). Call before
+ * arena_fight_over. */
+void arena_swap_player(void) {
+    if (!g_other_set) { acr_gen1_arena_new(&g_other, &A.w); g_other_set = 1; }
+    const acr_gen1_arena t = A.s;
+    A.s = g_other; g_other = t;
+    g_swapped ^= 1;
+}
+
+void arena_reset_ladder(void) { acr_gen1_arena_new(&A.s, &A.w); save(); }
+
+/* Split screen co-op, with player 2's ladder swapped in: the same opponent
+ * is looked up on player 2's own ladder. If it is above them, the win
+ * moves them up as a challenge would (and pays the first win); if it is
+ * below them, the win or loss counts in their record only. */
+void arena_result_other(acr_gen1_hangar *h, int result) {
+    if (!h) return;
+    const int a = A.fight_arena;
+    if (a < 0 || a >= ACR_GEN1_ARENA_COUNT) return;
+    const int foe = g_other.a[a].holder[A.fight_rank - 1];   /* g_other: player 1's ladder */
+    acr_gen1_arena_ladder *l = &A.s.a[a];
+    int at = 0;
+    for (int r = 1; r <= l->places; ++r) if (l->holder[r - 1] == foe) { at = r; break; }
+    const int me = acr_gen1_arena_rank(&A.s, a);
+    acr_gen1_arena_payout pay;
+    SDL_zero(pay);
+    pay.prize_id = pay.part_cat = pay.part_index = -1;
+    if (at && me && at < me && acr_gen1_arena_result(&A.s, &A.w, a, at, result == 1, &pay)) {
+        if (pay.won) acr_gen1_arena_pay(h, &pay);
+        SDL_Log("split screen co-op: player 2's ladder %d -> %d", pay.old_rank, pay.new_rank);
+        return;
+    }
+    if (l->challenges < 0xFFFFu) ++l->challenges;
+    if (result == 1) { if (l->wins < 0xFFFFu) ++l->wins; }
+    else if (l->losses < 0xFFFFu) ++l->losses;
+}
+
 /* ---- input ---- */
 
 static int step(int cur, int n, garage_action a) {
@@ -528,6 +575,7 @@ static arena_command input(garage_action a) {
             if (absent == ACR_GEN1_ARENA_ABSENT_DONE) { say("OPPONENT IS UNABLE TO COMPETE."); A.screen = AS_LADDER; return AC_NONE; }
         }
         if (!prepare_fight(cursor_rank())) { say("THE OPPONENT COULD NOT BE LOADED."); A.screen = AS_LADDER; return AC_NONE; }
+        if (g_gate) return AC_PARTNER;  /* (arena_go once player 2 is settled) */
         vs_start();                     /* the fight starts when it's done (arena_vs_due) */
         A.screen = AS_VS;
         return AC_NONE;

@@ -1,34 +1,66 @@
-/* MULTIPLAYER > SPLIT SCREEN: two players on this PC. Pick VERSUS (you
- * against each other, on a stage) or CO-OP (the Arena, Rogue Arena or
- * missions together); player 2 has their own save and AC. Player 2 flies with the second controller (or the only one, with
- * player 1 on the keyboard). Draws on the HUD grid like the garage. */
+/* MULTIPLAYER > SPLIT SCREEN: the split hub. Two players on this PC, each
+ * with their own half of the screen, their own cursor and their own
+ * controls (player 1: keyboard / controller 1; player 2: controller 2, or
+ * the only controller with player 1 on the keyboard). The top box (VERSUS /
+ * CO-OP and where) is shared: either player can change it. Each player
+ * picks their save, opens their own garage and says READY; the game starts
+ * once everyone in is ready. SCREEN (with a second monitor) puts player 2
+ * there; SOUND splits the speakers (player 1 left, player 2 right, each
+ * mono), shares them, or gives player 2 their own sound output.
+ * The game starts once everyone in is ready. B exits that player from the game; the
+ * other goes on solo in the hangar with their own save, no restart. */
 #ifndef SPLIT_MENU_H
 #define SPLIT_MENU_H
 
 #include "garage.h"
 
 #define SPLIT_MENU_STAGES 3
+#define SPLIT_MENU_OUTS 6
+
+enum { SPLIT_SOUND_SIDES, SPLIT_SOUND_SHARED, SPLIT_SOUND_DEVICE };
 
 enum { SPLIT_COOP_ARENA, SPLIT_COOP_ROGUE, SPLIT_COOP_MISSIONS, SPLIT_COOP_WHERE };
 
-typedef enum split_menu_command { SM_NONE, SM_VERSUS, SM_COOP, SM_EDIT_P2, SM_P2_SAVE, SM_BACK } split_menu_command;
+typedef enum split_menu_command {
+    SM_NONE,
+    SM_START,      /* everyone in is ready: start (joined[] says who plays) */
+    SM_GARAGE,     /* player `who` opens their garage */
+    SM_SAVE,       /* player `who` picks their save */
+    SM_ALL_LEFT,   /* both players left: back to the hangar */
+    SM_SOLO,       /* a player exited: `who` (the other) plays on solo in the hangar */
+    SM_VERSUS_GO,  /* (the caller's own: start the versus fight) */
+} split_menu_command;
 
 typedef struct split_menu {
-    int row;
+    int row[2];                          /* each player's own cursor */
+    int joined[2];
+    int ready[2];
+    int who;                             /* the player the last command is for */
     int coop;                            /* 0 VERSUS, 1 CO-OP */
     int where;                           /* co-op: SPLIT_COOP_... */
-    char p2_ac[32];
-    char p2_save[64];                    /* player 2's save file (set by the caller) */                      /* player 2's AC name (set by the caller) */
+    char ac[2][32];                      /* each player's AC name (set by the caller) */
+    char save[2][64];                    /* each player's save file (set by the caller) */
     int stage_pick;
     int stage_ok[SPLIT_MENU_STAGES];
-    int players_ready;                   /* enough controls for two (set by the caller) */
+    int p2_controls;                     /* player 2 has something to play with (set by the caller) */
+    /* Where player 2 is shown and heard. The caller lists the other
+     * monitors (screen_name) and sound outputs (audio_name); SCREEN shows
+     * only with a second monitor. */
+    int screens;                         /* other monitors listed */
+    char screen_name[SPLIT_MENU_OUTS][48];
+    int screen_pick;                     /* 0 one shared screen, k: player 2 on screen_name[k - 1] */
+    int audio_outs;
+    char audio_name[SPLIT_MENU_OUTS][48];
+    int sound_pick;                      /* SPLIT_SOUND_... , or SPLIT_SOUND_DEVICE + k: player 2 on audio_name[k] */
     char message[120];
     int message_ms;
 } split_menu;
 
 void split_menu_init(split_menu *m);
+void split_menu_enter(split_menu *m, int p1_in, int p2_in);   /* who is in when the hub opens; nobody ready */
 int split_menu_stage(const split_menu *m);   /* 27 Green Silo, 39 Ocean Platform, 0 open floor */
-split_menu_command split_menu_input(split_menu *m, garage_action a);
+void split_menu_say(split_menu *m, const char *text);
+split_menu_command split_menu_input(split_menu *m, int who, garage_action a);
 void split_menu_draw(split_menu *m, float hud_w, int elapsed_ms);
 
 #endif
