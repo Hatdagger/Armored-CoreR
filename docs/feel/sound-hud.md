@@ -123,7 +123,7 @@ falls.
 |---|---|---|---|
 | Energy bar | smooth fraction | **whole pixels, 157 for a full bar**, straight from the energy: no easing. It moves in steps at the game's 22 a second because energy only changes on ticks | arena `0x80057020` (VS split screen: 60 steps) |
 | AP digits | the AP | unchanged: the game prints (AP x 4 + 3) / 4 each frame, no counting down | arena `0x800572A4` |
-| AP colour | red below 1,000 | **unchanged, the user's rule.** The game itself reddens it at a tenth of the AC's AP (same test as ARMOR LOW); noted, not followed, because the brief asked for 1,000 | arena `0x80057280`, VS `0x80056F60` |
+| AP colour | red below 1,000 | **red at a tenth of the AC's AP or below**, as the game (same test as ARMOR LOW; user switched from 1,000 on 2026-11-27) | arena `0x80057280`, VS `0x80056F60` |
 | Empty weapon | name and ammo red | unchanged: the game draws an empty weapon (slot +0x10 = 0) in colour 1 for the selected one and the list | VS `0x80056D98`, `0x80056EBC` |
 | Round clock | above the radar | unchanged (user's layout) | |
 | REC | (228, 20), never on | moved to **(228, 8)**, line at y 16, so it doesn't sit on the clock (the game's spot is now the clock's). Lit only while a replay is being captured **and** the fight is not a mission (`g_rogue_fight != 3`, no mission map / own mission). Nothing records fights yet (docs/REPLAYS.md), so `g_replay_capturing` stays 0 until the recorder sets it | user, 2026-11-19 |
