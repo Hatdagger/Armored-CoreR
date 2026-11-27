@@ -239,8 +239,8 @@ int main(void) {
     acr_gen1_ac_step(&ac, &d, k_none);
     EXPECT(ac.energy == 100);                    /* standing refill 200, halved */
     ac.energy = 27950;
-    acr_gen1_ac_step(&ac, &d, k_up);             /* still locked: no rise; goes over */
-    EXPECT(ac.state == ACR_GEN1_GROUND && ac.drained && ac.energy == 28050);
+    acr_gen1_ac_step(&ac, &d, k_up);             /* still locked: no rise, but the legs still jump; goes over */
+    EXPECT(ac.state == ACR_GEN1_CROUCH && ac.drained && ac.energy == 28050);
     acr_gen1_ac_step(&ac, &d, k_none);           /* full: back to the capacity, unlocked */
     EXPECT(ac.drained == 0 && ac.energy == 28000);
 

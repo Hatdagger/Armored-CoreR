@@ -377,7 +377,10 @@ void acr_gen1_ac_tick(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
     const int tracks = def->no_boost_hop;
     const int can_rise = can_boost && (!in.modern || in.cruise || tracks);
     const int ground_boost = can_boost && !in.modern;
-    const int can_jump = in.modern && !tracks ? in.boost : can_rise;
+    /* Jumping is the legs' take-off, not the booster: every leg type that
+     * jumps can, with or without energy; only the rise and boosts need the
+     * bar (user, 2026-11-27). Caterpillars don't jump: theirs is the rise. */
+    const int can_jump = tracks ? can_rise : in.boost;
     const int fresh_press = in.boost && (!ac->boost_was_down || ac->boost_released || in.boost_tapped);
     ac->boost_was_down = in.boost;
     ac->boost_released = 0;
@@ -513,7 +516,7 @@ void acr_gen1_ac_tick(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
         const int cruising = in.cruise && !in.boost && !ac->drained && ac->energy > 0 && dir && moving;
         /* SP-MODERN on these legs: they walk the same way unless the toggle
          * is cruising or cross jumps from a stand. */
-        if (def->drive_walk && !ground_boost && !cruising && !(in.modern && can_jump && !ac->vx && !ac->vz)) {
+        if (def->drive_walk && !ground_boost && !cruising && !(can_jump && !ac->vx && !ac->vz)) {
             uint8_t loop = ACR_GEN1_ANIM_IDLE;
             if (dir) {
                 ac->vx += dx * (int32_t)m->boost_accel / 4096;
