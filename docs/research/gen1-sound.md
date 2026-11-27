@@ -22,19 +22,19 @@ Weight 5,000 (ids 8, 9) = plays over everything else.
 
 | # | Id(s) | What | From |
 |---|---|---|---|
-| 01 | 3 | Footstep (humanoid legs?) | ear |
-| 02 | 18 | ? loops; picked from data, likely a leg movement loop | open |
-| 03 | 17 | ? picked from data, likely a leg step | open |
-| 04 | 16 | ? loops; picked from data, maybe tank treads | open |
+| 01 | 3 | Footstep: both steps of a two-legged walk cycle, the second step of four legs and caterpillars | ear + code |
+| 02 | 18 | Four legs: the first step of each walk cycle, and their drive drone (loops; louder and higher with ground speed) | code |
+| 03 | 17 | Not played in fights: no fight engine's code or sound record uses id 17 | code |
+| 04 | 16 | Caterpillar treads (loops): the first step of each walk cycle, the turning sound and the drive drone | code |
 | 05 | 6, 22 | Small explosion / hit (the hit table, 0x800930A0) | ear + code |
-| 06 | 52 | ? (0x8008F034) | open |
+| 06 | 52 | Not played in fights: only an effect spawner nothing calls (VS 0x8008F034, arena 0x80095F6C) | code |
 | 07 | 51 | Laser / energy shot | ear |
 | 08 | 30 | Missions only | code |
 | 09 | 1 | Boost start | ear |
 | 10 | 42 | Menu / UI | ear |
 | 11 | 45, 46, 47, 59 | Lock beep: gun lock (46), missile lock tick (47), alarm (45) | code |
-| 12 | 0, 5 | Cannon shot | ear + code |
-| 13 | 14 | Landing? (plays when an animation ends, 0x8008389C) | code |
+| 12 | 0, 5 | Cannon shot (0); the hard landing's thud (5) | ear + code |
+| 13 | 14 | Soft landing: plays on touching down (0x80084848) | code |
 | 14 | 10, 21 | Machine gun shot | ear |
 | 15 | 48 | Machine gun shot | ear |
 | 16 | 54, 31 | Match start / end (VS main loop) | code |
@@ -56,25 +56,19 @@ Weight 5,000 (ids 8, 9) = plays over everything else.
 | 34 | 7, 23 | Big explosion | ear |
 | 35 | 56 | Enemy AC opens a transmission | ear |
 | 36 | 57 | End of a radio call / message box | ear + code |
-| 37 | 13 | ? quiet low loop, picked from data | open |
+| 37 | 13 | Two-legged and four-legged turning hum (loops, held while turning); the jump take-off | code |
 | 38 | 58 | Electric damage sound (story missions) | ear |
 
-The leg record's byte +17 is the footstep sound id (VS 0x8007E1DC / 0x8007E2DC /
-0x8007E3E0), which is probably why ids 16-18 have no fixed caller.
+Ids 3, 5, 13, 16 and 18 come from the animation set's **sound record** (VS
+0x80091340 + set x 20, player block +0x44; the same table in all five fight
+engines): walk steps, the hard landing, the jump take-off, the drive and the
+turning sound. All of it, with volumes and timing: [../feel/sound-hud.md](../feel/sound-hud.md).
 
 ## What the engine plays (src/platform/sdl3/sfx.c)
 
 Presentation only, like the weapon effects: it watches the fight and never changes it.
+Since `feel/sound-hud` the movement sounds, warnings, volumes, pitches, distances and
+voice priorities are the game's: see [../feel/sound-hud.md](../feel/sound-hud.md).
+Shot volumes are still by ear.
 
-- A shot appears: the weapon's firing sound by its HUD type (rifles and hand guns #21,
-  machine and chain guns #14, cannons, rockets and grenades #12, lasers #07, pulse and
-  plasma #20, missiles #18). The game reads the id from the projectile kind's table;
-  until those are mapped, the type picks it.
-- A missile or rocket ends: #34, quieter. AP drops: #05. AP reaches zero: #34.
-- Boost: #09 when it starts, #31 held while boosting. Blade swing: #23. Landing: #13.
-- The listening AC only: lock beeps (#11 guns, #32 / #33 missiles), red zone #29,
-  forced charging #30 every 0.45 s, perimeter #27 every 0.9 s, low AP #28 every 1.5 s
-  (below a quarter of AP, as the HUD's ARMOR LOW).
-- Volume falls off with distance (half at 2,500 units); pan by side. All by ear.
-
-Not yet: footsteps, missile flight loop, match start / end, the leg loops.
+Not yet: the missile flight loop, match start / end, SYSTEM ERROR's alarm (sound 59).

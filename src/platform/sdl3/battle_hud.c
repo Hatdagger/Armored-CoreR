@@ -144,19 +144,23 @@ void battle_hud_draw(const battle_hud_state *s, float hud_w, int frame) {
     char line[64];
 
     /* Energy: the bar (green above the red zone, brown below it; all brown
-     * while drained), the gauge frame with F / M / E over it, "ENERGY". */
+     * while drained), the gauge frame with F / M / E over it, "ENERGY".
+     * The game (arena 0x80057020) draws it in whole pixels, 157 to the full
+     * bar, straight from the energy each frame: no easing, so it moves in
+     * steps of capacity / 157 at the game's 22 frames a second (the
+     * energy only changes on its ticks). */
     {
-        const float top = 37, height = 157;
-        const float cap = (float)(s->energy_max > 0 ? s->energy_max : 1);
-        float fill = (float)s->energy / cap, red = (float)s->red_zone / cap;
-        if (fill < 0) fill = 0;
-        if (fill > 1) fill = 1;
+        const int top = 37, height = BATTLE_HUD_BAR;
+        const long long cap = s->energy_max > 0 ? s->energy_max : 1;
+        long long fill = (long long)(s->energy < 0 ? 0 : s->energy) * height / cap;
+        long long red = (long long)s->red_zone * height / cap;
+        if (fill > height) fill = height;
         if (red > fill) red = fill;
-        const float bottom = top + height;
-        if (s->drained) box(L, 8, bottom - fill * height, 8, fill * height, 160, 80, 48, 255, ACR_HUD_ALPHA);
+        const int bottom = top + height;
+        if (s->drained) box(L, 8, (float)(bottom - fill), 8, (float)fill, 160, 80, 48, 255, ACR_HUD_ALPHA);
         else {
-            box(L, 8, bottom - fill * height, 8, (fill - red) * height, 64, 144, 56, 255, ACR_HUD_ALPHA);
-            box(L, 8, bottom - red * height, 8, red * height, 160, 80, 48, 255, ACR_HUD_ALPHA);
+            box(L, 8, (float)(bottom - fill), 8, (float)(fill - red), 64, 144, 56, 255, ACR_HUD_ALPHA);
+            box(L, 8, (float)(bottom - red), 8, (float)red, 160, 80, 48, 255, ACR_HUD_ALPHA);
         }
         if (g_ready) spr(L, g_layer[0], 4, 72, 16, 168, 12, 36, GREEN, 255, ACR_HUD_ALPHA);
         text(L, 8, 28, "ENERGY", 0, GREEN);
@@ -168,7 +172,10 @@ void battle_hud_draw(const battle_hud_state *s, float hud_w, int frame) {
         int ap = s->ap < 0 ? 0 : s->ap;
         SDL_snprintf(line, sizeof line, "%d", ap);
         const int n = (int)SDL_strlen(line);
-        /* The digits turn red below 1,000 AP. */
+        /* The digits are the AP as it is (arena 0x800572A4: (AP x 4 + 3)
+         * / 4 each frame, no counting down). They turn red below 1,000 AP
+         * (the user's rule; the game itself reddens them at a tenth of the
+         * AC's AP, the same test as ARMOR LOW). */
         const int low = ap < 1000;
         const uint8_t ar = low ? 230 : 58, ag = low ? 48 : 214, ab = low ? 40 : 58;
         for (int i = 0; i < n; ++i) {
@@ -203,11 +210,13 @@ void battle_hud_draw(const battle_hud_state *s, float hud_w, int frame) {
     }
 
     /* REC and the line under it (top right), only while a replay is being
-     * recorded (arena and VS fights). */
+     * recorded (arena and VS fights). The game has it at y 20, where the
+     * round clock now sits (above the radar, the user's layout), so it
+     * moves up 12 lines to clear it. */
     if (s->recording) {
-        if (g_ready) spr(R, g_layer[1], 50, 72, 78, 8, 228, 20, 80, 255, 170, 255, ACR_HUD_ALPHA);
-        else text(R, 232, 20, "REC", 1, 80, 255, 170);
-        box(R, 229, 28, 80, 1, 120, 16, 16, 255, ACR_HUD_ALPHA);
+        if (g_ready) spr(R, g_layer[1], 50, 72, 78, 8, 228, 8, 80, 255, 170, 255, ACR_HUD_ALPHA);
+        else text(R, 232, 8, "REC", 1, 80, 255, 170);
+        box(R, 229, 16, 80, 1, 120, 16, 16, 255, ACR_HUD_ALPHA);
     }
 
     /* Round clock: above the radar, in the AP's big digits (MM:SS, the
@@ -256,7 +265,8 @@ void battle_hud_draw(const battle_hud_state *s, float hud_w, int frame) {
 
     /* Weapons: the selected one in yellow with its ammo, the others in
      * green underneath, right-aligned under the radar. A weapon out of
-     * ammo shows its name and count in red. */
+     * ammo shows its name and count in red (VS 0x80056D98: colour 1 when
+     * slot +0x10, the ammo, is 0, for the selected weapon and the rest). */
     if (s->weapons > 0 && s->current < s->weapons) {
         const battle_hud_weapon *w = &s->weapon[s->current];
         const int empty = w->ammo_max > 0 && w->ammo <= 0;

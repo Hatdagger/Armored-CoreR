@@ -18,6 +18,9 @@ enum { BATTLE_HUD_FRAME_43 = 0, BATTLE_HUD_FRAME_WIDE = 1 };
 enum { BATTLE_HUD_MSG_HIT = 1, BATTLE_HUD_MSG_DAMAGED = 2, BATTLE_HUD_MSG_LEAVING_AREA = 4,
        BATTLE_HUD_MSG_ARMOR_LOW = 8, BATTLE_HUD_MSG_CHARGING = 16, BATTLE_HUD_MSG_SYSTEM_ERROR = 32 };
 
+/* The energy bar's height in PS1 pixels (arena engine 0x80057020). */
+#define BATTLE_HUD_BAR 157
+
 #define BATTLE_HUD_MAX_WEAPONS 4
 #define BATTLE_HUD_MAX_OTHERS 72   /* co-op ACs and mission units */
 
