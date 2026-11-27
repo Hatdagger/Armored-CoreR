@@ -134,7 +134,7 @@ uint32_t acr_gen1_match_hash(const acr_gen1_match *m) {
         H(f->cooldown); H(f->hold_left); H(f->lock_wait); H(f->lock_lead); H(f->lead_yaw); H(f->lead_pitch);
         H(f->cursor_yaw); H(f->cursor_pitch); H(f->volley_ticks);
         H(f->swing); H(f->swing_hits); H(f->lunge_done); H(f->swing_target); H(f->lunge_x); H(f->lunge_z); H(f->air_swing); H(f->blade_hit_seq);
-        H(f->kneeling); H(f->human_plus); H(f->kneel_ms);
+        H(f->kneeling); H(f->human_plus); H(f->kneel_ms); H(f->stand_ms); H(f->switch_pending); H(f->switch_to);
         H(f->stagger); H(f->knock_x); H(f->knock_z);
         H(f->intercept_burst); H(f->intercept_shot); H(f->hit_flash); H(f->last_missile);
         H(f->cam_pitch); H(f->cam_yaw); H(f->team); H(f->target);

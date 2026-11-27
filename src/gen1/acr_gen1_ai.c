@@ -217,6 +217,7 @@ void acr_gen1_ai_look(const acr_gen1_battle *b, int me, int32_t arena_half, acr_
     v->ap = f->ap; v->ap_max = f->ap_max;
     v->legs = f->legs; v->human_plus = f->human_plus; v->kneeling = f->kneeling;
     v->weapons = f->weapons; v->current = f->current;
+    v->selected = f->switch_pending ? f->switch_to : f->current;
     v->blade = -1;
     for (int k = 0; k < f->weapons && k < ACR_GEN1_MAX_WEAPONS; ++k) {
         const acr_gen1_weapon *w = &f->weapon[k];
@@ -457,7 +458,7 @@ void acr_gen1_ai_think(acr_gen1_ai *ai, const acr_gen1_ai_view *v, int step_ms,
     }
 
     /* Weapon change: one press at a time, then wait to see it land. */
-    if (ai->want_weapon >= 0 && ai->want_weapon != v->current && !v->volley && ai->switch_ms <= 0) {
+    if (ai->want_weapon >= 0 && ai->want_weapon != v->selected && !v->volley && ai->switch_ms <= 0) {
         act->next_weapon = 1;
         ai->switch_ms = 150;
     }

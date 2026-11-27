@@ -82,6 +82,7 @@ typedef struct acr_gen1_ai_view {
     uint8_t  legs, human_plus, kneeling;
     /* Weapons (blade included) */
     uint8_t  weapons, current;
+    uint8_t selected;   /* the weapon picked: current, or a switch still waiting for the reload */
     uint8_t  kind[ACR_GEN1_MAX_WEAPONS];
     uint16_t ammo[ACR_GEN1_MAX_WEAPONS];   /* 0xFFFF = unlimited */
     int32_t  range[ACR_GEN1_MAX_WEAPONS];

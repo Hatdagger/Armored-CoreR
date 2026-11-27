@@ -200,6 +200,10 @@ static void write_weapon(FILE *f, const char *c, uint32_t index) {
     /* Cannons: VS engine 0x80081B18, table 0x80091310 (6 bytes per model). */
     if (w[0] == 2 && vs_u16(0x80091310u + 6 * w[1], &v))
         field(f, "shot_speed", v, "world units per Gen 1 step (read from code, not traced)");
+    /* Cannon kick (VS 0x80081E80): the table's +2, times the slot recoil from
+     * fire_pattern, legs stability and weight (acr_gen1_cannon_kick). */
+    if (w[0] == 2 && vs_u16(0x80091310u + 6 * w[1] + 2, &v))
+        field(f, "cannon_kick", v, "cannon table +2: kick on the firing AC (with fire_pattern = base recoil)");
     /* Missiles: the launcher table 0x800912B0 (8 bytes per model id) gives the
      * flight kind, which indexes the flight table 0x80093114 (40 bytes). */
     if (w[0] == 1) {

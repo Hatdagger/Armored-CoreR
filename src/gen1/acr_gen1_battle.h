@@ -50,10 +50,15 @@ typedef struct acr_gen1_weapon {
     uint8_t  impact;        /* knockback (detail +0x16, blade +0x32): see acr_gen1_knockback_level */
     int32_t  speed;         /* gun shot speed, world units a tick */
     uint8_t  stance;        /* back cannons: needs a steady stance to fire (see below) */
+    uint8_t  kick;          /* cannons: push back on the firing AC, world units a tick, along
+                             * the shot (VS 0x80081E80; acr_gen1_cannon_kick) */
+    uint16_t kick_table;    /* cannons: the cannon table's +2 for the model (0x80091310) */
     /* Guns */
     uint8_t  shots;         /* per trigger: 1, 2 or 4 (detail +2 bits 0-1) */
     uint8_t  straight;      /* sight bit 2 (rockets, dispensers): no aiming, straight ahead */
-    uint8_t  hold;          /* post-shot hold in ticks (detail +4 != 255; length a stand-in) */
+    uint8_t  hold;          /* post-shot hold in ticks: the firing animation, 7 + detail +4
+                             * (255: none). VS 0x80054DE4: the layer-2 frame count runs to the
+                             * set's base (7 in all 72 sets) + the animation number */
     /* Aiming (presentation): the animation set's aim table this weapon uses
      * (detail +3, +1 on the right back slot; 255 none), and whether left /
      * right goes on the y axis (cannons, weapon arms: fire pattern bit 3)
@@ -85,8 +90,23 @@ typedef struct acr_gen1_weapon {
 enum { ACR_GEN1_LEGS_TWO, ACR_GEN1_LEGS_FOUR, ACR_GEN1_LEGS_TRACKS };
 /* Time to crouch before a cannon fires when the set has no kneel animation;
  * otherwise the kneel animation (45) plays out first (VS 0x80081C04: state 34,
- * animation player +0x12 = 0x2A + slot, finished): 8-17 ticks by set. */
+ * animation player +0x12 = 0x2A + slot, finished): 8-17 ticks by set.
+ * The kneel can't be cut short (the stand-up test only runs once it has
+ * finished). Standing up (state 0x23, VS 0x80085050) plays the same
+ * animation backwards with the controls held, so it takes as long as the
+ * kneel went down; it starts when the pilot moves (forward, back, strafe,
+ * boost) with the refire wait at 0 and not firing (VS 0x800822C0), or on a
+ * weapon switch (0x800830A8). */
 #define ACR_GEN1_KNEEL_MS 400
+
+/* Cannon kick (VS 0x80081E80; AC1Recomp mapping/stat-block.md, slot +9):
+ *   recoil = detail +2 x (4,169,728 / S) x (32,768,000 / W) >> 24, 1..64
+ *            (S legs stability, +800 with SP-SAP; W carried weight)
+ *   kick   = (recoil x 75 / 32 + 1) x cannon table +2 (0x80091310, 32 or 256) >> 8
+ * The firing AC's motion loses kick world units a tick along the shot (it
+ * then slides to a stop in the stance). Human PLUS two-legged ACs (body
+ * frame 3) standing on the ground get none. */
+uint8_t acr_gen1_cannon_kick(uint8_t base_recoil, uint16_t table_kick, uint32_t stability, uint32_t carried_weight);
 
 #define ACR_GEN1_MAX_WEAPONS 4   /* arm weapon, back left, back right, blade */
 #define ACR_GEN1_MAX_SHOTS   128
@@ -156,6 +176,11 @@ typedef struct acr_gen1_fighter {
     uint8_t  human_plus;
     uint8_t  kneeling;
     int32_t  kneel_ms;
+    int32_t  stand_ms;                         /* standing up from the stance: ms left (state 0x23) */
+    /* Weapon switch (VS 0x80082F68): a press picks the next slot (player
+     * block +0x11); it becomes the weapon (+0x10) only once the refire wait
+     * is 0, so the switch waits out the current weapon's reload. */
+    uint8_t  switch_pending, switch_to;
     /* Defences */
     uint8_t  jammer;                           /* SP-JAM: missile locks on it break 5% a tick */
     uint8_t  intercept_burst;                  /* AC +0x118: ticks left in a burst */
@@ -527,6 +552,8 @@ void acr_gen1_battle_retarget_acts(acr_gen1_battle *b, const acr_gen1_actions ac
 
 /* Can the fighter fire its current weapon in its present stance? */
 int acr_gen1_stance_ok(const acr_gen1_fighter *f);
+/* Start standing up from the cannon stance (state 0x23): as long as the kneel went down. */
+void acr_gen1_stand_up(acr_gen1_battle *b, acr_gen1_fighter *f);
 
 /* Does fighter i's sight see its target for weapon w: inside the outer
  * lock box and the FCS range (lock record +0x16 bit 1)? */
