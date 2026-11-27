@@ -398,8 +398,15 @@ drawing; the engine draws everything).
 Map 0: 16 door pieces. 13 rise 750 at 8 a tick (93 ticks) when the player
 comes near, area 290's ending the mission (the game's win: its gimmick
 starting to open); 153 / 154 are a pair that slide apart 500 each, locked
-with radio line 159 until the script unlocks them (not read); 155 / 156
-never move (speed 0, line 161).
+with radio line 159; nothing on the disc unlocks them (read 2026-11-27:
+map 0's module never sends 0x8201, and its only cutscene `1009` is area
+290's), so they stay shut; 155 / 156 never move (speed 0, line 161).
+
+Map 18 (`0x800A28B8`): objects +528 and +572 (records 4, 5) both state 3
+(down) -> radio 114; once the radio is done (`0x80058480`), message
+0x8201 to nodes 92 and 93 (`0x801CFAB0` + 5,888 / 5,952) through their
+handlers (node +44, +4). Cutscenes send messages with `1009 1 area cmd`
+(map 0: 290 cmd 1; map 18: 68 cmd 1, then 2).
 
 Other set-up kinds, not read: a 12-byte controller (data with 18,246 /
 20,082 at +8: maps 1, 5, 7, 9, 16, 18, 19; map 18's switch 68 and core 96,
@@ -412,8 +419,8 @@ rules each tick inside the battle (`acr_gen1_battle.gim`, so rollback
 snapshots carry them); the stage's collision and drawing are put where the
 doors are (`acr_gen1_stage_place_area`, `demo_stage_place_area`). Map 0 is
 won when door 290 opens. Tests: `tests/test_gen1_gimmick.c`. Not done: the
-radio lines and sounds, scripts' unlocks (map 0's 153 / 154, map 18's
-92 / 93), the other kinds.
+radio lines and sounds, the other kinds. Map 18's 92 / 93 are unlocked
+by the mission (`moa_tick`) 66 ticks after both ACs are down.
 
 ## Points (chunk 13)
 
