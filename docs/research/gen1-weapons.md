@@ -92,9 +92,11 @@ post-shot hold ends, and:
   animation, slows the AC's own motion and moves it by the push.
 The push (`0x80079ADC`): impact x 3,276 x 8 >> 12 along the line from the
 shot to the AC, half that sideways (about 3.2 units a tick per point of
-impact). The engine: `ACR_GEN1_STAGGER_*` (controls taken away for
-2 + 2 x level ticks, a stand-in until the hit animations' lengths are read;
-the push halving each tick).
+impact, at most 98). The stun is the level itself: AC +0xDA = level,
+counted down a tick at a time by `0x8007FECC` (ACG1PLUS
+docs/research/mapping/feel-diff.md 4.2), so most hits freeze a normal AC
+for 3-5 ticks; energy weapons (impact 0) never stun. The engine:
+`ACR_GEN1_STAGGER_*` (the push halving each tick is ours).
 
 ## Hit cylinder
 

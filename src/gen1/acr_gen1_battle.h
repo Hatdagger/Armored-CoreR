@@ -417,22 +417,24 @@ int32_t acr_gen1_hit_ap(uint16_t attack, uint8_t factor);
 /* Knockback level of a hit (VS 0x80079AA4): impact x 256 / (stability x 25 / 4), 0..5. */
 int acr_gen1_knockback_level(uint16_t impact, uint8_t stability);
 
-/* Hit stagger (VS 0x80082500, read 2026-11-26). A hit whose knockback
- * level is above 0 cuts the target's firing animation short (AC +0x150 /
- * +0x164 cleared), puts it in a hit state (+0x45 = 128 on the ground,
- * states 37-40 by the side it was hit from; 129 in the air, 41-44) for a
- * time that grows with the level, and pushes it away from the shot by
- * impact x 3,276 x 8 >> 12 along the line (VS 0x80079ADC: about 3.2 world
- * units a tick per point of impact, sideways; ours is flat). A crouched AC
- * (state 34) takes it in its stance instead: no stagger, no push. A new
- * hit doesn't restart a stagger that is still running.
- * Stand-ins until the hit animations' lengths are read: STAGGER_BASE +
- * STAGGER_PER_LEVEL x level ticks; the push halves every tick (in all
- * about twice the first tick's), at most KNOCK_MAX a tick. */
-#define ACR_GEN1_STAGGER_BASE      2
-#define ACR_GEN1_STAGGER_PER_LEVEL 2
+/* Hit stagger (VS hit callback 0x80082430 / 0x80082500, read 2026-11-26;
+ * ACG1PLUS docs/research/weapon-map.md section 5 and mapping/feel-diff.md
+ * 4.2). Impact 0 (every energy weapon) does nothing. Otherwise the level
+ * (above) is the stun: 0 skips it; 1-5 puts the AC in a hit state (+0x45
+ * = 128 on the ground, animations 37-40 by the side it was hit from; 129
+ * in the air, 41-44) with AC +0xDA = level, counted down a tick at a time
+ * by the stun handler 0x8007FECC while the busy bit (+0x36 bit 0x10)
+ * holds the controls. So most hits freeze a normal AC for 3-5 ticks. The
+ * firing animation is cut short (+0x150 / +0x164 cleared). The push
+ * (0x80079ADC): impact x 3,276 x 8 >> 12, about 3.2 units a tick per
+ * point of impact, at most 98, away from the shot. A crouched AC (state
+ * 34) is pushed in its stance (0x8007B454); ours skips that. A new hit
+ * doesn't restart a stun that is still running.
+ * Ours: the push halves each tick after the first (a stand-in). */
+#define ACR_GEN1_STAGGER_BASE      0
+#define ACR_GEN1_STAGGER_PER_LEVEL 1
 #define ACR_GEN1_KNOCK_PER_IMPACT  205     /* 1/64 units a tick per point of impact (3.2 world units) */
-#define ACR_GEN1_KNOCK_MAX         (40 * 64)
+#define ACR_GEN1_KNOCK_MAX         (98 * 64)
 
 /* One step; in[] and act[] hold one entry per fighter. */
 void acr_gen1_battle_step(acr_gen1_battle *b, const acr_gen1_input in[], const acr_gen1_actions act[]);
