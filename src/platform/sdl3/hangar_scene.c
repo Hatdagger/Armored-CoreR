@@ -62,108 +62,12 @@ void hs_puff(float x, float y, float radius, uint8_t r, uint8_t g, uint8_t b, ui
     acr_render_tris(t, N * 3, 0);
 }
 
-/* ---- behind the AC ---- */
-
-void hangar_back(float hud_w) {
-    origin(hud_w);
-    /* the hangar's air: #26272c down to #141518 (70%), then #0c0c0e */
-    const uint8_t c0[4] = { 0x26, 0x27, 0x2c, 255 }, c1[4] = { 0x14, 0x15, 0x18, 255 }, c2[4] = { 0x0c, 0x0c, 0x0e, 255 };
-    hs_quad(0, 0, hud_w, 336, c0, c1);
-    hs_quad(0, 336, hud_w, 144, c1, c2);
-    /* pillars and the roof beam (full width on wide screens) */
-    fill(X(80), 0, 70 * K, 480, 0x1d, 0x1e, 0x22, 255);
-    acr_hud_rect(X(80), -2, 70 * K, 484, 0x34, 0x36, 0x3c, 255, 0);
-    fill(X(1130), 0, 70 * K, 480, 0x1d, 0x1e, 0x22, 255);
-    acr_hud_rect(X(1130), -2, 70 * K, 484, 0x34, 0x36, 0x3c, 255, 0);
-    fill(0, Y(60), hud_w, 34 * K, 0x1d, 0x1e, 0x22, 255);
-    acr_hud_line(0, Y(60), hud_w, Y(60), 0x34, 0x36, 0x3c, 255);
-    acr_hud_line(0, Y(94), hud_w, Y(94), 0x34, 0x36, 0x3c, 255);
-    const uint8_t strut[4] = { 0x2c, 0x2e, 0x33, 255 };
-    thick(X(150), Y(94), X(420), Y(380), 10 * K, strut);
-    thick(X(1130), Y(94), X(860), Y(380), 10 * K, strut);
-    /* pipes */
-    static const float pipes[][8] = {
-        { 1000, 94, 1000, 314, 1060, 314, 1060, 614 },
-        { 1012, 94, 1012, 302, 1072, 302, 1072, 614 },
-        { 260, 94, 260, 254, 200, 254, 200, 614 },
-    };
-    for (int p = 0; p < 3; ++p)
-        for (int i = 0; i < 3; ++i)
-            acr_hud_line(X(pipes[p][i * 2]), Y(pipes[p][i * 2 + 1]), X(pipes[p][i * 2 + 2]), Y(pipes[p][i * 2 + 3]),
-                         0x3a, 0x3c, 0x42, 255);
-    /* floor, the gantry's platform and its tread marks */
-    fill(0, Y(560), hud_w, 160 * K, 0x10, 0x11, 0x13, 255);
-    fill(X(420), Y(560), 440 * K, 10 * K, 0x2a, 0x2b, 0x30, 255);
-    const uint8_t tread[4] = { 0x1a, 0x1b, 0x1e, 255 };
-    for (int i = 0; i < 6; ++i) thick(X(500 + i * 60), Y(566), X(514 + i * 60), Y(560), 6 * K, tread);
-    /* the gantry clamps over the AC */
-    fill(X(470), Y(94), 340 * K, 18 * K, 0x3b, 0x3d, 0x43, 255);
-    fill(X(500), Y(112), 20 * K, 60 * K, 0x2e, 0x30, 0x35, 255);
-    fill(X(760), Y(112), 20 * K, 60 * K, 0x2e, 0x30, 0x35, 255);
-}
-
 void hangar_ac_rect(float hud_w, float *x, float *y, float *w, float *h) {
     origin(hud_w);
     *x = X(510);
     *y = Y(100);
     *w = 300 * 0.86f * K;
     *h = 440 * 0.86f * K;
-}
-
-/* ---- in front of the AC ---- */
-
-static float frac(float v) { return v - floorf(v); }
-
-/* CSS ease-in-out between keyframes 0% -> 50% -> 100% (a, b, a). */
-static float swing(float t, float period, float a, float b) {
-    float u = frac(t / period) * 2.0f;
-    if (u > 1.0f) u = 2.0f - u;
-    u = u * u * (3.0f - 2.0f * u);
-    return (a + (b - a) * u) * 3.14159265f / 180.0f;
-}
-
-void hangar_fx(float hud_w, unsigned ms) {
-    origin(hud_w);
-    const float t = (float)ms / 1000.0f;
-    /* steam: 3.2 s, rising 120 px while it grows from 0.5x to 2.4x of 40 px,
-     * fading in to 0.55 by 20% and out by the end */
-    static const float puffs[][3] = {
-        { 540, 320, 0.0f }, { 560, 320, 1.1f }, { 732, 320, 0.6f }, { 660, 540, 1.8f }, { 1050, 340, 2.3f } };
-    for (int i = 0; i < 5; ++i) {
-        const float u = frac((t - puffs[i][2]) / 3.2f);
-        const float u2 = 1.0f - (1.0f - u) * (1.0f - u);   /* ease-out */
-        const float op = u < 0.2f ? u / 0.2f * 0.55f : 0.55f * (1.0f - (u - 0.2f) / 0.8f);
-        const float scale = 0.5f + 1.9f * u2;
-        hs_puff(X(puffs[i][0]), Y(puffs[i][1] - 120.0f * u2), 20.0f * scale * K, 220, 225, 235, (uint8_t)(op * 255.0f));
-    }
-    /* maintenance arm 1: hinged at its left end, -14 to 18 degrees over 6 s,
-     * a clamp and a weld spark at its tip */
-    const uint8_t arm[4] = { 0x3d, 0x40, 0x47, 255 }, edge[4] = { 0x5a, 0x5d, 0x64, 255 }, head[4] = { 0x2a, 0x2c, 0x31, 255 };
-    const float a1 = swing(t, 6.0f, -14, 18);
-    const float px1 = X(330), py1 = Y(126);
-    turned_box(px1, py1, a1, 0, -6 * K, 170 * K, 6 * K, arm, edge);
-    turned_box(px1, py1, a1, 162 * K, -14 * K, 184 * K, 14 * K, head, edge);
-    const float sp = frac(t / 2.4f);
-    if (sp > 0.85f) {
-        const float on = sp < 0.88f ? (sp - 0.85f) / 0.03f : 1.0f - (sp - 0.88f) / 0.12f;
-        const float sx = px1 + cosf(a1) * 190 * K, sy = py1 + sinf(a1) * 190 * K;
-        hs_puff(sx, sy, 12 * K, 255, 179, 71, (uint8_t)(on * 160));
-        hs_puff(sx, sy, 4 * K, 255, 210, 122, (uint8_t)(on * 255));
-    }
-    /* arm 2: hinged at its right end, 10 to -22 degrees over 7 s */
-    const float a2 = swing(t, 7.0f, 10, -22);
-    const float px2 = X(1110), py2 = Y(206);
-    turned_box(px2, py2, a2, -150 * K, -6 * K, 0, 6 * K, arm, edge);
-    turned_box(px2, py2, a2, -164 * K, -14 * K, -142 * K, 14 * K, head, edge);
-    /* the warning lights: on for 60% of 1.4 s, down to 0.15 by 70% */
-    for (int i = 0; i < 2; ++i) {
-        const float u = frac((t - (i ? 0.7f : 0.0f)) / 1.4f);
-        const float op = u < 0.6f ? 1.0f : u < 0.7f ? 1.0f - 0.85f * (u - 0.6f) / 0.1f : 0.15f;
-        const float lx = X(i ? 119 : 1157), ly = Y(117);
-        hs_puff(lx, ly, 18 * K, 224, 65, 47, (uint8_t)(op * 110));
-        hs_puff(lx, ly, 7 * K, 224, 65, 47, (uint8_t)(op * 255));
-        hs_puff(lx, ly, 4 * K, 255, 140, 120, (uint8_t)(op * 255));
-    }
 }
 
 /* ---- the console ---- */

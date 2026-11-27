@@ -1,7 +1,7 @@
 /* The hangar main menu's scenery (approved design, project doc
  * claude/hangar-menu-and-garage-ui.md, mockup A): the hangar behind the
- * player's AC, the steam, the maintenance arms and the warning lights in
- * front of it, and the grey console with its green CRT in the foreground.
+ * the grey console with its green CRT in the foreground (the room itself
+ * is 3D: hangar3d.c).
  * All drawn on the HUD grid (480 high, `hud_w` wide); the mockup's 1280x720
  * layout is scaled to 480 high and centred. The AC itself is the caller's
  * (3D, between hangar_back and hangar_fx). */
@@ -10,13 +10,8 @@
 
 #include <stdint.h>
 
-/* The hangar walls, beams, pipes, floor and gantry (before the AC). */
-void hangar_back(float hud_w);
 /* Where the AC stands, in HUD units (the mockup's silhouette box). */
 void hangar_ac_rect(float hud_w, float *x, float *y, float *w, float *h);
-/* Steam puffs, the two swinging arms (one with a weld spark) and the two
- * blinking red lights; `ms` is a running clock. */
-void hangar_fx(float hud_w, unsigned ms);
 /* The console bezel; gives the CRT's rectangle (HUD units) and draws the
  * header line ("RAVEN NET // HANGAR", the AC's name, its COAM). */
 void hangar_console(float hud_w, const char *ac_name, long coam, float *cx, float *cy, float *cw, float *ch);

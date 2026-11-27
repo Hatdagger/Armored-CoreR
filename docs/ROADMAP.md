@@ -279,7 +279,8 @@ rollback fights, resume after a disconnect. Next: a two-PC play-test.
    (and the split-screen HUD). **Hangar main menu + GARAGE > ASSEMBLE**
    (2026-11-27, branch `hangar-xmb-menu`, project doc
    `claude/hangar-menu-and-garage-ui.md`): the player's AC on the gantry in
-   a hangar (steam, swinging arms, warning lights), an XMB menu on the
+   a 3D hangar (hangar3d.c: low camera, gantry clamps, walkways, cables,
+   a welding arm and a scanner on the AC, particle steam, fog), an XMB menu on the
    console's green CRT (SYSTEM, DATA, VERSUS, ARENA, GARAGE, MISSION;
    GARAGE in focus at the start, details after a 1.5 s hold). ASSEMBLE:
    slot list, the slot's part as a pulsing red wireframe on the AC, the

@@ -843,7 +843,6 @@ static void ease(float *pos, float to, int elapsed_ms) {
 #define CRT_GREEN 0xc8, 0xff, 0xe6
 static void xmb_draw(garage_ui *ui, const garage_data *d, float hud_w, int elapsed_ms) {
     const unsigned ms = (unsigned)ui->anim_ms;
-    hangar_fx(hud_w, ms);
     float cx, cy, cw, ch;
     hangar_console(hud_w, d->hangar->ac_name, (long)d->hangar->credits, &cx, &cy, &cw, &ch);
     hangar_crt_back(cx, cy, cw, ch);
@@ -1010,7 +1009,7 @@ int garage_view_rect_ui(const garage_ui *ui, float hud_w, float *x, float *y, fl
 
 void garage_draw_back(const garage_ui *ui, const garage_data *d, float hud_w) {
     (void)d;
-    if (hangar_menu(ui)) { hangar_back(hud_w); return; }
+    if (hangar_menu(ui)) return;   /* the room is 3D (hangar3d.c) */
     if (ui->screen != 1) return;
     float lx, mx, mw, rx;
     as_cols(hud_w, &lx, &mx, &mw, &rx);

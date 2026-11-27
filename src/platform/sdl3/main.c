@@ -69,6 +69,7 @@ static int g_hud_frame = BATTLE_HUD_FRAME_43;
 static int g_hud_frame_arg;   /* --hud-wide given: it wins over SETTINGS > VIDEO */
 #include "net_link.h"
 #include "net_menu.h"
+#include "hangar3d.h"
 #include "net_brief_ui.h"
 #include "../../net/acr_rollback.h"
 
@@ -997,33 +998,33 @@ static void draw_menu_part(const char *kind, int index, int ph, float hx, float 
     demo_object_draw(o, 1600.0f, (float)tick * 0.02f, 0.35f, &g_light);
 }
 
-/* The hangar main menu's AC: the player's own, standing on the gantry,
- * facing the fixed camera, with a slight idle bob (4 s). Framed by its
- * size so it fills the mockup's box. */
+/* The hangar main menu: the room in 3D around the player's own AC
+ * (hangar3d.c), from a low camera looking up at it, the AC standing on
+ * its gantry with a slight idle bob. Lens-shifted so the AC stands above
+ * the console. */
 static void draw_hangar_ac(int ph, float hud_w, unsigned ms) {
-    float hx, hy, hw, hh;
-    garage_view_rect_ui(&(garage_ui){ 0 }, hud_w, &hx, &hy, &hw, &hh);
     const float s = (float)ph / 480.0f;
     const int w = (int)(hud_w * s), h = ph;
     float mn[3] = { -400, 0, -400 }, mx[3] = { 400, 1600, 400 };
     if (g_model[0].ok) demo_model_bounds(&g_model[0], 0, 0, mn, mx);
     const float height = mx[1] - mn[1] > 100 ? mx[1] - mn[1] : 1600;
-    /* the box is hh of 480 tall, its middle at hy + hh / 2 */
-    const float fov = 40.0f * 3.14159265f / 180.0f, t = tanf(fov * 0.5f);
-    const float dist = height / (2.0f * t * (hh / 480.0f));
-    const float above = (240.0f - (hy + hh * 0.5f)) / 240.0f * dist * t;   /* box middle above the screen's */
-    const float cy = mn[1] + height * 0.5f - above;
+    const float half_w = fmaxf(fabsf(mn[0]), fabsf(mx[0])) > 50 ? fmaxf(fabsf(mn[0]), fabsf(mx[0])) : 0.3f * height;
+    float eye[3], target[3];
+    hangar3d_view hv;
+    hangar3d_camera(height, half_w, eye, target, &hv);
     float proj[16], viewm[16];
-    acr_mat_perspective(proj, fov, (float)w / (float)h, 50.0f, 60000.0f);
-    const float eye[3] = { (hx + hw * 0.5f - hud_w * 0.5f) / 240.0f * dist * t * -1.0f, cy, -dist };
-    const float fwd[3] = { 0, 0, 1 }, up[3] = { 0, 1, 0 };
+    acr_mat_perspective(proj, 52.0f * 3.14159265f / 180.0f, (float)w / (float)h, 30.0f, 80000.0f);
+    proj[9] = -0.30f;   /* lens shift: the AC sits in the top part of the screen, over the console */
+    const float fwd[3] = { target[0] - eye[0], target[1] - eye[1], target[2] - eye[2] }, up[3] = { 0, 1, 0 };
     acr_mat_look(viewm, eye, fwd, up);
     for (int k = 0; k < 4; ++k) viewm[4 * k] = -viewm[4 * k];
-    acr_render_view3d(0, 0, w, h, proj, viewm, NULL);
+    const acr_fog fog = { 1.6f * height, 9.0f * height, 12, 13, 16 };
+    acr_render_view3d(0, 0, w, h, proj, viewm, &fog);
+    hangar3d_solid(height, half_w, ms);
     const float bob = sinf((float)ms / 4000.0f * 6.2831853f) * height * 0.004f;
-    const float yaw = 3.14159265f - 0.3f;
-    if (g_model[0].ok) demo_model_draw(&g_model[0], 0, 0, 0, bob, 0, yaw, 1.0f, &g_light);
-    else { add_ac(v3(0, bob, 0), yaw, 0, 0); flush_scene(); }
+    if (g_model[0].ok) demo_model_draw(&g_model[0], 0, 0, 0, bob, 0, 3.14159265f, 1.0f, &g_light);
+    else { add_ac(v3(0, bob, 0), 3.14159265f, 0, 0); flush_scene(); }
+    hangar3d_fx(height, half_w, ms, &hv);
 }
 
 /* The garage's AC: turning slowly, standing, in the middle of the screen
