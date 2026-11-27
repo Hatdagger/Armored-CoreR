@@ -530,6 +530,54 @@ void demo_model_draw_pose(const demo_model *m, const acr_pose *pose, float x, fl
 
 /* ---- one garage model (OPTIONAL PARTS) ---- */
 
+/* Boosters' garage models carry both pods; the menus show one (user,
+ * 2026-11-27). Triangles sorted by their middle's x: where there is a clear
+ * gap across, keep the +x side. A booster with no gap is left whole. */
+static int cmp_float(const void *a, const void *b) {
+    const float x = *(const float *)a, y = *(const float *)b;
+    return x < y ? -1 : x > y;
+}
+static void keep_one_pod(acr_mesh *m) {
+    const int n = m->tri_count;
+    if (n < 2) return;
+    float *xs = SDL_malloc(sizeof(float) * (size_t)n);
+    if (!xs) return;
+    float lo = 1e9f, hi = -1e9f;
+    for (int t = 0; t < n; ++t) {
+        xs[t] = (m->v[3 * t].p[0] + m->v[3 * t + 1].p[0] + m->v[3 * t + 2].p[0]) / 3.0f;
+        for (int j = 0; j < 3; ++j) { const float x = m->v[3 * t + j].p[0]; if (x < lo) lo = x; if (x > hi) hi = x; }
+    }
+    float *sorted = SDL_malloc(sizeof(float) * (size_t)n);
+    if (!sorted) { SDL_free(xs); return; }
+    memcpy(sorted, xs, sizeof(float) * (size_t)n);
+    qsort(sorted, (size_t)n, sizeof(float), cmp_float);
+    /* the widest gap between triangle middles, near the centre */
+    float best = 0, cut = 0;
+    const float mid = (lo + hi) * 0.5f, width = hi - lo;
+    for (int i = 1; i < n; ++i) {
+        const float g = sorted[i] - sorted[i - 1], at = (sorted[i] + sorted[i - 1]) * 0.5f;
+        if (fabsf(at - mid) > width * 0.25f) continue;
+        if (g > best) { best = g; cut = at; }
+    }
+    SDL_free(sorted);
+    /* and nothing of either pod's own surface crosses the cut */
+    int crossing = 0;
+    for (int t = 0; t < n && !crossing; ++t) {
+        float a = 1e9f, b = -1e9f;
+        for (int j = 0; j < 3; ++j) { const float x = m->v[3 * t + j].p[0]; if (x < a) a = x; if (x > b) b = x; }
+        if (a < cut - 0.5f && b > cut + 0.5f) crossing = 1;
+    }
+    if (best < width * 0.08f || crossing) { SDL_free(xs); return; }
+    int k = 0;
+    for (int t = 0; t < n; ++t) {
+        if (xs[t] < cut) continue;
+        if (k != t) { memcpy(&m->v[3 * k], &m->v[3 * t], sizeof(acr_mesh_vertex) * 3); m->material[k] = m->material[t]; }
+        ++k;
+    }
+    if (k > 0) m->tri_count = k;
+    SDL_free(xs);
+}
+
 int demo_object_load(const char *import_dir, const char *kind, int index, demo_object *o) {
     memset(o, 0, sizeof *o);
     char dir[1100], path[1200];
@@ -543,6 +591,7 @@ int demo_object_load(const char *import_dir, const char *kind, int index, demo_o
     const int ok = obj && acr_obj_parse(obj, &o->mtl, &o->mesh) && o->mesh.tri_count > 0;
     SDL_free(obj);
     if (!ok) { acr_mesh_free(&o->mesh); return 0; }
+    if (!SDL_strcmp(kind, "booster")) keep_one_pod(&o->mesh);   /* centred on the pod kept, below */
     float mn[3] = { 1e9f, 1e9f, 1e9f }, mx[3] = { -1e9f, -1e9f, -1e9f };
     for (int i = 0; i < o->mesh.tri_count * 3; ++i)
         for (int c = 0; c < 3; ++c) {
