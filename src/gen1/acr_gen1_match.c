@@ -123,7 +123,7 @@ uint32_t acr_gen1_match_hash(const acr_gen1_match *m) {
         H(a->x); H(a->y); H(a->z); H(a->vx); H(a->vy); H(a->vz);
         H(a->yaw); H(a->turn_rate); H(a->pitch_fine); H(a->pitch); H(a->coast); H(a->energy);
         H(a->drained); H(a->boost_was_down); H(a->boost_released); H(a->state); H(a->timer);
-        H(a->vy_at_touchdown); H(a->landing_pause); H(a->anim); H(a->anim_frame); H(a->span_left);
+        H(a->vy_at_touchdown); H(a->landing_pause); H(a->landing_soft); H(a->anim); H(a->anim_frame); H(a->span_left);
         H(a->phase);
         for (int s = 0; s < 3; ++s) {
             const acr_gen1_stepper *st = &a->step[s];

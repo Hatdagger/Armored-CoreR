@@ -44,7 +44,7 @@
 /* The rules version: raise it with every change that makes the same
  * controls play out differently (tests/test_replay.c fails when one does
  * and says so). Replays made before the change are then refused. */
-#define ACR_REPLAY_RULES       3     /* 3: blade swings drop locks, end with their animation, blade waves; 2: refire + 1 tick, hit stagger, no damage after the result, downed ACs fall */
+#define ACR_REPLAY_RULES       4     /* 4: soft / hard landings from the disc; 3: blade swings drop locks, end with their animation, blade waves; 2: refire + 1 tick, hit stagger, no damage after the result, downed ACs fall */
 #define ACR_REPLAY_TRACKS      ACR_GEN1_MAX_FIGHTERS   /* most pads a step can hold */
 #define ACR_REPLAY_SETUP_MAX   4096  /* largest setup block, bytes */
 #define ACR_REPLAY_HEADER      32    /* bytes before the setup block */

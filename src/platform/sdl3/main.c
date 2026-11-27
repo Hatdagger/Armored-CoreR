@@ -454,7 +454,7 @@ static int phantasma_imported(const char *dir) {
 }
 static long g_new_credits = 0;
 static int g_tick_rate = 60;   /* test: steps a second; 22 = Gen 1's own pace */
-static int g_landing_anim = 0; /* test: landings last the landing animation (F3 / Back + R3) */
+static int g_landing_anim = 0; /* test: the old stand-in landing curve instead of the disc's (F3 / Back + R3) */
 static const int k_tick_rates[] = { 22, 30, 45, 60 };
 
 /* Starts the clock at the chosen rate. Faster than Gen 1, the game's rules
@@ -2114,7 +2114,7 @@ int main(int argc, char **argv) {
                     for (int k = 0; k < acr_gen1_battle_fighters(&battle); ++k) {
                         set_rate(&clock, &ac_data[k].def, g_tick_rate);
                         ac_data[k].def.stage = g_stage_on ? &g_stage.collision : NULL;
-                        ac_data[k].def.landing_from_anim = 0;
+                        ac_data[k].def.landing_guess = 0;
                     }
                     battle.stage = g_stage_on ? &g_stage.collision : NULL;
                     battle.step_ms = (uint16_t)(1000 / g_tick_rate);
@@ -2479,7 +2479,7 @@ int main(int argc, char **argv) {
                             set_rate(&clock, &ac_data[k].def, g_tick_rate);
                             /* Everything the fight reads is fixed before the first snapshot. */
                             ac_data[k].def.stage = g_stage_on ? &g_stage.collision : NULL;
-                            ac_data[k].def.landing_from_anim = (uint8_t)g_landing_anim;
+                            ac_data[k].def.landing_guess = (uint8_t)g_landing_anim;
                         }
                         battle.stage = g_stage_on ? &g_stage.collision : NULL;
                         battle.step_ms = (uint16_t)(1000 / g_tick_rate);
@@ -2628,7 +2628,7 @@ int main(int argc, char **argv) {
         battle.step_ms = (uint16_t)(1000 / (g_tick_rate > 0 ? g_tick_rate : 22));
         battle.step_rate = def->step_rate;
         battle.gen1_rate = def->gen1_rate;
-        def->landing_from_anim = def2->landing_from_anim = (uint8_t)g_landing_anim;
+        def->landing_guess = def2->landing_guess = (uint8_t)g_landing_anim;
         if (g_net) {
             /* Online: rollback runs the match (acr_rb_tick: our controls now,
              * the other player's as they arrive, going back to fix guesses). */
@@ -3079,7 +3079,7 @@ int main(int argc, char **argv) {
                 else SDL_snprintf(land_len, sizeof land_len, "NOT FOUND");
                 SDL_snprintf(line, sizeof line, "LANDING ANIM %s  LAST LANDING %d TICKS, FALL %d  PAUSE: %s",
                              land_len, (int)ac.landing_pause, (int)ac.vy_at_touchdown,
-                             g_landing_anim ? "ANIMATION" : "GUESS");
+                             g_landing_anim ? "OLD GUESS" : "DISC");
                 TEXT(20, g_vh - 80, line);
             }
             SDL_snprintf(line, sizeof line, "LEGS %s  BOOSTER %s  GENERATOR %s", ac_data[view].names[SLOT_LEGS],
