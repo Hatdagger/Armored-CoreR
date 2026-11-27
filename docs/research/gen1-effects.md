@@ -63,8 +63,9 @@ streak).
   with a white core) pointing backward and a little down, with a glow on
   the nozzle. Lighting it gives a hot flash (picture 00), briefly longer
   plumes, and a dust puff when it lights on the ground. Nozzles sit on the
-  back face of the posed booster piece (two on wide boosters); with no
-  booster piece, the core's back.
+  back face of each drawn booster piece, one per pod (a piece whose back
+  face has a gap across counts as two pods; up to 4); with no booster
+  piece, the core's back. Cosmetic only: pod count changes nothing.
 - Blade: during a swing a light-blue beam (picture 15's wide capsule, white
   core) leaves the left hand along the forearm, about 3/4 of the blade's
   reach long, with a glow at the hand and a fading sheet over the last

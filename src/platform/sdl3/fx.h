@@ -31,7 +31,7 @@ void fx_set_weapons(int fighter, const char (*types)[24], int count);
  * fx_draw. Without one (no model) the effects go on a stand-in spot. */
 typedef struct fx_rig {
     int   nozzles;            /* 0: no booster drawn */
-    float nozzle[2][3];
+    float nozzle[4][3];
     float back[3];            /* the AC's backward, flat */
     int   blade_ok;
     float blade_root[3], blade_tip[3];   /* the blade arm's shoulder and hand */

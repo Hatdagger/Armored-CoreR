@@ -462,15 +462,12 @@ static void draw_aimed(int who, const demo_model *m, acr_pose *pose, Uint64 now,
         fx_rig rig;
         SDL_zero(rig);
         rig.back[0] = -fx_; rig.back[2] = -fz_;
-        float mn[3], mx[3];
-        if (demo_model_part_box(m, pose, 1u << ACR_PART_BOOSTER, 0, ACR_GEN1_MODEL_SCALE, mn, mx)) {
-            const float w = mx[0] - mn[0], cx = (mn[0] + mx[0]) * 0.5f, cy = (mn[1] + mx[1]) * 0.5f;
-            /* wide boosters: a nozzle each side */
-            const float l0[3] = { w > 50.0f ? cx - w * 0.28f : cx, cy, mn[2] + 4.0f };
-            const float l1[3] = { cx + w * 0.28f, cy, mn[2] + 4.0f };
-            rig.nozzles = w > 50.0f ? 2 : 1;
-            TO_WORLD(rig.nozzle[0], l0);
-            if (rig.nozzles == 2) TO_WORLD(rig.nozzle[1], l1);
+        float mn[3], mx[3], nz[4][3];
+        /* a flame on the back of each pod the booster model draws */
+        const int nn = demo_model_part_nozzles(m, pose, 1u << ACR_PART_BOOSTER, ACR_GEN1_MODEL_SCALE, nz, 4);
+        if (nn > 0) {
+            rig.nozzles = nn;
+            for (int q = 0; q < nn; ++q) { nz[q][2] += 2.0f; TO_WORLD(rig.nozzle[q], nz[q]); }
         } else if (demo_model_part_box(m, pose, 1u << ACR_PART_CORE, 0, ACR_GEN1_MODEL_SCALE, mn, mx)) {
             const float l0[3] = { (mn[0] + mx[0]) * 0.5f, mn[1] + (mx[1] - mn[1]) * 0.6f, mn[2] };
             rig.nozzles = 1;     /* no booster piece drawn: the core's back */

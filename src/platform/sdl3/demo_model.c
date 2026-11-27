@@ -314,6 +314,83 @@ int demo_model_part_box(const demo_model *m, const acr_pose *pose, unsigned kind
     return 1;
 }
 
+/* Booster nozzles: each drawn booster piece's back face. Pass 1 boxes each
+ * piece (per node); pass 2 keeps the vertices near the back of their piece
+ * and splits them where there is a gap across (twin pods in one piece). */
+#define NZ_MAX_V 4096
+typedef struct {
+    int pass, nnode, node[8];
+    float mn[8][3], mx[8][3];
+    int cnt[8];
+    int nv; float v[NZ_MAX_V][3]; int vn[NZ_MAX_V];
+} nozzle_ctx;
+static int nz_slot(nozzle_ctx *c, int node) {
+    for (int i = 0; i < c->nnode; ++i) if (c->node[i] == node) return i;
+    if (c->nnode >= 8) return -1;
+    c->node[c->nnode] = node; c->cnt[c->nnode] = 0;
+    return c->nnode++;
+}
+static void nozzle_vertex(void *ctx, int node, const float p[3]) {
+    nozzle_ctx *c = ctx;
+    const int k = nz_slot(c, node);
+    if (k < 0) return;
+    if (c->pass == 0) {
+        for (int a = 0; a < 3; ++a) {
+            if (!c->cnt[k] || p[a] < c->mn[k][a]) c->mn[k][a] = p[a];
+            if (!c->cnt[k] || p[a] > c->mx[k][a]) c->mx[k][a] = p[a];
+        }
+        c->cnt[k]++;
+        return;
+    }
+    const float depth = c->mx[k][2] - c->mn[k][2];
+    const float band = depth * 0.3f > 3.0f ? depth * 0.3f : 3.0f;
+    if (p[2] > c->mn[k][2] + band || c->nv >= NZ_MAX_V) return;
+    memcpy(c->v[c->nv], p, sizeof c->v[0]);
+    c->vn[c->nv++] = k;
+}
+static int cmp_x(const void *a, const void *b) {
+    const float x = ((const float *)a)[0], y = ((const float *)b)[0];
+    return x < y ? -1 : x > y;
+}
+
+int demo_model_part_nozzles(const demo_model *m, const acr_pose *pose, unsigned kinds, float scale,
+                            float out[][3], int max) {
+    static nozzle_ctx c;   /* main thread only */
+    float mat[ACR_SKEL_MAX_NODES][12];
+    SDL_zero(c);
+    if (!each_vertex(m, pose, kinds, scale, mat, nozzle_vertex, &c)) return 0;
+    c.pass = 1;
+    c.nnode = 0;   /* nodes come back in the same order */
+    each_vertex(m, pose, kinds, scale, mat, nozzle_vertex, &c);
+    int n = 0;
+    static float pts[NZ_MAX_V][3];
+    for (int k = 0; k < c.nnode && n < max; ++k) {
+        int np = 0;
+        for (int i = 0; i < c.nv; ++i) if (c.vn[i] == k) memcpy(pts[np++], c.v[i], sizeof pts[0]);
+        if (!np) continue;
+        qsort(pts, (size_t)np, sizeof pts[0], cmp_x);
+        const float width = pts[np - 1][0] - pts[0][0];
+        const float gap_min = width * 0.15f > 6.0f ? width * 0.15f : 6.0f;
+        int start = 0;
+        for (int i = 1; i <= np && n < max; ++i) {
+            if (i < np && pts[i][0] - pts[i - 1][0] < gap_min) continue;
+            float mn[3] = { pts[start][0], pts[start][1], pts[start][2] }, mx[3] = { mn[0], mn[1], mn[2] };
+            for (int j = start; j < i; ++j)
+                for (int a = 0; a < 3; ++a) { if (pts[j][a] < mn[a]) mn[a] = pts[j][a]; if (pts[j][a] > mx[a]) mx[a] = pts[j][a]; }
+            out[n][0] = (mn[0] + mx[0]) * 0.5f;
+            out[n][1] = (mn[1] + mx[1]) * 0.5f;
+            out[n][2] = mn[2];
+            /* the same spot twice (pieces drawn over each other): keep one */
+            int dup = 0;
+            for (int q = 0; q < n; ++q)
+                if (fabsf(out[q][0] - out[n][0]) < 4.0f && fabsf(out[q][1] - out[n][1]) < 4.0f) dup = 1;
+            if (!dup) ++n;
+            start = i;
+        }
+    }
+    return n;
+}
+
 typedef struct { int side, n; float root[3], tip[3], best; } reach_ctx;
 static void reach_vertex(void *c, int node, const float p[3]) {
     (void)node;
