@@ -4132,15 +4132,39 @@ int main(int argc, char **argv) {
                     for (int c = 0; c < 3; ++c) cam_look[view][c] += (look[c] - cam_look[view][c]) * kl;
                 }
                 if (g_stage_on) {
-                    /* The eased eye's box (60 every way) pushed out again
-                     * (0x80088070), then above the floor under it. */
-                    cam_push_out(&g_stage.collision, cam_eye[view], 60, 60);
-                    /* Above the floor under the eye (the fight's y is down). */
-                    int32_t fy;
-                    if (acr_gen1_stage_floor(&g_stage.collision, (int32_t)cam_eye[view][0], (int32_t)cam_eye[view][2],
-                                             (int32_t)-cam_eye[view][1] - 400, &fy) &&
-                        cam_eye[view][1] < (float)-fy + 100.0f)
+                    const acr_gen1_stage *cs = &g_stage.collision;
+                    const float follow[3] = { px, py + pivot, pz };
+                    /* The eased eye can cut a corner through a roof or wall
+                     * (it trails the clipped spot): pulled in toward the AC
+                     * again, then its box (60 every way) pushed out
+                     * (0x80088070). */
+                    {
+                        const int32_t a[3] = { (int32_t)follow[0], (int32_t)-follow[1], (int32_t)follow[2] },
+                                      b[3] = { (int32_t)cam_eye[view][0], (int32_t)-cam_eye[view][1],
+                                               (int32_t)cam_eye[view][2] };
+                        int32_t t;
+                        if (acr_gen1_stage_segment(cs, a, b, &t)) {
+                            const float f = (float)(t > 40 ? t - 40 : 0) / 1024.0f;
+                            for (int c = 0; c < 3; ++c)
+                                cam_eye[view][c] = follow[c] + (cam_eye[view][c] - follow[c]) * f;
+                        }
+                    }
+                    cam_push_out(cs, cam_eye[view], 60, 60);
+                    /* Between the floor and the ceiling over the eye (the
+                     * fight's y is down). Both are looked for from the AC's
+                     * height, not the eye's: from the eye, a roof less than
+                     * 400 over it was taken for the floor and the camera was
+                     * lifted through it. */
+                    const int32_t ex = (int32_t)cam_eye[view][0], ez = (int32_t)cam_eye[view][2],
+                                  fol = (int32_t)-follow[1];
+                    int32_t fy, cy;
+                    const int has_floor = acr_gen1_stage_floor(cs, ex, ez, fol, &fy);
+                    const int has_ceil = acr_gen1_stage_ceiling(cs, ex, ez, fol, &cy);
+                    if (has_floor && cam_eye[view][1] < (float)-fy + 100.0f)
                         cam_eye[view][1] = (float)-fy + 100.0f;
+                    if (has_ceil && cam_eye[view][1] > (float)-cy - 60.0f &&
+                        (!has_floor || cy + 60 < fy - 100))
+                        cam_eye[view][1] = (float)-cy - 60.0f;
                 } else if (cam_eye[view][1] < 100.0f) cam_eye[view][1] = 100.0f;
                 for (int c = 0; c < 3; ++c) { eye[c] = cam_eye[view][c]; look[c] = cam_look[view][c]; sky_eye[c] = eye[c]; }
             }
