@@ -244,7 +244,7 @@ static void write_fcs(FILE *f, const uint8_t *rec) {
     field(f, "lock_area", rec[0x2D], "garage label only: 0 standard, 1 sideway, 2 lengthway, 3 wide, 4 narrow");
     for (int k = 0; k < 4; ++k) {
         const uint8_t *g = rec + 0x2E + 12 * k;
-        fprintf(f, "lock_class_%d   = [%u, %u, %u, %u, %u, %u]   # range, box w, h, inner w, h, lock time\n", k,
+        fprintf(f, "lock_class_%d   = [%u, %u, %u, %u, %u, %u]   # range, box: pitch, yaw, inner pitch, yaw, lock value\n", k,
                 (unsigned)u16(g), (unsigned)u16(g + 2), (unsigned)u16(g + 4), (unsigned)u16(g + 6),
                 (unsigned)u16(g + 8), (unsigned)u16(g + 10));
     }

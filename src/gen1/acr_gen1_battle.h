@@ -39,11 +39,12 @@ typedef struct acr_gen1_weapon {
     uint16_t ammo;          /* 0 = unlimited (blade) */
     uint16_t ammo_price;    /* per round (detail +0xC): the mission report's ammunition bill */
     uint8_t  solid;         /* damage flag 0x10: only these are billed for ammunition */
-    int32_t  range;         /* world units, already capped by the FCS; blade: reach */
+    int32_t  range;         /* world units: how far the shots fly (slot +22, not capped by the FCS); blade: reach */
     uint8_t  energy;        /* energy damage (else shell) */
     uint16_t lock_ms;       /* guns: non-zero = locks on (the time itself comes from the FCS
                              * value, the target's speed and distance: see gun lock below) */
-    uint16_t box_w, box_h;  /* FCS outer lock box: angles off the facing / view tilt, 4096 a turn */
+    uint16_t box_w, box_h;  /* FCS outer lock box: angles off the facing (w, yaw) / view tilt (h, pitch),
+                             * 4096 a turn. The FCS group lists h first (slot +24 pitch, +26 yaw) */
     uint16_t interval;      /* refire wait after a shot or the last volley, in ticks (detail +0x11);
                              * guns fire every interval + 1 ticks (see ACR_GEN1_STAGGER_* below) */
     uint8_t  impact;        /* knockback (detail +0x16, blade +0x32): see acr_gen1_knockback_level */
@@ -60,7 +61,8 @@ typedef struct acr_gen1_weapon {
     uint8_t  aim_table;
     uint8_t  aim_y;
     uint8_t  mount;         /* ACR_GEN1_MOUNT_*: which part the shots leave from */
-    int32_t  lock_range;    /* FCS class range: how far the sight looks (0 = range) */
+    int32_t  lock_range;    /* how far the sight looks: the smaller of the FCS class range and
+                             * range (slot +20; 0 = range) */
     /* Missiles */
     uint16_t inner_w, inner_h;  /* FCS inner box (angles): where a lock can start; guns hold one only here */
     uint8_t  lock_value;    /* FCS class value. Missiles: the cursor moves value x 3 / 16 a tick;
@@ -132,6 +134,12 @@ typedef struct acr_gen1_fighter {
     uint8_t  locks;                            /* locks held on the target */
     uint8_t  lock_count;                       /* ticks with the cursor on the target */
     int16_t  cursor_yaw, cursor_pitch;         /* lock cursor, relative to the view (+0x20 / +0x22) */
+    /* Lock tones (presentation; the sim never reads them): `tones` goes up by
+     * one each time the game would play its lock build-up beep, sound 46
+     * (guns: every other tick while the target is in the sight but not locked,
+     * VS 0x800804BC) or 47 (missiles: every fourth tick while the cursor works
+     * toward a lock, VS 0x80080638). tone_tick paces them. */
+    uint8_t  tone_tick, tones;
     uint8_t  volley_ticks;                     /* AC +0x47: volleys left x 4, counting down */
     /* Blade */
     uint16_t swing;                            /* ms into the swing, 0 = not swinging */

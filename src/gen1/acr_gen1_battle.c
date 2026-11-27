@@ -223,8 +223,16 @@ static int in_box_of(const acr_gen1_battle *b, int i, int t, int32_t range, uint
     if (b->f[i].modern && !b->f[i].hard_lock) return 0;
     const unsigned pct = b->f[i].modern ? MT(b, box_pct, BOX_PCT) : 100u;
     int32_t ay, ap;
-    const uint32_t dist = sight_angles_to(b, i, t, &ay, &ap);
-    if (dist > (uint32_t)range) return 0;
+    (void)sight_angles_to(b, i, t, &ay, &ap);
+    {   /* The sweep's range test (VS 0x80078360-0x800783B8): each axis within
+         * the range, then the flat distance (x and z only): a lock reaches as
+         * far up or down as it does across. */
+        int32_t m[3];
+        muzzle_at(b, i, m);
+        const int64_t dx = (tv.x - m[0]) / 64, dy = (tv.y - tv.up - m[1]) / 64, dz = (tv.z - m[2]) / 64;
+        if (dx > range || dx < -range || dy > range || dy < -range || dz > range || dz < -range ||
+            dx * dx + dz * dz > (int64_t)range * range) return 0;
+    }
     if (pct != 100u) {
         box_w = (uint16_t)(box_w * pct / 100u);
         box_h = (uint16_t)(box_h * pct / 100u);
@@ -795,12 +803,14 @@ static void missile_lock_tick(acr_gen1_battle *b, int i, const acr_gen1_weapon *
         f->locks = 0;
         f->lock_count = 0;
         f->cursor_yaw = f->cursor_pitch = 0;
+        f->tone_tick = 0;
         return;
     }
     unsigned cap = w->max_locks ? w->max_locks : 1;
     if (cap > ammo) cap = ammo;
     if (cap > ACR_GEN1_MAX_LOCKS) cap = ACR_GEN1_MAX_LOCKS;
-    if (f->locks >= cap) return;
+    if (f->locks >= cap) { f->tone_tick = 0; return; }
+    if (!(f->tone_tick++ & 3)) ++f->tones;                 /* the locking beep, every 4th tick */
     uint16_t tyaw;
     int16_t tpitch;
     dir_of((t->x - f->ac.x) / 64, (t->y - f->ac.y) / 64, (t->z - f->ac.z) / 64, &tyaw, &tpitch);
@@ -1057,7 +1067,13 @@ static void fighter_step(acr_gen1_battle *b, int i, acr_gen1_actions a, int tick
     const acr_gen1_weapon *w = &f->weapon[f->current];
     if (w->kind == ACR_GEN1_MISSILE) { f->locked = f->locks > 0; return; }
 
-    for (int t = 0; t < ticks; ++t) gun_lock_tick(b, i, w);
+    for (int t = 0; t < ticks; ++t) {
+        gun_lock_tick(b, i, w);
+        /* The build-up beep: in the sight, not locked yet (VS 0x800804A4). */
+        if (!f->locked && w->lock_ms && !w->straight && acr_gen1_in_lock_box(b, i, w)) {
+            if (!(f->tone_tick++ & 1)) ++f->tones;
+        } else f->tone_tick = 0;
+    }
 
     if (!a.fire || f->cooldown || f->hold_left) return;
     if (w->ammo && !f->ammo[f->current]) return;

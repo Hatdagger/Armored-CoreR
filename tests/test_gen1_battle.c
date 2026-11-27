@@ -94,6 +94,27 @@ int main(void) {
     setup(&b, 3000);
     for (int i = 0; i < 2; ++i) { b.f[i].weapons = 1; b.f[i].weapon[0] = rifle(); b.f[i].ammo[0] = 200; }
     EXPECT(acr_gen1_in_lock_box(&b, 0, &b.f[0].weapon[0]));
+    {   /* Lock feel pass (docs/feel/lockon.md). Box axes: w bounds the yaw,
+         * h the pitch. A target ~15 degrees to the side (~170 units). */
+        acr_gen1_weapon *w = &b.f[0].weapon[0];
+        const int32_t x = b.f[1].ac.x;
+        b.f[1].ac.x += 800 * 64;
+        w->box_w = 100; w->box_h = 300;
+        EXPECT(!acr_gen1_in_lock_box(&b, 0, w));
+        w->box_w = 300; w->box_h = 100;
+        EXPECT(acr_gen1_in_lock_box(&b, 0, w));
+        b.f[1].ac.x = x;
+        *w = rifle();
+        /* Range: the sweep's flat distance against lock_range. */
+        const int32_t z = b.f[1].ac.z, z0 = b.f[0].ac.z;
+        w->lock_range = 6100;
+        b.f[1].ac.z = z0 + (z > z0 ? 1 : -1) * 6000 * 64;
+        EXPECT(acr_gen1_in_lock_box(&b, 0, w));
+        b.f[1].ac.z = z0 + (z > z0 ? 1 : -1) * 6200 * 64;
+        EXPECT(!acr_gen1_in_lock_box(&b, 0, w));
+        b.f[1].ac.z = z;
+        *w = rifle();
+    }
     /* View tilt (L2/R2): a target high above locks only when looking up. */
     {
         const int32_t y = b.f[1].ac.y;
@@ -343,6 +364,12 @@ int main(void) {
         mb.f[0].weapons = 1; mb.f[0].weapon[0] = small_missile(); mb.f[0].ammo[0] = 40;
         for (int k = 0; k < 120; ++k) acr_gen1_battle_step(&mb, none, idle);
         EXPECT(mb.f[0].locks == 4);
+        {   /* the locking beep (sound 47) ran while locking, and stops at the cap */
+            const uint8_t tones = mb.f[0].tones;
+            EXPECT(tones > 4);
+            for (int k = 0; k < 10; ++k) acr_gen1_battle_step(&mb, none, idle);
+            EXPECT(mb.f[0].tones == tones);
+        }
         for (int k = 0; k < 20; ++k) acr_gen1_battle_step(&mb, none, k == 0 ? fire : idle);
         EXPECT(mb.f[0].ammo[0] == 36 && mb.f[0].locks == 0);
         /* A target well off to the side never starts a lock. */

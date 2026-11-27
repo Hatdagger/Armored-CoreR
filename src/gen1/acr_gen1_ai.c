@@ -222,7 +222,7 @@ void acr_gen1_ai_look(const acr_gen1_battle *b, int me, int32_t arena_half, acr_
         const acr_gen1_weapon *w = &f->weapon[k];
         v->kind[k] = w->kind;
         v->ammo[k] = w->ammo ? f->ammo[k] : 0xFFFF;
-        v->range[k] = w->range;
+        v->range[k] = w->lock_range && w->lock_range < w->range ? w->lock_range : w->range;   /* where it can lock */
         v->stance[k] = w->stance;
         v->max_locks[k] = w->max_locks ? w->max_locks : 1;
         if (w->kind == ACR_GEN1_BLADE) { v->blade = (int8_t)k; v->blade_drain = w->charge_drain; }

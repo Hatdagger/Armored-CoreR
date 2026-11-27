@@ -374,12 +374,20 @@ int demo_load(const char *import_dir, const int parts[SLOT_COUNT], demo_ac *out,
         acr_gen1_weapon *w = &out->weapon[i];
         if (w->kind == ACR_GEN1_BLADE || !w->box_w) { w->box_w = 0; w->lock_ms = 0; continue; }
         const int cls = w->box_w - 1;
-        if (fcs[cls][0] && w->range > fcs[cls][0]) w->range = (int32_t)fcs[cls][0];
-        w->lock_range = (int32_t)fcs[cls][0];   /* the sight looks out to the FCS's range */
-        w->box_w = (uint16_t)fcs[cls][1];
-        w->box_h = (uint16_t)fcs[cls][2];
-        w->inner_w = (uint16_t)fcs[cls][3];
-        w->inner_h = (uint16_t)fcs[cls][4];
+        /* Lock range = weapon slot +20, the smaller of the FCS class range
+         * and the weapon's own; the shots keep the weapon's range (slot +22,
+         * passed to the shot spawners in VS 0x800812D4 / 0x8008138C), so a
+         * rifle on the COMDEX-C7 locks to 6,100 but its shots fly 8,500
+         * (menu compile 0x800A8C88-0x800A8CC8; docs/feel/lockon.md). */
+        w->lock_range = fcs[cls][0] && fcs[cls][0] < w->range ? (int32_t)fcs[cls][0] : w->range;
+        /* The FCS group's first box value bounds the pitch, the second the
+         * yaw (compile copies +2..+8 to slot +24..+30; the sight sweep VS
+         * 0x80078230 tests the pitch against slot +24 / +28 and the yaw
+         * against +26 / +30). box_w / inner_w are the yaw (left / right). */
+        w->box_h = (uint16_t)fcs[cls][1];
+        w->box_w = (uint16_t)fcs[cls][2];
+        w->inner_h = (uint16_t)fcs[cls][3];
+        w->inner_w = (uint16_t)fcs[cls][4];
         /* Guns: lock time from the FCS value, the target's speed and
          * distance (VS 0x800800E4, see acr_gen1_battle.h). Missiles: cursor
          * speed and ticks per lock from the FCS value (VS 0x80080638). */
@@ -464,7 +472,8 @@ static void read_perf(int category, const char *t, const char *e, acr_gen1_perf_
     case ACR_GEN1_CAT_FCS: {
         static const char *const k_class[4] = { "lock_class_0", "lock_class_1", "lock_class_2", "lock_class_3" };
         q->max_locks = (uint8_t)get_int(t, e, "max_locks", list_at(t, e, "raw", 4, 0));
-        /* each lock class: range, box w, h, inner w, h, lock time (raw words 5 + 6k ...) */
+        /* each lock class: range, box pitch, yaw, inner pitch, yaw, lock value (raw words 5 + 6k ...);
+         * the garage page's lock_w / lock_h keep the file's order (only summed) */
         q->fcs_range = (uint16_t)list_at(t, e, k_class[0], 0, list_at(t, e, "raw", 5, 0));
         q->lock_time = (int16_t)list_at(t, e, k_class[0], 5, list_at(t, e, "raw", 10, 0));
         for (int k = 0; k < 4; ++k) {
