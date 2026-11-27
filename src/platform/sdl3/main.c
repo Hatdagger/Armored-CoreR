@@ -610,6 +610,49 @@ static const char *g_import_dir = "";
  * 0-40 to start on (0-19 are the mission maps); ACR_STAGE=open (or -1)
  * starts on the open floor. */
 static demo_stage g_stage;
+
+/* ---- The fight camera (docs/feel/camera.md). Disc values, VS FDAT 209 and
+ * missions FDAT 207 alike: stat +0x36 camera distance 650 (eye at half of it),
+ * +0x38 height 40, +0x3C smoothing shift 2; follow point = AC y - height +
+ * height / 8 (186 up on a 212 body); look-at 650 / 8 ahead. ---- */
+#define CAM_DIST_HALF   325.0f   /* 650 / 2 behind the follow point */
+#define CAM_PIVOT       186.0f   /* follow point above the feet */
+#define CAM_LOOK_AHEAD   82.0f   /* 650 / 8 (81.25; measured 82) */
+#define CAM_FLOOR_GAP   100.0f   /* the eye box's half height (0x80087DCC: +-100) */
+/* Steady trailing as on the disc: the eye moves a quarter of the way a Gen 1
+ * tick, which trails a target moving v a tick by 3v; the look-at point half,
+ * trailing by v. As a per-second rate that gives the same trailing at any
+ * frame rate: 22 / 3 and 22 a second. */
+#define CAM_EYE_RATE   (22.0f / 3.0f)
+#define CAM_LOOK_RATE  22.0f
+
+/* The eye's box pushed out of the stage (0x800758F0, up to 6 tries, mask 5):
+ * `half` either side across, `up` above and below. Render coords (y up). */
+static void cam_push_out(const acr_gen1_stage *st, float eye[3], int32_t half, int32_t up) {
+    for (int i = 0; i < 6; ++i) {
+        /* the box's bottom (the stage's y is down) `up` below the eye */
+        const int32_t bottom[3] = { (int32_t)eye[0], (int32_t)-eye[1] + up, (int32_t)eye[2] };
+        int32_t step[3] = { 0, 0, 0 };
+        if (!acr_gen1_stage_try(st, bottom, step, half, 2 * up, ACR_GEN1_STAGE_AC_MASK)) break;
+        if (!step[0] && !step[1] && !step[2]) break;
+        eye[0] += (float)step[0]; eye[1] -= (float)step[1]; eye[2] += (float)step[2];
+    }
+}
+
+/* The eye's spot kept on the AC's side of walls and ceilings (0x80087B90):
+ * the line from the follow point to the spot stops at the first polygon
+ * (0x80074FA4), then the eye's box (60 across, 100 up and down) is pushed
+ * out. Render coords. */
+static void cam_clip(const acr_gen1_stage *st, const float follow[3], float eye[3]) {
+    const int32_t a[3] = { (int32_t)follow[0], (int32_t)-follow[1], (int32_t)follow[2] },
+                  b[3] = { (int32_t)eye[0], (int32_t)-eye[1], (int32_t)eye[2] };
+    int32_t t;
+    if (acr_gen1_stage_segment(st, a, b, &t)) {
+        const float f = (float)t / 1024.0f;
+        for (int c = 0; c < 3; ++c) eye[c] = follow[c] + (eye[c] - follow[c]) * f;
+    }
+    cam_push_out(st, eye, 60, 100);
+}
 static int g_stage_id = 27, g_stage_on = 0;
 /* On a mission map (0-19), its mission units where the map's objects stand
  * (drawn only: their mission code isn't read yet). Loaded when first drawn. */
@@ -2909,10 +2952,12 @@ int main(int argc, char **argv) {
             if (th_units < -ACR_GEN1_CAM_PITCH_MAX) th_units = -ACR_GEN1_CAM_PITCH_MAX;
             const float th = th_units * (6.2831853f / 4096.0f);
             const float cyaw = yaw + cam_y * (6.2831853f / 4096.0f);
-            const float fx = sinf(cyaw), fz = cosf(cyaw), pivot = 186.0f;
-            const float lo = 82.0f * cosf(th), lu = pivot + 82.0f * sinf(th);
+            const float fx = sinf(cyaw), fz = cosf(cyaw), pivot = CAM_PIVOT;
+            const float lo = CAM_LOOK_AHEAD * cosf(th), lu = pivot + CAM_LOOK_AHEAD * sinf(th);
+            /* 325 back and 40 up from the follow point = 328 at 7.5 degrees */
+            const float base = sqrtf(CAM_DIST_HALF * CAM_DIST_HALF + 40.0f * 40.0f);
             const float phi = 0.1309f - th, down = th < 0 ? -th / 1.1519f : 0.0f;
-            float eb = (328.0f + 37.0f * down) * cosf(phi), eu = (328.0f + 37.0f * down) * sinf(phi);
+            float eb = (base + 37.0f * down) * cosf(phi), eu = (base + 37.0f * down) * sinf(phi);
             if (pivot + eu < 100.0f && eu < 0) { const float t = (pivot - 100.0f) / -eu; eb *= sqrtf(t); eu *= t; }
             /* The game's chase camera eases toward its spot a quarter of the
              * way each Gen 1 tick (camera +0x0E = 2, from stat +0x3C; AC1Recomp
@@ -2924,6 +2969,10 @@ int main(int argc, char **argv) {
             static Uint64 cam_ns[2];
             float eye[3] = { px - fx * eb, py + pivot + eu, pz - fz * eb };
             float look[3] = { px + fx * lo, py + lu, pz + fz * lo };
+            if (g_stage_on) {   /* walls and ceilings: the spot stays on the AC's side */
+                const float follow[3] = { px, py + pivot, pz };
+                cam_clip(&g_stage.collision, follow, eye);
+            }
             {
                 const Uint64 now_ns = SDL_GetTicksNS();
                 const float dt = cam_ok[view] ? (float)(now_ns - cam_ns[view]) / 1e9f : 0.0f;
@@ -2935,11 +2984,14 @@ int main(int argc, char **argv) {
                 } else {
                     /* The eye moves a quarter of the way a tick (camera
                      * +0x0E = 2) and the look-at point half (VS 0x80087B90). */
-                    const float k = 1.0f - powf(0.75f, 22.0f * dt), kl = 1.0f - powf(0.5f, 22.0f * dt);
+                    const float k = 1.0f - expf(-CAM_EYE_RATE * dt), kl = 1.0f - expf(-CAM_LOOK_RATE * dt);
                     cam_eye[view][0] += ex * k; cam_eye[view][1] += ey * k; cam_eye[view][2] += ez * k;
                     for (int c = 0; c < 3; ++c) cam_look[view][c] += (look[c] - cam_look[view][c]) * kl;
                 }
                 if (g_stage_on) {
+                    /* The eased eye's box (60 every way) pushed out again
+                     * (0x80088070), then above the floor under it. */
+                    cam_push_out(&g_stage.collision, cam_eye[view], 60, 60);
                     /* Above the floor under the eye (the fight's y is down). */
                     int32_t fy;
                     if (acr_gen1_stage_floor(&g_stage.collision, (int32_t)cam_eye[view][0], (int32_t)cam_eye[view][2],
