@@ -60,7 +60,7 @@ typedef struct garage_ui {
     int xmb_col, xmb_row;
     float xmb_pos, xmb_rpos;
     int xmb_hold_ms;
-    int arena_row;              /* GC_ARENA: the arena list's row to open on */
+    int arena_row;              /* GC_ARENA: -1 the whole list, else the hub entry (arena_open_at) */
     int specs_open;             /* ASSEMBLE: the specs window (Y / Triangle) */
     int slot_run;               /* ASSEMBLE: the slot cursor without wrapping (slot = slot_run mod rows) */
     float slot_pos;             /* ASSEMBLE: where the slot list's slide is (eased towards slot_run) */

@@ -367,8 +367,8 @@ static garage_command choose(garage_ui *ui, garage_data *d, int id, int *err) {
             return GC_NONE;
         case M_SHOP: ui->screen = 2; ui->confirm = 0; ui->shop = ui->shop_top = 0; return GC_NONE;
         case M_ROGUE: return GC_ROGUE;
-        case M_ARENA: ui->arena_row = 0; return GC_ARENA;
-        /* the arena list's rows: Phantasma, MoA SUB-ARENA, MoA, then the Ex Arenas (arena.c) */
+        case M_ARENA: ui->arena_row = -1; return GC_ARENA;   /* the whole list */
+        /* the hub's arena entries open their own arena (arena_open_at): Phantasma, MoA SUB-ARENA, MoA ladders, then the Ex Arenas list */
         case M_AR_PP: ui->arena_row = 0; return GC_ARENA;
         case M_AR_MOA_SUB: ui->arena_row = 1; return GC_ARENA;
         case M_AR_MOA: ui->arena_row = 2; return GC_ARENA;
