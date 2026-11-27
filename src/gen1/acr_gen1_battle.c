@@ -410,8 +410,25 @@ static void stagger_hit(acr_gen1_battle *b, int target, uint8_t impact, int64_t 
     if (!len) { t->knock_x = t->knock_z = 0; return; }
     int64_t k = (int64_t)impact * ACR_GEN1_KNOCK_PER_IMPACT;
     if (k > ACR_GEN1_KNOCK_MAX) k = ACR_GEN1_KNOCK_MAX;
-    t->knock_x = (int32_t)(dx * k / len);
-    t->knock_z = (int32_t)(dz * k / len);
+    /* The push is added to the AC's velocity (0x800826DC / 0x800827AC).
+     * On the ground (stun state 0x80) 0x8007BC6C then zeroes the vertical
+     * speed and takes 128 off the horizontal speed once; the stun handler
+     * (0x8007FECC) leaves the velocity alone while the stun counts down,
+     * then the ground rules take over. In the air (0x81) the air rules go
+     * on with the push added. */
+    acr_gen1_ac *ac = &t->ac;
+    ac->vx += (int32_t)(dx * k / len);
+    ac->vz += (int32_t)(dz * k / len);
+    if (ac->state != ACR_GEN1_AIR) {
+        ac->vy = 0;
+        const int64_t sp = isqrt64((uint64_t)((int64_t)ac->vx * ac->vx + (int64_t)ac->vz * ac->vz));
+        if (sp <= 128) ac->vx = ac->vz = 0;
+        else {
+            ac->vx = (int32_t)(ac->vx * (sp - 128) / sp);
+            ac->vz = (int32_t)(ac->vz * (sp - 128) / sp);
+        }
+    }
+    t->knock_x = t->knock_z = 0;
 }
 
 /* Blade lunge distance per Gen 1 tick from ACR_GEN1_BLADE_LUNGE_MS (measured: 516 in all). */
@@ -1364,19 +1381,14 @@ void acr_gen1_battle_step(acr_gen1_battle *b, const acr_gen1_input in[], const a
             use.move = use.strafe = use.boost = use.boost_tapped = 0;
         }
         if (f->stagger) {                      /* hit stagger: the pilot has no say */
+            use.stun = 1;
             use.move = use.strafe = use.turn = 0;
             use.boost = use.boost_tapped = use.cruise = use.quick = use.crouch = 0;
         }
         f->used = use;
         acr_gen1_ac_advance(&f->ac, f->def, use, ticks, num, den);
-        for (int t = 0; t < ticks; ++t) {      /* the push away from the hit, halving each tick */
-            if (f->knock_x || f->knock_z) {
-                acr_gen1_ac_shift(&f->ac, f->knock_x, f->knock_z);
-                f->knock_x /= 2;
-                f->knock_z /= 2;
-            }
+        for (int t = 0; t < ticks; ++t)        /* the push is in the velocity (stagger_hit) */
             if (f->stagger) --f->stagger;
-        }
     }
     acr_gen1_battle_retarget_acts(b, act);
     for (int i = 0; i < n; ++i) fighter_step(b, i, act[i], ticks);

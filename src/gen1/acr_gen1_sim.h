@@ -57,6 +57,9 @@ typedef struct acr_gen1_input {
      * is zero (0x8003EA48), so an air slash hangs until the swing ends. */
     uint8_t swing;
     uint8_t swing_fwd;
+    /* Hit stun on the ground (set by the battle; VS 0x8007FECC): the
+     * velocity, the hit's push included, is kept as it is. */
+    uint8_t stun;
     /* Modern controls only (SP-MODERN; always 0 with the original pad): */
     uint8_t cruise;   /* the boost toggle is on: the only ground boost, faster than walking
                          (ACR_GEN1_CRUISE_PCT); also lets the booster rise */
