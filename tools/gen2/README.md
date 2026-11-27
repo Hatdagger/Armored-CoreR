@@ -20,3 +20,6 @@ Needs numpy and Pillow, plus matplotlib for `render.py`. `weapons.py` also needs
 | `gltf.py OUT.glb [cat=N ...]` | Exports an assembled, textured AC as binary glTF (default = PR #64 test AC) |
 | `catalogue.py F_FOLDER OUT.json` | Reads every JOIN package from one stitched stream (needed for Another Age, whose file IDs drift) |
 | `cls.py`, `fp.py`, `scan.py`, `hd.py` | First-pass fingerprinting and a hex dump |
+
+## split_bin.py
+Splits AC2DATA.BIN / AC25DATA.BIN (or the .iso) into per-ID files with the 32 KB offset fixed. Detects the shift from JOIN/model headers, writes `split/<group>/NNNNN.bin` next to the rip, and checks every shop package name record. Run: `python split_bin.py [PATH]`.
