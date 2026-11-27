@@ -53,5 +53,6 @@ void missions_settle_other(acr_gen1_hangar *h, int result, int32_t ap_left, int3
 
 /* The record of missions played, as the save file keeps it. */
 acr_gen1_mission_record *missions_record(void);
+void missions_swap_record(void);   /* split screen: player 1's / player 2's record */
 
 #endif

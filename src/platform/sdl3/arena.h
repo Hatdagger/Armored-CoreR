@@ -57,6 +57,8 @@ int32_t arena_round_ms(void);
 /* The fight is over: 1 won, 2 lost, 3 draw (a loss). Books the result and
  * pays a win into the garage; 1 = the garage changed (save it). */
 int arena_fight_over(int result);
-void arena_pay_other(acr_gen1_hangar *h);
+void arena_result_other(acr_gen1_hangar *h, int result);   /* with player 2's ladder swapped in */
+void arena_swap_player(void);    /* split screen: player 1's / player 2's ladder */
+void arena_reset_ladder(void);   /* a new game's ladder (player 2's new save) */
 
 #endif

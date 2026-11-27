@@ -49,6 +49,11 @@ static struct {
 
 static acr_gen1_mission_record g_record;
 acr_gen1_mission_record *missions_record(void) { return &g_record; }
+static acr_gen1_mission_record g_record_other;   /* split screen: the other player's */
+void missions_swap_record(void) {
+    const acr_gen1_mission_record t = g_record;
+    g_record = g_record_other; g_record_other = t;
+}
 
 static void say(const char *t) {
     SDL_strlcpy(M.message, t, sizeof M.message);
@@ -242,6 +247,7 @@ void missions_settle_other(acr_gen1_hangar *h, int result, int32_t ap_left, int3
     acr_gen1_mission_report rep;
     SDL_zero(rep);
     acr_gen1_mission_settle(h, &rep, result == 1, m->reward, bonus ? m->bonus : 0, ammo_cost, repair, 0);
+    acr_gen1_mission_book(&g_record, m->id, result == 1);   /* player 2's record (swapped in) */
 }
 
 /* ---- input ---- */

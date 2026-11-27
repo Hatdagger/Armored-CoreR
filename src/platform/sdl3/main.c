@@ -1002,8 +1002,8 @@ static int hangar_save(void) {
     save_path(path, sizeof path);
     size_t n = acr_gen1_save_write(&g_hangar, text, sizeof text);
     static char text_arena[32768];
-    if (n < sizeof text && !g_save_slot) n += acr_gen1_mission_record_write(missions_record(), text + n, sizeof text - n);
-    if (!g_save_slot && n + sizeof ARENA_MARK < sizeof text) {
+    if (n < sizeof text) n += acr_gen1_mission_record_write(missions_record(), text + n, sizeof text - n);
+    if (n + sizeof ARENA_MARK < sizeof text) {
         const size_t an = arena_write_text(text_arena, sizeof text_arena);
         if (an < sizeof text_arena && n + sizeof ARENA_MARK + an < sizeof text) {
             memcpy(text + n, ARENA_MARK, sizeof ARENA_MARK - 1); n += sizeof ARENA_MARK - 1;
@@ -1022,7 +1022,7 @@ static int hangar_load(void) {
     if (arena_part) *arena_part = 0;
     acr_gen1_hangar h;
     const int ok = text && acr_gen1_save_read(&h, text);
-    if (ok && !g_save_slot) {
+    if (ok) {
         memset(missions_record(), 0, sizeof *missions_record());
         acr_gen1_mission_record_read(missions_record(), text);
         if (arena_part) arena_read_text(arena_part + sizeof ARENA_MARK - 1);   /* the save's arena ranks */
@@ -1045,11 +1045,15 @@ static void p2_swap(void) {
     const acr_gen1_hangar t = g_hangar;
     g_hangar = g_hangar2; g_hangar2 = t;
     g_save_slot ^= 1;
+    missions_swap_record();   /* each save's own missions record and arena ladder */
+    arena_swap_player();
 }
 /* Loads player 2's save the first time (a new game for them if none). */
 static void p2_ensure(void) {
     if (g_hangar2_ok) return;
     p2_swap();
+    memset(missions_record(), 0, sizeof *missions_record());   /* a save without them starts fresh */
+    arena_reset_ladder();
     if (!hangar_load()) {
         hangar_fresh();
         SDL_strlcpy(g_hangar.pilot_name, "PLAYER 2", sizeof g_hangar.pilot_name);
@@ -2464,7 +2468,7 @@ int main(int argc, char **argv) {
                     if (was_mission_)
                         missions_settle_other(&g_hangar, res2_, g_split_left[1] ? g_split_quit_ap[1] : battle.f[1].ap,
                                               battle.f[1].ap_max, acr_gen1_mission_ammo_cost(&battle.f[1]), bonus_);
-                    else if (res2_ == 1) arena_pay_other(&g_hangar);
+                    else arena_result_other(&g_hangar, res2_);
                     hangar_save();
                     p2_swap();
                     SDL_Log("split screen co-op: player 2 %s", res2_ == 1 ? "won" : "lost");
