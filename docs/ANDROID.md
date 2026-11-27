@@ -29,6 +29,26 @@ A newer APK installs over the old one and keeps the import and the saves
 (each build is signed with the same test key, `android/test.keystore`).
 Uninstalling the app deletes them.
 
+## Updating from inside the app
+
+**SYSTEM > SETTINGS > UPDATES** (only in the Android app). Opening the page
+checks GitHub; if there is a newer build, pick **DOWNLOAD AND INSTALL** and
+confirm on Android's own install screen. The import and the saves are kept.
+
+- The first time, Android sends you to "Install unknown apps" for
+  Armored-CoreR: switch it on, come back, press A again.
+- Builds come from the **android-latest** release
+  (`https://github.com/Hatdagger/Armored-CoreR/releases/tag/android-latest`),
+  which every push to `main` replaces with its APK and a `version.txt`
+  (build number, commit, date). A release needs no GitHub sign-in, so the
+  same page can be opened in the tablet's browser to install by hand.
+- Builds from other branches (pull requests) are only in the Actions tab.
+  If one of those is installed and has a higher build number, the page says
+  it is newer than the release and offers nothing.
+- The app's code for it: `android/app/src/main/java/.../Updater.java`
+  (download straight into an Android install session) and
+  `src/platform/sdl3/update.c` (the page, over JNI).
+
 ## How it works
 
 - **Renderer**: Android has OpenGL ES, not desktop OpenGL, so

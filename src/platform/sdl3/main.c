@@ -56,6 +56,7 @@
 #include "missions.h"
 #include "controls.h"
 #include "settings.h"
+#include "update.h"
 #include "battle_hud.h"
 #include "fx.h"
 #include "sfx.h"
@@ -492,6 +493,7 @@ static int next_part(const char *dir, int parts[SLOT_COUNT], int slot, demo_ac *
 #define MODE_ARENA      12
 #define MODE_MISSIONS   13
 #define MODE_SETTINGS   14
+#define MODE_UPDATE     15   /* SETTINGS > UPDATES (Android) */
 static int g_ai_mode = 0;
 static acr_gen1_ai_profile g_rogue_prof;
 static int g_plus2 = 0;                  /* the opponent's Human PLUS level (Rogue Arena) */
@@ -1146,6 +1148,8 @@ int main(int argc, char **argv) {
     controls_open(&cui);
     settings_ui sui;
     settings_open(&sui, 0);
+    update_ui uui;
+    memset(&uui, 0, sizeof uui);
     int mode = g_direct_test ? 1 : 0;   /* MODE_GARAGE, MODE_FIGHT, the network screens, MODE_ROGUE, MODE_CONTROLS */
     garage_ui gui;
     garage_init(&gui);
@@ -1383,6 +1387,13 @@ int main(int argc, char **argv) {
                 if (e.type == SDL_EVENT_KEY_DOWN) ga = key_action(e.key.scancode);
                 if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) ga = button_action(e.gbutton.button);
                 if (settings_input(&sui, ga)) { mode = 0; gui.screen = 0; }
+                continue;
+            }
+            if (mode == MODE_UPDATE) {   /* SETTINGS > UPDATES */
+                garage_action ga = GA_NONE;
+                if (e.type == SDL_EVENT_KEY_DOWN) ga = key_action(e.key.scancode);
+                if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) ga = button_action(e.gbutton.button);
+                if (update_input(&uui, ga)) { mode = 0; gui.screen = 0; }
                 continue;
             }
             if (mode == MODE_CONTROLS) {   /* the CONTROLS page: a button to map, or the menu */
@@ -2072,6 +2083,19 @@ int main(int argc, char **argv) {
                 if (sui.page == 1) sfx_ui(SFX_UI_CURSOR);   /* hear the new menu volume */
             }
         }
+        if (mode == MODE_UPDATE) {
+            garage_action d = pad_direction(pads[0], SDL_GetTicks());
+            if (d == GA_NONE) d = script_action();
+            if (update_input(&uui, d)) mode = 0;
+        }
+        if (mode == MODE_UPDATE) {
+            int pw = 0, ph = 0;
+            SDL_GetWindowSizeInPixels(window, &pw, &ph);
+            if (pw < 1 || ph < 1) { SDL_Delay(10); continue; }
+            acr_render_begin(pw, ph, 18, 22, 28);
+            update_draw(&uui, acr_render_hud(0, 0, pw, ph));
+            goto present;
+        }
         if (mode == MODE_SETTINGS) {
             static Uint64 settings_last_ms;
             const Uint64 now_ms = SDL_GetTicks();
@@ -2156,6 +2180,7 @@ int main(int argc, char **argv) {
             if (gcmd == GC_MISSIONS) { missions_open(); mode = MODE_MISSIONS; }
             if (gcmd == GC_CONTROLS) { controls_open(&cui); mode = MODE_CONTROLS; }
             if (gcmd == GC_VIDEO || gcmd == GC_AUDIO) { settings_open(&sui, gcmd == GC_AUDIO); mode = MODE_SETTINGS; }
+            if (gcmd == GC_UPDATES && update_supported()) { update_open(&uui); mode = MODE_UPDATE; }
             if (gcmd == GC_QUIT) running = 0;
             if (gcmd == GC_NETWORK) {
                 mode = 2;
