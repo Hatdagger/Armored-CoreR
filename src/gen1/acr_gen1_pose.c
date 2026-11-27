@@ -81,6 +81,10 @@ uint16_t acr_gen1_pose_fade_step(int from, int to) {
         return ACR_GEN1_FADE_CUT;
     /* The take-off (0x80084648) and the blade swing (0x80084F98) set 0x400. */
     if (to == ACR_GEN1_ANIM_JUMP || to == ACR_GEN1_SHOW_BLADE) return ACR_GEN1_FADE_QUICK;
+    /* The air slash too: at the normal fade half of its 16 ticks went on
+     * blending in and the arm barely moved (assumed to share the swing's
+     * flag; user report 2026-11-27). */
+    if (to == ACR_GEN1_SHOW_AIR_SLASH) return ACR_GEN1_FADE_QUICK;
     return ACR_GEN1_FADE_NORMAL;
 }
 

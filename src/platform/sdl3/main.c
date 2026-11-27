@@ -4089,6 +4089,11 @@ int main(int argc, char **argv) {
         if (battle.f[view].kneeling || battle.f[view].stand_ms > 0) crouch = 150;
         flush_scene();
         for (int k = 0; k < nf; ++k) {
+            {   /* a new swing (even straight after the last): its animation starts over */
+                static uint16_t prev_swing[ACR_GEN1_MAX_FIGHTERS];
+                if (battle.f[k].swing && (!prev_swing[k] || battle.f[k].swing < prev_swing[k])) g_pose[k].shown = -1;
+                prev_swing[k] = battle.f[k].swing;
+            }
             g_swinging[k] = battle.f[k].swing != 0;
             {
                 const acr_gen1_fighter *fl = &battle.f[k];
@@ -4267,9 +4272,10 @@ int main(int argc, char **argv) {
                         for (int c = 0; c < 8; ++c)
                             acr_hud_line(hx[c], hy[c], hx[(c + 1) & 7], hy[(c + 1) & 7], cr, cg, cb, 255);
                     }
-                    if (w->kind == ACR_GEN1_MISSILE) {
+                    if (w->kind == ACR_GEN1_MISSILE && tg_alive && acr_gen1_in_lock_box(&battle, view, w)) {
                         /* The missile lock cursor (player block +0x20 / +0x22): the
-                         * game's diamond, drawn with a missile weapon selected (VS 0x800580EC). */
+                         * game's diamond (VS 0x800580EC), only while a target is
+                         * in the lock box and range: out of reach, no diamond. */
                         const float cy = tanf(me->cursor_yaw * (6.2831853f / 4096.0f)),
                                     cp = tanf(me->cursor_pitch * (6.2831853f / 4096.0f));
                         battle_hud_missile_cursor(g_vw, g_hud_frame, bx + cy * proj[0] * g_vw * 0.5f,
