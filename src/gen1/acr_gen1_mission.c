@@ -240,6 +240,15 @@ static void map12_tick(acr_gen1_battle *b) {
     m->timer = MAP12_FAIL_WAIT + MAP12_RADIO_TICKS;
 }
 
+int acr_gen1_mission_players_down(const acr_gen1_battle *b) {
+    const int n = acr_gen1_battle_fighters(b);
+    for (int i = 0; i < n; ++i)
+        if (acr_gen1_battle_team(b, i) == 0 && b->f[i].ap > 0) return 0;
+    return 1;
+}
+
+int acr_gen1_mission_foe(const acr_gen1_battle *b) { return b->mission.foe ? b->mission.foe : 1; }
+
 void acr_gen1_mission_start_own(acr_gen1_battle *b, int own) {
     memset(&b->mission, 0, sizeof b->mission);
     b->mission.own = (uint8_t)own;
@@ -255,7 +264,7 @@ void acr_gen1_mission_challenger_in(acr_gen1_battle *b) {
 /* P4 Altered: the examiner below half AP brings the challenger (see the .h). */
 static void own_tick(acr_gen1_battle *b) {
     acr_gen1_mission *m = &b->mission;
-    const acr_gen1_fighter *foe = &b->f[1];
+    const acr_gen1_fighter *foe = &b->f[acr_gen1_mission_foe(b)];
     if (m->own != ACR_GEN1_OWN_P4_ALTERED) return;
     if (m->phase == 0 && (int64_t)foe->ap * 2 < foe->ap_max) {
         m->phase = 1;
@@ -265,9 +274,9 @@ static void own_tick(acr_gen1_battle *b) {
 
 void acr_gen1_mission_tick(acr_gen1_battle *b) {
     acr_gen1_mission *m = &b->mission;
-    if (m->own) { if (b->f[0].ap > 0) own_tick(b); return; }
+    if (m->own) { if (!acr_gen1_mission_players_down(b)) own_tick(b); return; }
     if (!m->map || m->result) return;
-    if (b->f[0].ap <= 0) return;                /* the player is down: the script stops */
+    if (acr_gen1_mission_players_down(b)) return;   /* the player (co-op: both) is down: the script stops */
     if (m->end_ticks) {
         if (!--m->end_ticks)
             m->result = m->flags & ACR_GEN1_MISSION_FAIL ? ACR_GEN1_MISSION_FAILED : ACR_GEN1_MISSION_DONE;

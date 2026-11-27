@@ -235,6 +235,8 @@ static void assembly_open(garage_ui *ui, const garage_data *d) {
     assembly_open_slot(ui, d);
 }
 
+void garage_open_assembly(garage_ui *ui, const garage_data *d) { assembly_open(ui, d); }
+
 /* OPTIONAL PARTS: the options owned, in option-bit order (as the game lists them). */
 #define OPT_ROWS 5
 static int option_list(const garage_data *d, int out[ACR_GEN1_OPTION_MAX]) {

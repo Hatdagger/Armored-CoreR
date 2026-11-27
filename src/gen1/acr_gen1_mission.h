@@ -53,6 +53,7 @@ typedef struct acr_gen1_mission {
     uint8_t  flags;
     uint8_t  result;       /* ACR_GEN1_MISSION_*; DONE / FAILED once the end delay ran out */
     uint8_t  end_ticks;    /* the end delay counting down (0x800A0DC0's 100) */
+    uint8_t  foe;          /* own missions: the opponent's fighter (0 = fighter 1; co-op on one PC: 2) */
     int32_t  from[3];      /* map 6: where the big MT's current cutscene key started (1/64 units) */
 } acr_gen1_mission;
 
@@ -68,6 +69,10 @@ int acr_gen1_mission_team(int map, int record);
 void acr_gen1_mission_start(struct acr_gen1_battle *b, int map);
 /* Starts an Armored-CoreR mission's rule (ACR_GEN1_OWN_*) on battle b. */
 void acr_gen1_mission_start_own(struct acr_gen1_battle *b, int own);
+/* The players' side (team 0) is down: every AC on it (co-op: both players). */
+int acr_gen1_mission_players_down(const struct acr_gen1_battle *b);
+/* The own mission's opponent fighter (mission.foe, else 1). */
+int acr_gen1_mission_foe(const struct acr_gen1_battle *b);
 /* P4 Altered: the challenger has taken fighter 1's place. */
 void acr_gen1_mission_challenger_in(struct acr_gen1_battle *b);
 /* One game tick of the script (the battle calls it after the units). */

@@ -1587,8 +1587,16 @@ int acr_gen1_battle_result(const acr_gen1_battle *b, int time_up) {
     /* Armored-CoreR's own missions (acr_gen1_mission.h): the player against
      * fighter 1 only; units (P4's drones) never keep a side standing. */
     if (b->mission.own) {
-        const int p_down = b->f[0].ap <= 0 || acr_gen1_battle_out_of_area(b, 0) == 2;
-        const int f_down = b->f[1].ap <= 0 || acr_gen1_battle_out_of_area(b, 1) == 2;
+        /* Co-op on one PC: both players are team 0, the opponent is mission.foe. */
+        const int fo = acr_gen1_mission_foe(b);
+        int p_down = 1;
+        int64_t p_ap = 0;
+        for (int i = 0; i < n; ++i)
+            if (i != fo && acr_gen1_battle_team(b, i) == 0 && b->f[i].ap > 0 && acr_gen1_battle_out_of_area(b, i) != 2) {
+                p_down = 0;
+                p_ap += b->f[i].ap;
+            }
+        const int f_down = b->f[fo].ap <= 0 || acr_gen1_battle_out_of_area(b, fo) == 2;
         if (b->mission.own == ACR_GEN1_OWN_P4_ALTERED && b->mission.phase < 2) {
             if (p_down) return 2;
             if (b->mission.phase || !time_up) return 0;    /* the challenger comes in instead */
@@ -1596,7 +1604,7 @@ int acr_gen1_battle_result(const acr_gen1_battle *b, int time_up) {
             if (p_down || f_down) return p_down && f_down ? 3 : p_down ? 2 : 1;
             if (!time_up) return 0;
         }
-        return b->f[0].ap > b->f[1].ap ? 1 : b->f[1].ap > b->f[0].ap ? 2 : 3;
+        return p_ap > b->f[fo].ap ? 1 : b->f[fo].ap > p_ap ? 2 : 3;
     }
     int standing[2] = { 0, 0 }, members[2] = { 0, 0 };
     int64_t ap[2] = { 0, 0 };

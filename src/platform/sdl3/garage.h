@@ -82,6 +82,8 @@ typedef struct garage_data {
 void garage_init(garage_ui *ui);
 /* Shows a line of text under the menus for a moment (SAVED. and so on). */
 void garage_say(garage_ui *ui, const char *text);
+/* Straight into GARAGE > ASSEMBLE (player 2's garage from SPLIT SCREEN). */
+void garage_open_assembly(garage_ui *ui, const garage_data *d);
 garage_command garage_input(garage_ui *ui, garage_data *d, garage_action a);
 
 /* Draws the menus on the HUD grid (480 high, `hud_w` wide). The 3D AC is
