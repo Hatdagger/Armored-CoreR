@@ -195,7 +195,10 @@ void fx_set_rig(int fighter, const fx_rig *rig) {
     g_rig_ok[fighter] = 1;
 }
 
+static struct { int lit, out, have, at; float lat; } g_slash[ACR_GEN1_MAX_FIGHTERS];
+
 void fx_reset(void) {
+    for (int k = 0; k < ACR_GEN1_MAX_FIGHTERS; ++k) { g_slash[k].lit = g_slash[k].out = -1; g_slash[k].have = 0; }
     memset(g_part, 0, sizeof g_part);
     memset(g_boosting, 0, sizeof g_boosting);
     memset(g_trail, 0, sizeof g_trail);
@@ -316,22 +319,27 @@ static void boost_ignite(const fx_rig *r, int on_ground, const float feet[3]) {
         }
 }
 
-/* When the beam lights: not at the swing's start but once the arm has
- * wound up to its rightmost and starts sweeping left (user, 2026-11-27).
- * lit: the swing's ms it lit at, -1 not yet; lat: the hand's last spot
- * across the AC (+ right). */
-static struct { int lit, have; float lat, start, top; } g_slash[ACR_GEN1_MAX_FIGHTERS];
+/* The beam follows the arm (user, 2026-11-27), measured on the posed
+ * model, shoulder to hand: it lights on the slash itself, once the arm
+ * points more ahead than up or down and is sweeping left (10+ across in
+ * 30 ms), not during
+ * the wind-up with the arm raised; it goes out once the arm drops after the
+ * slash (up < -40), fading over 150 ms. The air slash is shorter (16 ticks
+ * against 26) and is followed the same way. lit / out: the swing's ms it
+ * lit / started to go out at, -1 not yet; lat: the hand's last spot across
+ * the AC (+ right). */
+/* (g_slash: declared above fx_reset) */
 
 /* How strongly the blade's beam shows `ms` into a swing, 0..1: lights over
- * 60 ms from `lit`, holds to 900 ms, gone by 1,150 ms (of the swing). */
-static float blade_glow_from(int ms, int lit) {
-    if (ms <= 0 || lit < 0 || ms < lit) return 0.0f;
-    if (ms - lit < 60) return (float)(ms - lit) / 60.0f * (ms < 900 ? 1.0f : (float)(1150 - ms) / 250.0f);
-    if (ms < 900) return 1.0f;
-    if (ms < 1150) return (float)(1150 - ms) / 250.0f;
-    return 0.0f;
+ * 60 ms from `lit`, goes out over 150 ms from `out`, gone by 1,150 ms. */
+static float blade_glow_from(int ms, int lit, int out) {
+    if (ms <= 0 || lit < 0 || ms < lit || ms >= 1150) return 0.0f;
+    float g = ms - lit < 60 ? (float)(ms - lit) / 60.0f : 1.0f;
+    if (out >= 0) { const float f = 1.0f - (float)(ms - out) / 150.0f; g *= f > 0 ? f : 0; }
+    if (ms > 900) g *= (float)(1150 - ms) / 250.0f;
+    return g;
 }
-static float blade_glow_k(int k, int ms) { return blade_glow_from(ms, g_slash[k].lit); }
+static float blade_glow_k(int k, int ms) { return blade_glow_from(ms, g_slash[k].lit, g_slash[k].out); }
 
 /* The beam's reach as drawn, from the blade's reach in the fight. */
 static float blade_len(const acr_gen1_fighter *f) {
@@ -505,29 +513,31 @@ void fx_update(const acr_gen1_battle *b, uint64_t now_ns) {
             g_boost_ms[k] = on ? (g_boosting[k] ? g_boost_ms[k] + dt : 0.0f) : 0.0f;
             g_boosting[k] = (uint8_t)on;
         }
-        {   /* the beam lights when the hand turns back left at the wind-up's end */
+        {   /* the beam follows the arm: lit on the slash, out once it drops */
             const int ms = b->f[k].swing;
-            if (!ms) { g_slash[k].lit = -1; g_slash[k].have = 0; }
-            else if (g_slash[k].lit < 0) {
+            if (!ms) { g_slash[k].lit = g_slash[k].out = -1; g_slash[k].have = 0; }
+            else if (g_slash[k].out < 0) {
                 fx_rig r;
                 rig_of(b, k, &r);
-                if (!r.blade_ok) g_slash[k].lit = ms;   /* no model to follow: as before */
+                if (!r.blade_ok) { if (g_slash[k].lit < 0) g_slash[k].lit = ms; }   /* no model to follow: as before */
                 else {
                     const float right[2] = { -r.back[2], r.back[0] };
-                    const float lat = (r.blade_tip[0] - r.blade_root[0]) * right[0] + (r.blade_tip[2] - r.blade_root[2]) * right[1];
-                    if (!g_slash[k].have) g_slash[k].start = g_slash[k].top = lat;
-                    if (lat > g_slash[k].top) g_slash[k].top = lat;
-                    /* wound up (went right of where it began), now coming back */
-                    const int wound = g_slash[k].top > g_slash[k].start + 2.0f;
-                    if (g_slash[k].have && wound && lat < g_slash[k].lat - 0.5f) g_slash[k].lit = ms;
-                    else if (ms >= 700) g_slash[k].lit = ms;   /* never seen turning: don't lose the slash */
-                    g_slash[k].lat = lat;
-                    g_slash[k].have = 1;
+                    const float dx = r.blade_tip[0] - r.blade_root[0], dz = r.blade_tip[2] - r.blade_root[2];
+                    const float lat = dx * right[0] + dz * right[1], ahead = -(dx * r.back[0] + dz * r.back[2]);
+                    const float up = r.blade_tip[1] - r.blade_root[1];
+                    /* sweeping: the hand moved left since the last sample,
+                     * 30 ms or more ago (frame to frame is too little to see) */
+                    const int due = !g_slash[k].have || ms - g_slash[k].at >= 30;
+                    if (g_slash[k].lit < 0) {
+                        const int sweeping = g_slash[k].have && due && lat < g_slash[k].lat - 10.0f;
+                        if ((sweeping && ahead > fabsf(up)) || ms >= 700) g_slash[k].lit = ms;   /* 700: never seen: don't lose it */
+                    } else if (up < -40.0f && ms - g_slash[k].lit >= 60) g_slash[k].out = ms;
+                    if (due) { g_slash[k].lat = lat; g_slash[k].at = ms; g_slash[k].have = 1; }
                 }
             }
         }
         {   /* the blade's trail: where the beam was, a spot every 12 ms */
-            const int ms = g_slash[k].lit >= 0 ? b->f[k].swing : 0;
+            const int ms = g_slash[k].lit >= 0 && blade_glow_k(k, b->f[k].swing) > 0 ? b->f[k].swing : 0;
             if (!ms || !has_blade(&b->f[k]) || b->f[k].ap <= 0) g_trail[k].n = 0;
             else {
                 for (int i = 0; i < g_trail[k].n; ++i) g_trail[k].t[i] += dt;
