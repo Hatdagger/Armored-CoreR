@@ -428,3 +428,27 @@ handler, so the AC stops dead. Engine and decisions:
   `0x8007E714`).
 - The exact rounding from track units (1/4) to world units when the AC
   faces an angle (the track is rotated by the facing before stepping).
+
+## Landing, kneel, air slash, hit push (VS engine, read 2026-11-27)
+
+- **Touchdown**: see the soft / hard landing notes above (PR #35).
+- **Cannon kneel** (`0x80081B18`): a fresh trigger press on the ground (not
+  in the air, 0xC0, or ground boosting, 0xB0) zeroes velocity, sets state
+  34 and plays animation `0x2A + weapon record +0x0A` (45 on the sets that
+  have it, 46 the right side; 8-17 ticks); the cannon fires once it has
+  played out. Engine: `ACR_GEN1_ANIM_KNEEL`.
+- **Step heights**: the ground AC falls when the floor is 50 or more below
+  its feet (`0x80083960`). The game has no step-up height (box pushed out
+  of the nearest polygon); the simple stage uses 75, one move step.
+- **Air slash** (`0x8007EB48`, swing tick AC +0x76): ticks 0-6 velocity
+  untouched; 7-11 kept with **forward** held (pad mask +0x28E, which alone
+  gives air state 0x41; not the booster), otherwise `0x80014790(v, 0x500,
+  0x1E00)`: horizontal speed capped to 7,680 then less 1,280 a tick; from 12
+  velocity = `0x8003EA48` (zero), so the AC hangs. No gravity in the swing.
+- **Hit push** (`0x80082430`): ground stun (state 0x80, anims 37-40):
+  velocity += push, then `0x8007BC6C`: vy = 0, horizontal speed - 128 once;
+  the stun handler `0x8007FECC` only counts AC +0xDA down, velocity kept.
+  Air (0x81, anims 41-44): velocity += push (vertical halved), then the air
+  handler `0x8007FBAC` as usual. Cannon stance (34) takes the hit through
+  `0x8007B454`. Push size `0x80079ADC`: impact x 0xCCC x 8 >> 12, times the
+  direction >> 13 (about 3.2 world units a point of impact).

@@ -36,6 +36,7 @@ enum {
     ACR_GEN1_ANIM_JUMP = 22,
     ACR_GEN1_ANIM_LAND_SOFT = 23,   /* landing state 0x60: touchdown below ACR_GEN1_LAND_HARD_VY */
     ACR_GEN1_ANIM_LAND = 36,        /* landing state 0x61: the kneel after a hard touchdown */
+    ACR_GEN1_ANIM_KNEEL = 45,       /* cannon stance (46 the right back slot: same length on all but 4 sets) */
     ACR_GEN1_ANIM_COUNT = 64
 };
 
@@ -48,6 +49,18 @@ typedef struct acr_gen1_input {
     int8_t  look;     /* +1 tilt the view up (L2), -1 down (R2), 2 both: back to level */
     uint8_t crouch;   /* crouched in the cannon stance (VS 0x8007E3E0): crouch turn rates,
                          sliding to a stop, no walking or boosting */
+    /* Blade swing (set by the battle): 0 none, else the swing's tick + 1.
+     * The swing handler (VS 0x8007EB48) replaces the movement rules: no
+     * steering, rising or gravity; ticks 0-6 keep the AC's velocity, ticks
+     * 7-11 keep it with forward held (pad mask +0x28E) and otherwise cut
+     * the horizontal speed to ACR_GEN1_SWING_CAP and slow it by
+     * ACR_GEN1_SWING_SLOW a tick (0x80014790); from tick 12 the velocity
+     * is zero (0x8003EA48), so an air slash hangs until the swing ends. */
+    uint8_t swing;
+    uint8_t swing_fwd;
+    /* Hit stun on the ground (set by the battle; VS 0x8007FECC): the
+     * velocity, the hit's push included, is kept as it is. */
+    uint8_t stun;
     /* Modern controls only (SP-MODERN; always 0 with the original pad): */
     uint8_t cruise;   /* the boost toggle is on: the only ground boost, faster than walking
                          (ACR_GEN1_CRUISE_PCT); also lets the booster rise */
@@ -125,6 +138,9 @@ typedef struct acr_gen1_input {
 #define ACR_GEN1_PITCH_LEVEL_RATE 170
 
 /* Everything fixed for one AC during a match. */
+#define ACR_GEN1_SWING_CAP  0x1E00
+#define ACR_GEN1_SWING_SLOW 0x500
+
 typedef struct acr_gen1_ac_def {
     acr_gen1_stats  stats;
     acr_gen1_motion motion;
@@ -157,11 +173,16 @@ int32_t acr_gen1_cruise_top(const acr_gen1_ac_def *def);
 /* Energy a quick boost costs on the ground (air = 0) or in the air (1). */
 int32_t acr_gen1_quick_cost(const acr_gen1_ac_def *def, int air);
 
-/* Arena stand-ins until the game's own rules are read: an AC walks up a
- * step this high, follows a floor dropping away by this much (slopes)
- * before it falls, and is a cylinder this wide (its hit cylinder). */
-#define ACR_GEN1_STEP_UP   120
-#define ACR_GEN1_STEP_DOWN 120
+/* Step heights for stages without the game's collision (the simple
+ * floor/wall stage), taken from the game's rules (game_stage_tick):
+ * - down: the ground AC falls once the floor is 50 or more below its feet
+ *   (VS 0x80083960, AC +0x2C - +0x0A >= 0x32);
+ * - up: the game has no step-up height; the AC's box is pushed out of the
+ *   nearest polygon (0x80078C4C), so a ledge lower than the AC's sideways
+ *   push into it is climbed and a taller one is a wall. That push is at
+ *   most one move step, cut to 75 a tick. */
+#define ACR_GEN1_STEP_UP   75
+#define ACR_GEN1_STEP_DOWN 50
 
 enum { ACR_GEN1_GROUND, ACR_GEN1_CROUCH, ACR_GEN1_AIR, ACR_GEN1_LANDING };
 

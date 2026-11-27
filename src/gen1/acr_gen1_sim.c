@@ -423,6 +423,26 @@ void acr_gen1_ac_tick(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
         ac->quick_ticks = 0;
     }
 
+    if (in.stun && ac->state == ACR_GEN1_GROUND && !in.swing) {
+        ac->vy = 0;
+        mx = ac->vx;
+        mz = ac->vz;
+        goto moved;
+    }
+    if (in.swing && (ac->state == ACR_GEN1_GROUND || ac->state == ACR_GEN1_AIR)) {
+        const int k = in.swing - 1;
+        if (k >= 12) {
+            ac->vx = ac->vy = ac->vz = 0;
+        } else if (k >= 7 && !in.swing_fwd) {
+            limit_length(&ac->vx, &ac->vz, ACR_GEN1_SWING_CAP);
+            slow_down(&ac->vx, &ac->vz, ACR_GEN1_SWING_SLOW);
+        }
+        if (ac->state == ACR_GEN1_GROUND) ac->vy = 0;
+        mx = ac->vx;
+        mz = ac->vz;
+        goto moved;
+    }
+
     switch (ac->state) {
     case ACR_GEN1_GROUND: {
         if (in.crouch) {
