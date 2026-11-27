@@ -338,6 +338,7 @@ int demo_load(const char *import_dir, const int parts[SLOT_COUNT], demo_ac *out,
                 if (w->kind == ACR_GEN1_MISSILE) {
                     w->volley_a = (uint8_t)get_int(t, e, "volley_a", 1);
                     w->volley_b = (uint8_t)get_int(t, e, "volley_b", 0);
+                    w->back_side = (uint8_t)((s == SLOT_BACK_L || s == SLOT_BACK_R) && parts[s] >= 52 ? 2 : s == SLOT_BACK_R ? 1 : 0);
                     w->ignition = (uint8_t)get_int(t, e, "ignition_delay", 1);
                     w->spread_pitch = (uint16_t)get_int(t, e, "spread_pitch", 0);
                     w->spread_yaw = (uint16_t)get_int(t, e, "spread_yaw", 0);

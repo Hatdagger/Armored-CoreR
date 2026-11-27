@@ -75,6 +75,8 @@ typedef struct acr_gen1_weapon {
     uint8_t  lock_ticks;    /* ticks on target per lock: (256 - FCS value) / 8 */
     uint8_t  max_locks;     /* the smaller of the FCS's and the weapon's (detail +0x10) */
     uint8_t  volley_a, volley_b;     /* missiles per volley from each side */
+    uint8_t  back_side;     /* back weapons: which launcher side A is (0 left, 1 right; 2 two-slot:
+                             * A left, B right) */
     uint8_t  ignition;      /* ticks of coasting before the motor lights */
     uint16_t spread_pitch, spread_yaw;
     uint8_t  auto_launch;   /* SP-M/AUTO: fires by itself when the locks are full */

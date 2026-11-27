@@ -21,8 +21,14 @@ static int part_index(int kind, const int parts[SLOT_COUNT]) {
     case ACR_PART_HAND:                      /* weapon arms (12 and up) have no hand */
         if (parts[SLOT_ARMS] >= 12) return -1;
         return parts[SLOT_HAND] == 255 ? 0 : parts[SLOT_HAND];   /* 0: the empty hand */
-    case ACR_PART_BACK_LEFT: return parts[SLOT_BACK_L] == 255 ? -1 : parts[SLOT_BACK_L];
-    case ACR_PART_BACK_RIGHT: return parts[SLOT_BACK_R] == 255 ? -1 : parts[SLOT_BACK_R];
+    /* A two-slot unit (52 and up) is fitted in one slot but has a model
+     * half for each shoulder: an empty other slot shows its other half. */
+    case ACR_PART_BACK_LEFT:
+        if (parts[SLOT_BACK_L] == 255) return parts[SLOT_BACK_R] != 255 && parts[SLOT_BACK_R] >= 52 ? parts[SLOT_BACK_R] : -1;
+        return parts[SLOT_BACK_L];
+    case ACR_PART_BACK_RIGHT:
+        if (parts[SLOT_BACK_R] == 255) return parts[SLOT_BACK_L] != 255 && parts[SLOT_BACK_L] >= 52 ? parts[SLOT_BACK_L] : -1;
+        return parts[SLOT_BACK_R];
     case ACR_PART_BOOSTER: return parts[SLOT_BOOSTER] == 255 ? -1 : parts[SLOT_BOOSTER];
     default: return -1;
     }
