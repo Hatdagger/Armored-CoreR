@@ -310,11 +310,12 @@ int demo_load(const char *import_dir, const int parts[SLOT_COUNT], demo_ac *out,
                  * down; 5 after a WG-RF35 shot). */
                 w->interval = (uint16_t)get_int(t, e, "fire_interval", 5);
                 /* Post-shot hold (detail +4, 255 none): the firing animation,
-                 * during which the refire wait doesn't count down. WG-RF35
-                 * (hold 0, wait 5): 7 + 5 + 1 = its measured 13-tick cadence;
-                 * longer holds a stand-in. */
+                 * during which the refire wait doesn't count down. Its length
+                 * is the set's layer-2 base (7 in all 72 sets) + detail +4
+                 * (VS 0x80054DE4). WG-RF35 (hold 0, wait 5): 7 + 5 + 1 = its
+                 * measured 13-tick cadence. */
                 const long hold = get_int(t, e, "post_shot_hold", 255);
-                w->hold = (uint8_t)(hold == 255 || kind == 1 ? 0 : 7 + 2 * hold);
+                w->hold = (uint8_t)(hold == 255 || hold < 0 || kind == 1 ? 0 : 7 + hold);
                 const long pattern = get_int(t, e, "fire_pattern", 0);
                 w->shots = (uint8_t)((pattern & 3) == 1 ? 2 : (pattern & 3) == 2 ? 4 : 1);
                 w->straight = (uint8_t)((get_int(t, e, "sight", 1) & 4) != 0 || (pattern & 4) != 0);
@@ -326,6 +327,13 @@ int demo_load(const char *import_dir, const int parts[SLOT_COUNT], demo_ac *out,
                 w->aim_y = (uint8_t)((pattern & 8) != 0 || kind == 2);
                 w->speed = (int32_t)get_int(t, e, "shot_speed", 700);
                 w->stance = (uint8_t)get_int(t, e, "stance", 0);
+                /* Cannon kick: base recoil (detail +2) and the cannon table's
+                 * +2 for the model (32 for most; imports before the weapons
+                 * pass lack it: 32). Finished after the compile, below. */
+                if (kind == 2) {
+                    w->kick = (uint8_t)(pattern & 0xFF);
+                    w->kick_table = (uint16_t)get_int(t, e, "cannon_kick", 32);
+                }
                 w->max_locks = (uint8_t)get_int(t, e, "salvo", 1);
                 if (w->kind == ACR_GEN1_MISSILE) {
                     w->volley_a = (uint8_t)get_int(t, e, "volley_a", 1);
@@ -399,6 +407,13 @@ int demo_load(const char *import_dir, const int parts[SLOT_COUNT], demo_ac *out,
     out->shell_factor = acr_gen1_damage_factor(shell, 0, 0);
     out->energy_factor = acr_gen1_damage_factor(energy, 1, 0);
     acr_gen1_compile(&b, &out->def.stats);
+    for (int i = 0; i < out->weapons && i < ACR_GEN1_MAX_WEAPONS; ++i) {
+        acr_gen1_weapon *w = &out->weapon[i];
+        if (!w->stance || !w->kick) { w->kick = 0; continue; }
+        uint32_t st = b.legs.stability;
+        if (b.option_mask & ACR_GEN1_OPTION_ABSORBER) st += 800;      /* SP-SAP */
+        w->kick = acr_gen1_cannon_kick(w->kick, w->kick_table, st, out->def.stats.carried_weight);
+    }
     acr_gen1_motion_from_stats(&out->def.stats, &out->def.motion);
     out->def.landing_steps = 20;
     out->def.no_boost_hop = parts[SLOT_LEGS] >= 27;   /* caterpillars */

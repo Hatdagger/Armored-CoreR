@@ -30,6 +30,17 @@ int acr_gen1_knockback_level(uint16_t impact, uint8_t stability) {
     return v > 5 ? 5 : (int)v;
 }
 
+/* Cannon kick (see the header). The slot recoil is the compile's slot +9
+ * for cannons (menu module; AC1Recomp stat-block.md "Options in the slot
+ * code"); player block +0x214 = recoil x 75 / 32 + 1 (VS 0x80082894). */
+uint8_t acr_gen1_cannon_kick(uint8_t base_recoil, uint16_t table_kick, uint32_t stability, uint32_t carried_weight) {
+    if (!base_recoil || !table_kick || !stability || !carried_weight) return 0;
+    const uint64_t r = ((uint64_t)base_recoil * (4169728u / stability) * (32768000u / carried_weight)) >> 24;
+    const uint32_t recoil = r < 1 ? 1u : r > 64 ? 64u : (uint32_t)r;
+    const uint32_t k = ((recoil * 75u / 32u + 1u) * table_kick) >> 8;
+    return (uint8_t)(k > 255 ? 255 : k);
+}
+
 /* Heights on an AC, above its feet, in 1/64 units. */
 #define CENTRE_UP (ACR_GEN1_HIT_HEIGHT / 2 * 64)   /* missiles aim here (target y - 106) */
 #define MUZZLE_UP (120 * 64)
@@ -452,6 +463,7 @@ static void offset(uint16_t yaw, int64_t dx, int64_t dz, int64_t *ahead, int64_t
 }
 
 static int tick_ms(int k) { return k * 1000 / 22; }
+static int kneel_need_ms(const acr_gen1_fighter *f);
 
 /* The blade lunge over the swing's ms [from, to): the measured per-tick
  * distances spread evenly over each tick, stopping at body contact. */
@@ -1101,15 +1113,20 @@ static void fighter_step(acr_gen1_battle *b, int i, acr_gen1_actions a, int tick
         if (f->weapon[k].kind == ACR_GEN1_BLADE) blade = k;
         else ++cycled;
     }
-    if (f->weapon[f->current].kind == ACR_GEN1_BLADE && cycled) a.next_weapon = 1;
-    if (a.next_weapon && cycled && !f->volley_ticks) {
-        /* The next weapon that still has ammo (user, 2026-11-19): an empty
+    const int blade_current = f->weapon[f->current].kind == ACR_GEN1_BLADE && cycled;
+    if (blade_current) a.next_weapon = 1;
+    if (a.next_weapon && cycled) {
+        /* The next weapon that still has ammo (user, 2026-11-19; the game's
+         * pick skips slots with no rounds left, VS 0x80082FB0): an empty
          * one stays selected until the pilot switches away (no automatic
          * swap), and can't be picked again; with nothing else left the
-         * switch does nothing. */
-        uint8_t next = f->current;
+         * switch does nothing. A press counts on from a switch still
+         * waiting (+0x11), cuts a missile volley short (+0x47 = 0) and
+         * drops the locks (0x80083038). */
+        const uint8_t from = f->switch_pending ? f->switch_to : f->current;
+        uint8_t next = from;
         for (int k = 1; k <= f->weapons; ++k) {
-            const uint8_t c = (uint8_t)((f->current + k) % f->weapons);
+            const uint8_t c = (uint8_t)((from + k) % f->weapons);
             const acr_gen1_weapon *wc = &f->weapon[c];
             if (wc->kind == ACR_GEN1_BLADE || (wc->ammo && !f->ammo[c])) continue;
             next = c;
@@ -1117,9 +1134,20 @@ static void fighter_step(acr_gen1_battle *b, int i, acr_gen1_actions a, int tick
         }
         if (f->weapon[next].kind == ACR_GEN1_BLADE)       /* only the blade was current */
             for (int k = 0; k < f->weapons; ++k) if (f->weapon[k].kind != ACR_GEN1_BLADE) { next = (uint8_t)k; break; }
-        const int changed = next != f->current;
-        f->current = next;
-        if (changed) drop_locks(f);
+        f->switch_to = next;
+        f->switch_pending = next != f->current;
+        f->volley_ticks = 0;
+        drop_locks(f);
+    }
+    /* The pick becomes the weapon once the refire wait is 0 (VS 0x80083044:
+     * +0x48 = 0), so switching waits out the reload (and the post-shot
+     * hold, during which the wait doesn't count). A kneeling AC stands up
+     * (0x800830A8). Leaving the blade (not in the game's cycle) is at once. */
+    if (f->switch_pending && (!f->cooldown || blade_current)) {
+        f->current = f->switch_to;
+        f->switch_pending = 0;
+        drop_locks(f);
+        if (f->kneeling) acr_gen1_stand_up(b, f);
     }
     for (int t = 0; t < ticks; ++t) fighter_tick(b, i, a.fire);
     blade_step(b, i, blade, a.blade);
@@ -1166,6 +1194,18 @@ static void fighter_step(acr_gen1_battle *b, int i, acr_gen1_actions a, int tick
         }
         spawn_shot(b, i, f->current, n == 1 ? 0 : (s * 2 - (n - 1)) * 20, ax, ay, az);
         if (w->ammo) --f->ammo[f->current];
+    }
+    /* Cannon kick (VS 0x80081E80, once a trigger): the AC's motion loses
+     * kick world units a tick along the shot; Human PLUS standing on the
+     * ground (body frame 3, class 0x10) none. */
+    if (w->kick && w->stance && !(f->human_plus && f->ac.state != ACR_GEN1_AIR)) {
+        int32_t kx = ax, ky = ay, kz = az;
+        const int64_t len = isqrt64((uint64_t)((int64_t)kx * kx + (int64_t)ky * ky + (int64_t)kz * kz));
+        if (len > 0) {
+            f->ac.vx -= (int32_t)((int64_t)kx * w->kick * 64 / len);
+            f->ac.vz -= (int32_t)((int64_t)kz * w->kick * 64 / len);
+            if (f->ac.state == ACR_GEN1_AIR) f->ac.vy -= (int32_t)((int64_t)ky * w->kick * 64 / len);
+        }
     }
     if (f->modern) {
         const unsigned mx = MT(b, bloom_max, BLOOM_MAX);
@@ -1305,28 +1345,55 @@ int acr_gen1_stance_ok(const acr_gen1_fighter *f) {
     switch (f->legs) {
     case ACR_GEN1_LEGS_TRACKS: return 1;
     case ACR_GEN1_LEGS_FOUR: return f->ac.state == ACR_GEN1_GROUND;
-    default: {
-        const acr_gen1_root_track *k = f->def ? f->def->anim[ACR_GEN1_ANIM_KNEEL] : NULL;
-        const int need = k && k->length > 0 && k->length <= 64 ? tick_ms(k->length) : ACR_GEN1_KNEEL_MS;
-        return f->kneeling && f->kneel_ms >= need;
-    }
+    default:
+        return f->kneeling && f->kneel_ms >= kneel_need_ms(f);
     }
 }
 
 /* Two-legged ACs crouch when told to fire a cannon on the ground (AC state
- * 34); crouched they turn at the crouch rates (legs +0x3C) and slide to a
- * stop (the sim's crouch input: velocity - 1/8 a tick, zero below 512, VS
- * 0x8007E3E0); any move without fire stands them up again. */
+ * 34; VS 0x80082340: fire held, not in the air or ground boosting); crouched
+ * they turn at the crouch rates (legs +0x3C) and slide to a stop (the sim's
+ * crouch input: velocity - 1/8 a tick, zero below 512, VS 0x8007E3E0).
+ * The kneel plays out in full; once down, moving with the refire wait at 0
+ * and not firing stands them up, which takes as long as the kneel took
+ * (state 0x23; see ACR_GEN1_KNEEL_MS). */
+static int kneel_need_ms(const acr_gen1_fighter *f) {
+    const acr_gen1_root_track *k = f->def ? f->def->anim[ACR_GEN1_ANIM_KNEEL] : NULL;
+    return k && k->length > 0 && k->length <= 64 ? tick_ms(k->length) : ACR_GEN1_KNEEL_MS;
+}
+
+void acr_gen1_stand_up(acr_gen1_battle *b, acr_gen1_fighter *f) {
+    (void)b;
+    if (!f->kneeling) return;
+    const int need = kneel_need_ms(f);
+    f->stand_ms = f->kneel_ms < need ? f->kneel_ms : need;
+    f->kneeling = 0;
+    f->kneel_ms = 0;
+}
+
 static acr_gen1_input kneel_input(acr_gen1_battle *b, acr_gen1_fighter *f, acr_gen1_input in, acr_gen1_actions a) {
+    if (f->stand_ms > 0) {                          /* standing up: the controls are held */
+        f->stand_ms -= b->step_ms;
+        if (f->stand_ms < 0) f->stand_ms = 0;
+        in.move = in.strafe = 0;
+        in.boost = in.boost_tapped = 0;
+        in.crouch = 1;
+        return in;
+    }
     const acr_gen1_weapon *w = f->weapons ? &f->weapon[f->current] : NULL;
     const int wants = w && w->stance && !f->human_plus && f->legs == ACR_GEN1_LEGS_TWO;
     if (!wants) { f->kneeling = 0; return in; }
     const int moving = in.move || in.strafe || in.boost;
-    if (!f->kneeling && a.fire && f->ac.state == ACR_GEN1_GROUND) {
+    const int firing = a.fire && (!w->ammo || f->ammo[f->current]);
+    if (!f->kneeling && a.fire && !in.boost && f->ac.state == ACR_GEN1_GROUND) {
         f->kneeling = 1;
         f->kneel_ms = 0;
-    } else if (f->kneeling && moving && !a.fire) {
-        f->kneeling = 0;
+    } else if (f->kneeling && f->kneel_ms >= kneel_need_ms(f) && moving && !firing && !f->cooldown) {
+        acr_gen1_stand_up(b, f);
+        in.move = in.strafe = 0;
+        in.boost = in.boost_tapped = 0;
+        in.crouch = 1;
+        return in;
     }
     if (f->kneeling) {
         f->kneel_ms += b->step_ms;

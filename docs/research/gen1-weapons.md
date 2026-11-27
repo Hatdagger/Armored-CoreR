@@ -121,9 +121,9 @@ middle (y - 106). Was a 65 sphere at 100 up (stand-in).
   detail +4 below 255 (WG-RF35 and WG-PB26 0, cannons WC-GN230 / WC-IR24 1,
   WX-ED2 / WX-C/4 2) play a firing animation on the AC's second layer, and
   no gun or cannon fires until it ends (the cannon's wait pauses during
-  it). The engine uses 13 ticks for a hold of 0 (measured cadence) and
-  13 + 2 x hold for the others (stand-in: the base length lives in the
-  animation data).
+  it). The hold lasts
+  7 + hold for every weapon (the base, 7, is in every animation set:
+  see docs/feel/weapons.md).
 - **Shots per trigger**: detail +2 bits 0-1 (2 or 4), one round each.
 - **Straight fire**: sight bit 2 (rockets) and dispensers (pattern bit 2)
   fire along the facing with no aiming, lock or not.
@@ -270,9 +270,12 @@ kneel to fire them?
 and 60 steps a second, missile lock time, volleys, giving up, SP-JAM,
 interceptor, round result).
 
-Still stand-ins: the gun lock's distance factor, post-shot hold lengths
-other than WG-RF35, knockback distances, the blade arc (fitted), the
-four-legged cannon rule, cannon kick (player block +0x214) and recoil.
+Still stand-ins: the gun lock's distance factor, knockback distances, the
+blade arc (fitted). Settled in the weapons feel pass (2026-11-27,
+`docs/feel/weapons.md`): post-shot hold = 7 + detail +4 for every weapon,
+the four-legged cannon rule (from code), cannon kick (player block +0x214),
+standing up from the stance, and the weapon switch waiting for the refire
+wait.
 
 ## Earlier measurements (kept)
 

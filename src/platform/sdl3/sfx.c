@@ -275,16 +275,40 @@ void sfx_set_weapons(int fighter, const char (*types)[24], int count) {
 
 static int has(const char *s, const char *word) { return s && SDL_strstr(s, word) != NULL; }
 
-/* A shot's firing sound and whether it ends in a blast, by weapon type. */
-static int fire_sound(int owner, int slot, int energy, int missile, int *blast) {
+/* A shot's firing sound and whether it ends in a blast. The game picks the
+ * sound by weapon (AC1Recomp mapping/weapon-map.md, "Fire snd" sound ids),
+ * which the labels (project doc sound-labels.md) turn into samples:
+ *   id 4 -> #21 (rifle), 48 -> #15 (machine gun), 50 -> #20 (pulse),
+ *   51 -> #07 (laser), 53 -> #22 (heavy guns, rockets, flame),
+ *   0 -> #12 (cannon), 2 -> #18 (missile launch).
+ * The type alone doesn't settle every weapon (machine guns, laser and
+ * plasma cannons, grenade launchers split), so those go by name first; any
+ * other weapon (Phantasma's own) by its type, as the game's majority. */
+enum { S_GUN_HEAVY = 22, S_MG = 15 };
+static const struct { const char *name; uint8_t sample; } k_fire_by_name[] = {
+    { "WG-AR1000", S_RIFLE }, { "WA-Finger", S_RIFLE },               /* machine guns on id 4 */
+    { "WC-GN230", S_CANNON }, { "AW-DC/2", S_CANNON },                /* grenade launchers on id 0 */
+    { "WX-C/4", S_CANNON }, { "WX-ED2", S_CANNON },                   /* two-slot energy cannons, id 0 */
+    { "AW-XC65", S_LASER }, { "WC-XC8000", S_LASER },                 /* id 51 */
+    { "WC-01QL", S_GUN_HEAVY }, { "WC-IR24", S_GUN_HEAVY }, { "AW-XC5500", S_GUN_HEAVY },   /* id 53 */
+    { "WG-RF/E", S_LASER },
+};
+
+static int fire_sound(int owner, int slot, const char *nm, int energy, int missile, int *blast) {
     const char *t = owner >= 0 && owner < ACR_GEN1_MAX_FIGHTERS && g_types[owner] && slot < g_type_count[owner] ? g_types[owner][slot] : NULL;
     *blast = missile || has(t, "ROCKET") || has(t, "BAZOOKA") || has(t, "GRENADE");
     if (missile) return S_MISSILE;
-    if (has(t, "PULSE") || has(t, "PLASMA")) return S_PULSE;
-    if (has(t, "LASER") || energy) return S_LASER;
-    if (has(t, "MACHINE") || has(t, "CHAIN") || has(t, "GATLING")) return S_MACHINE_GUN;
-    if (*blast || has(t, "CANNON") || has(t, "SLUG") || has(t, "LINEAR") || has(t, "FLAME")) return S_CANNON;
-    return S_RIFLE;
+    if (nm && nm[0])
+        for (size_t k = 0; k < sizeof k_fire_by_name / sizeof k_fire_by_name[0]; ++k)
+            if (!SDL_strcmp(nm, k_fire_by_name[k].name)) return k_fire_by_name[k].sample;
+    if (has(t, "DISPEN")) return has(t, "MINE") ? S_GUN_HEAVY : S_RIFLE;   /* bombs, plasma dispenser: id 4 */
+    if (has(t, "PULSE")) return S_PULSE;
+    if (has(t, "LASER") || has(t, "PLASMA RIFLE")) return S_LASER;
+    if (has(t, "ROCKET") || has(t, "BAZOOKA") || has(t, "FLAME") || has(t, "GRENADE") ||
+        has(t, "CANNON") || has(t, "PLASMA")) return S_GUN_HEAVY;
+    if (has(t, "MACHINE")) return S_MG;
+    if (energy) return S_LASER;
+    return S_RIFLE;   /* rifles, hand guns, chain, gatling, slug and linear guns: id 4 */
 }
 
 static struct { uint8_t on, blast; int32_t travelled; uint16_t age; float p[3]; } g_seen[ACR_GEN1_MAX_SHOTS];
@@ -354,7 +378,7 @@ void sfx_update(const acr_gen1_battle *b, const sfx_listen *l, uint64_t now_ns) 
             const acr_gen1_fighter *o = &b->f[owner];
             const int energy = s->weapon < o->weapons && o->weapon[s->weapon].energy;
             int blast = 0;
-            const int n = fire_sound(owner, s->weapon, energy, s->missile, &blast);
+            const int n = fire_sound(owner, s->weapon, owner < ACR_GEN1_MAX_FIGHTERS && s->weapon < ACR_GEN1_MAX_WEAPONS ? b->f[owner].weapon[s->weapon].name : NULL, energy, s->missile, &blast);
             g_seen[k].on = 1;
             g_seen[k].blast = (uint8_t)blast;
             play_at(n, p, 0.85f);

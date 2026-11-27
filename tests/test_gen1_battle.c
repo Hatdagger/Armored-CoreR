@@ -382,6 +382,80 @@ int main(void) {
     b.f[0].human_plus = 1;
     EXPECT(acr_gen1_stance_ok(&b.f[0]));
 
+    /* Weapons pass (2026-11-27). Standing up (VS 0x800822C0 / 0x80085050):
+     * moving does nothing while the refire wait runs; once it is 0 the AC
+     * stands up for as long as the kneel took, with the controls held. */
+    {
+        static acr_gen1_battle kb;
+        setup(&kb, 3000);
+        acr_gen1_fighter *me = &kb.f[0];
+        me->weapons = 1; me->weapon[0] = rifle(); me->ammo[0] = 200;
+        me->weapon[0].stance = 1;
+        me->legs = ACR_GEN1_LEGS_TWO;
+        for (int k = 0; k < 13; ++k) acr_gen1_battle_step(&kb, none, fire);
+        EXPECT(me->kneeling && me->ammo[0] < 200);
+        acr_gen1_input mv[2];
+        memset(mv, 0, sizeof mv);
+        mv[0].move = 1;
+        while (me->cooldown || me->hold_left) {
+            acr_gen1_battle_step(&kb, mv, idle);
+            EXPECT(me->kneeling);
+        }
+        acr_gen1_battle_step(&kb, mv, idle);
+        EXPECT(!me->kneeling && me->stand_ms > 0);
+        const int32_t z0 = me->ac.z;
+        int steps = 0;
+        while (me->stand_ms > 0 && steps < 40) { acr_gen1_battle_step(&kb, mv, idle); ++steps; }
+        EXPECT(steps >= 8 && steps <= 10);              /* 400 ms at 45 ms a step */
+        EXPECT(me->ac.z == z0);                         /* held in place while standing */
+        acr_gen1_battle_step(&kb, mv, fire);
+        EXPECT(!me->kneeling || me->stand_ms == 0);
+    }
+    /* Weapon switch (VS 0x80083044): the pick waits for the refire wait. */
+    {
+        static acr_gen1_battle sb;
+        setup(&sb, 3000);
+        acr_gen1_fighter *me = &sb.f[0];
+        me->weapons = 2; me->weapon[0] = rifle(); me->weapon[1] = rifle();
+        me->ammo[0] = me->ammo[1] = 200;
+        const acr_gen1_actions next[2] = { { 0, 1, 0, 0 }, { 0, 0, 0, 0 } };
+        acr_gen1_battle_step(&sb, none, fire);
+        EXPECT(me->cooldown > 0);
+        acr_gen1_battle_step(&sb, none, next);
+        EXPECT(me->current == 0 && me->switch_pending && me->switch_to == 1);
+        int steps = 0;
+        while (me->current == 0 && steps < 40) { acr_gen1_battle_step(&sb, none, idle); ++steps; }
+        EXPECT(me->current == 1 && !me->switch_pending && me->cooldown == 0);
+        acr_gen1_battle_step(&sb, none, next);           /* nothing to wait for: at once */
+        EXPECT(me->current == 0);
+        /* An empty weapon is skipped. */
+        me->ammo[1] = 0;
+        acr_gen1_battle_step(&sb, none, next);
+        EXPECT(me->current == 0 && !me->switch_pending);
+    }
+    /* Cannon kick: slot recoil and the push (VS 0x80081E80). */
+    EXPECT(acr_gen1_cannon_kick(10, 32, 1000, 5000) == 4);
+    EXPECT(acr_gen1_cannon_kick(0, 32, 1000, 5000) == 0);
+    EXPECT(acr_gen1_cannon_kick(255, 256, 100, 100) == ((64u * 75u / 32u + 1u) * 256u >> 8));
+    {
+        static acr_gen1_battle cb;
+        setup(&cb, 3000);
+        acr_gen1_fighter *me = &cb.f[0];
+        me->weapons = 1; me->weapon[0] = rifle(); me->ammo[0] = 200;
+        me->weapon[0].stance = 1; me->weapon[0].kick = 40;
+        me->legs = ACR_GEN1_LEGS_TRACKS;               /* fires at once */
+        acr_gen1_battle_step(&cb, none, fire);
+        for (int k = 0; k < 3; ++k) acr_gen1_battle_step(&cb, none, idle);
+        EXPECT(me->ac.z < 0);                           /* pushed back, away from the shot */
+        setup(&cb, 3000);
+        me->weapons = 1; me->weapon[0] = rifle(); me->ammo[0] = 200;
+        me->weapon[0].stance = 1; me->weapon[0].kick = 40;
+        me->legs = ACR_GEN1_LEGS_TWO; me->human_plus = 1;
+        acr_gen1_battle_step(&cb, none, fire);
+        for (int k = 0; k < 3; ++k) acr_gen1_battle_step(&cb, none, idle);
+        EXPECT(me->ac.z == 0);                          /* Human PLUS on the ground: no kick */
+    }
+
     /* Missiles: the cursor reaches the target, then (256 - 128) / 8 = 16
      * ticks make a lock; the volley leaves 4 ticks after fire. The game
      * launched 0.93 s (about 20 ticks) after the target entered the box. */

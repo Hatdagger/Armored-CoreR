@@ -3041,7 +3041,7 @@ int main(int argc, char **argv) {
         float crouch = 0;
         if (ac.state == ACR_GEN1_CROUCH) crouch = 90;
         if (ac.state == ACR_GEN1_LANDING) crouch = 70;
-        if (battle.f[view].kneeling) crouch = 150;
+        if (battle.f[view].kneeling || battle.f[view].stand_ms > 0) crouch = 150;
         flush_scene();
         for (int k = 0; k < nf; ++k) {
             g_swinging[k] = battle.f[k].swing != 0;
@@ -3056,7 +3056,7 @@ int main(int argc, char **argv) {
             fk->muzzle_set = (uint8_t)g_muzzle[k].ok;
             if (g_muzzle[k].ok)
                 for (int c = 0; c < 3; ++c) fk->muzzle[c] = (int16_t)g_muzzle[k].p[c];
-            g_in[k].crouch = battle.f[k].kneeling;   /* the cannon stance keeps its own pose */
+            g_in[k].crouch = (uint8_t)(battle.f[k].kneeling || battle.f[k].stand_ms > 0);   /* the cannon stance keeps its own pose */
             if (battle.f[k].modern) {                /* modern: the stick as the AC took it */
                 g_in[k].move = battle.f[k].used.move;
                 g_in[k].strafe = battle.f[k].used.strafe;
@@ -3078,7 +3078,7 @@ int main(int argc, char **argv) {
             if (odyaw > 2048) odyaw -= 4096;
             if (odyaw < -2048) odyaw += 4096;
             draw_ac(j, o, ox[j], oy[j], oz[j], ((float)op.syaw + odyaw * a) * (6.2831853f / 4096.0f),
-                    battle.f[j].kneeling ? 150.0f : 0.0f);
+                    (battle.f[j].kneeling || battle.f[j].stand_ms > 0) ? 150.0f : 0.0f);
         }
         if (battle.f[view].swing >= ACR_GEN1_BLADE_LUNGE_MS) {   /* blade arc while lunging */
             float r = 205.0f;
