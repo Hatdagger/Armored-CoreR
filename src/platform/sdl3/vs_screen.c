@@ -140,7 +140,7 @@ static uint32_t emblem_load(const char *import_dir, int arena, int rank) {
 }
 
 /* Kept once loaded: 9 arenas, ranks up to 50 (the import's limits). */
-#define EMBLEM_ARENAS 9
+#define EMBLEM_ARENAS 10   /* 0-8 Master of Arena's, 9 Project Phantasma's */
 #define EMBLEM_RANKS  51
 static uint32_t g_emblem[EMBLEM_ARENAS][EMBLEM_RANKS];
 static uint8_t g_emblem_tried[EMBLEM_ARENAS][EMBLEM_RANKS];

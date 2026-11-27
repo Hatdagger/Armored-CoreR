@@ -10,7 +10,7 @@
 static int failures;
 #define EXPECT(c) do { if (!(c)) { printf("FAIL %s:%d %s\n", __FILE__, __LINE__, #c); ++failures; } } while (0)
 
-static acr_gen1_rogue_foe g_foe[120];
+static acr_gen1_rogue_foe g_foe[200];
 static acr_gen1_catalog g_cat;
 static acr_gen1_arena_world g_w;
 
@@ -347,8 +347,47 @@ static void test_absent_default_win(void) {
     EXPECT(r.a[0].absent[48] == 0);
 }
 
+/* Project Phantasma's arena (9) as the main Arena: open from the start,
+ * one list (no sub arena); Master of Arena's main ladder opens once it's
+ * topped; its prizes 23-31 are Phantasma's parts. */
+static void test_phantasma(void) {
+    static acr_gen1_rogue_foe save_foe[200];
+    const acr_gen1_arena_world save_w = g_w;
+    memcpy(save_foe, g_foe, sizeof g_foe);
+    add_arena(ACR_GEN1_ARENA_PP, 50);
+    for (int i = 0; i < g_w.foes; ++i)
+        if (g_foe[i].arena == ACR_GEN1_ARENA_PP && g_foe[i].rank == 1) g_foe[i].prize_part = 23;   /* WA-Finger */
+    acr_gen1_arena s;
+    acr_gen1_arena_new(&s, &g_w);
+    EXPECT(s.a[ACR_GEN1_ARENA_PP].places == 50);
+    EXPECT(acr_gen1_arena_open(&s, ACR_GEN1_ARENA_PP) == ACR_GEN1_ARENA_OK);
+    EXPECT(acr_gen1_arena_open(&s, ACR_GEN1_ARENA_MOA) == ACR_GEN1_ARENA_LOCKED);
+    EXPECT(!acr_gen1_arena_is_sub(ACR_GEN1_ARENA_PP, 40));
+    /* rank 50 may challenge rank 20 straight away: no sub arena to clear */
+    EXPECT(acr_gen1_arena_can_challenge(&s, ACR_GEN1_ARENA_PP, 20, 0, 0) == ACR_GEN1_ARENA_OK);
+    climb(&s, ACR_GEN1_ARENA_PP, 2);
+    acr_gen1_arena_payout p;
+    EXPECT(acr_gen1_arena_result(&s, &g_w, ACR_GEN1_ARENA_PP, 1, 1, &p));
+    EXPECT(acr_gen1_arena_rank(&s, ACR_GEN1_ARENA_PP) == 1);
+    EXPECT(p.prize_id == 23 && p.part_cat == ACR_GEN1_CAT_HAND && p.part_index == 20);
+    EXPECT(acr_gen1_arena_open(&s, ACR_GEN1_ARENA_MOA) == ACR_GEN1_ARENA_OK);
+    int cat, ix;
+    EXPECT(acr_gen1_arena_prize_part(31, &cat, &ix) && cat == ACR_GEN1_CAT_GENERATOR && ix == 7);   /* GBX-TL */
+    EXPECT(acr_gen1_arena_prize_part(29, &cat, &ix) && cat == ACR_GEN1_CAT_BACK && ix == 15);       /* M118-TD */
+    EXPECT(acr_gen1_arena_prize_part(30, &cat, &ix) && cat == ACR_GEN1_CAT_BACK && ix == 35);       /* WC-SPGUN */
+    EXPECT(!strcmp(acr_gen1_arena_name(ACR_GEN1_ARENA_PP), "ARENA"));
+    /* the standings round-trip with arena 9 in them */
+    static char text[40000];
+    acr_gen1_arena_write(&s, text, sizeof text);
+    acr_gen1_arena r;
+    EXPECT(acr_gen1_arena_read(&r, text) && acr_gen1_arena_rank(&r, ACR_GEN1_ARENA_PP) == 1);
+    g_w = save_w;
+    memcpy(g_foe, save_foe, sizeof g_foe);
+}
+
 int main(void) {
     make_world();
+    test_phantasma();
     test_new();
     test_challenge_rules();
     test_sub_never_strands();

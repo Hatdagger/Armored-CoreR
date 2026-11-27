@@ -441,6 +441,16 @@ static int target_dist(void) { const char *e = SDL_getenv("ACR_DIST"); return e 
 static int target_side(void) { const char *e = SDL_getenv("ACR_SIDE"); return e ? SDL_atoi(e) : 0; }
 
 static int g_direct_test = 0;   /* part arguments given: no garage */
+static int g_moa_just_imported = 0;   /* this run imported Master of Arena: ask for Phantasma next */
+static int g_pp_picking = 0;          /* the ARENA screen opened the file picker for Phantasma */
+
+/* The Project Phantasma disc's arena is in the import. */
+static int phantasma_imported(const char *dir) {
+    char path[1200];
+    SDL_snprintf(path, sizeof path, "%s/arena/09-phantasma/01.toml", dir);
+    SDL_PathInfo info;
+    return SDL_GetPathInfo(path, &info) && info.type == SDL_PATHTYPE_FILE;
+}
 static long g_new_credits = 0;
 static int g_tick_rate = 60;   /* test: steps a second; 22 = Gen 1's own pace */
 static int g_landing_anim = 0; /* test: landings last the landing animation (F3 / Back + R3) */
@@ -905,7 +915,9 @@ static void show_message(SDL_Window *w, const char *text) {
     SDL_GL_SwapWindow(w);
 }
 
-/* Imports a disc into dir, showing progress text. */
+/* Imports a disc into dir, showing progress text. Either game's disc:
+ * Project Phantasma's goes beside Master of Arena's (its arena is the main
+ * Arena). Returns 0 failed, 1 Master of Arena, 2 Project Phantasma. */
 static int import_disc(SDL_Window *r, const char *disc, const char *dir, char *err, int err_size) {
     show_message(r, "IMPORTING YOUR DISC...\n\nTHIS TAKES A MOMENT.");
     acr_import_stats stats;
@@ -914,6 +926,24 @@ static int import_disc(SDL_Window *r, const char *disc, const char *dir, char *e
         SDL_snprintf(err, err_size, "Could not import that disc:\n%s", why);
         return 0;
     }
+    return stats.phantasma ? 2 : 1;
+}
+
+/* The ARENA screen's "add the Project Phantasma disc": only that disc. */
+static int add_phantasma(SDL_Window *r, const char *disc, const char *dir) {
+    char err[600] = "";
+    if (acr_disc_is_phantasma(disc) != 1) {
+        SDL_Log("arena: %s is not a Project Phantasma disc", disc);
+        arena_say("THAT IS NOT A PROJECT PHANTASMA DISC.");
+        return 0;
+    }
+    if (import_disc(r, disc, dir, err, sizeof err) != 2) {
+        SDL_Log("arena: %s", err);
+        arena_say("THE DISC COULD NOT BE IMPORTED.");
+        return 0;
+    }
+    arena_reload();
+    arena_say("PROJECT PHANTASMA'S ARENA IS READY.");
     return 1;
 }
 
@@ -1092,8 +1122,9 @@ int main(int argc, char **argv) {
             err[0] = 0;
             if (disc_pick_local(picked, &keep, local, sizeof local, err, sizeof err)) {
                 dir = default_dir;
-                if (import_disc(window, local, dir, err, sizeof err))
-                    loaded = demo_load(dir, parts, &ac_data[0], err, sizeof err);
+                const int kind = import_disc(window, local, dir, err, sizeof err);
+                if (kind == 2) SDL_snprintf(err, sizeof err, "PROJECT PHANTASMA IMPORTED (THE ARENA).\nNOW YOUR MASTER OF ARENA DISC, PLEASE.");
+                else if (kind) { loaded = demo_load(dir, parts, &ac_data[0], err, sizeof err); g_moa_just_imported = loaded; }
                 disc_pick_close(&keep);
             }
             continue;
@@ -1111,9 +1142,56 @@ int main(int argc, char **argv) {
             }
             dir = default_dir;
             err[0] = 0;
-            if (import_disc(window, e.drop.data, dir, err, sizeof err))
-                loaded = demo_load(dir, parts, &ac_data[0], err, sizeof err);
+            const int kind = import_disc(window, e.drop.data, dir, err, sizeof err);
+            if (kind == 2) SDL_snprintf(err, sizeof err, "PROJECT PHANTASMA IMPORTED (THE ARENA).\nNOW YOUR MASTER OF ARENA DISC, PLEASE.");
+            else if (kind) { loaded = demo_load(dir, parts, &ac_data[0], err, sizeof err); g_moa_just_imported = loaded; }
         }
+    }
+    /* Just imported Master of Arena: Project Phantasma's disc is asked for
+     * next (its arena is the main Arena); it can be skipped and added later
+     * from the ARENA screen. */
+    while (g_moa_just_imported && !phantasma_imported(dir)) {
+        char text[1200];
+        SDL_snprintf(text, sizeof text,
+                     "MASTER OF ARENA IMPORTED.\n\n"
+                     "NEXT, YOUR PROJECT PHANTASMA DISC (OPTIONAL):\n"
+                     "ITS 49 + 1 ARENA IS THE MAIN ARENA.\n"
+                     "MASTER OF ARENA'S LADDERS STAY AS EX ARENAS.\n\n"
+#ifdef SDL_PLATFORM_ANDROID
+                     "A (OR TAP): CHOOSE THE .BIN FILE    BACK: LATER\n\n%s", err);
+#else
+                     "DROP IT ON THIS WINDOW, OR A / ENTER TO CHOOSE IT.\n"
+                     "ESC / B: LATER (ADD IT FROM THE ARENA SCREEN)\n\n%s", err);
+#endif
+        show_message(window, text);
+        SDL_Event e;
+        if (!SDL_WaitEvent(&e)) continue;
+        if ((e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && e.gbutton.button == SDL_GAMEPAD_BUTTON_SOUTH) ||
+            (e.type == SDL_EVENT_KEY_DOWN && (e.key.scancode == SDL_SCANCODE_RETURN || e.key.scancode == SDL_SCANCODE_SPACE)) ||
+            e.type == SDL_EVENT_FINGER_UP || (e.type == SDL_EVENT_MOUSE_BUTTON_UP && e.button.which != SDL_TOUCH_MOUSEID)) {
+            disc_pick_open(window);
+            continue;
+        }
+        if (e.type == SDL_EVENT_QUIT ||
+            (e.type == SDL_EVENT_KEY_DOWN && (e.key.scancode == SDL_SCANCODE_ESCAPE || e.key.scancode == SDL_SCANCODE_AC_BACK)) ||
+            (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && (e.gbutton.button == SDL_GAMEPAD_BUTTON_BACK || e.gbutton.button == SDL_GAMEPAD_BUTTON_EAST)))
+            break;
+        char picked[2048], pp_path[1200] = "";
+        disc_pick_file keep;
+        int have_keep = 0;
+        const int pick = disc_pick_poll(picked, sizeof picked);
+        if (pick == 1) {
+            err[0] = 0;
+            if (disc_pick_local(picked, &keep, pp_path, sizeof pp_path, err, sizeof err)) have_keep = 1;
+        } else if (e.type == SDL_EVENT_DROP_FILE && e.drop.data) {
+            SDL_strlcpy(pp_path, e.drop.data, sizeof pp_path);
+        }
+        if (pp_path[0]) {
+            err[0] = 0;
+            if (acr_disc_is_phantasma(pp_path) != 1) SDL_snprintf(err, sizeof err, "THAT IS NOT A PROJECT PHANTASMA DISC.");
+            else if (import_disc(window, pp_path, dir, err, sizeof err) == 2) err[0] = 0;
+        }
+        if (have_keep) disc_pick_close(&keep);
     }
     /* The garage: the shop's catalogue from the import, and the save (or a
      * new game with the starting AC). */
@@ -1394,6 +1472,11 @@ int main(int argc, char **argv) {
                 continue;
             }
             if (mode == MODE_ARENA) {   /* the Arena's screens take all other input */
+                if (e.type == SDL_EVENT_DROP_FILE && e.drop.data && is_disc(e.drop.data)) {
+                    add_phantasma(window, e.drop.data, dir);
+                    last = SDL_GetTicksNS();
+                    continue;
+                }
                 garage_action ga = GA_NONE;
                 if (e.type == SDL_EVENT_KEY_DOWN) ga = key_action(e.key.scancode);
                 if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) ga = button_action(e.gbutton.button);
@@ -1835,6 +1918,21 @@ int main(int argc, char **argv) {
             if (d == GA_NONE) d = script_action();
             if (d != GA_NONE) { const arena_command c = arena_input(d); if (c != AC_NONE) acmd = c; }
             if (acmd == AC_LEAVE) { mode = 0; gui.screen = 0; }
+            if (acmd == AC_IMPORT_PP) { disc_pick_open(window); g_pp_picking = 1; }
+            if (g_pp_picking) {
+                char picked[2048];
+                const int pick = disc_pick_poll(picked, sizeof picked);
+                if (pick) g_pp_picking = 0;
+                if (pick == 1) {
+                    disc_pick_file keep;
+                    char local[1200], why[512] = "";
+                    if (disc_pick_local(picked, &keep, local, sizeof local, why, sizeof why)) {
+                        add_phantasma(window, local, dir);
+                        disc_pick_close(&keep);
+                    } else arena_say("THE DISC COULD NOT BE OPENED.");
+                    last = SDL_GetTicksNS();
+                }
+            }
             if (acmd == AC_FIGHT || arena_vs_due()) {
                 /* After the VS screen: the garage's AC against the opponent,
                  * flown by its own pilot, on the stage and with the timer

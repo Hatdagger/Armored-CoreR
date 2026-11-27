@@ -4,8 +4,8 @@
 #include <string.h>
 
 static const char *const k_name[ACR_GEN1_ARENA_COUNT] = {
-    "ARENA", "HUMANOID LEGS", "FOUR LEGS", "REVERSE JOINT", "CATERPILLAR",
-    "CHAMPION", "GUEST", "FROMSOFT", "MASTER",
+    "MASTER OF ARENA", "HUMANOID LEGS", "FOUR LEGS", "REVERSE JOINT", "CATERPILLAR",
+    "CHAMPION", "GUEST", "FROMSOFT", "MASTER", "ARENA",
 };
 
 const char *acr_gen1_arena_name(int arena) {
@@ -22,10 +22,15 @@ const char *acr_gen1_arena_timer_name(int timer) {
 
 /* ---- prizes (arena-prizes.md section 4) ---- */
 
-/* Prize id -> the game's owned-table index (menu module table 0x800D5C9C). */
+/* Prize id -> Master of Arena's owned-table index: 0-22 its own prizes
+ * (menu module table 0x800D5C9C), 23-31 Project Phantasma's 0-8 (its
+ * table 0x800BD764, PP menu FDAT 201: WA-Finger, WM-AT, RZ-Fw2, AW-DC/2,
+ * WG-PB26, HD-G780, M118-TD, WC-SPGUN, GBX-TL), turned into Master of
+ * Arena's numbers (back weapons 17 and up are one higher). */
 static const uint8_t k_prize_owned[ACR_GEN1_ARENA_PRIZES] = {
     247, 241, 13, 14, 37, 150, 239, 238, 242, 173, 174, 213,
     62, 73, 77, 85, 180, 181, 11, 50, 240, 214, 136,
+    237, 169, 204, 49, 236, 10, 172, 192, 100,
 };
 
 /* The owned table's categories: first index of each, in table order (head
@@ -131,7 +136,7 @@ int acr_gen1_arena_holder(const acr_gen1_arena *s, int a, int rank) {
     return l->holder[rank - 1];
 }
 
-int acr_gen1_arena_is_sub(int a, int rank) { return a == 0 && rank > ACR_GEN1_ARENA_RANKED; }
+int acr_gen1_arena_is_sub(int a, int rank) { return a == ACR_GEN1_ARENA_MOA && rank > ACR_GEN1_ARENA_RANKED; }
 
 int acr_gen1_arena_defeated(const acr_gen1_arena *s, int a, int rank) {
     const int d = acr_gen1_arena_holder(s, a, rank);
@@ -163,8 +168,10 @@ static int topped(const acr_gen1_arena *s, int a) { return s->a[a].places && s->
 
 acr_gen1_arena_why acr_gen1_arena_open(const acr_gen1_arena *s, int a) {
     if (a < 0 || a >= ACR_GEN1_ARENA_COUNT || !s->a[a].places) return ACR_GEN1_ARENA_NO_DATA;
-    const int main_best = s->a[0].best;
-    if (a == 0) return ACR_GEN1_ARENA_OK;
+    const int main_best = s->a[ACR_GEN1_ARENA_MOA].best;
+    if (a == ACR_GEN1_ARENA_PP) return ACR_GEN1_ARENA_OK;
+    if (a == ACR_GEN1_ARENA_MOA)
+        return !s->a[ACR_GEN1_ARENA_PP].places || topped(s, ACR_GEN1_ARENA_PP) ? ACR_GEN1_ARENA_OK : ACR_GEN1_ARENA_LOCKED;
     if (a <= 4) return main_best && main_best <= ACR_GEN1_ARENA_RANKED ? ACR_GEN1_ARENA_OK : ACR_GEN1_ARENA_LOCKED;
     if (a <= 7) return main_best == 1 ? ACR_GEN1_ARENA_OK : ACR_GEN1_ARENA_LOCKED;
     return topped(s, 5) && topped(s, 6) && topped(s, 7) ? ACR_GEN1_ARENA_OK : ACR_GEN1_ARENA_LOCKED;
@@ -180,7 +187,7 @@ acr_gen1_arena_why acr_gen1_arena_can_challenge(const acr_gen1_arena *s, int a, 
     if (rank > me) {
         /* below: only a rematch of someone already beaten */
         if (!acr_gen1_arena_is_rematch(s, a, rank)) return ACR_GEN1_ARENA_REFERENCE;
-    } else if (!acr_gen1_arena_is_sub(a, rank) && a == 0 && me > ACR_GEN1_ARENA_RANKED + 1) {
+    } else if (!acr_gen1_arena_is_sub(a, rank) && a == ACR_GEN1_ARENA_MOA && me > ACR_GEN1_ARENA_RANKED + 1) {
         return ACR_GEN1_ARENA_SUB_FIRST;
     }
     if (a >= 1 && a <= 4 && legs_kind != a) return ACR_GEN1_ARENA_WRONG_LEGS;
