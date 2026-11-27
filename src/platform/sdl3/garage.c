@@ -19,14 +19,14 @@
  * screen, so no shop and no AC TEST. */
 enum {
     M_GARAGE, M_SHOP, M_ARENA, M_MISSIONS, M_NETWORK, M_ROGUE, M_SYSTEM,
-    M_ASSEMBLY, M_OPTIONS, M_PERFORMANCE, M_COLOR, M_TEST, M_SAVE, M_LOAD, M_SETTINGS, M_CONTROLS, M_VIDEO, M_AUDIO, M_UPDATES, M_REIMPORT, M_QUIT, M_BACK, M_EXIT_RUN,
+    M_ASSEMBLY, M_OPTIONS, M_PERFORMANCE, M_COLOR, M_TEST, M_SAVE, M_LOAD, M_NEWGAME, M_SETTINGS, M_CONTROLS, M_VIDEO, M_AUDIO, M_UPDATES, M_REIMPORT, M_QUIT, M_BACK, M_EXIT_RUN,
     /* the hangar menu's own entries */
     M_EMBLEM, M_SPLIT, M_LAN, M_ONLINE, M_AR_PP, M_AR_MOA, M_AR_MOA_SUB, M_AR_EX, M_MAIL,
     M_COUNT
 };
 static const char *const k_menu[M_COUNT] = {
     "GARAGE", "PARTS SHOP", "ARENA", "MISSION SELECT", "NETWORK", "ROGUE ARENA", "SYSTEM",
-    "ASSEMBLE", "OPTIONAL PARTS", "PERFORMANCE", "PAINT", "AC TEST", "SAVE", "LOAD", "SETTINGS", "CONTROLS", "DISPLAY", "SOUND", "UPDATES", "RE-IMPORT DISC", "EXIT GAME", "BACK",
+    "ASSEMBLE", "OPTIONAL PARTS", "PERFORMANCE", "PAINT", "AC TEST", "SAVE", "LOAD", "NEW GAME", "SETTINGS", "CONTROLS", "DISPLAY", "SOUND", "UPDATES", "RE-IMPORT DISC", "EXIT GAME", "BACK",
     "BACK TO THE ARENA",
     "EMBLEM", "SPLIT SCREEN", "LAN", "ONLINE", "PHANTASMA ARENA", "MoA ARENA", "MoA SUB-ARENA", "EX ARENA", "MAIL"
 };
@@ -41,6 +41,7 @@ static const char *const k_menu_info[M_COUNT][2] = {
     [M_TEST] = { "TRY THE AC IN A TEST FIGHT.", "" },
     [M_SAVE] = { "WRITE THE GARAGE NOW.", "(IT ALSO SAVES BY ITSELF.)" },
     [M_LOAD] = { "BACK TO THE SAVED GARAGE.", "" },
+    [M_NEWGAME] = { "START OVER: FRESH GARAGE, MISSIONS", "AND ARENA RANKS. PRESS A TWICE." },
     [M_CONTROLS] = { "CONTROLLER AND KEY LAYOUTS.", "" },
     [M_VIDEO] = { "RESOLUTION AND FILTERS.", "" },
     [M_AUDIO] = { "MUSIC, FIGHT AND MENU VOLUME.", "" },
@@ -68,7 +69,7 @@ static const int k_col_items[X_COLS][X_ROWS_MAX + 1] = {   /* -1 ends a column *
 #else
     { M_CONTROLS, M_AUDIO, M_VIDEO, M_REIMPORT, M_QUIT, -1 },
 #endif
-    { M_SAVE, M_LOAD, -1 },
+    { M_SAVE, M_LOAD, M_NEWGAME, -1 },
     { M_SPLIT, M_LAN, M_ONLINE, -1 },
     { M_AR_PP, M_AR_MOA, M_AR_MOA_SUB, M_AR_EX, M_ROGUE, -1 },
     { M_ASSEMBLY, M_COLOR, M_EMBLEM, M_SHOP, M_OPTIONS, M_PERFORMANCE, M_TEST, -1 },
@@ -86,7 +87,7 @@ static int menu_ready(int id) {
 }
 static const int k_page_main[] = { M_GARAGE, M_SHOP, M_ARENA, M_MISSIONS, M_NETWORK, M_ROGUE, M_SYSTEM };
 static const int k_page_garage[] = { M_ASSEMBLY, M_OPTIONS, M_PERFORMANCE, M_COLOR, M_TEST, M_BACK };
-static const int k_page_system[] = { M_SAVE, M_LOAD, M_SETTINGS, M_QUIT, M_BACK };
+static const int k_page_system[] = { M_SAVE, M_LOAD, M_NEWGAME, M_SETTINGS, M_QUIT, M_BACK };
 /* RE-IMPORT DISC: import a disc again over the old import (saves kept).
  * UPDATES only in the Android app (update.h); the PC gets new builds from GitHub. */
 #ifdef SDL_PLATFORM_ANDROID
@@ -101,7 +102,7 @@ static int menu_items(const garage_ui *ui, const int **ids) {
     if (ui->rogue) { *ids = k_page_rogue; return 2; }
     switch (ui->page) {
     case GARAGE_PAGE_GARAGE: *ids = k_page_garage; return 6;
-    case GARAGE_PAGE_SYSTEM: *ids = k_page_system; return 5;
+    case GARAGE_PAGE_SYSTEM: *ids = k_page_system; return (int)SDL_arraysize(k_page_system);
     case GARAGE_PAGE_SETTINGS: *ids = k_page_settings; return (int)SDL_arraysize(k_page_settings);
     default: *ids = k_page_main; return 7;
     }
@@ -324,9 +325,13 @@ static garage_command paint_input(garage_ui *ui, garage_data *d, garage_action a
 
 /* ---- input ---- */
 
+/* NEW GAME asks for a second A on it (any other press cancels). */
+static int g_new_game_armed;
+
 /* Opens a menu entry. *err: it could not be opened (a message says why). */
 static garage_command choose(garage_ui *ui, garage_data *d, int id, int *err) {
     *err = 0;
+    if (id != M_NEWGAME) g_new_game_armed = 0;
     if (!menu_ready(id)) { say(ui, "NOT AVAILABLE YET."); *err = 1; return GC_NONE; }
     switch (id) {
         case M_GARAGE: open_page(ui, GARAGE_PAGE_GARAGE); return GC_NONE;
@@ -373,6 +378,10 @@ static garage_command choose(garage_ui *ui, garage_data *d, int id, int *err) {
         case M_UPDATES: return GC_UPDATES;
         case M_REIMPORT: return GC_REIMPORT;
         case M_SAVE: return GC_SAVE;
+        case M_NEWGAME:
+            if (!g_new_game_armed) { g_new_game_armed = 1; say(ui, "A AGAIN: NEW GAME. YOUR SAVE AND ARENA RANKS ARE REPLACED."); return GC_NONE; }
+            g_new_game_armed = 0;
+            return GC_NEWGAME;
         case M_LOAD: return GC_LOAD;
         case M_QUIT: case M_EXIT_RUN: return GC_QUIT;
         default: break;
@@ -403,10 +412,11 @@ static garage_command xmb_input(garage_ui *ui, garage_data *d, garage_action a) 
     if (a == GA_DOWN && row + 1 < n) ++ui->xmb_row;
     if (ui->xmb_col != col || ui->xmb_row != row) {
         ui->xmb_hold_ms = 0;   /* the details wait for a new 1.5 s hold */
+        g_new_game_armed = 0;
         sfx_ui(SFX_UI_CURSOR);
         return GC_NONE;
     }
-    if (a != GA_OK) return GC_NONE;
+    if (a != GA_OK) { g_new_game_armed = 0; return GC_NONE; }
     int err = 0;
     const garage_command c = choose(ui, d, k_col_items[col][row], &err);
     sfx_ui(err ? SFX_UI_BACK : SFX_UI_OK);
@@ -425,8 +435,8 @@ garage_command garage_input(garage_ui *ui, garage_data *d, garage_action a) {
         if (*cur >= items) *cur = 0;
         if (a == GA_UP) *cur = (*cur + items - 1) % items;
         if (a == GA_DOWN) *cur = (*cur + 1) % items;
-        if (a == GA_CANCEL) { *cur = items - 1; return GC_NONE; }
-        if (a != GA_OK) return GC_NONE;
+        if (a == GA_CANCEL) { *cur = items - 1; g_new_game_armed = 0; return GC_NONE; }
+        if (a != GA_OK) { g_new_game_armed = 0; return GC_NONE; }
         const int id = ids[*cur];
         int err = 0;
         switch (id) {

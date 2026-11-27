@@ -65,9 +65,10 @@ static uint8_t *read_entry(const char *unpacked, unsigned k, size_t *size) {
 
 /* A name as a TOML string body. Phantasma ends names with '>'; four
  * "Panzern" ACs carry a symbol from the game's own font (bytes 0xA2-0xA5),
- * written here as the numerals I-IV. */
+ * written here as the numerals IV-VII (0xA5 is rank 5's Panzern VII, 0xA2
+ * rank 17's Panzern IV). */
 static void clean_name(const uint8_t *p, size_t n, char *out, size_t size) {
-    static const char *const k_mark[4] = { "I", "II", "III", "IV" };
+    static const char *const k_mark[4] = { "IV", "V", "VI", "VII" };
     size_t o = 0;
     for (size_t i = 0; i < n && p[i] && p[i] != '>' && o + 1 < size; ++i) {
         if (p[i] >= 0xA2 && p[i] <= 0xA5) {
@@ -147,8 +148,9 @@ int acr_export_pp_arena(const char *pp_unpacked, const char *out_dir, uint32_t *
         const uint8_t *b = bld + r * BUILD_BYTES;
         if (b[0] == 0xFF || b[1] == 0xFF) continue;
         char pilot[40], ac[40];
-        clean_name(nam + r * NAME_BYTES, NAME_BYTES, pilot, sizeof pilot);
-        clean_name(nam + (PLACES - 1 + r) * NAME_BYTES, NAME_BYTES, ac, sizeof ac);
+        /* pilot and AC alternate: rank 1 Necron / Black Dragon, rank 2 ... */
+        clean_name(nam + (2 * r) * NAME_BYTES, NAME_BYTES, pilot, sizeof pilot);
+        clean_name(nam + (2 * r + 1) * NAME_BYTES, NAME_BYTES, ac, sizeof ac);
         snprintf(path, sizeof path, "%s/%02u.toml", dir, r + 1);
         if (!write_opponent(path, r + 1, b, pilot, ac, rew + r * 8, eng + AI_OFFSET + r * AI_BYTES)) {
             set_err(err, err_size, "cannot write", path);
