@@ -23,3 +23,4 @@ Needs numpy and Pillow, plus matplotlib for `render.py`. `weapons.py` also needs
 
 ## split_bin.py
 Splits AC2DATA.BIN / AC25DATA.BIN (or the .iso) into per-ID files with the 32 KB offset fixed. Detects the shift from JOIN/model headers, writes `split/<group>/NNNNN.bin` next to the rip, and checks every shop package name record. Run: `python split_bin.py [PATH]`.
+- `compare_shop.py AC2_F AA_F`: new / changed shop parts between AC2 and Another Age.

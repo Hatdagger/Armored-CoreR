@@ -16,11 +16,11 @@ Scripts are in `tools/gen2/`.
 - 1,956 files, covering sector 558,481 of 558,576. Skipped: ADPCM/ (VVV briefings), ADS/, MOVIE/, DRIVER/ (modem), IOP/, DUMMY.OUT.
 - Entry filter: offset >= table end, offset+size within the archive, offsets non-decreasing by ID.
 
-## Files overlap: stitch before reading
-In the part blocks, each ID's real data usually starts 0x8000 (32 KB) into its file and runs into the next ID's file. The first 32 KB of a file is the tail of the previous ID.
-- Fix used here: concatenate consecutive IDs of a block, in order, into one stream, then scan for headers (2 KB alignment works). See `stitch.py`.
-- The importer in PR #64 instead reads each file plus 32 KB and takes the header at 0 or 0x8000.
-- The likely cause is that the table offsets are being read one 32 KB slot off. This is worth re-checking against the raw BIN.
+## File offsets (SOLVED 2026-11-27, session 4)
+The table offsets point too early. Real start = table offset **+16 sectors (32 KB) in AC2, +32 sectors (64 KB) in Another Age**; 96% of recognisable files agree, the rest are detected per file.
+- `tools/gen2/split_bin.py` splits the BIN (or the .iso) on the user's PC with this rule, checks every shop package (JOIN category index + name record) and writes `split/<group>/NNNNN.bin` plus a split log.
+- Results: AC2 all 234 shop packages (including the 13 last-of-group parts that were cut off before); AA 270 of 272 (3790/3800 are in the unknown range).
+- Stitching (`stitch.py`, the +32 KB read in PR #64) is no longer needed with split files.
 
 ## General
 - Nothing is compressed and there are no TIM2 files. AC2 uses its own raw PS2 formats.
@@ -138,14 +138,14 @@ The public CodeBreaker cheats are encrypted and only touch "owned" flags, so the
 
 ## Another Age vs AC2 (2026-11-27, session 3)
 - **Extraction problem:** in the AA F block, each package's tail (the name/stats record) is cut off: the next package starts about 0x400-0x500 bytes before the current one ends, and the start drifts 0 / 32 KB / 64 KB into each file. Only 86 of 271 AA packages are readable. **AC25DATA.BIN needs re-extracting with corrected table offsets/sizes.** (Same root cause as AC2's 13 truncated last-of-group entries.) `tools/gen2/catalogue.py` reads packages from one stitched stream instead of by file ID.
-- **New parts (23, from the model codes in SLUS_202.49, `/a2/ac5/model/...`; none removed):** heads h13 h14; legs l2n06 l2l04 l2h04 la06; right-arm weapons wrr07 wre05 wre06 wrsp05; left-arm wlb06; back units wbm09-wbm12 (missiles), wbr05 wbr06 (rockets), wbc07-wbc09 (cannons), wbdo01; extensions exs01 exb03. Names read so far: EHD-WACS, ZHD-102/ROCK, EWG-XC213 (laser rifle), EWG-HM-04 (hand missile), EWM-NAP-02 (napalm), EWM-M03, ZWM-GT/00 (ground torpedo), EWR-M40, ZWC-CN/500, EWC-GN-81, ZXR-S/STEALTH, ZES-99/MIRROR (shield).
+- **New parts (23, from the model codes in SLUS_202.49, `/a2/ac5/model/...`; none removed):** heads h13 h14; legs l2n06 l2l04 l2h04 la06; right-arm weapons wrr07 wre05 wre06 wrsp05; left-arm wlb06; back units wbm09-wbm12 (missiles), wbr05 wbr06 (rockets), wbc07-wbc09 (cannons), wbdo01; extensions exs01 exb03. Names read so far: ZHD-102/ROCK, EWG-XC213 (laser rifle), EWG-HM-04 (hand missile), EWM-NAP-02 (napalm), EWM-M03, ZWM-GT/00 (ground torpedo), EWR-M40, ZWC-CN/500, EWC-GN-81. (EHD-WACS, ZXR-S/STEALTH and ZES-99/MIRROR were listed here by mistake: they are AC2 parts that were truncated.) Full list: `gen2-aa-diff.md`.
 - **Weapon table:** same layout, AA file 10 at 0x380f0. New rows 57-60 (right arm), 89-97 (back), 123-125. About 30 existing weapons rebalanced, e.g. rifles +20 ammo, SRF/8 521→551 and SRF-9 608→628 attack, bazooka heat 374→574 / 453→673, laser/pulse/plasma rifle heat lowered (KARASAWA 68→42, K99 82→50), ZWX-E90/MAC 3850→4450 attack and 10→20 ammo, EWX-VLS241 1060→880 attack. `weapons.py --diff` lists them all.
 - The wiki says AA cut SRF/8 reload 44→36 and K99 92→76, but w8 is unchanged for those two (it does change for others). Either the wiki is wrong or AA scales reload elsewhere.
 - Frame parts: of the 90 AA records read, only 2 changed (ZLR-K196/RJ stats, EWX-GCN77-4 weight 1756→1556). The full comparison needs the re-extraction.
 - **Base game:** AC2 stays the base. AA is a superset (same formats, +23 parts, rebalanced numbers), so AA can be layered on later as an option.
 
 ## Open questions
-- Re-extract AC25DATA.BIN (and AC2's 13 truncated entries) with corrected offsets — read raw BIN.
+- Name the remaining stat fields in the parts record (+128..+142).
 - Weapon → range record link; velocity; meaning of w8 for back cannons; AA reload discrepancy.
 - Hierarchy confirmation (game code) and rotation order; animation data (not found yet).
 - Arms' extra shared texture (TEX0 …9fd0); boosters/back units/extensions in the glTF build.
