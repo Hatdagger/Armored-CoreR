@@ -276,7 +276,20 @@ rollback fights, resume after a disconnect. Next: a two-PC play-test.
    emblems on the ladder, rematches of DEFEATED opponents, the game's
    "Opponent unavailable, default win" rule (missions mark the absent later).
 8. **UI**: the game's menus and garage screens to Master of Arena's design
-   (and the split-screen HUD). **Main menu** (first version done,
+   (and the split-screen HUD). **Hangar main menu + GARAGE > ASSEMBLE**
+   (2026-11-27, branch `hangar-xmb-menu`, project doc
+   `claude/hangar-menu-and-garage-ui.md`): the player's AC on the gantry in
+   a hangar (steam, swinging arms, warning lights), an XMB menu on the
+   console's green CRT (SYSTEM, DATA, VERSUS, ARENA, GARAGE, MISSION;
+   GARAGE in focus at the start, details after a 1.5 s hold). ASSEMBLE:
+   slot list, the slot's part as a pulsing red wireframe on the AC, the
+   part being looked at turning (solid) on the right; A fits it with the
+   equip sound (looking is not fitting); Y / Triangle opens a live specs
+   window. Older entries moved in: SHOP = PARTS SHOP, CHANGE COLOR = PAINT,
+   OPTIONAL PARTS / PERFORMANCE / AC TEST under GARAGE, ROGUE ARENA under
+   ARENA, UPDATES / RE-IMPORT / EXIT under SYSTEM, VERSUS opens NETWORK,
+   EMBLEM and MAIL not built yet (MAIL opens MISSION SELECT).
+   Earlier **Main menu** (first version done,
    2026-11-19, user's layout): GARAGE (ASSEMBLY, AC TEST), SHOP, ARENA,
    MISSIONS, NETWORK, ROGUE ARENA, SYSTEM (SAVE, LOAD, SETTINGS: CONTROLS,
    VIDEO, AUDIO; EXIT GAME). NETWORK and SHOP are their own entries, not

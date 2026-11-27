@@ -950,17 +950,93 @@ static void draw_option_model(int bit, int ph, float hx, float hy, float hw, flo
     demo_object_draw(&objs[bit], 1500.0f, (float)tick * 0.02f, 0.35f, &g_light);
 }
 
-/* The garage's AC: turning slowly, standing, in the middle of the screen. */
-static void draw_garage_ac(int pw, int ph, float hud_w, unsigned tick) {
+/* GARAGE > ASSEMBLE: the part being looked at, turning (solid, not a
+ * wireframe: the user, 2026-11-27), from models/menu/<kind>/NN; each
+ * model is loaded the first time it is shown and kept. */
+static void draw_menu_part(const char *kind, int index, int ph, float hx, float hy, float hw, float hh, unsigned tick) {
+    enum { KINDS = 11 };
+    static const char *const k_kinds[KINDS] = {
+        "core", "booster", "head", "arms", "blade", "hand", "back", "generator", "fcs", "legs", "option" };
+    static demo_object *objs[KINDS][ACR_GEN1_PART_MAX];
+    static uint8_t tried[KINDS][ACR_GEN1_PART_MAX];
+    int k = 0;
+    while (k < KINDS && strcmp(k_kinds[k], kind)) ++k;
+    if (k == KINDS || index < 0 || index >= ACR_GEN1_PART_MAX) return;
+    if (!tried[k][index]) {
+        tried[k][index] = 1;
+        objs[k][index] = (demo_object *)SDL_calloc(1, sizeof(demo_object));
+        if (objs[k][index] && !demo_object_load(g_import_dir, kind, index, objs[k][index])) {
+            SDL_free(objs[k][index]);
+            objs[k][index] = NULL;
+        }
+    }
+    const demo_object *o = objs[k][index];
+    if (!o || !o->ok) return;
+    const float s = (float)ph / 480.0f;
+    const int x = (int)(hx * s), y = (int)(hy * s), w = (int)(hw * s), h = (int)(hh * s);
+    if (w < 8 || h < 8) return;
+    float proj[16], viewm[16];
+    acr_mat_perspective(proj, 30.0f * 3.14159265f / 180.0f, (float)w / (float)h, 50.0f, 40000.0f);
+    const float eye[3] = { 0, 0, -4000.0f }, fwd[3] = { 0, 0, 1 }, up[3] = { 0, 1, 0 };
+    acr_mat_look(viewm, eye, fwd, up);
+    for (int j = 0; j < 4; ++j) viewm[4 * j] = -viewm[4 * j];
+    acr_render_view3d(x, y, w, h, proj, viewm, NULL);
+    demo_object_draw(o, 1600.0f, (float)tick * 0.02f, 0.35f, &g_light);
+}
+
+/* The hangar main menu's AC: the player's own, standing on the gantry,
+ * facing the fixed camera, with a slight idle bob (4 s). Framed by its
+ * size so it fills the mockup's box. */
+static void draw_hangar_ac(int ph, float hud_w, unsigned ms) {
     float hx, hy, hw, hh;
-    garage_view_rect(hud_w, &hx, &hy, &hw, &hh);
+    garage_view_rect_ui(&(garage_ui){ 0 }, hud_w, &hx, &hy, &hw, &hh);
+    const float s = (float)ph / 480.0f;
+    const int w = (int)(hud_w * s), h = ph;
+    float mn[3] = { -400, 0, -400 }, mx[3] = { 400, 1600, 400 };
+    if (g_model[0].ok) demo_model_bounds(&g_model[0], 0, 0, mn, mx);
+    const float height = mx[1] - mn[1] > 100 ? mx[1] - mn[1] : 1600;
+    /* the box is hh of 480 tall, its middle at hy + hh / 2 */
+    const float fov = 40.0f * 3.14159265f / 180.0f, t = tanf(fov * 0.5f);
+    const float dist = height / (2.0f * t * (hh / 480.0f));
+    const float above = (240.0f - (hy + hh * 0.5f)) / 240.0f * dist * t;   /* box middle above the screen's */
+    const float cy = mn[1] + height * 0.5f - above;
+    float proj[16], viewm[16];
+    acr_mat_perspective(proj, fov, (float)w / (float)h, 50.0f, 60000.0f);
+    const float eye[3] = { (hx + hw * 0.5f - hud_w * 0.5f) / 240.0f * dist * t * -1.0f, cy, -dist };
+    const float fwd[3] = { 0, 0, 1 }, up[3] = { 0, 1, 0 };
+    acr_mat_look(viewm, eye, fwd, up);
+    for (int k = 0; k < 4; ++k) viewm[4 * k] = -viewm[4 * k];
+    acr_render_view3d(0, 0, w, h, proj, viewm, NULL);
+    const float bob = sinf((float)ms / 4000.0f * 6.2831853f) * height * 0.004f;
+    const float yaw = 3.14159265f - 0.3f;
+    if (g_model[0].ok) demo_model_draw(&g_model[0], 0, 0, 0, bob, 0, yaw, 1.0f, &g_light);
+    else { add_ac(v3(0, bob, 0), yaw, 0, 0); flush_scene(); }
+}
+
+/* The garage's AC: turning slowly, standing, in the middle of the screen
+ * (GARAGE > ASSEMBLE: the selected slot's part as a pulsing red wireframe). */
+static void draw_garage_ac(const garage_ui *ui, int pw, int ph, float hud_w, unsigned tick) {
+    float hx, hy, hw, hh;
+    garage_view_rect_ui(ui, hud_w, &hx, &hy, &hw, &hh);
     const float s = (float)ph / 480.0f;
     const int x = (int)(hx * s), y = (int)(hy * s), w = (int)(hw * s), h = (int)(hh * s);
     if (w < 8 || h < 8) return;
     (void)pw;
     float proj[16], viewm[16];
     acr_mat_perspective(proj, 40.0f * 3.14159265f / 180.0f, (float)w / (float)h, 50.0f, 40000.0f);
-    const float eye[3] = { 0, 1000.0f, -2700.0f }, fwd[3] = { 0, -0.2f, 1 }, up[3] = { 0, 1, 0 };
+    float eye[3] = { 0, 1000.0f, -2700.0f }, fwd[3] = { 0, -0.2f, 1 };
+    const float up[3] = { 0, 1, 0 };
+    if (garage_wire_kinds(ui) || ui->screen == 1) {
+        /* ASSEMBLE: the whole AC, about 80% of the box's height */
+        float mn[3] = { -400, 0, -400 }, mx[3] = { 400, 1600, 400 };
+        if (g_model[0].ok) demo_model_bounds(&g_model[0], 0, 0, mn, mx);
+        const float height = mx[1] - mn[1] > 100 ? mx[1] - mn[1] : 1600;
+        const float span = height > (mx[0] - mn[0]) * 1.1f ? height : (mx[0] - mn[0]) * 1.1f;
+        const float dist = span / (2.0f * tanf(20.0f * 3.14159265f / 180.0f) * 0.8f) + 600.0f;
+        eye[1] = mn[1] + height * 0.62f;
+        eye[2] = -dist;
+        fwd[1] = -0.12f;
+    }
     acr_mat_look(viewm, eye, fwd, up);
     for (int k = 0; k < 4; ++k) viewm[4 * k] = -viewm[4 * k];
     acr_render_view3d(x, y, w, h, proj, viewm, NULL);
@@ -970,8 +1046,14 @@ static void draw_garage_ac(int pw, int ph, float hud_w, unsigned tick) {
     }
     flush_scene();
     const float yaw = 3.14159265f + (float)tick * 0.004f;
+    const unsigned wire = garage_wire_kinds(ui);
+    if (wire) {   /* ~1.6 s pulse */
+        const float p = 0.5f + 0.5f * sinf((float)tick * 16.0f / 1600.0f * 6.2831853f);
+        demo_model_set_wire(wire, 255, (uint8_t)(70 + 40 * p), (uint8_t)(60 + 30 * p), (uint8_t)(115 + 140 * p));
+    }
     if (g_model[0].ok) demo_model_draw(&g_model[0], 0, tick, 0, 0, 0, yaw, 1.0f, &g_light);
     else { add_ac(v3(0, 0, 0), yaw, 0, 0); flush_scene(); }
+    demo_model_set_wire(0, 0, 0, 0, 0);
 }
 
 /* Rogue Arena's VS and victory screens (rogue_ac_drawer): an AC drawn into a
@@ -2458,7 +2540,7 @@ int main(int argc, char **argv) {
                 gcmd = GC_NONE;
             }
             if (gcmd == GC_ROGUE) { rogue_open(g_hangar.pilot_name, g_hangar.ac_name); mode = MODE_ROGUE; }
-            if (gcmd == GC_ARENA) { arena_open(); mode = MODE_ARENA; }
+            if (gcmd == GC_ARENA) { arena_open_at(gui.arena_row); mode = MODE_ARENA; }
             if (gcmd == GC_MISSIONS) { missions_open(); mode = MODE_MISSIONS; }
             if (gcmd == GC_CONTROLS) { controls_open(&cui); mode = MODE_CONTROLS; }
             if (gcmd == GC_VIDEO || gcmd == GC_AUDIO) { settings_open(&sui, gcmd == GC_AUDIO); mode = MODE_SETTINGS; }
@@ -2743,9 +2825,16 @@ int main(int argc, char **argv) {
             {
                 const float hud_w_ = 480.0f * (float)pw / (float)ph;
                 float ox, oy, ow, oh;
+                garage_draw_back(&gui, &gdata, acr_render_hud(0, 0, pw, ph));   /* the hangar, ASSEMBLE's panels */
                 const int obit = garage_option_model(&gui, &gdata, hud_w_, &ox, &oy, &ow, &oh);
+                float hx_, hy_, hw_, hh_;
+                const char *ckind = NULL;
+                int cindex = 0;
                 if (obit >= 0) draw_option_model(obit, ph, ox, oy, ow, oh, (unsigned)(now_ms / 16));
-                else draw_garage_ac(pw, ph, hud_w_, (unsigned)(now_ms / 16));
+                else if (garage_view_rect_ui(&gui, hud_w_, &hx_, &hy_, &hw_, &hh_)) draw_hangar_ac(ph, hud_w_, (unsigned)now_ms);
+                else draw_garage_ac(&gui, pw, ph, hud_w_, (unsigned)(now_ms / 16));
+                if (garage_candidate_model(&gui, &gdata, hud_w_, &ckind, &cindex, &ox, &oy, &ow, &oh))
+                    draw_menu_part(ckind, cindex, ph, ox, oy, ow, oh, (unsigned)(now_ms / 16));
             }
             garage_draw(&gui, &gdata, acr_render_hud(0, 0, pw, ph), elapsed);
             goto present;

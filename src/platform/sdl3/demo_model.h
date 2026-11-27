@@ -54,6 +54,9 @@ void demo_model_free(demo_model *m);
  * at `scale` times its model's size. */
 void demo_model_draw(const demo_model *m, int anim, unsigned tick, float x, float y, float z,
                      float yaw, float scale, const acr_lighting *light);
+/* From now on, draw the part kinds in `kinds` (bits 1 << ACR_PART_*) as a
+ * wireframe in one colour instead of solid; 0 = all solid again. */
+void demo_model_set_wire(unsigned kinds, uint8_t r, uint8_t g, uint8_t b, uint8_t a);
 /* The same with a pose already worked out (smooth playback, crossfades). */
 void demo_model_draw_pose(const demo_model *m, const acr_pose *pose, float x, float y, float z,
                           float yaw, float scale, const acr_lighting *light);

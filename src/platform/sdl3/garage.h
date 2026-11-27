@@ -1,10 +1,12 @@
-/* The game's menus, laid out like Master of Arena's garage: the main menu
- * (GARAGE, SHOP, ARENA, MISSIONS, NETWORK, ROGUE ARENA, SYSTEM) and its
- * sub-menus (GARAGE: ASSEMBLY, AC TEST; SYSTEM: SAVE, LOAD, SETTINGS,
- * EXIT GAME; SETTINGS: CONTROLS, VIDEO, AUDIO), the assembly screen (slots
- * in the game's order, then the parts you own for the chosen slot), and
- * the shop (buy and sell by category). The AC turns in the middle with
- * the build's totals beside it. Controller first; the keyboard mirrors it. */
+/* The game's menus. The main menu is the hangar (user's design, project doc
+ * claude/hangar-menu-and-garage-ui.md): the player's AC on its gantry and
+ * an XMB-style menu on the console's CRT, columns SYSTEM, DATA, VERSUS,
+ * ARENA, GARAGE, MISSION with their items under the one in focus.
+ * GARAGE > ASSEMBLE: the slot list, the AC with the slot's part as a
+ * pulsing red wireframe, the part you are looking at turning on the right
+ * (A fits it), and a specs window on Y / Triangle. The shop and the other
+ * garage pages keep Master of Arena's layout. A Rogue Arena run's garage
+ * keeps its own small menu. Controller first; the keyboard mirrors it. */
 #ifndef GARAGE_H
 #define GARAGE_H
 
@@ -21,7 +23,7 @@ typedef enum garage_command {
     GC_TEST,        /* AC TEST with the current build (it passed the check) */
     GC_NETWORK,     /* the NETWORK screen (host or join a match; the build passed the check) */
     GC_ROGUE,       /* ROGUE ARENA */
-    GC_ARENA,       /* ARENA: the ranked ladders */
+    GC_ARENA,       /* ARENA: the ranked ladders (arena_row: which row to start on) */
     GC_MISSIONS,    /* MISSIONS: the mission list, briefings and sorties */
     GC_CONTROLS,    /* SYSTEM > SETTINGS > CONTROLS: the controller mapping page */
     GC_VIDEO,       /* SYSTEM > SETTINGS > VIDEO */
@@ -51,6 +53,15 @@ typedef struct garage_ui {
     /* CHANGE COLOR: 0 its menu, 1 the part menu, 2 the colour editor */
     int paint_step, paint_menu, paint_part_cur, paint_colour, paint_channel;
     uint8_t paint_backup[4][4][3];   /* the paint as the editor found it (○ puts it back) */
+    /* The hangar menu: the column and item in focus, where the slides are
+     * (eased towards them), how long the item has been held (its details
+     * show after 1.5 s). */
+    int xmb_col, xmb_row;
+    float xmb_pos, xmb_rpos;
+    int xmb_hold_ms;
+    int arena_row;              /* GC_ARENA: the arena list's row to open on */
+    int specs_open;             /* ASSEMBLE: the specs window (Y / Triangle) */
+    int anim_ms;                /* a running clock for the menus' animations */
 } garage_ui;
 
 typedef struct garage_data {
@@ -70,7 +81,21 @@ garage_command garage_input(garage_ui *ui, garage_data *d, garage_action a);
 /* Draws the menus on the HUD grid (480 high, `hud_w` wide). The 3D AC is
  * drawn by the caller; garage_view_rect gives where, in HUD units. */
 void garage_draw(garage_ui *ui, const garage_data *d, float hud_w, int elapsed_ms);
+/* What goes behind the 3D models (the hangar, ASSEMBLE's panels): call
+ * before drawing them, then garage_draw after. */
+void garage_draw_back(const garage_ui *ui, const garage_data *d, float hud_w);
 void garage_view_rect(float hud_w, float *x, float *y, float *w, float *h);
+/* Where this screen's AC goes (HUD units); 1 = the hangar main menu (the
+ * AC stands on its gantry, seen from the front). */
+int  garage_view_rect_ui(const garage_ui *ui, float hud_w, float *x, float *y, float *w, float *h);
+/* ASSEMBLE: the AC's part kinds (bits 1 << ACR_PART_*) to draw as the
+ * selected slot's wireframe; 0 elsewhere. */
+unsigned garage_wire_kinds(const garage_ui *ui);
+/* ASSEMBLE: the part being looked at, shown turning on the right: its
+ * models/menu folder ("head", "back"...) and number, and the box (HUD
+ * units). 0 when there is none (NO EQUIP, or another screen). */
+int garage_candidate_model(const garage_ui *ui, const garage_data *d, float hud_w, const char **kind, int *index,
+                           float *x, float *y, float *w, float *h);
 /* OPTIONAL PARTS shows the highlighted option's own model turning in a box
  * (HUD units) instead of the AC: its option bit, or -1 when the page isn't open. */
 int garage_option_model(const garage_ui *ui, const garage_data *d, float hud_w,
