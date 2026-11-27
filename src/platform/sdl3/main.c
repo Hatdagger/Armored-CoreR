@@ -987,7 +987,9 @@ static void draw_menu_part(const char *kind, int index, int ph, float hx, float 
     if (w < 8 || h < 8) return;
     float proj[16], viewm[16];
     acr_mat_perspective(proj, 30.0f * 3.14159265f / 180.0f, (float)w / (float)h, 50.0f, 40000.0f);
-    const float eye[3] = { 0, 0, -4000.0f }, fwd[3] = { 0, 0, 1 }, up[3] = { 0, 1, 0 };
+    /* the disc's garage models have y down (PS1 space): turn the camera
+     * over so the part stands the right way up */
+    const float eye[3] = { 0, 0, -4000.0f }, fwd[3] = { 0, 0, 1 }, up[3] = { 0, -1, 0 };
     acr_mat_look(viewm, eye, fwd, up);
     for (int j = 0; j < 4; ++j) viewm[4 * j] = -viewm[4 * j];
     acr_render_view3d(x, y, w, h, proj, viewm, NULL);
