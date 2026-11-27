@@ -442,6 +442,19 @@ static int enter_row(int row) {
     return 1;
 }
 
+/* Whether a hub arena entry has anything to open right now (the hub
+ * crosses out the rest): 0-2 its ladder, 3 any Ex Arena. */
+int arena_hub_available(int row) {
+    if (!A.ok) return 0;
+    if (SDL_getenv("ACR_ARENA_UNLOCK")) return 1;
+    if (row >= ROW_EX) {
+        for (int r = ROW_EX; r < PR_ARENAS; ++r)
+            if (row_open(r) == ACR_GEN1_ARENA_OK && A.s.a[row_arena(r)].places) return 1;
+        return 0;
+    }
+    return row >= 0 && A.s.a[row_arena(row)].places && row_open(row) == ACR_GEN1_ARENA_OK;
+}
+
 static void cycle_stage(int dir) {
     if (!A.nstages) { say("RE-IMPORT YOUR DISC: NO STAGES FOUND."); return; }
     int i = 0;

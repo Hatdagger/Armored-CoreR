@@ -1,4 +1,5 @@
 #include "garage.h"
+#include "arena.h"
 
 #include <SDL3/SDL.h>
 
@@ -64,6 +65,19 @@ static const char *const k_menu_info[M_COUNT][2] = {
 enum { X_SYSTEM, X_DATA, X_VERSUS, X_ARENA, X_GARAGE, X_MISSION, X_COLS };
 static const char *const k_col_name[X_COLS] = { "SYSTEM", "DATA", "VERSUS", "ARENA", "GARAGE", "MISSION" };
 #define X_ROWS_MAX 8
+/* Hub entries whose content isn't there yet are crossed out and do
+ * nothing when pressed (user, 2026-11-27). */
+static int item_available(int id) {
+    switch (id) {
+    case M_EMBLEM: return 0;   /* coming soon */
+    case M_AR_PP: return arena_hub_available(0);
+    case M_AR_MOA_SUB: return arena_hub_available(1);
+    case M_AR_MOA: return arena_hub_available(2);
+    case M_AR_EX: return arena_hub_available(3);
+    default: return 1;
+    }
+}
+
 static const int k_col_items[X_COLS][X_ROWS_MAX + 1] = {   /* -1 ends a column */
 #ifdef SDL_PLATFORM_ANDROID
     { M_CONTROLS, M_AUDIO, M_VIDEO, M_UPDATES, M_REIMPORT, M_QUIT, -1 },
@@ -374,7 +388,6 @@ static garage_command choose(garage_ui *ui, garage_data *d, int id, int *err) {
         case M_AR_MOA: ui->arena_row = 2; return GC_ARENA;
         case M_AR_EX: ui->arena_row = 3; return GC_ARENA;
         case M_MISSIONS: case M_MAIL: return GC_MISSIONS;
-        case M_EMBLEM: say(ui, "EMBLEM: COMING SOON."); *err = 1; return GC_NONE;
         case M_CONTROLS: return GC_CONTROLS;
         case M_VIDEO: return GC_VIDEO;
         case M_AUDIO: return GC_AUDIO;
@@ -420,6 +433,7 @@ static garage_command xmb_input(garage_ui *ui, garage_data *d, garage_action a) 
         return GC_NONE;
     }
     if (a != GA_OK) { g_new_game_armed = 0; return GC_NONE; }
+    if (!item_available(k_col_items[col][row])) return GC_NONE;   /* crossed out: nothing happens */
     int err = 0;
     const garage_command c = choose(ui, d, k_col_items[col][row], &err);
     sfx_ui(err ? SFX_UI_BACK : SFX_UI_OK);
@@ -910,9 +924,17 @@ static void xmb_draw(garage_ui *ui, const garage_data *d, float hud_w, int elaps
         const int id = k_col_items[col][j];
         const float ts = on ? 12.5f : 10.0f;
         const uint8_t a = kk < -0.5f ? 90 : 255;
-        const uint8_t r = on ? 0xc8 : 0x5f, g = on ? 0xff : 0x9d, b = on ? 0xe6 : 0x84;
+        const int avail = item_available(id);
+        uint8_t r = on ? 0xc8 : 0x5f, g = on ? 0xff : 0x9d, b = on ? 0xe6 : 0x84;
+        if (!avail) { r = on ? 0x8a : 0x48; g = on ? 0x96 : 0x52; b = on ? 0x92 : 0x50; }   /* greyed */
         hangar_icon(6 + j, fx + 10 * k, y, 22 * k, r, g, b, a);
-        acr_hud_text_size(fx + 10 * k + 22 * k + 8, y + (22 * k - ts) * 0.5f, k_menu[id], ts, r, g, b, a);
+        const float tx = fx + 10 * k + 22 * k + 8, ty = y + (22 * k - ts) * 0.5f;
+        acr_hud_text_size(tx, ty, k_menu[id], ts, r, g, b, a);
+        if (!avail) {   /* crossed out */
+            const float tw = (float)SDL_strlen(k_menu[id]) * ts, my = ty + ts * 0.5f;
+            acr_hud_line(tx - 2, my, tx + tw + 2, my, r, g, b, a);
+            acr_hud_line(tx - 2, my + 1, tx + tw + 2, my + 1, r, g, b, a);
+        }
     }
     /* the details box: after a 1.5 s hold, fading in over 0.3 s */
     if (ui->xmb_hold_ms > 1500 && n) {
