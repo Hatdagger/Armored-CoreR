@@ -214,6 +214,11 @@ typedef struct acr_gen1_fighter {
      * away, and the push still to come (1/64 units a tick, halving). */
     uint8_t  stagger;
     int32_t  knock_x, knock_z;
+    /* Presentation (the sim never reads them): each stunning hit adds one
+     * to hit_seq and sets hit_side (acr_gen1_hit_side: 0 front, 1 back,
+     * 2 left, 3 right) and hit_air (taken in the air), so the drawing can
+     * start the flinch animation (37-40, air 41-44). */
+    uint8_t  hit_seq, hit_side, hit_air;
 } acr_gen1_fighter;
 
 typedef struct acr_gen1_shot {

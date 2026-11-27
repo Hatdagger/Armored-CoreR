@@ -308,6 +308,30 @@ static void refresh_model(int who, const char *dir, const int parts[SLOT_COUNT],
 static int g_swinging[ACR_GEN1_MAX_FIGHTERS];      /* set from the battle before drawing */
 static acr_gen1_input g_in[ACR_GEN1_MAX_FIGHTERS];   /* each AC's latest input, for the poses */
 static struct { int shown; Uint64 since; } g_pose[ACR_GEN1_MAX_FIGHTERS];
+/* More of each fighter's state the poses need (set with g_swinging):
+ * - air_swing: the swing is an air slash (animation 47);
+ * - stagger, hit_seq / hit_side / hit_air: the flinch (37-40, air 41-44);
+ * - kneel_on, kneel_tick: the cannon stance, its frame time from the
+ *   battle's stance clocks (acr_gen1_kneel_tick), kneel_anim 45 or 46;
+ * - drive_walk, walk_rate: four-legged / caterpillar legs, and their speed
+ *   over the top speed (their walking loop's pace follows it);
+ * - wrecked: AP 0. The game stops the AC's state update then (VS
+ *   0x800828BC skips to its end while +0x49 is not 255) and starts no
+ *   animation: the wreck keeps the pose it was drawn in while it blows up. */
+static struct {
+    int air_swing, stagger, kneel_on, kneel_anim, drive_walk, wrecked;
+    float kneel_tick, walk_rate;
+    uint8_t hit_seq, hit_side, hit_air;
+} g_look[ACR_GEN1_MAX_FIGHTERS];
+static struct { uint8_t seq; int anim; Uint64 since; int live; } g_hit[ACR_GEN1_MAX_FIGHTERS];
+static struct { float phase; Uint64 last_ns; } g_walk[ACR_GEN1_MAX_FIGHTERS];
+
+static unsigned anim_ticks(const demo_model *m, int a) {
+    const acr_anim *an = &m->anims.anim[a];
+    unsigned total = 0;
+    for (int f = 0; f + 1 < an->frames; ++f) total += m->anims.frame[an->first_frame + f].hold ? m->anims.frame[an->first_frame + f].hold : 1;
+    return total;
+}
 
 /* A pose this animation set lacks: the nearest one it has. */
 static int pose_or_fallback(const demo_model *m, int want) {
@@ -326,8 +350,62 @@ static int shown_anim(int who, const acr_gen1_ac *ac, const demo_model *m, float
     /* the swing plays out after the lunge */
     const int blade_left = g_pose[who].shown == ACR_GEN1_SHOW_BLADE &&
         (SDL_GetTicks() - g_pose[who].since) * 22 / 1000 < m->anims.anim[ACR_GEN1_SHOW_BLADE].ticks;
-    int want = acr_gen1_pose_shown(ac, g_in[who], g_swinging[who] || blade_left,
-                                   jump->frames ? jump->ticks : 0);
+    int want = acr_gen1_pose_shown_legs(ac, g_in[who], g_swinging[who] || blade_left,
+                                        jump->frames ? jump->ticks : 0, g_look[who].drive_walk);
+    const Uint64 now_ns = SDL_GetTicksNS();
+    /* Hit flinch: starts on each stunning hit, shows while the stun holds
+     * the controls, and plays out while the AC just stands (the game keeps
+     * the hit state until the animation ends; ours gives the controls back
+     * with the stun, so anything else the AC does takes over). */
+    if (g_look[who].hit_seq != g_hit[who].seq) {
+        g_hit[who].seq = g_look[who].hit_seq;
+        g_hit[who].anim = acr_gen1_hit_anim(g_look[who].hit_side, g_look[who].hit_air);
+        g_hit[who].since = now_ns;
+        g_hit[who].live = m->anims.anim[g_hit[who].anim].frames != 0;
+    }
+    if (g_hit[who].live) {
+        const float ht = (float)(now_ns - g_hit[who].since) * 22.0f / 1e9f;
+        const int air_hit = g_hit[who].anim >= ACR_GEN1_SHOW_AIR_HIT_FRONT;
+        const int calm = want == ACR_GEN1_ANIM_IDLE || want == ACR_GEN1_SHOW_TURN;
+        if (g_look[who].stagger || (!air_hit && calm && ht < (float)anim_ticks(m, g_hit[who].anim) + 1.0f)) {
+            *loop = 0; *tick = ht;
+            g_pose[who].shown = g_hit[who].anim; g_pose[who].since = g_hit[who].since / 1000000ull;
+            return g_hit[who].anim;
+        }
+        g_hit[who].live = 0;
+    }
+    /* Cannon stance: the kneel down, held, and back up (played backwards),
+     * timed by the battle's stance clocks so it ends when the stance does. */
+    if (g_look[who].kneel_on && m->anims.anim[g_look[who].kneel_anim].frames) {
+        *loop = 0; *tick = g_look[who].kneel_tick;
+        g_pose[who].shown = g_look[who].kneel_anim;
+        return g_look[who].kneel_anim;
+    }
+    /* Four legs / caterpillars have no ground-boost poses (48-55): boosting
+     * along the ground keeps their walking pose. */
+    if (g_look[who].drive_walk && want >= ACR_GEN1_SHOW_BOOST_FWD && want <= ACR_GEN1_SHOW_BOOST_BR &&
+        !m->anims.anim[want].frames && ac->anim != ACR_GEN1_ANIM_JUMP && m->anims.anim[ac->anim].frames)
+        want = ac->anim;
+    /* Air slash: its own animation (47) when the set has it. */
+    if (want == ACR_GEN1_SHOW_BLADE && g_look[who].air_swing && m->anims.anim[ACR_GEN1_SHOW_AIR_SLASH].frames)
+        want = ACR_GEN1_SHOW_AIR_SLASH;
+    if (want == ac->anim && g_look[who].drive_walk && ac->anim != ACR_GEN1_ANIM_IDLE && ac->anim != ACR_GEN1_ANIM_JUMP &&
+        m->anims.anim[want].frames) {
+        /* Four legs / caterpillars: no root motion, so the loop's pace
+         * follows the AC's speed (a full-speed walk = the game's frame a
+         * tick). Presentation only. */
+        float dt = g_walk[who].last_ns ? (float)(now_ns - g_walk[who].last_ns) * 22.0f / 1e9f : 0.0f;
+        if (dt > 4.0f) dt = 4.0f;
+        if (g_pose[who].shown != want) g_walk[who].phase = 0.0f;
+        g_walk[who].phase += dt * g_look[who].walk_rate;
+        g_walk[who].last_ns = now_ns;
+        const float total = (float)(anim_ticks(m, want) + 1u);
+        g_walk[who].phase = fmodf(g_walk[who].phase, total);
+        g_pose[who].shown = want;
+        *tick = g_walk[who].phase;
+        return want;
+    }
+    g_walk[who].last_ns = now_ns;
     if (want == ac->anim) {
         /* The sim's walking advances a frame each Gen 1 tick (22 a second)
          * at any step rate; draw the frame the shown position is in (plus
@@ -380,9 +458,14 @@ static void draw_ac(int who, const acr_gen1_ac *ac, float x, float y, float z, f
     int loop;
     const demo_model *m = &g_model[who];
     if (!m->ok) { add_ac(v3(x, y, z), yaw, crouch, who); return; }
-    const int anim = shown_anim(who, ac, m, &tick, &loop);
     acr_pose pose;
     const Uint64 now = SDL_GetTicksNS();
+    if (g_look[who].wrecked && g_blend[who].ok) {   /* the wreck keeps its last drawn pose */
+        pose = g_blend[who].drawn;
+        demo_model_draw_pose(m, &pose, x, y, z, yaw, ACR_GEN1_MODEL_SCALE, &g_light);
+        return;
+    }
+    const int anim = shown_anim(who, ac, m, &tick, &loop);
     if (!g_smooth_anim) {
         g_blend[who].ok = 0;
         acr_pose_play(&m->skel, &m->anims, anim, (unsigned)tick, &pose);
@@ -393,7 +476,7 @@ static void draw_ac(int who, const acr_gen1_ac *ac, float x, float y, float z, f
     if (g_blend[who].ok && g_blend[who].anim != anim) {
         /* The game freezes each joint where it was drawn and moves it to
          * the new animation a step a tick (pose routine 0x80059624). */
-        g_blend[who].fade_step = acr_gen1_pose_fade_step(g_blend[who].anim, anim);
+        g_blend[who].fade_step = acr_gen1_pose_fade_step_legs(g_blend[who].anim, anim, g_look[who].drive_walk);
         g_blend[who].from = g_blend[who].drawn;
         g_blend[who].fade_ns = g_blend[who].fade_step ? now : 0;
     }
@@ -3045,6 +3128,28 @@ int main(int argc, char **argv) {
         flush_scene();
         for (int k = 0; k < nf; ++k) {
             g_swinging[k] = battle.f[k].swing != 0;
+            {
+                const acr_gen1_fighter *fl = &battle.f[k];
+                g_look[k].air_swing = fl->swing && fl->air_swing;
+                g_look[k].stagger = fl->stagger;
+                g_look[k].hit_seq = fl->hit_seq; g_look[k].hit_side = fl->hit_side; g_look[k].hit_air = fl->hit_air;
+                g_look[k].wrecked = fl->def && fl->ap <= 0;
+                g_look[k].drive_walk = fl->def && fl->def->drive_walk;
+                const acr_gen1_weapon *cw = fl->weapons && fl->current < fl->weapons ? &fl->weapon[fl->current] : NULL;
+                g_look[k].kneel_anim = cw && cw->aim_table == 4 ? ACR_GEN1_SHOW_KNEEL_R : ACR_GEN1_SHOW_KNEEL_L;
+                g_look[k].kneel_on = fl->kneeling || fl->stand_ms > 0;
+                const acr_gen1_root_track *kt = fl->def ? fl->def->anim[ACR_GEN1_ANIM_KNEEL] : NULL;
+                const int32_t need = kt && kt->length > 0 && kt->length <= 64 ? kt->length * 1000 / 22 : ACR_GEN1_KNEEL_MS;
+                g_look[k].kneel_tick = g_model[k].ok
+                    ? acr_gen1_kneel_tick(fl->kneel_ms, fl->stand_ms, need, anim_ticks(&g_model[k], g_look[k].kneel_anim)) : 0.0f;
+                float rate = 1.0f;
+                if (g_look[k].drive_walk && fl->def->motion.boost_max > 0) {
+                    const float sp = sqrtf((float)fl->ac.vx * fl->ac.vx + (float)fl->ac.vz * fl->ac.vz);
+                    rate = sp / (float)fl->def->motion.boost_max;
+                    if (rate > 1.0f) rate = 1.0f;
+                }
+                g_look[k].walk_rate = rate;
+            }
             g_aim_table[k] = acr_gen1_aim(&battle, k, g_aim[k]);
             /* The muzzle drawn last frame feeds the battle's shots and lock. */
             acr_gen1_fighter *fk = &battle.f[k];
@@ -3073,7 +3178,7 @@ int main(int argc, char **argv) {
             ox[j] = (op.sx + (o->sx - op.sx) * a) / 64.0f;
             oy[j] = -(op.sy + (o->sy - op.sy) * a) / 64.0f;
             oz[j] = (op.sz + (o->sz - op.sz) * a) / 64.0f;
-            if (j == view || battle.f[j].ap <= 0) continue;
+            if (j == view || (battle.f[j].ap <= 0 && !g_blend[j].ok)) continue;   /* a wreck stays, as drawn */
             int odyaw = (int)o->syaw - (int)op.syaw;
             if (odyaw > 2048) odyaw -= 4096;
             if (odyaw < -2048) odyaw += 4096;
