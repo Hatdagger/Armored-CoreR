@@ -70,6 +70,7 @@ static int g_hud_frame_arg;   /* --hud-wide given: it wins over SETTINGS > VIDEO
 #include "net_link.h"
 #include "net_menu.h"
 #include "split_menu.h"
+#include "save_list.h"
 #include "hangar3d.h"
 #include "net_brief_ui.h"
 #include "../../net/acr_rollback.h"
@@ -625,6 +626,7 @@ static int next_part(const char *dir, int parts[SLOT_COUNT], int slot, demo_ac *
 #define MODE_SETTINGS   14
 #define MODE_UPDATE     15   /* SETTINGS > UPDATES (Android) */
 #define MODE_SPLIT      16   /* MULTIPLAYER > SPLIT SCREEN */
+#define MODE_SAVES      17   /* SYSTEM > SAVE / LOAD: the save list (and player 2's save pick) */
 static int g_ai_mode = 0;
 static acr_gen1_ai_profile g_rogue_prof;
 static int g_plus2 = 0;                  /* the opponent's Human PLUS level (Rogue Arena) */
@@ -864,24 +866,67 @@ static void coop_spawn(acr_gen1_battle *b) {
 static acr_gen1_catalog g_catalog;
 static char g_part_names[ACR_GEN1_CAT_COUNT][ACR_GEN1_PART_MAX][24];
 
-/* Which save g_hangar is: 0 player 1's, 1 player 2's (split screen; its
- * own file, gen1-save-p2.toml beside player 1's). */
+/* Which save g_hangar is: 0 player 1's, 1 player 2's (split screen). Each
+ * player is on one save file from the save list (save_list.h): the game
+ * saves into it by itself, and SYSTEM > SAVE / LOAD picks another. The
+ * file each player was last on is remembered (current-save*.txt). ACR_SAVE
+ * (tests) names player 1's file; player 2's is then beside it, -p2. */
 static int g_save_slot;
-static void save_path(char *out, size_t size) {
+static char g_cur_save[2][1200];
+static void remember_path(int slot, char *out, size_t size) {
+    char *pref = SDL_GetPrefPath("Hatdagger", "Armored-CoreR");
+    SDL_snprintf(out, size, "%scurrent-save%s.txt", pref ? pref : "", slot ? "-p2" : "");
+    SDL_free(pref);
+}
+static void save_remember(int slot) {
+    if (SDL_getenv("ACR_SAVE")) return;
+    char r[1300];
+    remember_path(slot, r, sizeof r);
+    SDL_SaveFile(r, g_cur_save[slot], SDL_strlen(g_cur_save[slot]));
+}
+/* Picks each player's save file the first time it is needed. */
+static void save_init(int slot) {
+    if (g_cur_save[slot][0]) return;
+    char *out = g_cur_save[slot];
+    const size_t size = sizeof g_cur_save[slot];
     const char *env = SDL_getenv("ACR_SAVE");
     if (env && env[0]) {
         SDL_strlcpy(out, env, size);
-        if (g_save_slot) {
+        if (slot) {
             char *dot = SDL_strrchr(out, '.');
             if (dot && !SDL_strchr(dot, '/')) { char ext[16]; SDL_strlcpy(ext, dot, sizeof ext); *dot = 0; SDL_strlcat(out, "-p2", size); SDL_strlcat(out, ext, size); }
             else SDL_strlcat(out, "-p2", size);
         }
         return;
     }
-    char *pref = SDL_GetPrefPath("Hatdagger", "Armored-CoreR");
-    SDL_snprintf(out, size, "%sgen1-save%s.toml", pref ? pref : "", g_save_slot ? "-p2" : "");
-    SDL_free(pref);
+    char r[1300];
+    remember_path(slot, r, sizeof r);
+    char *t = SDL_LoadFile(r, NULL);
+    SDL_PathInfo info;
+    if (t && t[0] && SDL_GetPathInfo(t, &info)) { SDL_strlcpy(out, t, size); SDL_free(t); return; }
+    SDL_free(t);
+    char dir[1200];
+    save_list_dir(dir, sizeof dir);
+    SDL_snprintf(out, size, "%s%s", dir, slot ? "player-2.acrsave" : "save-01.acrsave");
+    if (!slot) {   /* the old single save (gen1-save.toml) becomes the first in the list */
+        char *pref = SDL_GetPrefPath("Hatdagger", "Armored-CoreR");
+        char old[1300];
+        SDL_snprintf(old, sizeof old, "%sgen1-save.toml", pref ? pref : "");
+        SDL_free(pref);
+        size_t n = 0;
+        void *data = SDL_GetPathInfo(out, &info) ? NULL : SDL_LoadFile(old, &n);
+        if (data) { SDL_SaveFile(out, data, n); SDL_Log("save: moved the old save into the save list (%s)", out); }
+        SDL_free(data);
+    }
+    save_remember(slot);
 }
+static void save_path(char *out, size_t size) {
+    save_init(g_save_slot);
+    SDL_strlcpy(out, g_cur_save[g_save_slot], size);
+}
+
+/* A save file: the garage, then [missions], then the arena ranks after this line. */
+#define ARENA_MARK "\n# ---- arena ----\n"
 
 /* Loads the save, or starts a new one from the starting AC. */
 static int g_start_parts[SLOT_COUNT];   /* the starting AC (a new game's build) */
@@ -907,9 +952,11 @@ static void hangar_open(const int start[SLOT_COUNT]) {
         }
     SDL_free(ct);
     char *text = SDL_LoadFile(path, NULL);
+    char *arena_part = text ? SDL_strstr(text, ARENA_MARK) : NULL;
+    if (arena_part) *arena_part = 0;
     const int ok = text && acr_gen1_save_read(&g_hangar, text);
     if (ok) acr_gen1_mission_record_read(missions_record(), text);   /* the save's [missions] */
-    SDL_free(text);
+    SDL_free(text);   /* (the arena keeps its own arena.toml while playing) */
     if (ok) return;
     hangar_fresh();
 }
@@ -932,7 +979,15 @@ static int hangar_save(void) {
     static char text[32768];   /* the garage, its paint and the missions record */
     save_path(path, sizeof path);
     size_t n = acr_gen1_save_write(&g_hangar, text, sizeof text);
+    static char text_arena[32768];
     if (n < sizeof text && !g_save_slot) n += acr_gen1_mission_record_write(missions_record(), text + n, sizeof text - n);
+    if (!g_save_slot && n + sizeof ARENA_MARK < sizeof text) {
+        const size_t an = arena_write_text(text_arena, sizeof text_arena);
+        if (an < sizeof text_arena && n + sizeof ARENA_MARK + an < sizeof text) {
+            memcpy(text + n, ARENA_MARK, sizeof ARENA_MARK - 1); n += sizeof ARENA_MARK - 1;
+            memcpy(text + n, text_arena, an); n += an;
+        }
+    }
     return n < sizeof text && SDL_SaveFile(path, text, n);
 }
 
@@ -941,9 +996,15 @@ static int hangar_load(void) {
     char path[1200];
     save_path(path, sizeof path);
     char *text = SDL_LoadFile(path, NULL);
+    char *arena_part = text ? SDL_strstr(text, ARENA_MARK) : NULL;
+    if (arena_part) *arena_part = 0;
     acr_gen1_hangar h;
     const int ok = text && acr_gen1_save_read(&h, text);
-    if (ok && !g_save_slot) acr_gen1_mission_record_read(missions_record(), text);
+    if (ok && !g_save_slot) {
+        memset(missions_record(), 0, sizeof *missions_record());
+        acr_gen1_mission_record_read(missions_record(), text);
+        if (arena_part) arena_read_text(arena_part + sizeof ARENA_MARK - 1);   /* the save's arena ranks */
+    }
     SDL_free(text);
     if (ok) g_hangar = h;
     return ok;
@@ -975,6 +1036,23 @@ static void p2_ensure(void) {
     }
     p2_swap();
     g_hangar2_ok = 1;
+}
+/* Split screen co-op: player 2 earns what player 1 just earned (the
+ * credits won and any part prize; not player 1's repair and ammo bills). */
+static void p2_share_rewards(const acr_gen1_hangar *before) {
+    p2_ensure();
+    const int32_t gain = g_hangar.credits - before->credits;
+    int got = 0;
+    if (gain > 0) { g_hangar2.credits += gain; got = 1; }
+    for (int c = 0; c < ACR_GEN1_CAT_COUNT; ++c)
+        for (int i = 0; i < ACR_GEN1_PART_MAX; ++i)
+            if (g_hangar.owned[c][i] > before->owned[c][i]) {
+                const int add = g_hangar.owned[c][i] - before->owned[c][i];
+                g_hangar2.owned[c][i] = (uint8_t)SDL_min(255, g_hangar2.owned[c][i] + add);
+                got = 1;
+            }
+    if (got) { p2_swap(); hangar_save(); p2_swap(); }
+    SDL_Log("split screen co-op: player 2 earns %d credits%s", gain > 0 ? (int)gain : 0, got ? "" : " (nothing)");
 }
 static void p2_parts(int parts[SLOT_COUNT]) {
     p2_ensure();
@@ -1590,6 +1668,7 @@ int main(int argc, char **argv) {
     static net_match_info net_info;
     static net_menu nmenu;
     static split_menu smenu;
+    static save_list slist;
     static net_finder *finder = NULL;
     static char net_status[1600];
     /* Over the internet (briefing codes): the editor is mode 5. */
@@ -1791,6 +1870,7 @@ int main(int argc, char **argv) {
         arena_command acmd = AC_NONE;
         missions_command mcmd = MC_NONE;
         split_menu_command scmd = SM_NONE;
+        save_list_command lcmd = SL_NONE;
         garage_action net_action = GA_NONE;   /* the network screens' input this frame */
         int net_action_keys = 0;
         int net_copy = 0, net_paste = 0;      /* copy / paste a briefing code this frame */
@@ -1810,6 +1890,15 @@ int main(int argc, char **argv) {
                 if (e.type == SDL_EVENT_KEY_DOWN) ga = key_action(e.key.scancode);
                 if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) ga = button_action(e.gbutton.button);
                 if (settings_input(&sui, ga)) { mode = 0; gui.screen = 0; }
+                continue;
+            }
+            if (mode == MODE_SAVES) {   /* the save list */
+                if (e.type == SDL_EVENT_DROP_FILE && e.drop.data) { save_list_import(&slist, e.drop.data); continue; }
+                garage_action ga = GA_NONE;
+                if (e.type == SDL_EVENT_KEY_DOWN) ga = key_action(e.key.scancode);
+                if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) ga = button_action(e.gbutton.button);
+                const save_list_command lc = save_list_input(&slist, ga);
+                if (lc != SL_NONE) lcmd = lc;
                 continue;
             }
             if (mode == MODE_SPLIT) {   /* MULTIPLAYER > SPLIT SCREEN */
@@ -2264,6 +2353,8 @@ int main(int argc, char **argv) {
                 autowin_at = 0;
                 const int res_ = autowin ? (SDL_strcmp(auto_, "lose") ? 1 : 2) : rogue_give_up || !round_over ? 2 : round_result;
                 const int was_arena_ = g_rogue_fight == 2, was_mission_ = g_rogue_fight == 3;
+                static acr_gen1_hangar before_;
+                before_ = g_hangar;
                 if (was_mission_) {
                     /* The income and expense report: the player's AP and the
                      * rounds fired are what the bill is figured from. */
@@ -2272,6 +2363,7 @@ int main(int argc, char **argv) {
                                             (battle.mission.flags & ACR_GEN1_MISSION_BONUS) != 0))
                         hangar_save();
                 } else if (was_arena_) { if (arena_fight_over(res_)) hangar_save(); }
+                if ((was_arena_ || was_mission_) && g_split_coop) p2_share_rewards(&before_);
                 if ((was_arena_ || was_mission_) && g_split_coop) {   /* split screen co-op: back to two fighters */
                     battle.count = 0;
                     g_plus_ai[0] = g_plus_ai[1] = 0;
@@ -2604,10 +2696,71 @@ int main(int argc, char **argv) {
                 if (sui.page == 1) sfx_ui(SFX_UI_CURSOR);   /* hear the new menu volume */
             }
         }
+        if (mode == MODE_SAVES) {
+            garage_action d = pad_direction(pads[0], SDL_GetTicks());
+            if (d == GA_NONE) d = script_action();
+            if (d != GA_NONE) { const save_list_command lc = save_list_input(&slist, d); if (lc != SL_NONE) lcmd = lc; }
+            const int p2_pick = slist.mode == SL_MODE_P2;
+            if (lcmd == SL_BACK) { mode = p2_pick ? MODE_SPLIT : 0; gui.screen = 0; }
+            if (lcmd == SL_SAVE) {             /* this game into that file; the game is on it from now */
+                SDL_strlcpy(g_cur_save[0], slist.path, sizeof g_cur_save[0]);
+                save_remember(0);
+                const int ok_ = hangar_save();
+                SDL_strlcpy(slist.current, slist.path, sizeof slist.current);
+                save_list_refresh(&slist);
+                save_list_say(&slist, ok_ ? "SAVED." : "COULD NOT SAVE.");
+            }
+            if (lcmd == SL_LOAD && !p2_pick) {
+                char was[1200];
+                SDL_strlcpy(was, g_cur_save[0], sizeof was);
+                SDL_strlcpy(g_cur_save[0], slist.path, sizeof g_cur_save[0]);
+                if (hangar_load()) {
+                    save_remember(0);
+                    g_options[0] = g_options[1] = g_hangar.options;
+                    int fitted[SLOT_COUNT];
+                    hangar_parts(fitted);
+                    if (demo_load(dir, fitted, &ac_data[0], err, sizeof err)) memcpy(parts, fitted, sizeof fitted);
+                    garage_say(&gui, "LOADED.");
+                    mode = 0; gui.screen = 0;
+                } else {
+                    SDL_strlcpy(g_cur_save[0], was, sizeof g_cur_save[0]);
+                    save_list_say(&slist, "THIS SAVE CAN'T BE READ.");
+                }
+            }
+            if (lcmd == SL_LOAD && p2_pick) {   /* player 2's save (a new one if the file isn't there yet) */
+                if (!SDL_strcmp(slist.path, g_cur_save[0])) save_list_say(&slist, "THAT IS PLAYER 1'S SAVE. PICK ANOTHER.");
+                else {
+                    SDL_strlcpy(g_cur_save[1], slist.path, sizeof g_cur_save[1]);
+                    save_remember(1);
+                    g_hangar2_ok = 0;
+                    p2_ensure();
+                    mode = MODE_SPLIT;
+                }
+            }
+            if (mode == MODE_SAVES) {
+                static Uint64 saves_last_ms;
+                const Uint64 now_ms = SDL_GetTicks();
+                const int elapsed = saves_last_ms ? (int)(now_ms - saves_last_ms) : 0;
+                saves_last_ms = now_ms;
+                int pw = 0, ph = 0;
+                SDL_GetWindowSizeInPixels(window, &pw, &ph);
+                if (pw < 1 || ph < 1) { SDL_Delay(10); continue; }
+                acr_render_begin(pw, ph, 18, 22, 28);
+                save_list_draw(&slist, acr_render_hud(0, 0, pw, ph), elapsed);
+                goto present;
+            }
+        }
         if (mode == MODE_SPLIT) {   /* MULTIPLAYER > SPLIT SCREEN */
             smenu.players_ready = pads[0] != NULL || SDL_getenv("ACR_TWO") != NULL;   /* one pad: P1 keyboard, P2 the pad */
             p2_ensure();
             SDL_strlcpy(smenu.p2_ac, g_hangar2.ac_name, sizeof smenu.p2_ac);
+            {
+                save_init(1);
+                const char *sl_ = SDL_strrchr(g_cur_save[1], '/');
+                SDL_strlcpy(smenu.p2_save, sl_ ? sl_ + 1 : g_cur_save[1], sizeof smenu.p2_save);
+                char *dot_ = SDL_strrchr(smenu.p2_save, '.');
+                if (dot_) *dot_ = 0;
+            }
             garage_action d = pad_direction(pads[0], SDL_GetTicks());
             if (d == GA_NONE) d = script_action();
             if (d != GA_NONE) { const split_menu_command sc = split_menu_input(&smenu, d); if (sc != SM_NONE) scmd = sc; }
@@ -2616,6 +2769,11 @@ int main(int argc, char **argv) {
                 if (smenu.where == SPLIT_COOP_ROGUE) { rogue_open_coop(g_hangar.pilot_name, g_hangar.ac_name); mode = MODE_ROGUE; }
                 else if (smenu.where == SPLIT_COOP_ARENA) { g_split_coop = 1; arena_open_at(0); mode = MODE_ARENA; }
                 else { g_split_coop = 1; missions_open(); mode = MODE_MISSIONS; }
+            }
+            if (scmd == SM_P2_SAVE) {   /* player 2 picks their save from the list */
+                save_init(1);
+                save_list_open(&slist, SL_MODE_P2, g_cur_save[1]);
+                mode = MODE_SAVES;
             }
             if (scmd == SM_EDIT_P2) {   /* player 2's own garage: their save swapped in */
                 p2_ensure();
@@ -2808,7 +2966,12 @@ int main(int argc, char **argv) {
                 if (!nmenu.stage_ok[nmenu.stage_pick]) nmenu.stage_pick = 2;
                 SDL_StartTextInput(window);
             }
-            if (gcmd == GC_SAVE) garage_say(&gui, hangar_save() ? "SAVED." : "COULD NOT SAVE.");
+            if (gcmd == GC_SAVE || gcmd == GC_LOAD) {   /* the save list */
+                save_init(0);
+                save_list_open(&slist, gcmd == GC_SAVE ? SL_MODE_SAVE : SL_MODE_LOAD, g_cur_save[0]);
+                mode = MODE_SAVES;
+                gcmd = GC_NONE;
+            }
             if (gcmd == GC_NEWGAME) {
                 hangar_fresh();
                 memset(missions_record(), 0, sizeof *missions_record());

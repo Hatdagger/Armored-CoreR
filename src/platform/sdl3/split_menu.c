@@ -14,7 +14,7 @@
 #define PANEL_W 460
 
 static const int k_stage[SPLIT_MENU_STAGES] = { 27, 39, 0 };
-enum { ROW_MODE, ROW_STAGE, ROW_P2, ROW_START, ROW_BACK, ROWS };
+enum { ROW_MODE, ROW_STAGE, ROW_P2SAVE, ROW_P2, ROW_START, ROW_BACK, ROWS };
 static const char *const k_where[SPLIT_COOP_WHERE] = { "ARENA", "ROGUE ARENA", "MISSIONS" };
 
 void split_menu_init(split_menu *m) {
@@ -48,6 +48,7 @@ split_menu_command split_menu_input(split_menu *m, garage_action a) {
     if (a != GA_OK) return SM_NONE;
     if (m->row == ROW_BACK) return SM_BACK;
     if (m->row == ROW_P2) return SM_EDIT_P2;
+    if (m->row == ROW_P2SAVE) return SM_P2_SAVE;
     if (!m->players_ready) { say(m, "PLAYER 2 NEEDS A CONTROLLER: PLUG ONE IN."); return SM_NONE; }
     return m->coop ? SM_COOP : SM_VERSUS;
 }
@@ -81,6 +82,9 @@ void split_menu_draw(split_menu *m, float hud_w, int elapsed_ms) {
     if (m->players_ready) acr_hud_text(x, y, "PLAYER 2   CONTROLLER READY", GOOD);
     else acr_hud_text(x, y, "PLAYER 2   PLUG IN A CONTROLLER", BAD);
     y += 22;
+    SDL_snprintf(line, sizeof line, "PLAYER 2'S SAVE: %s   (A: CHOOSE)", m->p2_save[0] ? m->p2_save : "-");
+    row_text(x, y, m->row == ROW_P2SAVE, line);
+    y += 18;
     SDL_snprintf(line, sizeof line, "PLAYER 2'S AC: %s   (A: OPEN THEIR GARAGE)", m->p2_ac[0] ? m->p2_ac : "AC");
     row_text(x, y, m->row == ROW_P2, line);
     y += 30;
@@ -88,7 +92,7 @@ void split_menu_draw(split_menu *m, float hud_w, int elapsed_ms) {
     else SDL_snprintf(line, sizeof line, "START VERSUS");
     row_text(x, y, m->row == ROW_START, line); y += 18;
     row_text(x, y, m->row == ROW_BACK, "BACK TO THE HANGAR"); y += 26;
-    acr_hud_text(x, y, m->coop ? "CO-OP: PLAYER 2 STARTS BESIDE PLAYER 1. PRIZES: PLAYER 1'S SAVE."
+    acr_hud_text(x, y, m->coop ? "CO-OP: PLAYER 2 STARTS BEHIND PLAYER 1. BOTH EARN THE PRIZES."
                                : "PLAYER 2 FLIES THEIR OWN AC FROM THEIR OWN SAVE.", DIM);
     if (m->message_ms > 0) { m->message_ms -= elapsed_ms; acr_hud_text(px, 302, m->message, HILITE); }
     acr_hud_text(px, 320, "A: SELECT   LEFT/RIGHT: CHANGE   B: BACK", DIM);

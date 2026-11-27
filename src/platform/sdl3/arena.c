@@ -107,6 +107,17 @@ static void load(void) {
     SDL_free(t);
 }
 
+size_t arena_write_text(char *buf, size_t size) { return acr_gen1_arena_write(&A.s, buf, size); }
+
+int arena_read_text(const char *text) {
+    acr_gen1_arena s;
+    if (!text || !acr_gen1_arena_read(&s, text)) return 0;
+    A.s = s;
+    acr_gen1_arena_sync(&A.s, &A.w);
+    save();
+    return 1;
+}
+
 /* ---- setup ---- */
 
 static int stage_exists(int id) {

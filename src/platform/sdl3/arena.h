@@ -31,6 +31,10 @@ void arena_say(const char *t);
 void arena_open(void);
 /* A new game: every arena back to the start, saved. */
 void arena_new_game(void);
+/* The arena ranks as text (kept in each save file too, so a copied save
+ * carries them) and back: 0 if the text has none. */
+size_t arena_write_text(char *buf, size_t size);
+int arena_read_text(const char *text);
 /* The same, the cursor on arena list row `row` (0 Phantasma, 1 MoA
  * SUB-ARENA, 2 MoA, 3 on the Ex Arenas; the hangar menu's ARENA items). */
 void arena_open_at(int row);

@@ -219,7 +219,7 @@ if(ACR_BUILD_GAME)
                    src/platform/sdl3/demo_stage.c src/platform/sdl3/demo_units.c src/platform/sdl3/garage.c src/platform/sdl3/hangar_scene.c src/platform/sdl3/hangar3d.c src/platform/sdl3/rogue.c src/platform/sdl3/arena.c src/platform/sdl3/controls.c
                    src/platform/sdl3/settings.c src/platform/sdl3/update.c
                    src/platform/sdl3/battle_hud.c src/platform/sdl3/battle_warn.c src/platform/sdl3/net_link.c
-                   src/platform/sdl3/net_menu.c src/platform/sdl3/net_brief_ui.c src/platform/sdl3/split_menu.c
+                   src/platform/sdl3/net_menu.c src/platform/sdl3/net_brief_ui.c src/platform/sdl3/split_menu.c src/platform/sdl3/save_list.c
                    src/platform/sdl3/fx.c src/platform/sdl3/sfx.c src/platform/sdl3/rogue_sound.c
                    src/platform/sdl3/disc_pick.c
                    src/platform/sdl3/vs_screen.c
