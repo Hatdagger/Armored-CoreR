@@ -10,7 +10,7 @@
 
 /* Samples (VAB sample numbers, sfx/NN.wav). */
 enum {
-    S_FOOTSTEP = 1, S_EXPLOSION = 5, S_LASER = 7, S_BOOST_START = 9, S_LOCK = 11, S_CANNON = 12,
+    S_FOOTSTEP = 1, S_EXPLOSION = 5, S_GUN_LOCKED = 10 /* sound 42 (VS 0x80080470) */, S_LASER = 7, S_BOOST_START = 9, S_LOCK = 11, S_CANNON = 12,
     S_LANDING = 13, S_MACHINE_GUN = 14, S_MISSILE = 18, S_PULSE = 20, S_RIFLE = 21, S_BLADE = 23,
     S_PERIMETER = 27, S_AP_LOW = 28, S_RED_ZONE = 29, S_DRAINED = 30, S_BOOST = 31,
     S_LOCK_NEW = 32, S_LOCK_FULL = 33, S_BIG_EXPLOSION = 34,
@@ -290,7 +290,7 @@ static int fire_sound(int owner, int slot, int energy, int missile, int *blast) 
 static struct { uint8_t on, blast; int32_t travelled; uint16_t age; float p[3]; } g_seen[ACR_GEN1_MAX_SHOTS];
 static struct {
     int32_t ap;
-    uint8_t boosting, boost_down, state, locked, locks, swinging, red, drained;
+    uint8_t boosting, boost_down, state, locked, locks, tones, swinging, red, drained;
 } g_was[ACR_GEN1_MAX_FIGHTERS];
 static int g_was_ok;
 static float g_next_perimeter, g_next_ap_low, g_next_drained;
@@ -383,10 +383,19 @@ void sfx_update(const acr_gen1_battle *b, const sfx_listen *l, uint64_t now_ns) 
             if (ac->state == ACR_GEN1_LANDING && g_was[k].state != ACR_GEN1_LANDING) play_at(S_LANDING, p, 0.7f);
             if (k == me && !l->round_over) {
                 /* lock beeps: the listening AC's own */
+                /* (docs/feel/lockon.md "Sounds"): the build-up beep is #11
+                 * (sounds 46 / 47); missiles: a new lock #32 (43), the last
+                 * free one #33 (44, the cap is the FCS / weapon limit, the
+                 * ammo and 6); guns: locked plays sound 42, sample #10. */
+                if (f->tones != g_was[k].tones && !(w && w->kind == ACR_GEN1_MISSILE && f->locks > g_was[k].locks))
+                    play(S_LOCK, 0.4f, 0);
                 if (w && w->kind == ACR_GEN1_MISSILE) {
+                    unsigned cap = w->max_locks ? w->max_locks : 1;
+                    if (w->ammo && cap > f->ammo[f->current]) cap = f->ammo[f->current];
+                    if (cap > ACR_GEN1_MAX_LOCKS) cap = ACR_GEN1_MAX_LOCKS;
                     if (f->locks > g_was[k].locks)
-                        play(f->locks >= w->max_locks && w->max_locks ? S_LOCK_FULL : S_LOCK_NEW, 0.6f, 0);
-                } else if (f->locked && !g_was[k].locked) play(S_LOCK, 0.5f, 0);
+                        play(f->locks >= cap ? S_LOCK_FULL : S_LOCK_NEW, 0.6f, 0);
+                } else if (f->locked && !g_was[k].locked) play(S_GUN_LOCKED, 0.5f, 0);
                 /* the energy warnings */
                 if (red && !g_was[k].red) play(S_RED_ZONE, 0.8f, 0);
                 else if (red && ac->boost_was_down && !g_was[k].boost_down) play(S_RED_ZONE, 0.8f, 0);
@@ -403,6 +412,7 @@ void sfx_update(const acr_gen1_battle *b, const sfx_listen *l, uint64_t now_ns) 
         g_was[k].state = ac->state;
         g_was[k].locked = f->locked;
         g_was[k].locks = f->locks;
+        g_was[k].tones = f->tones;
         g_was[k].swinging = (uint8_t)swinging;
         g_was[k].red = (uint8_t)red;
         g_was[k].drained = ac->drained;

@@ -57,8 +57,11 @@ lock value.
 | 2 | 8,500 | 160x160 / 125x125 | 60 |
 | 3 | 8,000 | 90x90 / 72x72 | 35 |
 
-A weapon's working range is the smaller of its own range and its class's
-FCS range (rifle: 6,100). The lock value works opposite ways by kind:
+A weapon's **lock range** (slot +20) is the smaller of its own range and
+its class's FCS range (rifle on the COMDEX-C7: 6,100); its shots still fly
+the weapon's own range (slot +22: 8,500). The box columns are pitch first,
+then yaw (slot +24 / +28 bound the pitch in the sight sweep). See
+[docs/feel/lockon.md](../feel/lockon.md). The lock value works opposite ways by kind:
 for guns and cannons it is a time (bigger = slower), for missiles a speed
 (bigger = faster). SP-AXL scales it by 1.15 for solid weapons and 0.85 for
 the rest (so missiles and energy guns lock faster, solid guns slower).
