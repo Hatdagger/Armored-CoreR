@@ -399,10 +399,6 @@ static void damage_by(acr_gen1_battle *b, int target, int attacker, uint16_t att
         b->f[attacker].hit_flash = 40;                  /* attacker's "HIT" blink, counts down a tick */
 }
 
-static void damage(acr_gen1_battle *b, int target, int attacker, const acr_gen1_weapon *w) {
-    damage_by(b, target, attacker, w->attack, w->energy);
-}
-
 /* Hit stagger (VS 0x80082500; ACR_GEN1_STAGGER_* in the header): a hit of
  * `impact` on fighter `target`, travelling along (dx, dz). */
 static void stagger_hit(acr_gen1_battle *b, int target, uint8_t impact, int64_t dx, int64_t dz) {
@@ -412,8 +408,13 @@ static void stagger_hit(acr_gen1_battle *b, int target, uint8_t impact, int64_t 
     const int level = acr_gen1_knockback_level(impact, t->def->stats.stability);
     if (!level) return;
     t->hold_left = 0;                                   /* the firing animation is cut short */
-    if (t->kneeling || t->stagger) return;              /* crouched: taken in the stance */
-    t->stagger = (uint8_t)(ACR_GEN1_STAGGER_BASE + ACR_GEN1_STAGGER_PER_LEVEL * level);
+    /* Crouched (state 34): pushed in the stance (0x8007B454), no stun.
+     * Otherwise the hit state replaces the AC's own (a swing ends) and
+     * restarts the stun at this hit's level, running or not (0x8007BC1C). */
+    if (!t->kneeling) {
+        t->stagger = (uint8_t)(ACR_GEN1_STAGGER_BASE + ACR_GEN1_STAGGER_PER_LEVEL * level);
+        if (t->swing) { t->swing = 0; t->wave_armed = 0; t->air_swing = 0; }
+    }
     const int64_t len = isqrt64((uint64_t)(dx * dx + dz * dz));
     if (!len) { t->knock_x = t->knock_z = 0; return; }
     int64_t k = (int64_t)impact * ACR_GEN1_KNOCK_PER_IMPACT;
@@ -561,6 +562,57 @@ static void blade_wave(acr_gen1_battle *b, int i, int blade) {
     }
 }
 
+/* One Gen 1 tick of an air slash's flight (ACR_GEN1_AIR_SLASH_* in the
+ * header; VS 0x8007F264). Sets the swinging AC's facing and velocity; the
+ * sim then moves it with no gravity (in.swing_air). */
+static void air_slash_tick(acr_gen1_battle *b, int i) {
+    acr_gen1_fighter *f = &b->f[i];
+    acr_gen1_ac *me = &f->ac;
+    const acr_gen1_motion *m = &f->def->motion;
+    tview v, mine;
+    view_of(b, i, &mine);
+    if (f->swing_target >= 0 && view_of(b, f->swing_target, &v) && v.alive) {
+        int64_t tvx = 0, tvy = 0, tvz = 0;
+        if (!is_unit(f->swing_target)) {
+            const acr_gen1_ac *t = &b->f[f->swing_target].ac;
+            tvx = t->vx; tvy = t->vy; tvz = t->vz;
+        }
+        const int64_t mx = me->x, my = (int64_t)me->y - mine.up, mz = me->z;
+        const int64_t sp = m->air_max ? m->air_max : 64;
+        int64_t px = v.x, py = (int64_t)v.y - v.up, pz = v.z;
+        for (int k = 0; k < 5; ++k) {                    /* 0x800155DC: 5 passes */
+            const int64_t dx = px - mx, dy = py - my, dz = pz - mz;
+            const int64_t ticks = (int64_t)isqrt64((uint64_t)(dx * dx + dy * dy + dz * dz)) / sp;
+            px = v.x + tvx * ticks; py = (int64_t)v.y - v.up + tvy * ticks; pz = v.z + tvz * ticks;
+        }
+        const int64_t dx = px - mx, dz = pz - mz;
+        int32_t rate = (int32_t)m->turn_max * ACR_GEN1_AIR_SLASH_TURN_X;
+        if (f->modern) rate = (int32_t)(rate * (int32_t)MT(b, steer_pct, STEER_PCT) / 100);
+        if (rate < 1) rate = 1;
+        acr_gen1_ac_set_yaw(me, (uint16_t)(turn_toward(me->yaw, angle_of(dx / 64, dz / 64), rate) & 4095));
+        /* Aim short of the point by both hit radii x 1.25. */
+        const int64_t len = isqrt64((uint64_t)(dx * dx + dz * dz));
+        const int64_t off = (int64_t)2 * ACR_GEN1_HIT_RADIUS * 64 * 5 / 4;
+        int64_t gx = dx, gz = dz;
+        if (len) { gx = dx - dx * off / len; gz = dz - dz * off / len; }
+        const int64_t top = m->air_max;
+        me->vx = (int32_t)(gx > top ? top : gx < -top ? -top : gx);
+        me->vz = (int32_t)(gz > top ? top : gz < -top ? -top : gz);
+        const int64_t gy = py - my;                      /* y is down */
+        const int32_t climb = 4 * (int32_t)m->rise_accel;
+        if (gy <= 256) me->vy = gy < -climb ? me->vy - climb : (int32_t)gy;
+        else { me->vy += ACR_GEN1_AIR_SLASH_FALL; if (me->vy > ACR_GEN1_AIR_SLASH_FALL_MAX) me->vy = ACR_GEN1_AIR_SLASH_FALL_MAX; }
+        return;
+    }
+    if (f->boost_held && !me->drained && me->energy > 0) {
+        me->vy -= (int32_t)m->rise_accel;                /* the rise's energy cost: not modelled yet */
+        return;
+    }
+    me->vy += ACR_GEN1_AIR_SLASH_FALL;
+    if (me->vy > ACR_GEN1_AIR_SLASH_FALL_MAX) me->vy = ACR_GEN1_AIR_SLASH_FALL_MAX;
+    if (me->vy < -(int32_t)m->rise_max) me->vy = -(int32_t)m->rise_max;
+}
+
 /* Blade: a press starts a swing (see acr_gen1_battle.h). */
 static void blade_step(acr_gen1_battle *b, int i, int blade, int pressed) {
     acr_gen1_fighter *f = &b->f[i];
@@ -579,6 +631,7 @@ static void blade_step(acr_gen1_battle *b, int i, int blade, int pressed) {
         f->swing_hits = 0;
         f->lunge_done = 0;
         f->lunge_x = f->lunge_z = 0;
+        f->air_swing = (uint8_t)(me->state == ACR_GEN1_AIR);   /* +0x46 = 0xC0: state 0x21 */
         /* 0x80078230: an AC up to 3,000 ahead within +-45 degrees (enemies
          * only; the nearest). */
         f->swing_target = -1;
@@ -598,7 +651,7 @@ static void blade_step(acr_gen1_battle *b, int i, int blade, int pressed) {
     const int t0 = f->swing - 1, t1 = t0 + step_ms;                 /* this step's ms window */
     /* Turn toward the target at the AC's top turn rate until the lunge. */
     tview sv;
-    if (f->swing_target >= 0 && view_of(b, f->swing_target, &sv) && sv.alive &&
+    if (!f->air_swing && f->swing_target >= 0 && view_of(b, f->swing_target, &sv) && sv.alive &&
         t1 <= tick_ms(ACR_GEN1_BLADE_STEER_TICKS)) {
         const int64_t dx = (sv.x - me->x) / 64, dz = (sv.z - me->z) / 64;
         int32_t rate = (int32_t)((int64_t)f->def->motion.turn_max * rate_n(b) / rate_d(b));
@@ -610,17 +663,22 @@ static void blade_step(acr_gen1_battle *b, int i, int blade, int pressed) {
     const int melee = wave_type(w) != 4;          /* LS-1000W: the wave is the whole attack */
     /* Lunge and the two crossings, in time order within the step. */
     const int reach = w->range ? (int)w->range : ACR_GEN1_BLADE_REACH;
-    const int cross[2] = { ACR_GEN1_BLADE_LUNGE_MS + tick_ms(ACR_GEN1_BLADE_HIT_TICK),
-                           ACR_GEN1_BLADE_LUNGE_MS + tick_ms(ACR_GEN1_BLADE_HIT_TICK + 1) };
+    const int air = f->air_swing;
+    const int cross[2] = { air ? tick_ms(ACR_GEN1_AIR_SLASH_HIT_TICK) : ACR_GEN1_BLADE_LUNGE_MS + tick_ms(ACR_GEN1_BLADE_HIT_TICK),
+                           air ? tick_ms(ACR_GEN1_AIR_SLASH_HIT_TICK + 1) : ACR_GEN1_BLADE_LUNGE_MS + tick_ms(ACR_GEN1_BLADE_HIT_TICK + 1) };
+    /* Air slash: the flight toward the target is the lunge (the battle step
+     * sets the velocity) and each hit is the blade's attack x 3. */
+    const uint32_t a3 = (uint32_t)w->attack * ACR_GEN1_AIR_SLASH_ATTACK_X;
+    const uint16_t attack = air ? (uint16_t)(a3 > 65535u ? 65535u : a3) : w->attack;
     int from = t0;
     for (int c = 0; c <= 2; ++c) {
         const int to = c < 2 ? cross[c] : t1;
-        if (to <= t0 || to > t1) { if (c == 2) lunge_move(b, i, from, t1); continue; }
-        lunge_move(b, i, from, to);
+        if (to <= t0 || to > t1) { if (c == 2 && !air) lunge_move(b, i, from, t1); continue; }
+        if (!air) lunge_move(b, i, from, to);
         from = to;
         if (c == 2 || !melee) continue;
         /* The blade's arc hits every AC in it, teammates too. */
-        const int r = c == 0 ? reach : reach - (ACR_GEN1_BLADE_REACH - ACR_GEN1_BLADE_REACH2);
+        const int r = c == 0 || air ? reach : reach - (ACR_GEN1_BLADE_REACH - ACR_GEN1_BLADE_REACH2);
         for (int j = 0; j < n; ++j) {
             if (j == i || b->f[j].ap <= 0) continue;
             acr_gen1_ac *it = &b->f[j].ac;
@@ -629,8 +687,9 @@ static void blade_step(acr_gen1_battle *b, int i, int blade, int pressed) {
             offset(me->yaw, dx, dz, &ahead, &side);
             if (ahead <= 0 || (side < 0 ? -side : side) > ahead) continue;
             if (isqrt64((uint64_t)(dx * dx + dz * dz)) > (uint32_t)r) continue;
-            damage(b, j, i, w);
+            damage_by(b, j, i, attack, w->energy);
             ++f->swing_hits;
+            ++b->f[j].blade_hit_seq;
             f->lunge_done = 1;
             int32_t kx = f->lunge_x, kz = f->lunge_z;
             if (!kx && !kz) fwd_vec(me->yaw, &kx, &kz);
@@ -642,7 +701,7 @@ static void blade_step(acr_gen1_battle *b, int i, int blade, int pressed) {
             int64_t ahead, side, dist;
             if (!blade_gap(b, me, t, &ahead, &side, &dist)) continue;
             if (ahead <= 0 || (side < 0 ? -side : side) > ahead + b->unit[u].half || dist > r) continue;
-            damage(b, t, i, w);
+            damage_by(b, t, i, attack, w->energy);
             ++f->swing_hits;
             f->lunge_done = 1;
         }
@@ -652,10 +711,11 @@ static void blade_step(acr_gen1_battle *b, int i, int blade, int pressed) {
      * the earliest (VS 0x8007EFB8: AC +0x76 >= 12 and the animation done);
      * 26 ticks (1.18 s) on most bodies. Without the track: the measured
      * swing-to-swing time. */
-    const acr_gen1_root_track *sw = f->def ? f->def->anim[ACR_GEN1_SHOW_SWING] : NULL;
+    const acr_gen1_root_track *sw = f->def ? f->def->anim[air ? ACR_GEN1_SHOW_AIR_SWING : ACR_GEN1_SHOW_SWING] : NULL;
     const int swing_len = sw && sw->length >= 12 && sw->length <= 64 ? tick_ms(sw->length) : ACR_GEN1_BLADE_SWING_MS;
     if (t1 >= swing_len) {
         f->swing = 0;
+        f->air_swing = 0;
         /* Master of Arena drops every lock when the swing ends and the
          * busy bit clears (VS 0x8007EFDC -> 0x80080084); Project Phantasma
          * keeps them (ACG1PLUS feel-diff.md 4.1 row 7). */
@@ -1394,6 +1454,9 @@ void acr_gen1_battle_step(acr_gen1_battle *b, const acr_gen1_input in[], const a
             const int k = (f->swing - 1) * 22 / 1000;
             use.swing = (uint8_t)(k > 250 ? 251 : k + 1);
             use.swing_fwd = (uint8_t)(use.move > 0);
+            use.swing_air = f->air_swing;
+            if (f->air_swing && f->ac.state == ACR_GEN1_AIR)
+                for (int t = 0; t < ticks; ++t) air_slash_tick(b, i);
             use.move = use.strafe = use.boost = use.boost_tapped = 0;
         }
         if (f->stagger) {                      /* hit stagger: the pilot has no say */

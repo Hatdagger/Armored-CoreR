@@ -323,6 +323,44 @@ int main(void) {
         acr_gen1_battle_step(&bb, none, swing);
         for (int k = 0; k < 40; ++k) acr_gen1_battle_step(&bb, none, idle);
         EXPECT(bb.f[1].ap == before);
+        /* Air slash (VS 0x8007F264): started in the air it flies at the
+         * target and hits with the blade's attack x 3. */
+        acr_gen1_ac_spawn(&me->ac, &def, 0, 0, 0);
+        acr_gen1_ac_spawn(&bb.f[1].ac, &def, 0, 600 * 64, 2048);
+        bb.f[1].ap = 8384;
+        me->ac.state = ACR_GEN1_AIR;
+        me->ac.y = -200 * 64;
+        me->ac.energy = 28000;
+        acr_gen1_battle_step(&bb, none, swing);
+        EXPECT(me->swing > 0 && me->air_swing);
+        for (int k = 0; k < 60; ++k) acr_gen1_battle_step(&bb, none, idle);
+        {
+            const int32_t one = acr_gen1_hit_ap(738 * ACR_GEN1_AIR_SLASH_ATTACK_X, 32);
+            EXPECT(bb.f[1].ap < 8384 && (8384 - bb.f[1].ap) % one == 0);
+            if (bb.f[1].ap >= 8384 || (8384 - bb.f[1].ap) % one) printf("  air slash: took %d (one hit %d)\n", 8384 - bb.f[1].ap, one);
+        }
+        EXPECT(!me->air_swing && me->swing == 0);
+        /* A stunning hit ends the victim's own swing (its hit state
+         * replaces the swing state): two ACs swinging face to face, the
+         * first to cut wins. */
+        acr_gen1_ac_spawn(&me->ac, &def, 0, 0, 0);
+        acr_gen1_ac_spawn(&bb.f[1].ac, &def, 0, 400 * 64, 2048);
+        me->ac.energy = bb.f[1].ac.energy = 28000;
+        me->ap = bb.f[1].ap = 8384;
+        bb.f[1].weapons = 1; bb.f[1].weapon[0] = blade(); bb.f[1].current = 0;
+        bb.f[1].weapon[0].impact = 11; me->weapon[1].impact = 11;   /* LS-2001's impact: a stunning hit */
+        static acr_gen1_ac_def steady_def;
+        steady_def = def;
+        steady_def.stats.stability = 38;
+        me->def = bb.f[1].def = &steady_def;
+        const acr_gen1_actions both[2] = { { 0, 0, 1, 0 }, { 0, 0, 1, 0 } };
+        acr_gen1_battle_step(&bb, none, both);
+        EXPECT(me->swing > 0 && bb.f[1].swing > 0);
+        for (int k = 0; k < 60; ++k) acr_gen1_battle_step(&bb, none, idle);
+        EXPECT(bb.f[1].ap < 8384 && me->ap == 8384);
+        if (!(bb.f[1].ap < 8384 && me->ap == 8384)) printf("  face-off: me %d them %d stag %d/%d\n", me->ap, bb.f[1].ap, me->stagger, bb.f[1].stagger);
+        bb.f[1].weapons = 0;
+        me->def = bb.f[1].def = &def;
     }
 
     /* Cannon stance: a two-legged AC crouches first, four legs need the

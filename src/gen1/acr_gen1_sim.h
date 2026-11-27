@@ -58,6 +58,10 @@ typedef struct acr_gen1_input {
      * is zero (0x8003EA48), so an air slash hangs until the swing ends. */
     uint8_t swing;
     uint8_t swing_fwd;
+    /* The swing is an air slash (VS 0x8007F264): the battle sets the
+     * velocity each tick (acr_gen1_battle.h, "Air slash"); the sim keeps it
+     * and adds no gravity. */
+    uint8_t swing_air;
     /* Hit stun on the ground (set by the battle; VS 0x8007FECC): the
      * velocity, the hit's push included, is kept as it is. */
     uint8_t stun;
