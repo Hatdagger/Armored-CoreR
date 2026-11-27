@@ -35,7 +35,13 @@ typedef struct fx_rig {
     float back[3];            /* the AC's backward, flat */
     int   blade_ok;
     float blade_root[3], blade_tip[3];   /* the blade arm's shoulder and hand */
+    uint8_t flame[3], beam[3];            /* the booster's flame and the blade's beam colour (fx_part_colour) */
 } fx_rig;
+
+/* The flame colour of a booster and the beam colour of a blade, by part
+ * name (any disc). PLACEHOLDERS, not yet read from the game: to check in
+ * play (user, 2026-11-27). Unknown parts get the default orange / blue. */
+void fx_part_colour(const char *booster, const char *blade, uint8_t flame[3], uint8_t beam[3]);
 void fx_set_rig(int fighter, const fx_rig *rig);
 
 /* Forget every shot seen and every effect in flight (a new round). */

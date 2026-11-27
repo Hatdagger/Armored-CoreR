@@ -71,4 +71,6 @@ streak).
   reach long, with a glow at the hand and a fading sheet over the last
   ~0.1 s of the slash. It lights over 60 ms, holds to 900 ms, and is gone
   by 1,150 ms of the 1,450 ms swing. The game's own blade sprite and
-  per-blade colours (MOONLIGHT) are not mapped yet.
+  per-blade colours (MOONLIGHT) are not mapped yet. Each booster's flame
+  and each blade's beam now take a colour by part name from a PLACEHOLDER
+  table in fx.c (fx_part_colour), to be checked in play.

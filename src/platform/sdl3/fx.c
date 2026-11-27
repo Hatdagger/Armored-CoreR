@@ -637,6 +637,42 @@ static void draw_parts(int sheet, int blend, const float right[3], const float u
     flush(sheet, blend);
 }
 
+/* Placeholder colours (see fx.h). Matched by a piece of the name, first
+ * match wins. */
+typedef struct { const char *key; uint8_t rgb[3]; } fx_colour;
+static const fx_colour k_flame_colours[] = {
+    { "B-VR", { 120, 170, 255 } },     /* guess: the high-thrust boosters burn blue */
+    { "B-T2", { 255, 110, 70 } },
+    { "B-T0", { 255, 200, 90 } },
+    { "B-P35", { 255, 140, 60 } },
+    { "B-P32", { 255, 165, 80 } },
+};
+static const fx_colour k_beam_colours[] = {
+    { "MOONLIGHT", { 110, 150, 255 } },  /* guess: deep blue-violet */
+    { "3303", { 255, 120, 110 } },
+    { "2006", { 120, 255, 170 } },
+    { "2001", { 130, 195, 255 } },
+};
+static int colour_of(const fx_colour *t, int n, const char *name, uint8_t out[3]) {
+    if (!name || !name[0]) return 0;
+    for (int i = 0; i < n; ++i)
+        if (SDL_strcasestr(name, t[i].key)) { SDL_memcpy(out, t[i].rgb, 3); return 1; }
+    return 0;
+}
+void fx_part_colour(const char *booster, const char *blade, uint8_t flame[3], uint8_t beam[3]) {
+    static const uint8_t k_flame[3] = { 255, 165, 80 }, k_beam[3] = { 130, 195, 255 };
+    if (!colour_of(k_flame_colours, (int)SDL_arraysize(k_flame_colours), booster, flame)) SDL_memcpy(flame, k_flame, 3);
+    if (!colour_of(k_beam_colours, (int)SDL_arraysize(k_beam_colours), blade, beam)) SDL_memcpy(beam, k_beam, 3);
+}
+/* An unset rig colour (all 0) is the default. */
+static void rig_colour(const uint8_t c[3], uint8_t r, uint8_t g, uint8_t b, uint8_t out[3]) {
+    if (c[0] | c[1] | c[2]) SDL_memcpy(out, c, 3); else { out[0] = r; out[1] = g; out[2] = b; }
+}
+/* The hot core: the colour washed most of the way to white. */
+static void whiter(const uint8_t c[3], float k, uint8_t out[3]) {
+    for (int i = 0; i < 3; ++i) out[i] = (uint8_t)(c[i] + (255 - c[i]) * k);
+}
+
 void fx_draw(const acr_gen1_battle *b, const float eye[3], const float fwd[3]) {
     float f[3] = { fwd[0], fwd[1], fwd[2] }, right[3], up[3];
     const float world_up[3] = { 0, 1, 0 };
@@ -705,7 +741,7 @@ void fx_draw(const acr_gen1_battle *b, const float eye[3], const float fwd[3]) {
     }
     flush(SH_GLOW, B_ADD);
 
-    /* Booster flames: a flickering plume out of each nozzle, backward and
+        /* Booster flames: a flickering plume out of each nozzle, backward and
      * a little down, longer for a moment as it lights; a hot glow on the
      * nozzle. */
     for (int k = 0; k < acr_gen1_battle_fighters(b); ++k) {
@@ -721,8 +757,11 @@ void fx_draw(const acr_gen1_battle *b, const float eye[3], const float fwd[3]) {
             const float len = 62.0f * fl * lit, core = 30.0f * fl * lit;
             const float tail[3] = { p[0] + d[0] * len, p[1] + d[1] * len, p[2] + d[2] * len };
             const float tail2[3] = { p[0] + d[0] * core, p[1] + d[1] * core, p[2] + d[2] * core };
-            streak(tail, p, 30.0f, eye, SH_SHOTS, k_plume, 255, 165, 80, 230);
-            streak(tail2, p, 16.0f, eye, SH_SHOTS, k_plume, 255, 240, 200, 255);
+            uint8_t c[3], w[3];
+            rig_colour(r.flame, 255, 165, 80, c);
+            whiter(c, 0.75f, w);
+            streak(tail, p, 30.0f, eye, SH_SHOTS, k_plume, c[0], c[1], c[2], 230);
+            streak(tail2, p, 16.0f, eye, SH_SHOTS, k_plume, w[0], w[1], w[2], 255);
         }
     }
     flush(SH_SHOTS, B_ADD);
@@ -731,8 +770,11 @@ void fx_draw(const acr_gen1_battle *b, const float eye[3], const float fwd[3]) {
         fx_rig r;
         rig_of(b, k, &r);
         const rect all = { 0, 0, (float)g_tex_w[SH_GLOW], (float)g_tex_h[SH_GLOW] };
+        uint8_t c[3], w[3];
+        rig_colour(r.flame, 255, 165, 80, c);
+        whiter(c, 0.35f, w);
         for (int n = 0; n < r.nozzles; ++n)
-            billboard(r.nozzle[n], 34.0f * flick, 0, right, up, SH_GLOW, all, 255, 200, 130, 220);
+            billboard(r.nozzle[n], 34.0f * flick, 0, right, up, SH_GLOW, all, w[0], w[1], w[2], 220);
     }
     flush(SH_GLOW, B_ADD);
 
@@ -747,6 +789,9 @@ void fx_draw(const acr_gen1_battle *b, const float eye[3], const float fwd[3]) {
         if (!r.blade_ok) continue;
         float base[3], end[3];
         blade_line(b, k, &r, base, end);
+        uint8_t bc[3], bw[3];
+        rig_colour(r.beam, 130, 195, 255, bc);
+        whiter(bc, 0.8f, bw);
         const uint8_t a = (uint8_t)(255 * g);
         /* the trail: quads between the beam's past spots */
         const float tw = (float)g_tex_w[SH_SHOTS], th = (float)g_tex_h[SH_SHOTS];
@@ -760,11 +805,11 @@ void fx_draw(const acr_gen1_battle *b, const float eye[3], const float fwd[3]) {
                 { g_trail[k].base[i + 1][0], g_trail[k].base[i + 1][1], g_trail[k].base[i + 1][2] },
                 { g_trail[k].base[i][0], g_trail[k].base[i][1], g_trail[k].base[i][2] },
             };
-            quad(c, u0, 0, u1, k_beam.h / th, 120, 180, 255, (uint8_t)(150 * fade * g));
+            quad(c, u0, 0, u1, k_beam.h / th, bc[0], bc[1], bc[2], (uint8_t)(150 * fade * g));
         }
         const float fl = 0.9f + 0.1f * sinf(g_now_ms * 0.15f + k);
-        streak(base, end, 30.0f * fl, eye, SH_SHOTS, k_beam, 130, 195, 255, a);
-        streak(base, end, 12.0f, eye, SH_SHOTS, k_beam, 235, 245, 255, a);
+        streak(base, end, 30.0f * fl, eye, SH_SHOTS, k_beam, bc[0], bc[1], bc[2], a);
+        streak(base, end, 12.0f, eye, SH_SHOTS, k_beam, bw[0], bw[1], bw[2], a);
     }
     flush(SH_SHOTS, B_ADD);
     for (int k = 0; k < acr_gen1_battle_fighters(b); ++k) {
@@ -775,7 +820,10 @@ void fx_draw(const acr_gen1_battle *b, const float eye[3], const float fwd[3]) {
         rig_of(b, k, &r);
         if (!r.blade_ok) continue;
         const rect all = { 0, 0, (float)g_tex_w[SH_GLOW], (float)g_tex_h[SH_GLOW] };
-        billboard(r.blade_tip, 46.0f * flick, 0, right, up, SH_GLOW, all, 150, 210, 255, (uint8_t)(230 * g));
+        uint8_t bc[3], bw[3];
+        rig_colour(r.beam, 130, 195, 255, bc);
+        whiter(bc, 0.15f, bw);
+        billboard(r.blade_tip, 46.0f * flick, 0, right, up, SH_GLOW, all, bw[0], bw[1], bw[2], (uint8_t)(230 * g));
     }
     flush(SH_GLOW, B_ADD);
 }

@@ -443,6 +443,7 @@ static struct { int anim, ok; acr_pose drawn, from; Uint64 fade_ns; uint16_t fad
 
 /* The aim over the animation (arms, waist, back units on the target), eased
  * at the game's 1/8 a tick, then the model. */
+static char g_part_names[ACR_GEN1_CAT_COUNT][ACR_GEN1_PART_MAX][24];   /* (set at start, below) */
 static void draw_aimed(int who, const demo_model *m, acr_pose *pose, Uint64 now, float x, float y, float z,
                        float yaw) {
     if (!g_aiming[who].ok) { acr_aim_reset(&g_aiming[who].st); g_aiming[who].ok = 1; g_aiming[who].last_ns = now; }
@@ -482,6 +483,12 @@ static void draw_aimed(int who, const demo_model *m, acr_pose *pose, Uint64 now,
             TO_WORLD(rig.blade_tip, tip);
         }
 #undef TO_WORLD
+        {   /* the booster's flame and the blade's beam colours (placeholders) */
+            const int bo = g_model_parts[who][SLOT_BOOSTER], bl = g_model_parts[who][SLOT_BLADE];
+            fx_part_colour(bo >= 0 && bo < ACR_GEN1_PART_MAX ? g_part_names[ACR_GEN1_CAT_BOOSTER][bo] : NULL,
+                           bl >= 0 && bl < ACR_GEN1_PART_MAX ? g_part_names[ACR_GEN1_CAT_BLADE][bl] : NULL,
+                           rig.flame, rig.beam);
+        }
         fx_set_rig(who, &rig);
     }
     demo_model_draw_pose(m, pose, x, y, z, yaw, ACR_GEN1_MODEL_SCALE, &g_light);
