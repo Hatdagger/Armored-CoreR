@@ -158,9 +158,10 @@ static void test_sub_never_strands(void) {
         EXPECT(acr_gen1_arena_can_challenge(&s, 0, r, 0, 0) == ACR_GEN1_ARENA_OK);
     }
     /* The ranked list is open now; leg arenas not yet (rank 16 is not 15). */
-    EXPECT(acr_gen1_arena_can_challenge(&s, 0, 1, 0, 0) == ACR_GEN1_ARENA_OK);
+    EXPECT(acr_gen1_arena_can_challenge(&s, 0, 15, 0, 0) == ACR_GEN1_ARENA_OK);
+    EXPECT(acr_gen1_arena_can_challenge(&s, 0, 1, 0, 0) == ACR_GEN1_ARENA_NEXT_ONLY);
     EXPECT(acr_gen1_arena_open(&s, 1) == ACR_GEN1_ARENA_LOCKED);
-    EXPECT(acr_gen1_arena_result(&s, &g_w, 0, 9, 1, NULL));
+    EXPECT(acr_gen1_arena_result(&s, &g_w, 0, 15, 1, NULL));
     EXPECT(acr_gen1_arena_rank(&s, 0) == 15);
     EXPECT(acr_gen1_arena_open(&s, 1) == ACR_GEN1_ARENA_OK);
     EXPECT(acr_gen1_arena_open(&s, 5) == ACR_GEN1_ARENA_LOCKED);
@@ -238,8 +239,10 @@ static void test_leg_arena_and_champion(void) {
     acr_gen1_arena s;
     acr_gen1_arena_new(&s, &g_w);
     climb(&s, 0, 15);
-    EXPECT(acr_gen1_arena_can_challenge(&s, 1, 5, ACR_GEN1_ARENA_LEGS_FOUR, 0) == ACR_GEN1_ARENA_WRONG_LEGS);
-    EXPECT(acr_gen1_arena_can_challenge(&s, 1, 5, ACR_GEN1_ARENA_LEGS_HUMANOID, 0) == ACR_GEN1_ARENA_OK);
+    const int next = acr_gen1_arena_rank(&s, 1) - 1;
+    EXPECT(acr_gen1_arena_can_challenge(&s, 1, next, ACR_GEN1_ARENA_LEGS_FOUR, 0) == ACR_GEN1_ARENA_WRONG_LEGS);
+    EXPECT(acr_gen1_arena_can_challenge(&s, 1, next, ACR_GEN1_ARENA_LEGS_HUMANOID, 0) == ACR_GEN1_ARENA_OK);
+    EXPECT(acr_gen1_arena_can_challenge(&s, 1, 1, ACR_GEN1_ARENA_LEGS_HUMANOID, 0) == ACR_GEN1_ARENA_NEXT_ONLY);
     climb(&s, 1, 1);
     EXPECT(acr_gen1_arena_rank(&s, 1) == 1);
     EXPECT(s.a[1].best == 1);
@@ -363,8 +366,9 @@ static void test_phantasma(void) {
     EXPECT(acr_gen1_arena_open(&s, ACR_GEN1_ARENA_PP) == ACR_GEN1_ARENA_OK);
     EXPECT(acr_gen1_arena_open(&s, ACR_GEN1_ARENA_MOA) == ACR_GEN1_ARENA_LOCKED);
     EXPECT(!acr_gen1_arena_is_sub(ACR_GEN1_ARENA_PP, 40));
-    /* rank 50 may challenge rank 20 straight away: no sub arena to clear */
-    EXPECT(acr_gen1_arena_can_challenge(&s, ACR_GEN1_ARENA_PP, 20, 0, 0) == ACR_GEN1_ARENA_OK);
+    /* no sub arena to clear, but ranked: only rank 49 from 50 */
+    EXPECT(acr_gen1_arena_can_challenge(&s, ACR_GEN1_ARENA_PP, 49, 0, 0) == ACR_GEN1_ARENA_OK);
+    EXPECT(acr_gen1_arena_can_challenge(&s, ACR_GEN1_ARENA_PP, 20, 0, 0) == ACR_GEN1_ARENA_NEXT_ONLY);
     climb(&s, ACR_GEN1_ARENA_PP, 2);
     acr_gen1_arena_payout p;
     EXPECT(acr_gen1_arena_result(&s, &g_w, ACR_GEN1_ARENA_PP, 1, 1, &p));
