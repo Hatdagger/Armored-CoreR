@@ -207,6 +207,6 @@ for the two starts and limits: [docs/MAPS.md](docs/MAPS.md).
 - [Missions](docs/MISSIONS.md): ideas, mockup sorties, progress
 - [Rogue Arena co-op](docs/ROGUE-ARENA-COOP.md)
 - [Full design plan](https://claude.ai/artifact/PAAEo6cvjUi7qxFQqSGPrf)
-- [AC1Recomp fork](https://github.com/Hatdagger/AC1Recomp), used as the
-  reference for how the original plays; its `docs/mapping/` is the main
-  source for the Gen 1 rules
+- [Recomp research](docs/research/recomp/README.md): the mapping notes from
+  the retired AC1Recomp fork, the main source for the Gen 1 rules (own
+  code kept from it: [`reference/`](reference/README.md))

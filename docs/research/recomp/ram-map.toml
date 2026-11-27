@@ -1,0 +1,2048 @@
+# Master of Arena — RAM map, US disc 1 (SLUS-01030 v1.0). Source of truth for ram-map.md.
+# Regenerate the doc with:  python3 tools/ram_map.py
+#
+# One [[var]] per named address. Fields:
+#   addr    RAM address (0x80xxxxxx)
+#   size    bytes (for arrays/records: the whole span)
+#   type    u8 / u16 / u32 / s16 / ptr / bytes / struct / u8[n] …
+#   name    short snake_case name, unique; the name code should use
+#   what    one line, plain words
+#   status  tested  = checked in a running game
+#           code    = read from the game's code (static)
+#           cheat   = from cheat codes only, not yet seen in code
+#           guess   = inferred, needs a check
+#   src     where the detail lives (docs/research/…)
+#   owner   game (default) or lib (PsyQ library state: never touch)
+#
+# Region rules (from mapping/boot-loads.md, rule 1): only 0x80011000 … 0x80050DD8 (exe image + bss)
+# survives module loads. Everything above 0x80050DD8 is rebuilt on every module load, so its
+# addresses depend on which engine is loaded (menu FDAT 206, missions 207, link 208, VS 209, arena 210).
+
+# ───────────── exe image: data the game keeps (save-backed) ─────────────
+
+[[var]]
+addr = 0x80036FB0
+size = 12
+type = "u8[12]"
+name = "garage_parts"
+what = "Equipped part ids: core, booster, head, arms, blade (left arm), hand (right arm), back L, back R, generator, FCS, unused, legs (save +440)"
+status = "tested"
+src = "mapping/boot-loads.md §4e, mapping/parts-tables.md"
+
+[[var]]
+addr = 0x80036FBC
+size = 560
+type = "bytes"
+name = "save_block_main"
+what = "Save +592 copied as one block: paint, owned parts (+0x30), shop stock (+0x130) …"
+status = "tested"
+src = "mapping/boot-loads.md §4e"
+
+[[var]]
+addr = 0x80036FEC
+size = 256
+type = "u8[256]"
+name = "owned_parts"
+what = "Owned count per part, one byte per part id (back weapons count 2 per buy)"
+status = "tested"
+src = "mapping/arena-prizes.md, ram-map-codes.md §1"
+
+[[var]]
+addr = 0x800370EC
+size = 256
+type = "u8[256]"
+name = "shop_stock"
+what = "Shop stock per part id (save +896)"
+status = "code"
+src = "mapping/boot-loads.md §4e, mapping/menus-screens.md §2i"
+
+[[var]]
+addr = 0x800371EC
+size = 36
+type = "char[36]"
+name = "ac_pilot_names"
+what = "AC name then pilot name (save +460)"
+status = "tested"
+src = "mapping/boot-loads.md §4e"
+
+[[var]]
+addr = 0x80036C74
+size = 828
+type = "struct[23]"
+name = "xa_file_table"
+what = "The 23 registered XA music/voice files, 36-byte records (16 × u16, then CdlLOC); XA id = file × 16 + channel"
+status = "code"
+src = "sound-map.md"
+
+[[var]]
+addr = 0x80036AC4
+size = 32
+type = "MATRIX"
+name = "fight_trans_matrix"
+what = "Matrix passed to SetTransMatrix in the fight frame (exe data)"
+status = "guess"
+src = "mapping/renderer.md"
+
+# ───────────── gp area 0x8003EA28 …: mode and flow flags ─────────────
+
+[[var]]
+addr = 0x8003EA28
+size = 0
+type = "label"
+name = "gp_base"
+what = "Value of the gp register (crt0); small globals below are gp-relative"
+status = "code"
+src = "mapping/boot-loads.md §1"
+
+[[var]]
+addr = 0x8003EA29
+size = 1
+type = "u8"
+name = "flow_flag_29"
+what = "Cleared before the exe loads VS (FDAT 209) together with 0x8003EA94"
+status = "code"
+src = "mapping/boot-loads.md, mapping/mode-launch.md"
+
+[[var]]
+addr = 0x8003EA2A
+size = 1
+type = "u8"
+name = "mode"
+what = "Mode byte the exe main loop dispatches on: 2 = split-screen VS, 3 = arena (AI Battle flips 2→3) …"
+status = "tested"
+src = "mapping/mode-launch.md, mapping/battle-system.md"
+
+[[var]]
+addr = 0x8003EA48
+size = 8
+type = "bytes[8]"
+name = "gravity"
+what = "8-byte value copied whole into every new fight object at +8 (VS allocator 0x80076A48; 15 routines in each fight engine read it); missiles coast under it before ignition"
+status = "code"
+src = "mapping/battle-system.md"
+
+[[var]]
+addr = 0x8003EA5C
+size = 5
+type = "char[5]"
+name = "disc_dir_prefix"
+what = "The string \"\\GG\\\" (exe data). The file loaders 0x80016868, 0x80016914 and 0x80016AE8 copy it to the stack, append the file name and \";1\" (0x8003EA64), then call CdSearchFile; on a miss 0x80016AE8 prints \"CdSearchFile error  FileName=%s\" (0x800110E4). Was archive_cur"
+status = "code"
+src = "ram-map.md (exe xref, 2026-11-21)"
+
+[[var]]
+addr = 0x8003EA70
+size = 2
+type = "u16"
+name = "options_fitted"
+what = "Fitted optional parts, one bit each (bits 0–12 used, 13–15 free) (save +454)"
+status = "tested"
+src = "mapping/parts-tables.md, custom-parts/op-wlink.md"
+
+[[var]]
+addr = 0x8003EA72
+size = 1
+type = "u8"
+name = "paint_pattern"
+what = "Paint pattern = AC texture set (save +452)"
+status = "code"
+src = "mapping/boot-loads.md §4d/§4e"
+
+[[var]]
+addr = 0x8003EA73
+size = 1
+type = "u8"
+name = "paint_variant"
+what = "Paint variant (picks MENU_TIM 26 + 4v + this)"
+status = "code"
+src = "mapping/boot-loads.md"
+
+[[var]]
+addr = 0x8003EA74
+size = 4
+type = "u32"
+name = "credits"
+what = "Credits (max 99,999,999) (save +456)"
+status = "tested"
+src = "mapping/arena-prizes.md, ram-map-codes.md §2"
+
+[[var]]
+addr = 0x8003EA78
+size = 1
+type = "u8"
+name = "arena_stage_index"
+what = "Index into the arena stage table 0x800D59F0 (×2) for the next arena fight"
+status = "code"
+src = "mapping/mode-launch.md"
+
+[[var]]
+addr = 0x8003EA79
+size = 1
+type = "u8"
+name = "title_flag"
+what = "Set to 1 with 0x8003EA7A when going to the title; cleared at PRESS START"
+status = "code"
+src = "mapping/boot-loads.md"
+
+[[var]]
+addr = 0x8003EA7A
+size = 1
+type = "u8"
+name = "go_to_title"
+what = "1 = go to the title; in code only the link-return check 0x800A6BB0 sets it"
+status = "code"
+src = "mapping/README.md, mapping/boot-loads.md"
+
+[[var]]
+addr = 0x8003EA7B
+size = 1
+type = "u8"
+name = "back_from_ac_test"
+what = "Back from an AC TEST sortie: hub opens the garage on page 6"
+status = "code"
+src = "mapping/menus-hub.md"
+
+[[var]]
+addr = 0x8003EA7C
+size = 1
+type = "u8"
+name = "back_from_arena"
+what = "1 = back from an arena fight (hub opens the arena screen)"
+status = "code"
+src = "mapping/boot-loads.md, mapping/menus-hub.md"
+
+[[var]]
+addr = 0x8003EA7D
+size = 1
+type = "u8"
+name = "resume_kind"
+what = "Which screen the menu resumes into (5 → arena page 7 …)"
+status = "code"
+src = "mapping/boot-loads.md, mapping/mode-launch.md"
+
+[[var]]
+addr = 0x8003EA7E
+size = 1
+type = "u8"
+name = "vs_first_visit"
+what = "0 = first VS menu visit (map reset to 1)"
+status = "code"
+src = "mapping/menus-screens.md §2p"
+
+[[var]]
+addr = 0x8003EA7F
+size = 1
+type = "u8"
+name = "title_skip"
+what = "1 = title opens without its intro (MENU_TIM 875, straight to 0x800AB014)"
+status = "code"
+src = "mapping/boot-loads.md"
+
+[[var]]
+addr = 0x8003EA80
+size = 1
+type = "u8"
+name = "back_to_link_menu"
+what = "Return to the link-cable versus menu (set by 0x800AD218)"
+status = "code"
+src = "mapping/mode-launch.md"
+
+[[var]]
+addr = 0x8003EA81
+size = 1
+type = "u8"
+name = "vs_map"
+what = "VS map 1–10, written by 0x800B348C"
+status = "code"
+src = "mapping/README.md, mapping/menus-screens.md §2p"
+
+[[var]]
+addr = 0x8003EA82
+size = 1
+type = "u8"
+name = "mail_notice_shown"
+what = "1 = the hub's \"You have new mail.\" box was already shown. Hub state 0x80055798 opens it (280 × 32 at 20, 104) when the new-mail check 0x800A23F4 says yes and this is 0, then sets it; the hub reset 0x8005A6C0 and 0x800A69C8 / 0x800BC9F0 clear it, 0x80073424 sets it. Was flow_flag_82"
+status = "code"
+src = "mapping/boot-loads.md"
+
+[[var]]
+addr = 0x8003EA88
+size = 8
+type = "label"
+name = "bss_start"
+what = "crt0 zeroes 0x8003EA88 … 0x80050DD8 (its loop pointer shows up as a use of 0x8003EA8C in the scan) and saves its ra at +0; main then zeroes 0x8003EA90 … 0x801FE000"
+status = "code"
+src = "mapping/boot-loads.md §1"
+
+[[var]]
+addr = 0x8003EA91
+size = 1
+type = "u8"
+name = "flow_flag_91"
+what = "Cleared by the exe main loop before a VS start (with 0x8003EA94/96, replay flag)"
+status = "code"
+src = "mapping/mode-launch.md"
+
+[[var]]
+addr = 0x8003EA92
+size = 1
+type = "u8"
+name = "replay_flag"
+what = "1 = play the replay next (VS sets it and returns 2; exe then loads FDAT 211)"
+status = "tested"
+src = "mapping/README.md, mapping/battle-system.md"
+
+[[var]]
+addr = 0x8003EA93
+size = 1
+type = "u8"
+name = "text_message"
+what = "Copy of the TEXT MESSAGE option (mission messages on/off)"
+status = "code"
+src = "mapping/menus-screens.md §2o"
+
+[[var]]
+addr = 0x8003EA94
+size = 1
+type = "u8"
+name = "vs_round"
+what = "VS round number, +1 per decided round; survives rematches, VS START resets it"
+status = "code"
+src = "mapping/battle-system.md"
+
+[[var]]
+addr = 0x8003EA95
+size = 1
+type = "u8"
+name = "mission_quit"
+what = "1 = player chose quit in the mission pause dialog"
+status = "code"
+src = "mapping/missions.md"
+
+[[var]]
+addr = 0x8003EA96
+size = 1
+type = "u8"
+name = "flow_flag_96"
+what = "Cleared by the exe main loop before a VS start"
+status = "code"
+src = "mapping/mode-launch.md"
+
+[[var]]
+addr = 0x8003EAA0
+size = 4
+type = "ptr"
+name = "cur_player"
+what = "Current player block (0x80045198 or 0x80045538); set before every per-player call (damage, draw, HUD …)"
+status = "code"
+src = "mapping/battle-system.md, mapping/renderer.md"
+
+[[var]]
+addr = 0x8003EAA4
+size = 8
+type = "ptr[2]"
+name = "link_players"
+what = "Link cable: +0 this console's player block, +4 the other console's. The link start 0x80055578 sets them: master = player1 (0x80045198) / player2 (0x80045538); slave first copies its own AC from player1 into player2, then +0 = player2, +4 = player1. +0 + 0x250 (stat block) is what gets sent (0x80055428). Read by 16 more link routines (camera 0x80088988 …). VS sets +0 once (0x800558C0). Was link_state"
+status = "code"
+src = "ram-map.md (module scan, 2026-11-21)"
+
+[[var]]
+addr = 0x8003EAB0
+size = 8
+type = "u16[4]"
+name = "vs_score"
+what = "VS tally: 1P wins, 1P losses, 2P wins, 2P losses"
+status = "code"
+src = "mapping/battle-system.md"
+
+[[var]]
+addr = 0x8003EAB8
+size = 2
+type = "u8[2]"
+name = "vs_paint_variant"
+what = "Per VS player paint variant (+p)"
+status = "code"
+src = "mapping/menus-screens.md §2p"
+
+[[var]]
+addr = 0x8003EABC
+size = 4
+type = "u32"
+name = "random_seed"
+what = "Random seed, set at PRESS START by 0x800A7B80"
+status = "code"
+src = "mapping/boot-loads.md"
+
+[[var]]
+addr = 0x8003EAC0
+size = 4
+type = "u16[2]"
+name = "vs_options_fitted"
+what = "Per VS player fitted options (+2p), copied to 0x8003EA70"
+status = "code"
+src = "mapping/menus-screens.md §2p"
+
+[[var]]
+addr = 0x8003EAC8
+size = 1
+type = "u8"
+name = "human_plus"
+what = "Human PLUS level 0–15 (save +3564, 8 bytes of flags from here)"
+status = "tested"
+src = "mapping/boot-loads.md §4e, ram-map-codes.md §2"
+
+[[var]]
+addr = 0x8003EAC9
+size = 1
+type = "u8"
+name = "sub_arena_fight"
+what = "Non-zero = the fight is a sub-arena / Ex Arena fight (cheat lists: champion arena unlocked)"
+status = "code"
+src = "mapping/missions.md, ram-map-codes.md §2"
+
+[[var]]
+addr = 0x8003EACA
+size = 1
+type = "u8"
+name = "overweight_ok"
+what = "Non-zero = assembly allows overweight builds"
+status = "code"
+src = "mapping/menus-screens.md §2h"
+
+[[var]]
+addr = 0x8003EACB
+size = 1
+type = "u8"
+name = "guest_arena_open"
+what = "1 = guest arena unlocked"
+status = "code"
+src = "mapping/missions.md"
+
+[[var]]
+addr = 0x8003EACC
+size = 4
+type = "u8[4]"
+name = "scenario_flags_hi"
+what = "Last 4 of the 8 flag bytes after Human PLUS (save +3568 …); the menu reads/writes +0 and +3 in 10+ routines (VS menu 0x800B2D7C, 0x800AB500 …)"
+status = "code"
+src = "ram-map.md (module scan, 2026-11-21)"
+
+[[var]]
+addr = 0x8003EAD0
+size = 2
+type = "u8[2]"
+name = "vs_vibration"
+what = "Per VS player vibration setting (P1, P2)"
+status = "code"
+src = "mapping/README.md, mapping/menus-screens.md §2p"
+
+[[var]]
+addr = 0x8003EAD2
+size = 2
+type = "u8[2]"
+name = "vs_paint_pattern"
+what = "Per VS player paint pattern (+p)"
+status = "code"
+src = "mapping/menus-screens.md §2p"
+
+[[var]]
+addr = 0x8003EAD4
+size = 1
+type = "u8"
+name = "arena_id"
+what = "Arena of the next/last arena fight (≠ 0 = Ex Arena)"
+status = "code"
+src = "mapping/boot-loads.md, mapping/arena-prizes.md"
+
+[[var]]
+addr = 0x8003EAD5
+size = 1
+type = "u8"
+name = "arena_opponent"
+what = "Opponent index of the next/last arena fight"
+status = "code"
+src = "mapping/arena-prizes.md"
+
+[[var]]
+addr = 0x8003EAD8
+size = 72
+type = "char[36][2]"
+name = "build_check_names"
+what = "Two 36-byte name records (same layout as ac_pilot_names, AC name then pilot name), likely VS player 1 at +0 and player 2 at +0x24: the hub's 0x800A69C8 draws them into VRAM at (960, 0) and (960, 16); 0x800BE0A0 writes single letters into them (name entry?); VS START passes them to 0x8007E164. Watch them while renaming in VS to confirm"
+status = "guess"
+src = "mapping/mode-launch.md"
+
+[[var]]
+addr = 0x8003EB20
+size = 256
+type = "u8[256]"
+name = "garage_owned_copy"
+what = "The garage page's copy of a VS player's owned parts"
+status = "code"
+src = "mapping/menus-screens.md §2p"
+
+[[var]]
+addr = 0x8003EC20
+size = 36
+type = "char[36]"
+name = "names_compare"
+what = "36-byte name buffer the garage (0x8007CAC8) compares with ac_pilot_names via 0x8007E164 when resume_kind = 0"
+status = "guess"
+src = "ram-map.md (module scan 2026-11-21)"
+
+[[var]]
+addr = 0x8003EC48
+size = 16
+type = "struct"
+name = "mission_results"
+what = "Mission result record: +4 reward, +8 end code, +0xC destruction tally (mission screen 0x800974E0 fills it at launch, missions engine 0x8007EE04 adds to +0xC)"
+status = "code"
+src = "ram-map.md (module scan 2026-11-21), mapping/missions.md"
+
+[[var]]
+addr = 0x8003EC4C
+size = 4
+type = "u32"
+name = "mission_reward"
+what = "Reward of the current mission"
+status = "code"
+src = "mapping/missions.md"
+
+[[var]]
+addr = 0x8003EC50
+size = 4
+type = "u32"
+name = "mission_result"
+what = "Mission end code, read when going back to the menu"
+status = "code"
+src = "mapping/missions.md"
+
+[[var]]
+addr = 0x8003EC54
+size = 4
+type = "u32"
+name = "mission_destroy_tally"
+what = "Destruction tally (mission_results +0xC): every fight engine's object-destroyed routine (missions 0x8007EE04, VS 0x8007D540 …) adds the object's value (+0x1A) ÷ 200 when its +0x36 bit 1 is set; fight setup (VS 0x8008F660 …) zeroes it. No reader found in any module or the exe: the payout 0x800918E8 uses +0 and +4 only, so it looks unused"
+status = "code"
+src = "mapping/missions.md"
+
+# ───────────── exe bss: system, disc, sound, pads ─────────────
+
+[[var]]
+addr = 0x8003EC70
+size = 20480
+type = "bytes"
+name = "disc_buffer"
+what = "Default disc work buffer (20 KB, 10 sectors) pointed to by disc_buffer_ptr; holds whatever was last read through it (the menu copies 16-byte records from 0x80040000 here, 0x800ACF94)"
+status = "code"
+src = "ram-map.md (exe + module scan 2026-11-21)"
+
+[[var]]
+addr = 0x80043C70
+size = 120
+type = "struct"
+name = "exe_sys"
+what = "Exe system block head (the block, set up by 0x80016C10, runs past +0x4AC = 0x8004411C): +0x00 root-counter handle, +0x04 VBlank count, +0x08 VBlank hook, +0x10 frame/draw flags (0xC0 tested), +0x14 … display setup; set up by 0x80016C10"
+status = "code"
+src = "ram-map.md (exe xref, 2026-11-21), mapping/renderer.md"
+
+[[var]]
+addr = 0x80043CE8
+size = 768
+type = "struct[16]"
+name = "disc_queue_records"
+what = "Exe disc queue: 16 records × 48 bytes (exe_sys +0x78), cleared by 0x80016C10, filled by 0x80015994"
+status = "code"
+src = "ram-map.md (exe xref)"
+
+[[var]]
+addr = 0x80043FE8
+size = 8
+type = "ptr[2]"
+name = "disc_queue"
+what = "Exe disc queue head / tail pointers into disc_queue_records (exe_sys +0x378 / +0x37C); 0x800589DC reports busy from these"
+status = "code"
+src = "mapping/boot-loads.md"
+
+[[var]]
+addr = 0x80044000
+size = 20
+type = "u32[5]"
+name = "sys_handles"
+what = "Event / root-counter handles opened by 0x80016C10 (exe_sys +0x390, +0x394), then the link cable's sio: handles: +0x39C read handle (opened no-wait, mode 0x8001), +0x3A0 write handle (mode 2)"
+status = "code"
+src = "ram-map.md (exe xref, 2026-11-21)"
+
+[[var]]
+addr = 0x800112F0
+size = 12
+type = "ptr[3]"
+name = "module_bounds"
+what = "Exe constants read by the main loop: 0x80050DD8 (module base), 0x801F8EB0, 0x801FC898 (end of the menu's clear)"
+status = "code"
+src = "ram-map.md (exe xref, 2026-11-21), mapping/boot-loads.md rule 1"
+
+[[var]]
+addr = 0x80044014
+size = 24
+type = "bytes"
+name = "link_sio"
+what = "Link-cable packet buffers in exe_sys: +0x3A4 … +0x3AF receive buffer (read from the sio: read handle, exe_sys +0x39C), +0x3B0 … +0x3BB send buffer (written to the sio: write handle, +0x3A0). Packets start with 'R' and end with 'C'. Handshake (0x80055578, 8 bytes): send +1 = role 'S' / 'M', 'C' at +7, the other side's role arrives at +0x3A5. Data packets (0x80055428): 'C' at +9, checked on receive by 0x80051F3C; +0x3B8 word cleared by the link start 0x80051FDC. Netplay lead"
+status = "code"
+src = "ram-map.md (module scan 2026-11-21)"
+
+[[var]]
+addr = 0x8004402C
+size = 16
+type = "struct"
+name = "archive_table"
+what = "File table used by 0x80016A58(file, entry, dest) (FDAT, RTIM, MENU_* …)"
+status = "code"
+src = "mapping/missions.md"
+
+[[var]]
+addr = 0x8004411C
+size = 4
+type = "ptr"
+name = "disc_buffer_ptr"
+what = "Disc work buffer pointer (exe_sys +0x4AC), set to disc_buffer by 0x80016C10; the fight engines save it, point it elsewhere around a file load (0x80016AE8) and put it back (VS 0x80055214)"
+status = "code"
+src = "ram-map.md (module scan 2026-11-21)"
+
+[[var]]
+addr = 0x80044121
+size = 1
+type = "u8"
+name = "disc_in_drive"
+what = "Which disc is in the drive, = 0x80058B04() at every menu start"
+status = "code"
+src = "mapping/README.md"
+
+[[var]]
+addr = 0x80044128
+size = 176
+type = "bytes"
+name = "seq_attr_table"
+what = "SEQ attribute table handed to libsnd's SsSetTableSize (1 SEQ × 1 track) by sound init 0x80016DB8"
+status = "code"
+src = "ram-map.md (exe xref, 2026-11-21)"
+
+[[var]]
+addr = 0x800441D8
+size = 40
+type = "VECTOR[2]"
+name = "eye_copies"
+what = "Copies of the two cameras' eyes, 0x800441D8 / 0x800441EC; the sound listener (distance falloff 0x80052A10 / 0x80052C88 measures from them)"
+status = "code"
+src = "mapping/renderer.md"
+
+[[var]]
+addr = 0x80044200
+size = 24
+type = "bytes"
+name = "sound_levels"
+what = "Six sound level bytes (sound init sets all to 127; the menu's defaults set 0x80044200 = 126, 0x80044202 = 62), then u16 0xFFFF at +6 and a byte cleared at +8; +0x09 … +0x16 are read and written by every fight engine's sound routines (VS 0x800527EC, 0x80053A8C …)"
+status = "code"
+src = "mapping/menus-screens.md"
+
+[[var]]
+addr = 0x80044218
+size = 528
+type = "struct[66]"
+name = "sound_bank_slots"
+what = "66 sound bank slots, 8 bytes each: s16 SPU VAB id (−1 none, 254 skip) + header pointer (all set to −1 / 0 by 0x80016DB8)"
+status = "code"
+src = "sound-map.md"
+
+[[var]]
+addr = 0x80044428
+size = 368
+type = "struct[23]"
+name = "sound_voice_slots"
+what = "23 × 16-byte sound slot records, walked each frame by 0x800535F4"
+status = "code"
+src = "mapping/renderer.md"
+
+[[var]]
+addr = 0x80044598
+size = 2560
+type = "struct[256]"
+name = "sound_id_table"
+what = "Sound id table copied in from the sound data (256 ids × 10 bytes; ids at 0x80044758)"
+status = "code"
+src = "sound-map.md"
+
+[[var]]
+addr = 0x80045158
+size = 32
+type = "struct[4]"
+name = "sound_slots_c"
+what = "4 × 8-byte sound records (s16 set to −1 by sound init), just before player1"
+status = "code"
+src = "ram-map.md (exe xref, 2026-11-21)"
+
+[[var]]
+addr = 0x80045198
+size = 928
+type = "struct"
+name = "player1"
+what = "Player 1 block: +0x250 … +0x393 compiled stat block, +0x398 AC object pointer, +0x39C camera record pointer"
+status = "tested"
+src = "mapping/battle-system.md, mapping/stat-block.md"
+
+[[var]]
+addr = 0x80045538
+size = 928
+type = "struct"
+name = "player2"
+what = "Player 2 block, same layout as player1"
+status = "tested"
+src = "mapping/battle-system.md"
+
+[[var]]
+addr = 0x800458D8
+size = 68
+type = "u8[34][2]"
+name = "pad_rx"
+what = "Controller receive buffers given to PadInitDirect: port 1 at +0, port 2 at +34 (0x800458FA)"
+status = "code"
+src = "ram-map.md (exe xref: 0x80017430)"
+
+[[var]]
+addr = 0x8004591C
+size = 8
+type = "u8[4][2]"
+name = "pad_actuator"
+what = "Vibration motor bytes given to PadSetAct: port 1 at +0, port 2 at +4 (0x80045920)"
+status = "code"
+src = "ram-map.md (exe xref: 0x80017430, rumble 0x800174E4)"
+
+[[var]]
+addr = 0x80045928
+size = 18
+type = "bytes"
+name = "pad_state"
+what = "Pad state: +port = value from 0x800171B4 (library state call), +6+port = status, +0x0C … +0x11 actuator align bytes given to 0x80030710 (PadSetActAlign?) by 0x80017240"
+status = "code"
+src = "ram-map.md (exe xref)"
+
+[[var]]
+addr = 0x80045940
+size = 24
+type = "u8[12][2]"
+name = "vs_parts"
+what = "VS players' part ids (P1 0x80045940, P2 0x8004594C), copied to/from 0x80036FB0"
+status = "code"
+src = "mapping/mode-launch.md, mapping/menus-screens.md §2p"
+
+[[var]]
+addr = 0x80045958
+size = 20076
+type = "struct"
+name = "arena_maker"
+what = "Arena Maker arena (was called 'VS staging'; its reset 0x800C566C is Arena Maker code): +0 arena name (buffer given to ARENA NAME entry 0x8008E8D8), +0x14 ranker count, +0x18 the rankers"
+status = "code"
+src = "ram-map.md (module scan 2026-11-21), mapping/menus-screens.md §2e, mapping/boot-loads.md"
+
+[[var]]
+addr = 0x80045970
+size = 20052
+type = "struct[9]"
+name = "arena_maker_rankers"
+what = "9 Arena Maker rankers × 2,228 bytes; the arena list (0x800BB93C, arena 9) copies the first 48 bytes of each; used by the ranker list 0x800C71DC, ranker edit 0x800C8F58, ARENA SAVE/LOAD 0x800CA4C8"
+status = "code"
+src = "ram-map.md (module scan 2026-11-21)"
+
+[[var]]
+addr = 0x8004A7C4
+size = 11
+type = "u8, u8[9], u8"
+name = "arena_maker_ranks"
+what = "+0 ranker picked for RANKER TEST (0x8007DE4C: ranker = 0x80045970 + n × 2228), +1 … +9 the Maker arena's rank table, +0x0A its beaten count; arena 9 in the arena screen uses these where other arenas use 0x8004B5D6 / 0x8004B67D"
+status = "code"
+src = "ram-map.md (module scan 2026-11-21)"
+
+[[var]]
+addr = 0x8004A7D0
+size = 16
+type = "u8[8][2]"
+name = "vs_extras"
+what = "Per VS player extras (Human PLUS …)"
+status = "code"
+src = "mapping/menus-screens.md §2p"
+
+[[var]]
+addr = 0x8004A7E0
+size = 512
+type = "u8[256][2]"
+name = "vs_owned_parts"
+what = "Per VS player owned parts (+256p)"
+status = "code"
+src = "mapping/menus-screens.md §2p, mapping/mode-launch.md"
+
+[[var]]
+addr = 0x8004A9E0
+size = 60
+type = "u16[15][2]"
+name = "vs_model_sizes"
+what = "Per VS player model sizes (+30p), into 0x801D0B28"
+status = "code"
+src = "mapping/menus-screens.md §2p"
+
+[[var]]
+addr = 0x8004AB18
+size = 72
+type = "char[36][2]"
+name = "vs_names"
+what = "Per VS player AC + pilot names (P1 0x8004AB18, P2 0x8004AB3C)"
+status = "code"
+src = "mapping/mode-launch.md"
+
+[[var]]
+addr = 0x8004AB60
+size = 120
+type = "struct[2]"
+name = "vs_file_table"
+what = "Per VS player part file table (+60p)"
+status = "code"
+src = "mapping/menus-screens.md §2p"
+
+[[var]]
+addr = 0x8004AC50
+size = 44
+type = "struct"
+name = "mission_progress"
+what = "Mission progress (save +3232): sorties u16 at 0x8004AC58, successes 0x8004AC5C, failures 0x8004AC60"
+status = "code"
+src = "mapping/boot-loads.md §4e/§9a, mapping/menus-screens.md §2n"
+
+[[var]]
+addr = 0x8004AC80
+size = 36
+type = "struct"
+name = "opponent_ai"
+what = "Current opponent's 36-byte AI record: +0 its Human PLUS level (menu 0x8007DE4C puts it in 0x8003EAC8 before compiling; arena AI setup 0x80055768 puts it in P2's stat block +0x03), +1 … percentages (× 4096 ÷ 100); written by arena / Arena Maker code (0x800BF85C, 0x800C5FB8 …)"
+status = "code"
+src = "ram-map.md (module scan 2026-11-21), mapping/README.md (36-byte AI records)"
+
+[[var]]
+addr = 0x8004ACA8
+size = 2048
+type = "bytes"
+name = "vram_backup_a"
+what = "StoreImage backup of part of MENU_TIM 0, put back when the hub opens (?)"
+status = "code"
+src = "mapping/boot-loads.md"
+
+[[var]]
+addr = 0x8004B4A8
+size = 96
+type = "u8[48][2]"
+name = "vs_key_layout"
+what = "Per VS player key layout (P1 0x8004B4A8, P2 0x8004B4D8)"
+status = "code"
+src = "mapping/README.md, mapping/menus-screens.md §2p"
+
+[[var]]
+addr = 0x8004B508
+size = 96
+type = "u64[12]"
+name = "owned_masks"
+what = "Owned-part bitmasks, 8 bytes per kind (blades 0x8004B520, 26-bit 0x8004B528, options 0x8004B558); rebuilt from owned_parts (save +496)"
+status = "code"
+src = "mapping/boot-loads.md §4d/§4e, mapping/menus-screens.md"
+
+[[var]]
+addr = 0x8004B568
+size = 56
+type = "struct"
+name = "settings"
+what = "Settings record (save +3276): 12 button masks, then +0x30 TEXT MESSAGE, +0x31 master vol, +0x32 BGM vol, +0x33 VS STAGE, +0x34 VS TIME LIMIT, +0x35 VIBRATION"
+status = "code"
+src = "mapping/menus-screens.md §2o"
+
+[[var]]
+addr = 0x8004B5A0
+size = 54
+type = "u16[9][3]"
+name = "arena_reports"
+what = "Arena challenge / win / lose counts, 9 arenas each (0x8004B5A0 / B2 / C4)"
+status = "code"
+src = "mapping/menus-screens.md §2n"
+
+[[var]]
+addr = 0x8004B5D6
+size = 50
+type = "u8[50]"
+name = "arena_rank_table"
+what = "Per-rank byte table (Ex Arena …), entry n at 0x8004B5D5 + n"
+status = "code"
+src = "mapping/missions.md"
+
+[[var]]
+addr = 0x8004B5D7
+size = 48
+type = "u8[48]"
+name = "arena0_beaten"
+what = "Arena 0 opponents beaten, bit 0 of each byte"
+status = "code"
+src = "mapping/menus-screens.md §2n"
+
+[[var]]
+addr = 0x8004B608
+size = 117
+type = "u8[117]"
+name = "ex_arena_beaten"
+what = "Ex Arena opponents beaten (bit 0): leg leagues 9 each from 0x8004B608, Champion 15 at 0x8004B630, Guest 30 at 0x8004B640, FromSoft 0x8004B65F, Masters 20 at 0x8004B668"
+status = "code"
+src = "mapping/menus-screens.md §2n, mapping/arena-prizes.md, mapping/ram-map-gameshark.md"
+
+[[var]]
+addr = 0x8004B67D
+size = 9
+type = "u8[9]"
+name = "arena_counts"
+what = "Opponent counts of the 9 arenas (save +3553); 0x8004B67E … are also the per-league finished flags in cheat lists"
+status = "code"
+src = "mapping/boot-loads.md §4e, ram-map-codes.md §3"
+
+[[var]]
+addr = 0x8004B686
+size = 1
+type = "u8"
+name = "arena_lock"
+what = "Arena lock (save +3562)"
+status = "code"
+src = "mapping/boot-loads.md"
+
+[[var]]
+addr = 0x8004B688
+size = 100
+type = "bytes"
+name = "arena_state_rest"
+what = "Rest of the arena state (save +3572)"
+status = "code"
+src = "mapping/boot-loads.md §4e"
+
+[[var]]
+addr = 0x8004B6F0
+size = 32
+type = "bytes"
+name = "vram_backup_b"
+what = "StoreImage backup of VRAM (368,225,16,1)"
+status = "code"
+src = "mapping/boot-loads.md"
+
+[[var]]
+addr = 0x8004B710
+size = 32
+type = "struct"
+name = "build_summary"
+what = "Assembly preview numbers: energy left, AP, weight, price, leg load left, arm load left, …"
+status = "code"
+src = "mapping/README.md, mapping/menus-screens.md §2h"
+
+[[var]]
+addr = 0x8004B730
+size = 96
+type = "struct[2]"
+name = "vs_paint"
+what = "Per VS player paint, 48 bytes each (P2 at +0x30) of 3-byte colours (VS setup 0x800B0FE4 fills them); written back to the garage when leaving AC SETUP"
+status = "code"
+src = "mapping/menus-screens.md §2p"
+
+# ───────────── PsyQ library state (read only for us) ─────────────
+
+[[var]]
+addr = 0x80037210
+size = 7664
+type = "bytes"
+name = "lib_data_a"
+what = "Library data in the exe image, 0x80037210 … 0x80038FFF (libcd, libspu / libsnd, libgte tables); the game's code never touches it"
+status = "code"
+src = "ram-map.md (exe xref)"
+owner = "lib"
+
+[[var]]
+addr = 0x8003CC00
+size = 7720
+type = "bytes"
+name = "lib_data_b"
+what = "Library data 0x8003CC00 … 0x8003EA27 (libetc / libapi, libgpu, libpad, libc)"
+status = "code"
+src = "ram-map.md (exe xref)"
+owner = "lib"
+
+[[var]]
+addr = 0x8003E618
+size = 4
+type = "u32"
+name = "vsync_count"
+what = "Library VBlank counter read by VSync(mode) 0x8002A714"
+status = "code"
+src = "mapping/renderer.md"
+owner = "lib"
+
+[[var]]
+addr = 0x8004B790
+size = 22088
+type = "bytes"
+name = "lib_bss"
+what = "Library bss 0x8004B790 … 0x80050DD7 (libcd, libspu / libsnd, libgpu, libpad work areas); 0x8004B730 … 0x8004B78F is game data"
+status = "code"
+src = "ram-map.md (exe xref)"
+owner = "lib"
+
+# ───────────── module area (rebuilt on every module load) ─────────────
+# Addresses below hold only while the named engine is loaded.
+
+[[var]]
+addr = 0x80050DD8
+size = 0
+type = "label"
+name = "module_base"
+what = "Load address of every FDAT module (menu 206, missions 207, link 208, VS 209, arena 210, replay 211)"
+status = "code"
+src = "mapping/boot-loads.md, mapping/battle-system.md"
+
+[[var]]
+addr = 0x8019F7A8
+size = 0
+type = "struct"
+name = "menu_mission_screen"
+what = "[menu] Mission screen table"
+status = "code"
+src = "mapping/missions.md"
+
+[[var]]
+addr = 0x801B1CB8
+size = 32
+type = "struct"
+name = "menu_pad"
+what = "[menu] Pad words, P1 low half / P2 high half: +0 latch (already reported), +4 / +6 and +0xC / +0xE auto-repeat timers, +0x14 held, +0x18 pressed this frame (what screens read), +0x1C held last frame"
+status = "code"
+src = "mapping/menus-hub.md, mapping/menus-screens.md §1b"
+
+[[var]]
+addr = 0x801B1CC8
+size = 2
+type = "u16"
+name = "menu_exit"
+what = "[menu] Menu loop runs until this is non-zero (start a fight …)"
+status = "code"
+src = "mapping/boot-loads.md, mapping/mode-launch.md"
+
+[[var]]
+addr = 0x801B1CD8
+size = 1
+type = "u8"
+name = "menu_pad_swap"
+what = "[menu] 1 = player 2's pad drives the menu (2P AC SETUP)"
+status = "code"
+src = "mapping/menus-screens.md §2p"
+
+[[var]]
+addr = 0x801B1CE8
+size = 126480
+type = "struct"
+name = "menu_tasks"
+what = "[menu] Task area 0x801B1CE8 … 0x801D0AF8, 22 fixed groups; 0x801D0BA0 = 'no task'"
+status = "code"
+src = "mapping/menus-screens.md"
+
+[[var]]
+addr = 0x801F9DB8
+size = 0
+type = "struct"
+name = "menu_card_list"
+what = "[menu] Memory card list"
+status = "code"
+src = "mapping/boot-loads.md"
+
+[[var]]
+addr = 0x801FBB00
+size = 0
+type = "struct"
+name = "menu_model_slots"
+what = "[menu] Model slot table (sizes at 0x801D0B28)"
+status = "code"
+src = "mapping/boot-loads.md, mapping/menus-screens.md"
+
+[[var]]
+addr = 0x801A9A88
+size = 40
+type = "struct[2]"
+name = "vs_cameras"
+what = "[VS] Eye / look-at per player, 16 bytes each, stride 0x14 (P2 0x801A9A9C)"
+status = "code"
+src = "mapping/renderer.md"
+
+[[var]]
+addr = 0x801A9AB0
+size = 16
+type = "struct"
+name = "vs_view_camera"
+what = "[VS] Camera of the view being drawn: 16 bytes copied in by the scene render 0x80067404 before each view (eye / look-at), read by the per-view draw 0x800670C8 and 0x80063648"
+status = "code"
+src = "mapping/renderer.md"
+arena = 0x801ADAF8
+link = 0x801A4898
+replay = 0x801A3B70
+missions = 0x801BB590
+
+[[var]]
+addr = 0x801CFAB0
+size = 32768
+type = "struct[512]"
+name = "mission_stage_sections"
+what = "[missions] Stage sections: 512 records of 52 bytes at a 64-byte stride (copied by 0x80077A00), data after them at 0x801D7AB0. Was listed as VS; VS keeps its areas at 0x801BDFD0"
+status = "code"
+src = "mapping/missions.md"
+
+[[var]]
+addr = 0x801D4BC0
+size = 752
+type = "struct[2]"
+name = "vs_ac_objects"
+what = "[VS] AC objects: P1 0x801D4BC0, P2 0x801D4D38 (376 bytes each)"
+status = "code"
+src = "mapping/battle-system.md"
+arena = 0x801D8C08
+link = 0x801CF9A8
+replay = 0x801CEC80
+missions = 0x801E7248
+
+[[var]]
+addr = 0x801D6EF8
+size = 112
+type = "struct[2]"
+name = "vs_camera_records"
+what = "[VS] 56-byte camera records, P1 0x801D6EF8, P2 0x801D6F30"
+status = "code"
+src = "mapping/battle-system.md, mapping/stat-block.md"
+arena = 0x801DAF40
+link = 0x801D1CE0
+replay = 0x801D0FB8
+
+[[var]]
+addr = 0x801D6F6C
+size = 58368
+type = "struct[256]"
+name = "vs_object_pool"
+what = "[VS] Object pool: 256 × 228-byte records (missiles, shots, effects)"
+status = "code"
+src = "mapping/battle-system.md"
+arena = 0x801E2A0C
+link = 0x801D1D2C
+replay = 0x801D1004
+missions = 0x801EAA64
+
+[[var]]
+addr = 0x801D8C08
+size = 752
+type = "struct[2]"
+name = "arena_ac_objects"
+what = "[arena] AC objects, player then opponent (AP at +0x168: 0x801D8D70 / 0x801D8EE8)"
+status = "cheat"
+src = "mapping/battle-system.md, ram-map-codes.md §5"
+
+[[var]]
+addr = 0x801E29C8
+size = 56
+type = "struct"
+name = "arena_camera_record"
+what = "[arena] Camera record"
+status = "code"
+src = "mapping/stat-block.md"
+
+[[var]]
+addr = 0x801E2730
+size = 26
+type = "struct"
+name = "arena_ai_vars"
+what = "[arena] Opponent AI globals, all set by AI init 0x8008DC98: +0 u32 the biggest of one halfword over player 1's weapon list (doubled for weapon kinds 43 / 62; likely the longest range, ?), +4 u32 starts at 110 and is counted by the per-frame AI 0x8008D4AC, +8 u32, +0x0C / +0x0D / +0x10 / +0x18 bytes the per-frame AI reads and writes. No twin in VS (arena engine only)"
+status = "guess"
+src = "ram-map.md (arena module read 2026-11-21), mapping/battle-system.md (AI routines)"
+
+[[var]]
+addr = 0x801E2750
+size = 632
+type = "struct"
+name = "arena_ai"
+what = "[arena] Opponent AI state (AI Battle / arena opponent), arena engine only. AI init 0x8008DC98 clears the first 584 bytes; +0x28 a track of recent AC positions, 16 bytes each, shifted down every frame by the per-frame AI 0x8008D4AC, newest at the pointer in +0x228 (start + 16 × +0x26E); +0x000 … +0x047 and +0x22C … +0x24C work values used by about 30 decision routines 0x800896AC … 0x8008E55C; +0x24E … +0x26E the opponent's personality, converted by AI setup 0x80055768 from opponent_ai 0x8004AC80 (bytes 1–9 as percent × 4096 ÷ 100, bytes 10–15 copied or scaled)"
+status = "code"
+src = "ram-map.md (arena module read 2026-11-21), mapping/battle-system.md (AI routines), hook-addresses.md"
+
+[[var]]
+addr = 0x801E49D8
+size = 0
+type = "struct[]"
+name = "mission_trigger_zones"
+what = "[missions] Trigger zones, 52 bytes each"
+status = "code"
+src = "mapping/missions.md"
+
+[[var]]
+addr = 0x801E6748
+size = 2816
+type = "struct[64]"
+name = "mission_placements"
+what = "[missions] Placement records 64 × 44 bytes (byte +0 == 3 → destroyed)"
+status = "code"
+src = "mapping/missions.md"
+
+[[var]]
+addr = 0x801E73B0
+size = 2
+type = "u16"
+name = "mission_player_ap"
+what = "[missions] Player AP (cheat codes, gate 0x8007B7CA == 0x1040)"
+status = "cheat"
+src = "ram-map-codes.md §5"
+
+[[var]]
+addr = 0x801F8000
+size = 24576
+type = "bytes"
+name = "replay_buffer"
+what = "[VS / link] Replay buffer 0x801F8000 … 0x801FE000"
+status = "code"
+src = "mapping/mode-launch.md"
+
+# --- Scratchpad (fight engines only; details in mapping/scratchpad.md) ---
+
+[[var]]
+addr = 0x1F800000
+size = 236
+type = "bytes"
+name = "sp_temp"
+what = "Per-routine scratch 0x00 … 0xEB: each fight routine lays it out its own way, nothing lasts. Mesh drawers keep the primitive allocator's next-free pointer at +0x04 and the end at +0x08 (written back when done); also SPU voice status (0x80052EB4), animation deltas (0x80058E90)"
+status = "code"
+src = "mapping/scratchpad.md"
+
+[[var]]
+addr = 0x1F8000EC
+size = 32
+type = "MATRIX"
+name = "sp_model_matrix"
+what = "Object matrix of the model being drawn (rotation, translation at +0x14), copied from 0x800AAFC0 by the AC mesh draw 0x8006A5A8"
+status = "code"
+src = "mapping/scratchpad.md, mapping/renderer.md"
+
+[[var]]
+addr = 0x1F80010C
+size = 44
+type = "struct"
+name = "sp_joint_matrix"
+what = "Joint matrix in the AC mesh draw: rotation = object · joint as columns (+0x10C …), translation at 0x1F80012C; loaded into the GTE per joint. Missions reuse 0x1F800120 … (next row)"
+status = "code"
+src = "mapping/scratchpad.md"
+
+[[var]]
+addr = 0x1F800138
+size = 80
+type = "bytes"
+name = "sp_missions_work"
+what = "Missions-only work 0x1F800120 … 0x1F800187 (origin at 0x120, point − origin at 0x128 …), routines 0x80093C94 … 0x80094D78; purpose open"
+status = "guess"
+src = "mapping/scratchpad.md"
+
+[[var]]
+addr = 0x1F800200
+size = 16
+type = "struct"
+name = "sp_view_eye"
+what = "Per-view draw 0x800670C8: +0 SVECTOR −eye (then list points − eye), +8 eye as s16 x/y/z"
+status = "code"
+src = "mapping/scratchpad.md, mapping/renderer.md"
+
+[[var]]
+addr = 0x1F800210
+size = 32
+type = "MATRIX"
+name = "sp_view_ry"
+what = "Camera yaw matrix Ry from 0x80014344, per view (0x800670C8)"
+status = "code"
+src = "mapping/renderer.md"
+
+[[var]]
+addr = 0x1F800300
+size = 12
+type = "VECTOR"
+name = "sp_cone_test"
+what = "View-cone test 0x8006647C: object position in view space, z + radius at +8"
+status = "code"
+src = "mapping/scratchpad.md"
+
+[[var]]
+addr = 0x1F800350
+size = 68
+type = "struct"
+name = "sp_near_stage"
+what = "Near (lit) stage-area draw context for 0x8006CAEC / 0x8006D8EC and their six subdividing helpers: polygon header, area record, CLUT / TPAGE, count, OT bases, depth shifts, four split lists, light RGB + code byte"
+status = "code"
+src = "mapping/scratchpad.md"
+
+[[var]]
+addr = 0x1F8003D0
+size = 48
+type = "struct"
+name = "sp_sound_distance"
+what = "Sound distance work: offset from the listener (0x800441D8 / EC) squared (GTE SQR) at +0 / +0x10, vector at +0x20, then SquareRoot0 for volume (0x80052A10, 0x80052C88)"
+status = "code"
+src = "mapping/scratchpad.md, sound-map.md"
+
+# --- VS engine (FDAT 209) module area: renderer and match state ---
+
+[[var]]
+addr = 0x80097EA0
+size = 22
+type = "struct"
+name = "vs_match"
+what = "[VS] Match struct: +0x04 stage code table, +0x0C flags (0x40 time up, 0x80 draw, 0x30 result shown), +0x10 end countdown, +0x12 steps elapsed, +0x14 time left in steps (0x80097EB4)"
+status = "tested"
+src = "mapping/battle-system.md"
+arena = 0x8009EFC8
+link = 0x80098E20
+replay = 0x800980F8
+missions = 0x800A0DB0
+
+[[var]]
+addr = 0x80099EC0
+size = 0
+type = "table"
+name = "vs_hit_flash_table"
+what = "[VS] Table read by the AC hit flash 0x80061EB8 (drawn while AC +0x150 ≠ 0); the colour pulse writes 8 colours at 0x80099FC0"
+status = "code"
+src = "mapping/renderer.md"
+arena = 0x800A40A8
+link = 0x8009AE48
+replay = 0x8009A120
+missions = 0x800B1690
+
+[[var]]
+addr = 0x800AAFC0
+size = 32
+type = "MATRIX"
+name = "vs_object_matrix"
+what = "[VS] Object matrix of the AC being drawn: RotMatrixYXZ of AC +0x10, translation = view R · (position − eye) at 0x800AAFD4; copied to scratchpad 0x1F8000EC for the meshes"
+status = "code"
+src = "mapping/renderer.md"
+arena = 0x800B51A8
+link = 0x800ABF48
+replay = 0x800AB220
+missions = 0x800C2790
+
+[[var]]
+addr = 0x801A2560
+size = 4
+type = "s32"
+name = "vs_stage_ot_shift"
+what = "[VS] Depth shift for the stage near level (2, set at 0x80061CB8); the near drawer derives its shifts from it"
+status = "code"
+src = "mapping/renderer.md"
+arena = 0x801A6748
+link = 0x8019D4E8
+replay = 0x8019C7C0
+missions = 0x801B3D30
+
+[[var]]
+addr = 0x801A2564
+size = 4
+type = "s32"
+name = "vs_ot_shift"
+what = "[VS] Depth shift of the current draw: AC meshes 0 near / 2 far, stage far level −1 (slot ≈ average SZ ÷ 4)"
+status = "code"
+src = "mapping/renderer.md"
+arena = 0x801A674C
+link = 0x8019D4EC
+replay = 0x8019C7C4
+missions = 0x801B3D34
+
+[[var]]
+addr = 0x801A2568
+size = 652
+type = "struct"
+name = "vs_frame_buffers"
+what = "[VS] Double-buffer state: +0 index, +4 / +0x140 two 0x13C-byte records (OT A, OT B, three DRAWENVs, DISPENV, primitive buffer start / end), +0x27C current record R, +0x280 primitive buffer start, +0x284 allocator pointer (R+0x130), +0x288 current OT base"
+status = "code"
+src = "mapping/renderer.md"
+arena = 0x801A6750
+link = 0x8019D4F0
+replay = 0x8019C7C8
+missions = 0x801B3D38
+
+[[var]]
+addr = 0x801A27F8
+size = 4
+type = "ptr"
+name = "vs_cur_mesh_table"
+what = "[VS] Mesh table of the model being drawn (model + model[+8]), 32-byte entries; +0 of an entry = its vertex list"
+status = "code"
+src = "mapping/renderer.md"
+arena = 0x801A6868
+link = 0x8019D608
+replay = 0x8019C8E0
+missions = 0x801B3E50
+
+[[var]]
+addr = 0x801A27FC
+size = 0
+type = "ptr[]"
+name = "vs_model_table"
+what = "[VS] Model table, indexed by AC +0x0E + 0x80 (filled by 0x800587F0, 0x80058730, 0x800584FC)"
+status = "code"
+src = "mapping/renderer.md"
+arena = 0x801A686C
+link = 0x8019D60C
+replay = 0x8019C8E4
+missions = 0x801B3E54
+
+[[var]]
+addr = 0x801A2C0C
+size = 0
+type = "ptr[]"
+name = "vs_area_models"
+what = "[VS] Stage area model table, indexed by area +0x1E (up to two detail levels each)"
+status = "code"
+src = "mapping/renderer.md"
+
+[[var]]
+addr = 0x801A2E0C
+size = 4
+type = "ptr"
+name = "vs_cur_vertices"
+what = "[VS] Vertex list of the mesh being drawn: set from the mesh entry's +0 before each mesh (stage area 0x80061700, models 0x80061F64, AC 0x8006A5A8 …), read by the vertex transforms (0x8005CE48, 0x800698A0, 0x8006C81C …) that RTPS it into 0x801A2E60"
+status = "code"
+src = "ram-map.md (VS module read 2026-11-21)"
+arena = 0x801A6E7C
+link = 0x8019DC1C
+replay = 0x8019CEF4
+missions = 0x801B4464
+
+[[var]]
+addr = 0x801A2E10
+size = 80
+type = "struct[2]"
+name = "vs_pose_records"
+what = "[VS] AC pose records, 40 bytes each (P1 0x801A2E10, P2 0x801A2E38 = AC +0x68): state, model, animation + frame + fraction, cross-fade, aim table, second layer, key cursors, model, joint array, owner"
+status = "code"
+src = "mapping/renderer.md"
+arena = 0x801A6E80
+link = 0x8019DC20
+replay = 0x8019CEF8
+missions = 0x801B4468
+
+[[var]]
+addr = 0x801A2E60
+size = 0
+type = "struct[]"
+name = "vs_proj_vertices"
+what = "[VS] Projected vertex buffer, 16-byte entries (screen xy, depth …, edge code at +6) for the stage near level, stage objects and meshes"
+status = "code"
+src = "mapping/renderer.md"
+arena = 0x801A6ED0
+link = 0x8019DC70
+replay = 0x8019CF48
+missions = 0x801B4968
+
+[[var]]
+addr = 0x801A8C28
+size = 4
+type = "u32"
+name = "vs_frame_start"
+what = "[VS] Frame start time, GetRCnt(RCntCNT1) after DrawOTag; the frame end waits until 715 scanlines past it"
+status = "code"
+src = "mapping/renderer.md"
+arena = 0x801ACC98
+link = 0x801A3A38
+replay = 0x801A2D10
+missions = 0x801BA730
+
+[[var]]
+addr = 0x801A8C34
+size = 4
+type = "u32"
+name = "vs_frame_counter"
+what = "[VS] Render frame counter (+1 after each submit, 0x8005A81C); drives the colour pulse"
+status = "code"
+src = "mapping/renderer.md"
+arena = 0x801ACCA4
+link = 0x801A3A44
+replay = 0x801A2D1C
+missions = 0x801BA73C
+
+[[var]]
+addr = 0x801A8C38
+size = 128
+type = "u32[16][2]"
+name = "vs_area_bits"
+what = "[VS] Per-view bitsets, 32 areas a word: looked at (0x801A8C38) and drawn (0x801A8C78); objects only draw in drawn areas"
+status = "code"
+src = "mapping/renderer.md"
+arena = 0x801ACCA8
+link = 0x801A3A48
+replay = 0x801A2D20
+missions = 0x801BA740
+
+[[var]]
+addr = 0x801A8CBB
+size = 1
+type = "u8"
+name = "vs_fade_on"
+what = "[VS] Fade box drawn over both views (320×240) while ≠ 0 (the match end writes 2); its colour is the 3 bytes before it"
+status = "code"
+src = "mapping/renderer.md"
+arena = 0x801ACD2B
+link = 0x801A3ACB
+replay = 0x801A2DA3
+missions = 0x801BA7C3
+
+[[var]]
+addr = 0x801A8CC0
+size = 192
+type = "struct[8]"
+name = "vs_texture_scroll"
+what = "[VS] Scrolling stage textures, 8 slots × 24 bytes, all walked every frame by 0x8005BB40: +0 mode (255 = free slot; 0x8005BF90 frees all, 0x8005BA4C finds a free one), +1 counter reload, +2 counter, +4 VRAM rectangle, then the step; +0x0E / +0x12 the two malloc'd buffers for StoreImage / LoadImage while it moves"
+status = "code"
+src = "mapping/renderer.md"
+arena = 0x801ACD30
+link = 0x801A3AD0
+replay = 0x801A2DA8
+missions = 0x801BA7C8
+
+[[var]]
+addr = 0x801A8D80
+size = 3328
+type = "struct[32]"
+name = "vs_light_sets"
+what = "[VS] Area light sets, 32 × 104 bytes (room for 32 in 0x801A8D80 … 0x801A9A7F), picked by area +0x30 byte 0: colour matrix, back colour, light matrix, fog near / far"
+status = "code"
+src = "mapping/renderer.md"
+arena = 0x801ACDF0
+link = 0x801A3B90
+replay = 0x801A2E68
+missions = 0x801BA888
+
+[[var]]
+addr = 0x801A9A80
+size = 4
+type = "u32"
+name = "vs_cur_vertex_count"
+what = "[VS] Vertex count of the mesh being drawn (set with vs_cur_vertices, e.g. area entry +0x66 at 0x80061AD0); the transforms skip the mesh when 0"
+status = "code"
+src = "ram-map.md (VS module read 2026-11-21)"
+arena = 0x801ADAF0
+link = 0x801A4890
+replay = 0x801A3B68
+missions = 0x801BB588
+
+[[var]]
+addr = 0x801A9AC0
+size = 32
+type = "MATRIX"
+name = "vs_view_matrix"
+what = "[VS] View matrix R = Rx · Ry of the view being drawn, eye in its translation words (0x801A9AD4 …)"
+status = "code"
+src = "mapping/renderer.md"
+arena = 0x801ADB08
+link = 0x801A48A8
+replay = 0x801A3B80
+missions = 0x801BB5A0
+
+[[var]]
+addr = 0x801A9AE0
+size = 12
+type = "VECTOR"
+name = "vs_view_trans"
+what = "[VS] T = R · (−eye): object translation = R · position + T"
+status = "code"
+src = "mapping/renderer.md"
+arena = 0x801ADB28
+link = 0x801A48C8
+replay = 0x801A3BA0
+missions = 0x801BB5C0
+
+[[var]]
+addr = 0x801A9AF0
+size = 288
+type = "MATRIX[9]"
+name = "vs_view_scaled"
+what = "[VS] Scaled view matrices for the detail levels: R ≫ 2 (0x801A9AF0), R ≫ 3 (0x801A9B10) and three steps from it, R with its eye (0x801A9B90) and three steps (0x801A9BB0 …)"
+status = "code"
+src = "mapping/renderer.md"
+arena = 0x801ADB38
+link = 0x801A48D8
+replay = 0x801A3BB0
+missions = 0x801BB5D0
+
+[[var]]
+addr = 0x801A9C10
+size = 64
+type = "MATRIX[2]"
+name = "vs_view_rx"
+what = "[VS] Rx ≫ 2 (0x801A9C10) and the camera pitch matrix Rx (0x801A9C30)"
+status = "code"
+src = "mapping/renderer.md"
+arena = 0x801ADC58
+link = 0x801A49F8
+replay = 0x801A3CD0
+missions = 0x801BB6F0
+
+[[var]]
+addr = 0x801ADC70
+size = 776
+type = "struct[16]"
+name = "vs_area_points"
+what = "[VS] Per-view list for the eye's area and neighbours, up to 16 × 48 bytes (0x80067004 → 0x8005B96C); next free 0x801ADF70, count 0x801ADF74"
+status = "code"
+src = "mapping/renderer.md"
+arena = 0x801B1CB8
+link = 0x801A8A58
+replay = 0x801A7D30
+missions = 0x801BF750
+
+[[var]]
+addr = 0x801BDFD0
+size = 32768
+type = "struct[512]"
+name = "vs_stage_areas"
+what = "[VS] Stage area records, 64 bytes each: box min +0 / +2 / +4, max +8 / +0xA / +0xC, centre +0x10, model +0x1E, neighbours +0x26 / +0x28, flags +0x30, limits +0x34 (512 = the bitsets' size)"
+status = "code"
+src = "mapping/renderer.md, mapping/README.md"
+arena = 0x801C2018
+link = 0x801B8DB8
+replay = 0x801B8090
+missions = 0x801CFAB0
+
+[[var]]
+addr = 0x801D2EF8
+size = 6656
+type = "struct[128]"
+name = "vs_stage_objects"
+what = "[VS] Stage objects, 128 × 52 bytes: centre +0, +6 = −1 off, flags +0x1C (bit 1 / 3 / 5 pick the draw), eye box +0x22 … +0x27"
+status = "code"
+src = "mapping/renderer.md"
+arena = 0x801D6F40
+link = 0x801CDCE0
+replay = 0x801CCFB8
+missions = 0x801E49D8
+
+# --- Menu engine (FDAT 206) module area ---
+
+[[var]]
+addr = 0x8019FFE0
+size = 828
+type = "struct"
+name = "menu_shop_work"
+what = "[menu] Shop / part-description work area 0x8019FFE0 … 0x801A031B: BUY / SELL lists (count +0x5C, per-kind counts +0xAC (10 bytes), starts +0xB6, kinds +0x13C, ids +0x23C, 256 bytes each); +0x20 the part-texts loading flag (own row), +0x21 … +0x24 bytes read by every shop screen (0x8009B750, 0x800A01B4 …), +0xDC … +0x12F two sets of 9 u32 filled by 0x80099524 / 0x8009A52C and read by the list drawers (?)"
+status = "code"
+src = "mapping/menus-screens.md"
+
+[[var]]
+addr = 0x801A0000
+size = 1
+type = "u8"
+name = "menu_part_texts_loading"
+what = "[menu] 1 while MIS.T 385 (part descriptions) is loading (0x80099048, callback 0x80098FF4)"
+status = "code"
+src = "mapping/menus-screens.md"
+
+[[var]]
+addr = 0x801A0390
+size = 19456
+type = "char[256][76]"
+name = "menu_part_texts"
+what = "[menu] Part descriptions from MIS.T 385, one 76-byte line per part id, read before the hub opens"
+status = "code"
+src = "mapping/menus-screens.md"
+
+[[var]]
+addr = 0x801A4F98
+size = 2260
+type = "struct"
+name = "menu_mail"
+what = "[menu] Mail block: +0 32 flag bytes (bit 0 received, bit 1 opened, bits 2–7 arrival order), +0x20 trigger table, +0x60 count, +0x65 selected row, +0x70 list newest first, +0x90 MIS.T 386 copy (subjects +0xD0, pages +0x4D0), +0x8D0 work pointer; +0 … +0x63 saved at 0x8004B688"
+status = "code"
+src = "mapping/missions.md, mapping/menus-hub.md"
+
+[[var]]
+addr = 0x801B1A80
+size = 2
+type = "s16"
+name = "menu_vab_id"
+what = "[menu] Menu sound bank (VAB id, set by 0x8005803C); every menu beep is SsUtKeyOn on it"
+status = "code"
+src = "sound-map.md"
+
+[[var]]
+addr = 0x801B1A88
+size = 560
+type = "struct[10]"
+name = "menu_layers"
+what = "[menu] The 10 draw layers, 56 bytes each (task +0x6C points here); their ordering tables are cleared every frame"
+status = "code"
+src = "mapping/menus-screens.md"
+
+[[var]]
+addr = 0x801B1CDC
+size = 4
+type = "u32"
+name = "menu_repeat_speed"
+what = "[menu] Key-repeat speed for held directions: 0 = normal (repeat timers start at 6 and 12 frames), n = those ÷ n (faster); set to 2 by some lists, 0 by the hub (0x800552C0) and the pad clear 0x80058134"
+status = "code"
+src = "ram-map.md (menu module read 2026-11-21)"
+
+[[var]]
+addr = 0x8019E9E4
+size = 32
+type = "u32[8]"
+name = "menu_card_events"
+what = "[menu] Memory card event handles opened by 0x80074994: four BIOS software card events (0xF4000001: done, error, timeout, new card) at 0x8019E9E4 … 0x8019E9F0, then the same four hardware card events (0xF0000011) at 0x8019E9F4 … 0x8019EA00; 0x80074B48 / 0x80074D10 use them"
+status = "code"
+src = "ram-map.md (menu module read 2026-11-21), mapping/menus-screens.md §2n (card routines 0x80070120 … 0x80074994)"
+
+[[var]]
+addr = 0x8019EA08
+size = 64
+type = "u8[4][16]"
+name = "menu_emblem_rgb"
+what = "[menu] Emblem editor's colour table: 16 colours × 4 bytes (R, G, B, flag), filled from VRAM (256, 510) by 0x80077EAC, edited by the colour state 0x80077270, uploaded to (944, 0) every frame by 0x800779A0"
+status = "code"
+src = "mapping/menus-screens.md §2m"
+
+[[var]]
+addr = 0x8019EA48
+size = 4
+type = "u8[4]"
+name = "menu_emblem_colour_undo"
+what = "[menu] The colour as it was when colour editing opened (written by the drawing state 0x80074FD4 on □); ○ in 0x80077270 puts it back"
+status = "code"
+src = "ram-map.md (menu module read 2026-11-21), mapping/menus-screens.md §2m"
+
+[[var]]
+addr = 0x801B1CE4
+size = 2
+type = "u16"
+name = "menu_card_file_count"
+what = "[menu] Number of this game's files (bu00: / bu10: BASLUS-01030*) found by the last card scan (0x800706FC from 0x8005B424, emblem screen 0x800C3E3C); the card list screens loop up to it (0x8005F224 …)"
+status = "code"
+src = "ram-map.md (menu module read 2026-11-21), mapping/menus-screens.md §2n"
+
+[[var]]
+addr = 0x801E2724
+size = 2
+type = "s16"
+name = "arena_replay_cam_angle"
+what = "[arena] Yaw of the outside replay camera (4,096 = 360°): 0x8008E55C turns it toward the two units with the step helper 0x800136E0 (step 32) and uses it + 1,024; reset with arena_replay_cam at match start (0x8007F440)"
+status = "code"
+src = "ram-map.md (arena module read 2026-11-21; user: replay camera, 2026-11-22)"
+replay = 0x801D0FB0
+link = 0x801D1CD8
+
+[[var]]
+addr = 0x801E2728
+size = 4
+type = "s32"
+name = "arena_replay_cam"
+what = "[arena] Replay camera view, changed with □ while a replay plays (0x8007F370 steps it when player 1's pad word is exactly 0x8000 = □ and the replay flag is set): 0 = player 1's own view, 1 = player 2's (read from code 2026-11-22: the frame routine 0x80052378 sets cur_player to player1 for 0 and to player2 for 1, and 0x800535A8 runs its per-player part only for that player), 2 = outside camera placed at the midpoint of both ACs and aimed by their distance and angle (0x8008E720 …, both AC positions at +0xB8), 3 = a camera tied to the stage area (0x8008E9F0 …: takes the current area record from the stage areas, builds its visible-area set with 0x80074F14 and only follows the other AC while that AC's area is in view) (see arena_replay_cam_angle); the frame routine also knows 3 → player 1, 4 → player 2 for cur_player. The order comes from a table at 0x80099FBC picked by the match byte 0x8009EFC8. Below 2 the HUD (0x80057EFC) and 0x80068C7C draw as normal. Reset at match start (0x8007F440). Not in VS: VS replays run in the replay engine"
+status = "code"
+src = "ram-map.md (arena module read 2026-11-21; user: □ switches the replay view, 2026-11-22)"
+replay = 0x801D0FB4
+link = 0x801D1CDC
+
+[[var]]
+addr = 0x801A8C24
+size = 4
+type = "u32"
+name = "vs_hud_on"
+what = "[VS] 1 while the HUD is drawn: set at setup (0x8005C1E8, frame buffers +0x66BC), cleared when the match end starts (0x8008FBAC, which also sets match flags 0x2400); read by the HUD 0x80056754, the per-view HUD 0x80066B10 and the scene render 0x80067404"
+status = "code"
+src = "ram-map.md (VS module read 2026-11-21), mapping/renderer.md"
+arena = 0x801ACC94
+
+[[var]]
+addr = 0x801A8C2C
+size = 8
+type = "u32[2]"
+name = "vs_frame_clears"
+what = "[VS] Two words cleared by the buffer swap 0x8005BFB8 every frame (frame buffers +0x66C4 / +0x66C8); no direct reader found (likely read through a pointer)"
+status = "guess"
+src = "ram-map.md (VS module read 2026-11-21)"
+
+[[var]]
+addr = 0x801A8CB8
+size = 3
+type = "u8[3]"
+name = "vs_fade_colour"
+what = "[VS] RGB of the fade box (passed to 0x800632E8 by the scene render): 0 at setup, 255 for the first 3 steps of the match end, then fading (0x8008FAB0 / 0x8008F9F4)"
+status = "code"
+src = "ram-map.md (VS module read 2026-11-21), mapping/renderer.md"
+
+[[var]]
+addr = 0x801A9A84
+size = 4
+type = "u32"
+name = "vs_scene_flag"
+what = "[VS] Word the scene render 0x80067404 reads and writes (frame buffers +0x751C), cleared at setup 0x8005C1E8; meaning open"
+status = "guess"
+src = "ram-map.md (VS module read 2026-11-21)"
+
+[[var]]
+addr = 0x801A9C70
+size = 30
+type = "struct"
+name = "vs_cone_setup"
+what = "[VS] Record built by 0x8005B8EC (halfwords and bytes at +0 … +0x0D) and read by 0x800665BC, the view-cone test step in the per-view draw"
+status = "guess"
+src = "ram-map.md (VS module read 2026-11-21), mapping/renderer.md"
+
+[[var]]
+addr = 0x801ADF78
+size = 20
+type = "struct"
+name = "vs_bit_reader"
+what = "[VS] Bit reader state of 0x80074530 (read pointer, 32-bit word being read, bits left …), used by four data decoders 0x80072E70, 0x80073EB0, 0x80074FA4, 0x800763F0"
+status = "code"
+src = "ram-map.md (VS module read 2026-11-21)"
+
+[[var]]
+addr = 0x801ADF8C
+size = 64
+type = "struct"
+name = "vs_decode_work"
+what = "[VS] Work area of 0x800723BC / 0x80072024 (called from 0x8008839C): pointers into 0x801D48F8 / 0x801D4BC0, counts and limits; meaning open"
+status = "guess"
+src = "ram-map.md (VS module read 2026-11-21)"
+
+[[var]]
+addr = 0x801ADFD0
+size = 8192
+type = "u32[1024][2]"
+name = "vs_decode_table"
+what = "[VS] 1,024 pairs of offsets turned into pointers (+ table start) by 0x800724C4 at match setup (from 0x800558C0); handed to the decoders as their table (e.g. 0x80073EB0 stores it at +0x84)"
+status = "code"
+src = "ram-map.md (VS module read 2026-11-21)"
+
+[[var]]
+addr = 0x8004AA1C
+size = 30
+type = "u16[15]"
+name = "vs_model_sizes_loaded"
+what = "Sizes of the 15 part models the VS / garage loader 0x800B1CE8 has loaded (right after vs_model_sizes); cleared by 0x800B5BF8 when it frees them"
+status = "code"
+src = "ram-map.md (menu module read 2026-11-21)"
+
+[[var]]
+addr = 0x8004ABD8
+size = 60
+type = "ptr[15]"
+name = "vs_model_buffers"
+what = "Heap buffers of those 15 loaded part models (right after vs_file_table): set by 0x800B1CE8, freed by 0x800B5BF8 (0x800583F8)"
+status = "code"
+src = "ram-map.md (menu module read 2026-11-21)"
+
+[[var]]
+addr = 0x80045178
+size = 32
+type = "u32[8]"
+name = "sound_started_bits"
+what = "One bit per sound id (256): the play routine 0x80053284 sets it and skips a sound whose bit is already set, so one sound starts at most once per frame (cleared elsewhere, through a pointer)"
+status = "code"
+src = "ram-map.md (VS module read 2026-11-21), sound-map.md"
+
+[[var]]
+addr = 0x80044120
+size = 1
+type = "u8"
+name = "cd_paused"
+what = "1 = the drive was put to rest: the menu's 0x80058AB4 waits for the disc queue to empty (0x80015FD0), then CdControl Setmode 0, VSync(4), Pause, and sets it. The disc check 0x80058B04 then only polls Getstat (shell open = bit 0x10); when it's 0 it sets double speed (mode 0xA0), clears it and searches the disc again. The exe system init 0x80016C10 clears it at boot. Was cd_setup_done"
+status = "code"
+src = "ram-map.md (menu module read 2026-11-21)"
+
+[[var]]
+addr = 0x8003EA3C
+size = 8
+type = "SVECTOR"
+name = "pose_none"
+what = "Exe data (0, 0, 0, −1): every fight engine's 0x80065C44 hands it through the model draw 0x80061F64 to the pose routine 0x80059624, where +0 / +2 / +4 are angle offsets added to the joint angles (0 = none) and +6 a pose slot (−1 = none). So: draw this model in its plain pose. Was zero_svector"
+status = "code"
+src = "ram-map.md (module read 2026-11-21)"
+
+[[var]]
+addr = 0x8003EA44
+size = 4
+type = "u32"
+name = "const_zero4"
+what = "Exe data, 4 zero bytes: the compiler's source for a struct assignment. The menu's 0x800AB7B8, 0x800AB92C and 0x800ABEEC copy it (lwl / lwr) into +0x18 … +0x1B of the window records made by 0x8006527C, so those 4 bytes start at 0 (their meaning is the record's, still open). Was menu_window_word"
+status = "code"
+src = "ram-map.md (menu module read 2026-11-21)"
+
+[[var]]
+addr = 0x8003EA90
+size = 1
+type = "u8"
+name = "link_is_master"
+what = "Link cable role, 1 = this console is the master (player 1). Handshake in 0x80055578: each side starts on 'S' and switches to 'M' while it hears nothing; after a same-role clash both wait a random 3–18 frames and retry; the side that ends on 'M' sets this to 1, the other to 0. With flow_flag_91 set (rematch) the handshake is skipped and this is reused. Zero at boot (main clears 0x8003EA90 …). Was link_flag_90"
+status = "code"
+src = "ram-map.md (link module read 2026-11-21)"
+
+[[var]]
+addr = 0x800110E4
+size = 33
+type = "char[33]"
+name = "msg_cdsearch_error"
+what = "Debug string \"CdSearchFile error  FileName=%s\\n\", printed by the file loader 0x80016AE8 when a file isn't found"
+status = "code"
+src = "ram-map.md (exe read 2026-11-22)"
+
+[[var]]
+addr = 0x800112D4
+size = 28
+type = "ptr[7]"
+name = "pad_state_jumps"
+what = "Jump table of the per-VBlank pad routine 0x80017340: one branch per pad state 0 … 6 returned by the library call 0x800303D0 for each port (0 / 1 set flags in pad_state, 6 = stable, 3 … 5 do nothing)"
+status = "code"
+src = "ram-map.md (exe read 2026-11-22), mapping/renderer.md (VBlank callback)"
+
+[[var]]
+addr = 0x80011E30
+size = 16
+type = "u32[4]"
+name = "crt0_ram_tops"
+what = "PsyQ start-up (crt0 0x80011D84) table of RAM sizes; it reads entry 1 (0x00200000) and sets the stack top to 0x80200000. Never touch"
+status = "code"
+src = "ram-map.md (exe read 2026-11-22)"
+owner = "lib"
+
+[[var]]
+addr = 0x8003EA2C
+size = 8
+type = "RECT"
+name = "rect_lower_screen"
+what = "RECT (0, 240, 320, 240): the lower 320 × 240 of the display VRAM, cleared to black by the picture screen 0x80012348 (ClearImage 0x8002C634) before it shows a loading picture there"
+status = "code"
+src = "ram-map.md (exe read 2026-11-22), mapping/mode-launch.md"
+
+[[var]]
+addr = 0x8003EA34
+size = 8
+type = "RECT"
+name = "rect_both_screens"
+what = "RECT (0, 0, 320, 480): both display buffers, cleared to black once at boot by the main loop's setup 0x800124B0"
+status = "code"
+src = "ram-map.md (exe read 2026-11-22), mapping/mode-launch.md"
+
+[[var]]
+addr = 0x8003EA64
+size = 3
+type = "char[3]"
+name = "disc_file_suffix"
+what = "The string \";1\" the file loaders append after the name (see disc_dir_prefix)"
+status = "code"
+src = "ram-map.md (exe read 2026-11-22)"
+
+[[var]]
+addr = 0x8003EA68
+size = 5
+type = "char[5]"
+name = "sio_device_name"
+what = "The device name \"sio:\" that 0x80016C10 opens twice for the link cable (see sys_handles)"
+status = "code"
+src = "ram-map.md (exe read 2026-11-22)"
+
+[[var]]
+addr = 0x801D4B10
+size = 176
+type = "struct[4]"
+name = "vs_loaded_files"
+what = "[VS] 4 × 44-byte records for files loaded into the fight heap by 0x800780DC (+0 / +2 = halfwords from the file's +4 / +6 ÷ 4, +4 id, +0x28 data pointer). Records 0 / 1: each player's body file P<n>\\PA<nn>.T entry 1, loaded by 0x80055214 (nn = body combination, stat block +0x29; n = nn ÷ 20, see vs_body_file_name). Records 2 / 3 filled by 0x80078178. The AC object setup 0x8007D23C points AC object +4 at one of them. This is also the base the fight code addresses vs_fight_sys from (+0x23A0)"
+status = "code"
+src = "ram-map.md (VS module read 2026-11-22)"
+arena = 0x801D8B58
+link = 0x801CF8F8
+replay = 0x801CEBD0
+missions = 0x801E65E8
+
+[[var]]
+addr = 0x801D4EB0
+size = 8192
+type = "bytes"
+name = "vs_fight_heap"
+what = "[VS] 8 KB fight heap: 0x800781D0 points vs_fight_sys +0 here at fight start, 0x800780DC copies loaded file data in and moves the pointer on (rounded to 4)"
+status = "code"
+src = "ram-map.md (VS module read 2026-11-22)"
+arena = 0x801D8EF8
+link = 0x801CFC98
+replay = 0x801CEF70
+
+[[var]]
+addr = 0x801D6EB0
+size = 20
+type = "struct"
+name = "vs_fight_sys"
+what = "[VS] Fight bookkeeping (vs_loaded_files +0x23A0): +0 next free byte in vs_fight_heap; +4 the object being updated and +8 the second argument of that update (0x8007CE84, called for each AC by the per-frame 0x8007DAC8; 0 from there); +0xC frame counter, +1 per frame in 0x8007DBEC, many routines use its low byte for timing; +0x10 a 0 / 1 shift the stage hit tests 0x80078AB0 / 0x800792BC apply to coordinates (0x8008389C sets it around one test, 0x8007B8B0 sets it, meaning `?`). 0x800781D0 resets +0, +0xC, +0x10 at fight start"
+status = "code"
+src = "ram-map.md (VS module read 2026-11-22)"
+arena = 0x801DAEF8
+link = 0x801D1C98
+replay = 0x801D0F70
+missions = 0x801EA9C8
+
+[[var]]
+addr = 0x8008FC88
+size = 8
+type = "struct"
+name = "vs_link_wait"
+what = "[VS] Link-packet wait: +0 start time (0x80016710), +4 byte set to 1 when 300 ticks pass (0x800166FC) without a full 'R' … 'C' packet in the link receive buffer (link_sio); 0x80051EAC waits, 0x80051E50 clears it. Same pair in the other engines, at module data +8 there"
+status = "code"
+src = "ram-map.md (VS module read 2026-11-22)"
+arena = 0x80096B70
+link = 0x80090F8C
+replay = 0x8008FED0
+missions = 0x800952C4
+
+[[var]]
+addr = 0x8008FC90
+size = 8
+type = "RECT"
+name = "vs_clear_rect"
+what = "[VS] RECT (0, 0, 320, 480): both display buffers, cleared to black (ClearImage) by the VS start 0x80051F4C"
+status = "code"
+src = "ram-map.md (VS module read 2026-11-22)"
+
+[[var]]
+addr = 0x8008FC98
+size = 4
+type = "ptr"
+name = "vs_saved_cd_callback"
+what = "[VS] The CD callback that was set before the fight music stream started: 0x80053C04 installs 0x80053B20 with 0x80017DD8 and keeps the old one here; 0x80053B20 and the VS end (0x80051F4C) put it back and clear this"
+status = "code"
+src = "ram-map.md (VS module read 2026-11-22)"
+arena = 0x80096B78
+link = 0x80090F94
+replay = 0x8008FED8
+missions = 0x800952CC
+
+[[var]]
+addr = 0x8008FC9C
+size = 10
+type = "char[10]"
+name = "vs_body_file_name"
+what = "[VS] File name template \"P0\\PA00.T\": 0x80055214 writes the body combination (stat block +0x29, 0–71) into it as P<nn ÷ 20>\\PA<nn>.T, so the files are GG\\P0 … P3\\PA00 … PA71.T on the disc, then loads entry 1 (see vs_loaded_files)"
+status = "code"
+src = "ram-map.md (VS module read 2026-11-22), mapping/stat-block.md"
+arena = 0x80096B7C
+link = 0x80090F98
+replay = 0x8008FEDC
+missions = 0x800952D0
+
+[[var]]
+addr = 0x800372C8
+size = 8
+type = "ptr[2]"
+name = "cd_callbacks"
+what = "PsyQ libcd callback slots: +0 swapped by 0x80017DD8 (returns the old one; CdSyncCallback ?) and used by the command routine 0x80017E00, +4 by 0x80017DEC (CdReadyCallback ?). Never touch; set them through those calls"
+status = "code"
+src = "ram-map.md (exe read 2026-11-22)"
+owner = "lib"
