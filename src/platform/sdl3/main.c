@@ -845,6 +845,7 @@ static int g_split_session;
 static int g_split_vs;             /* a split screen VERSUS fight */
 static Uint64 g_split_vs_quit_at;  /* a player quit the versus fight (they lose): when */
 static int g_split_left[2];        /* this player has left the session */
+static int32_t g_split_quit_ap[2]; /* co-op: their AP when they quit (their repair bill) */
 static int g_split_garage = -1;    /* the hub's garage is open for this player */
 static int g_saves_from_split;     /* the save list was opened from the hub */
 static char g_split_note[96];      /* a line over the fight ("PLAYER 2 LEFT") */
@@ -1057,23 +1058,6 @@ static void p2_ensure(void) {
     }
     p2_swap();
     g_hangar2_ok = 1;
-}
-/* Split screen co-op: player 2 earns what player 1 just earned (the
- * credits won and any part prize; not player 1's repair and ammo bills). */
-static void p2_share_rewards(const acr_gen1_hangar *before) {
-    p2_ensure();
-    const int32_t gain = g_hangar.credits - before->credits;
-    int got = 0;
-    if (gain > 0) { g_hangar2.credits += gain; got = 1; }
-    for (int c = 0; c < ACR_GEN1_CAT_COUNT; ++c)
-        for (int i = 0; i < ACR_GEN1_PART_MAX; ++i)
-            if (g_hangar.owned[c][i] > before->owned[c][i]) {
-                const int add = g_hangar.owned[c][i] - before->owned[c][i];
-                g_hangar2.owned[c][i] = (uint8_t)SDL_min(255, g_hangar2.owned[c][i] + add);
-                got = 1;
-            }
-    if (got) { p2_swap(); hangar_save(); p2_swap(); }
-    SDL_Log("split screen co-op: player 2 earns %d credits%s", gain > 0 ? (int)gain : 0, got ? "" : " (nothing)");
 }
 static void p2_parts(int parts[SLOT_COUNT]) {
     p2_ensure();
@@ -2349,6 +2333,7 @@ int main(int argc, char **argv) {
                 g_split_vs_quit_at = SDL_GetTicks();
                 split_note(w ? "PLAYER 2 QUIT. PLAYER 1 WINS." : "PLAYER 1 QUIT. PLAYER 2 WINS.");
             } else {                                         /* co-op: out of the fight, the partner goes on */
+                g_split_quit_ap[w] = battle.f[w].ap;         /* (their bill is figured from this) */
                 battle.f[w].ap = 0;
                 split_note(w ? "PLAYER 2 LEFT. PLAYER 1 PLAYS ON." : "PLAYER 1 LEFT. PLAYER 2 PLAYS ON.");
             }
@@ -2466,17 +2451,31 @@ int main(int argc, char **argv) {
                 autowin_at = 0;
                 const int res_ = autowin ? (SDL_strcmp(auto_, "lose") ? 1 : 2) : rogue_give_up || !round_over ? 2 : round_result;
                 const int was_arena_ = g_rogue_fight == 2, was_mission_ = g_rogue_fight == 3;
-                static acr_gen1_hangar before_;
-                before_ = g_hangar;
+                /* Split screen co-op: each player's own result on their own
+                 * save. A player who quit failed / lost; their bill is from
+                 * their AP when they quit. */
+                const int coop_ = (was_arena_ || was_mission_) && g_split_coop;
+                const int res1_ = coop_ && g_split_left[0] ? 2 : res_;
+                const int bonus_ = (battle.mission.flags & ACR_GEN1_MISSION_BONUS) != 0;
+                if (coop_) {
+                    const int res2_ = g_split_left[1] ? 2 : res_;
+                    p2_ensure();
+                    p2_swap();                                   /* player 2's save in g_hangar */
+                    if (was_mission_)
+                        missions_settle_other(&g_hangar, res2_, g_split_left[1] ? g_split_quit_ap[1] : battle.f[1].ap,
+                                              battle.f[1].ap_max, acr_gen1_mission_ammo_cost(&battle.f[1]), bonus_);
+                    else if (res2_ == 1) arena_pay_other(&g_hangar);
+                    hangar_save();
+                    p2_swap();
+                    SDL_Log("split screen co-op: player 2 %s", res2_ == 1 ? "won" : "lost");
+                }
                 if (was_mission_) {
                     /* The income and expense report: the player's AP and the
                      * rounds fired are what the bill is figured from. */
-                    if (missions_fight_over(res_, battle.f[0].ap, battle.f[0].ap_max,
-                                            acr_gen1_mission_ammo_cost(&battle.f[0]),
-                                            (battle.mission.flags & ACR_GEN1_MISSION_BONUS) != 0))
+                    if (missions_fight_over(res1_, coop_ && g_split_left[0] ? g_split_quit_ap[0] : battle.f[0].ap, battle.f[0].ap_max,
+                                            acr_gen1_mission_ammo_cost(&battle.f[0]), bonus_))
                         hangar_save();
-                } else if (was_arena_) { if (arena_fight_over(res_)) hangar_save(); }
-                if ((was_arena_ || was_mission_) && g_split_coop && !g_split_left[1]) p2_share_rewards(&before_);
+                } else if (was_arena_) { if (arena_fight_over(res1_)) hangar_save(); }
                 if ((was_arena_ || was_mission_) && g_split_coop) {   /* split screen co-op: back to two fighters */
                     battle.count = 0;
                     g_plus_ai[0] = g_plus_ai[1] = 0;

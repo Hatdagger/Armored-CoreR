@@ -57,5 +57,6 @@ int32_t arena_round_ms(void);
 /* The fight is over: 1 won, 2 lost, 3 draw (a loss). Books the result and
  * pays a win into the garage; 1 = the garage changed (save it). */
 int arena_fight_over(int result);
+void arena_pay_other(acr_gen1_hangar *h);
 
 #endif

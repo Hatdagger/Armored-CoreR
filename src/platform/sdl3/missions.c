@@ -232,6 +232,18 @@ int missions_fight_over(int result, int32_t ap_left, int32_t ap_max, int32_t amm
     return 1;
 }
 
+/* Split screen co-op: the other player's own bill for the mission just
+ * flown (their reward, repair and ammunition, on their own save). */
+void missions_settle_other(acr_gen1_hangar *h, int result, int32_t ap_left, int32_t ap_max, int32_t ammo_cost, int bonus) {
+    if (!h) return;
+    const acr_gen1_mission_info *m = &M.fly;
+    const int32_t price = M.cat ? acr_gen1_mission_ac_price(h, M.cat) : 0;
+    const int32_t repair = acr_gen1_mission_repair_cost(ap_max, ap_left, price);
+    acr_gen1_mission_report rep;
+    SDL_zero(rep);
+    acr_gen1_mission_settle(h, &rep, result == 1, m->reward, bonus ? m->bonus : 0, ammo_cost, repair, 0);
+}
+
 /* ---- input ---- */
 
 static int step(int cur, int n, garage_action a) {

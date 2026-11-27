@@ -401,6 +401,18 @@ int arena_fight_over(int result) {
     return booked && A.pay.won;
 }
 
+/* Split screen co-op: the other player's prize for the fight just won (on
+ * their own save; the ladder is player 1's and is not moved). Call before
+ * arena_fight_over. */
+void arena_pay_other(acr_gen1_hangar *h) {
+    if (!h) return;
+    acr_gen1_arena copy = A.s;
+    acr_gen1_arena_payout pay;
+    SDL_zero(pay);
+    pay.prize_id = pay.part_cat = pay.part_index = -1;
+    if (acr_gen1_arena_result(&copy, &A.w, A.fight_arena, A.fight_rank, 1, &pay) && pay.won) acr_gen1_arena_pay(h, &pay);
+}
+
 /* ---- input ---- */
 
 static int step(int cur, int n, garage_action a) {
