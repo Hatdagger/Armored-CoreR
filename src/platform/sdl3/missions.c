@@ -49,6 +49,9 @@ static struct {
 
 static acr_gen1_mission_record g_record;
 acr_gen1_mission_record *missions_record(void) { return &g_record; }
+static int g_gate;   /* split screen: confirming asks about player 2 first */
+void missions_partner_gate(int on) { g_gate = on; }
+void missions_go(void) { M.screen = MS_LIST; }
 static acr_gen1_mission_record g_record_other;   /* split screen: the other player's */
 void missions_swap_record(void) {
     const acr_gen1_mission_record t = g_record;
@@ -305,6 +308,7 @@ static missions_command input(garage_action a) {
             if (s != ACR_GEN1_SORTIE_OK) { say(acr_gen1_sortie_message(s)); M.screen = MS_BRIEF; return MC_NONE; }
         }
         if (!prepare_sortie()) { say("NOT AVAILABLE YET."); M.screen = MS_BRIEF; return MC_NONE; }
+        if (g_gate) return MC_PARTNER;   /* (missions_go once player 2 is settled) */
         M.screen = MS_LIST;
         return MC_SORTIE;
     case MS_REPORT:

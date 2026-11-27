@@ -85,6 +85,10 @@ static void file_path(char *out, size_t size) {
     SDL_free(pref);
 }
 
+static int g_gate;      /* split screen: confirming asks about player 2 first */
+void arena_partner_gate(int on) { g_gate = on; }
+static void vs_start(void);
+void arena_go(void) { vs_start(); A.screen = AS_VS; }
 static int g_swapped;   /* split screen: A.s is player 2's ladder just now */
 static acr_gen1_arena g_other;
 static int g_other_set;
@@ -571,6 +575,7 @@ static arena_command input(garage_action a) {
             if (absent == ACR_GEN1_ARENA_ABSENT_DONE) { say("OPPONENT IS UNABLE TO COMPETE."); A.screen = AS_LADDER; return AC_NONE; }
         }
         if (!prepare_fight(cursor_rank())) { say("THE OPPONENT COULD NOT BE LOADED."); A.screen = AS_LADDER; return AC_NONE; }
+        if (g_gate) return AC_PARTNER;  /* (arena_go once player 2 is settled) */
         vs_start();                     /* the fight starts when it's done (arena_vs_due) */
         A.screen = AS_VS;
         return AC_NONE;

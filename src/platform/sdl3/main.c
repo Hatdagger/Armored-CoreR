@@ -70,6 +70,7 @@ static int g_hud_frame_arg;   /* --hud-wide given: it wins over SETTINGS > VIDEO
 #include "net_link.h"
 #include "net_menu.h"
 #include "split_menu.h"
+#include "partner_gate.h"
 #include "save_list.h"
 #include "hangar3d.h"
 #include "net_brief_ui.h"
@@ -1966,6 +1967,8 @@ int main(int argc, char **argv) {
         rogue_command rcmd = RC_NONE;
         arena_command acmd = AC_NONE;
         missions_command mcmd = MC_NONE;
+        partner_result pgr = PG_NONE;   /* split screen: the partner step's answer this frame */
+        static partner_gate pgate;
         split_menu_command scmd = SM_NONE;
         save_list_command lcmd = SL_NONE;
         garage_action net_action = GA_NONE;   /* the network screens' input this frame */
@@ -2030,6 +2033,11 @@ int main(int argc, char **argv) {
                 garage_action ga = GA_NONE;
                 if (e.type == SDL_EVENT_KEY_DOWN) ga = key_action(e.key.scancode);
                 if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) ga = button_action(e.gbutton.button);
+                if (pgate.open) {   /* split screen: each player answers the partner step */
+                    const partner_result r_ = partner_gate_input(&pgate, split_player_of(pads, &e), ga);
+                    if (r_ != PG_NONE) pgr = r_;
+                    continue;
+                }
                 const arena_command ac = arena_input(ga);
                 if (ac != AC_NONE) acmd = ac;
                 continue;
@@ -2038,6 +2046,11 @@ int main(int argc, char **argv) {
                 garage_action ga = GA_NONE;
                 if (e.type == SDL_EVENT_KEY_DOWN) ga = key_action(e.key.scancode);
                 if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) ga = button_action(e.gbutton.button);
+                if (pgate.open) {
+                    const partner_result r_ = partner_gate_input(&pgate, split_player_of(pads, &e), ga);
+                    if (r_ != PG_NONE) pgr = r_;
+                    continue;
+                }
                 const missions_command mc = missions_input(ga);
                 if (mc != MC_NONE) mcmd = mc;
                 continue;
@@ -2618,10 +2631,31 @@ int main(int argc, char **argv) {
                 last = SDL_GetTicksNS();
             }
         }
+        if (mode == MODE_ARENA || mode == MODE_MISSIONS) {
+            /* Split screen co-op: confirming a fight asks about player 2 first. */
+            arena_partner_gate(g_split_session && !g_net);
+            missions_partner_gate(g_split_session && !g_net);
+            if (pgate.open) {
+                const Uint64 now_ = SDL_GetTicks();
+                partner_result r_ = partner_gate_input(&pgate, 0, pad_direction_at(pads[1] ? pads[0] : NULL, now_, 1));
+                if (r_ == PG_NONE) r_ = partner_gate_input(&pgate, 1, pad_direction_at(p2_pad(pads), now_, 2));
+                if (r_ == PG_NONE) { const garage_action ds_ = script_action(); r_ = partner_gate_input(&pgate, g_script_who, ds_); }
+                if (r_ != PG_NONE) pgr = r_;
+            }
+            if (pgr == PG_TOGETHER) {   /* player 2 in (a quick join if they sat out) */
+                p2_ensure();
+                smenu.joined[1] = 1;
+                g_split_left[1] = 0;
+                g_split_coop = 1;
+            }
+            if (pgr == PG_SOLO) g_split_coop = 0;   /* player 2 sits this one out */
+        }
         if (mode == MODE_ARENA) {
-            garage_action d = pad_direction(pads[0], SDL_GetTicks());
-            if (d == GA_NONE) d = script_action();
+            garage_action d = pgate.open ? GA_NONE : pad_direction(pads[0], SDL_GetTicks());
+            if (d == GA_NONE && !pgate.open) d = script_action();
             if (d != GA_NONE) { const arena_command c = arena_input(d); if (c != AC_NONE) acmd = c; }
+            if (acmd == AC_PARTNER) partner_gate_open(&pgate, smenu.joined[1], "ARENA FIGHT");
+            if (pgr == PG_TOGETHER || pgr == PG_SOLO) arena_go();
             if (acmd == AC_LEAVE) { mode = g_split_session ? MODE_SPLIT : 0; gui.screen = 0; g_split_coop = 0; }
             if (acmd == AC_IMPORT_PP) { disc_pick_open(window); g_pp_picking = 1; }
             if (g_pp_picking) {
@@ -2678,9 +2712,11 @@ int main(int argc, char **argv) {
             }
         }
         if (mode == MODE_MISSIONS) {
-            garage_action d = pad_direction(pads[0], SDL_GetTicks());
-            if (d == GA_NONE) d = script_action();
+            garage_action d = pgate.open ? GA_NONE : pad_direction(pads[0], SDL_GetTicks());
+            if (d == GA_NONE && !pgate.open) d = script_action();
             if (d != GA_NONE) { const missions_command c = missions_input(d); if (c != MC_NONE) mcmd = c; }
+            if (mcmd == MC_PARTNER) partner_gate_open(&pgate, smenu.joined[1], "MISSION");
+            if (pgr == PG_TOGETHER || pgr == PG_SOLO) { missions_go(); mcmd = MC_SORTIE; }
             if (mcmd == MC_LEAVE) { mode = g_split_session ? MODE_SPLIT : 0; gui.screen = 0; g_split_coop = 0; }
             if (mcmd == MC_SORTIE) {
                 /* The garage's AC on the mission map against the mission's
@@ -3142,6 +3178,7 @@ int main(int argc, char **argv) {
             acr_render_begin(pw, ph, 8, 10, 14);
             g_screen_pw = pw; g_screen_ph = ph;
             arena_draw(acr_render_hud(0, 0, pw, ph), elapsed);
+            partner_gate_draw(&pgate, acr_render_hud(0, 0, pw, ph));
             goto present;
         }
         if (mode == MODE_MISSIONS) {
@@ -3155,6 +3192,7 @@ int main(int argc, char **argv) {
             acr_render_begin(pw, ph, 8, 10, 14);
             g_screen_pw = pw; g_screen_ph = ph;
             missions_draw(acr_render_hud(0, 0, pw, ph), elapsed);
+            partner_gate_draw(&pgate, acr_render_hud(0, 0, pw, ph));
             goto present;
         }
         if (mode == MODE_ROGUE) {
