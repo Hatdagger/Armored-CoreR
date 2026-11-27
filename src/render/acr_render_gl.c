@@ -350,6 +350,28 @@ void acr_hud_sprite(uint32_t texture, int tex_w, int tex_h, float u, float v, fl
     glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
 }
 
+/* acr_hud_sprite turned by `turns` quarter turns, as the PS1 HUD's icon
+ * drawer does (VS 0x80065494): 1 = the picture turned a quarter
+ * anticlockwise (its top-left texel at the bottom-left), 2 = half a turn,
+ * 3 = a quarter clockwise. w, h are the size on screen. */
+void acr_hud_sprite_turned(uint32_t texture, int tex_w, int tex_h, float u, float v, float tw, float th,
+                           float x, float y, float w, float h, uint8_t r, uint8_t g, uint8_t b, uint8_t a,
+                           int blend, int turns) {
+    const float u0 = u / (float)tex_w, u1 = (u + tw) / (float)tex_w;
+    const float v0 = v / (float)tex_h, v1 = (v + th) / (float)tex_h;
+    /* texture corners for the screen's top-left, top-right, bottom-right, bottom-left */
+    const float cu[4][4] = { { u0, u1, u1, u0 }, { u1, u1, u0, u0 }, { u1, u0, u0, u1 }, { u0, u0, u1, u1 } };
+    const float cv[4][4] = { { v0, v0, v1, v1 }, { v0, v1, v1, v0 }, { v1, v1, v0, v0 }, { v1, v0, v0, v1 } };
+    const int t = turns & 3;
+    if (blend == ACR_HUD_ADD) { a = 255; glBlendFunc(GL_SRC_ALPHA, GL_ONE); }
+    else if (blend == ACR_HUD_HALF) { a = 128; glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA); }
+    const acr_vtx c0 = hv(x, y, r, g, b, a, cu[t][0], cv[t][0]), c1 = hv(x + w, y, r, g, b, a, cu[t][1], cv[t][1]),
+                  c2 = hv(x + w, y + h, r, g, b, a, cu[t][2], cv[t][2]), c3 = hv(x, y + h, r, g, b, a, cu[t][3], cv[t][3]);
+    const acr_vtx q[6] = { c0, c1, c2, c0, c2, c3 };
+    draw(GL_TRIANGLES, q, 6, texture);
+    glBlendFunc(GL_SRC_ALPHA, GL_ONE_MINUS_SRC_ALPHA);
+}
+
 uint32_t acr_render_texture(const uint8_t *rgba, int w, int h, int nearest) {
     GLuint t = 0;
     glGenTextures(1, &t);

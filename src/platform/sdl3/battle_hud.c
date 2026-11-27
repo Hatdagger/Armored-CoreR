@@ -310,3 +310,99 @@ void battle_hud_word(float hud_w, int frame, int word, float y, uint8_t r, uint8
                      ACR_HUD_ALPHA);
     else acr_hud_text(g_ox[1] + (160.0f - 4.0f * (float)SDL_strlen(k_text[word])) * g_s, (y + 27) * g_s, k_text[word], r, g, b);
 }
+
+/* ---- lock-on markers (VS 0x80057B8C guns, 0x80057E8C missiles, 0x800580EC cursor) ---- */
+
+/* HUD icons, from the VS engine's icon table (0x80091A28, 12 bytes each:
+ * clut, page, u, v, w, h). All of these are layer 0 of the HUD sheet. */
+typedef struct hud_icon { uint8_t u, v, w, h; } hud_icon;
+static const hud_icon k_icon_bracket = { 1, 36, 12, 8 };     /* 50: gun marker, sides */
+static const hud_icon k_icon_tick    = { 14, 36, 7, 2 };     /* 51: gun marker, top and bottom */
+static const hud_icon k_icon_bar     = { 22, 36, 3, 8 };     /* 52: missile marker, the four sides */
+static const hud_icon k_icon_pip     = { 41, 36, 7, 9 };     /* 54: a missile lock's box */
+static const hud_icon k_icon_cursor  = { 1, 46, 16, 16 };    /* 55: the missile lock cursor */
+
+/* The game's colour table (0x8008FDC8), PS1 values: textured pieces are
+ * tinted at 128 = as drawn, so they are doubled here. */
+#define C_GREEN_DARK  10, 80, 10      /* 11: marker, no lock */
+#define C_RED_DARK    80, 10, 10      /* 12: marker, locked */
+#define C_GREEN_LINE  20, 120, 20     /* 13: leader line, no lock */
+#define C_RED_LINE    120, 20, 20     /* 14: leader line, locked */
+#define C_CURSOR      120, 40, 20     /* 1: missile cursor */
+
+static uint8_t tint(int c) { return (uint8_t)(c * 2 > 255 ? 255 : c * 2); }
+
+/* One icon `turns` quarter turns round (VS 0x80065494 modes 0-3), its top-left
+ * dx, dy PS1 pixels from (hx, hy) in HUD units, drawn added to the screen. */
+static void icon(const hud_icon *ic, int turns, float hx, float hy, int dx, int dy, int r, int g, int b) {
+    const float w = (float)(turns & 1 ? ic->h : ic->w), h = (float)(turns & 1 ? ic->w : ic->h);
+    acr_hud_sprite_turned(g_layer[0], 256, 256, ic->u, ic->v, ic->w, ic->h, hx + (float)dx * g_s, hy + (float)dy * g_s,
+                          w * g_s, h * g_s, tint(r), tint(g), tint(b), 255, ACR_HUD_ADD, turns);
+}
+
+/* The leader line from the marker to its label (VS 0x80057634): three
+ * points, PS1 offsets from the marker. */
+static void leader(float hx, float hy, const int p[6], int r, int g, int b) {
+    for (int k = 0; k < 2; ++k)
+        acr_hud_line(hx + (float)p[2 * k] * g_s, hy + (float)p[2 * k + 1] * g_s,
+                     hx + (float)p[2 * k + 2] * g_s, hy + (float)p[2 * k + 3] * g_s,
+                     (uint8_t)r, (uint8_t)g, (uint8_t)b, 255);
+}
+
+/* Small (4 x 5) text with its top-left at PS1 offset dx, dy from (hx, hy). */
+static void label(float hx, float hy, int dx, int dy, const char *t, uint8_t r, uint8_t g, uint8_t b) {
+    for (int i = 0; t[i]; ++i) {
+        int u, v;
+        if (g_ready && glyph(0, t[i], &u, &v))
+            acr_hud_sprite(g_layer[0], 256, 256, (float)u, (float)v, 4, 5, hx + (float)(dx + 4 * i) * g_s,
+                           hy + (float)dy * g_s, 4 * g_s, 5 * g_s, r, g, b, 255, ACR_HUD_ALPHA);
+    }
+}
+
+void battle_hud_lock_marker(float hud_w, int frame, float hx, float hy, int missile, int locked, int distance, int locks) {
+    set_frame(hud_w, frame);
+    if (!g_ready) return;
+    char num[12];
+    SDL_snprintf(num, sizeof num, "%d", distance < 0 ? 0 : distance);
+    const char *t = locked ? "LOCK" : num;
+    const int tw = 4 * (int)SDL_strlen(t);
+    if (!missile) {
+        /* Guns: brackets either side, ticks above and below (template 0x8008FE68). */
+        const int r = locked ? 80 : 10, g = locked ? 10 : 80, b = 10;
+        icon(&k_icon_bracket, 0, hx, hy, -20, -4, r, g, b);
+        icon(&k_icon_bracket, 2, hx, hy, 8, -4, r, g, b);
+        icon(&k_icon_tick, 0, hx, hy, -3, -11, r, g, b);
+        icon(&k_icon_tick, 2, hx, hy, -3, 11, r, g, b);
+        /* The label up and to the right: LOCK once locked, else the distance. */
+        const int line[6] = { 8, -6, 14, -10, 14 + tw, -10 };
+        if (locked) leader(hx, hy, line, C_RED_LINE); else leader(hx, hy, line, C_GREEN_LINE);
+        label(hx, hy, locked ? 14 : 15, -15 - 1, t, locked ? 255 : 58, locked ? 60 : 214, locked ? 50 : 58);
+        return;
+    }
+    /* Missiles: four bars round the target (template 0x8008FE90), the label
+     * down and to the right, and a numbered box per missile locked on it. */
+    const int r = locked ? 80 : 10, g = locked ? 10 : 80, b = 10;
+    icon(&k_icon_bar, 0, hx, hy, -15, -4, r, g, b);
+    icon(&k_icon_bar, 1, hx, hy, -4, 11, r, g, b);
+    icon(&k_icon_bar, 2, hx, hy, 13, -4, r, g, b);
+    icon(&k_icon_bar, 3, hx, hy, -4, -11, r, g, b);
+    const int line[6] = { 16, 4, 22, 12, 22 + tw, 12 };
+    if (locked) leader(hx, hy, line, C_RED_LINE); else leader(hx, hy, line, C_GREEN_LINE);
+    label(hx, hy, locked ? 22 : 23, 7, t, locked ? 255 : 58, locked ? 60 : 214, locked ? 50 : 58);
+    /* Lock boxes (template 0x8008FEB8): 1-3 above the marker, 4 below. */
+    static const int8_t at[4][2] = { { -12, -21 }, { -3, -21 }, { 6, -21 }, { -12, 15 } };
+    if (locks > 4) locks = 4;
+    for (int k = 0; k < locks; ++k) {
+        icon(&k_icon_pip, 0, hx, hy, at[k][0], at[k][1], C_RED_DARK);
+        int u, v;
+        if (glyph(0, (char)('1' + k), &u, &v)) {   /* icons 57-60: the 4 x 5 digits, 3 wide */
+            const hud_icon dg = { (uint8_t)u, (uint8_t)v, 3, 5 };
+            icon(&dg, 0, hx, hy, at[k][0] + 2, at[k][1] + 2, C_GREEN_DARK);
+        }
+    }
+}
+
+void battle_hud_missile_cursor(float hud_w, int frame, float hx, float hy) {
+    set_frame(hud_w, frame);
+    if (g_ready) icon(&k_icon_cursor, 0, hx, hy, -8, -8, C_CURSOR);
+}

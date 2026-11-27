@@ -773,6 +773,57 @@ int main(void) {
         EXPECT(bb.f[1].ap < bb.f[1].ap_max && bb.f[0].recover_ms > 0 && bb.f[0].recover_ms <= ACR_GEN1_MODERN_RECOVER_HIT_MS);
     }
 
+    /* Blade waves (VS 0x8007EB48): LS-2001 sends one only with Human PLUS
+     * and boost held; LS-1000W always sends one and has no melee hit; the
+     * swing drops every lock when it ends. */
+    {
+        static acr_gen1_battle wb;
+        acr_gen1_actions sw[2] = { { 0 }, { 0 } }, na2[2] = { { 0 }, { 0 } };
+        sw[0].blade = 1;
+        acr_gen1_input boost_in[2];
+        memset(boost_in, 0, sizeof boost_in);
+        boost_in[0].boost = 1;
+        int waves;
+        /* No Human PLUS: no wave. */
+        setup(&wb, 3000);
+        wb.f[0].weapons = 1; wb.f[0].weapon[0] = blade();
+        acr_gen1_battle_step(&wb, boost_in, sw);
+        waves = 0;
+        for (int t = 0; t < 40 && wb.f[0].swing; ++t) {
+            acr_gen1_battle_step(&wb, boost_in, na2);
+            for (int k = 0; k < ACR_GEN1_MAX_SHOTS; ++k) waves += wb.shot[k].active && wb.shot[k].wave;
+        }
+        EXPECT(waves == 0);
+        /* Human PLUS and boost: one wave, and it reaches a target 3,000 away. */
+        setup(&wb, 3000);
+        wb.f[0].weapons = 1; wb.f[0].weapon[0] = blade(); wb.f[0].human_plus = 1;
+        acr_gen1_battle_step(&wb, boost_in, sw);
+        int fired = 0;
+        for (int t = 0; t < 60; ++t) {
+            int now = 0;
+            for (int k = 0; k < ACR_GEN1_MAX_SHOTS; ++k) now += wb.shot[k].active && wb.shot[k].wave;
+            if (now > fired) fired = now;
+            acr_gen1_battle_step(&wb, boost_in, na2);
+        }
+        EXPECT(fired == 1 && wb.f[1].ap < wb.f[1].ap_max);
+        /* LS-1000W: a wave without Human PLUS or boost (reaching 3,000), and
+         * up close only the wave hits (246), no melee hits on top. */
+        for (int d = 0; d < 2; ++d) {
+            setup(&wb, d ? 400 : 3000);
+            wb.f[0].weapons = 1; wb.f[0].weapon[0] = blade(); strcpy(wb.f[0].weapon[0].name, "LS-1000W");
+            acr_gen1_battle_step(&wb, none, sw);
+            for (int t = 0; t < 60; ++t) acr_gen1_battle_step(&wb, none, na2);
+            EXPECT(wb.f[1].ap_max - wb.f[1].ap == 246);
+        }
+        /* Locks are dropped when the swing ends. */
+        setup(&wb, 5000);
+        wb.f[0].weapons = 1; wb.f[0].weapon[0] = blade();
+        acr_gen1_battle_step(&wb, none, sw);
+        wb.f[0].locked = 1; wb.f[0].locks = 2;
+        while (wb.f[0].swing) acr_gen1_battle_step(&wb, none, na2);
+        EXPECT(!wb.f[0].locked && !wb.f[0].locks);
+    }
+
     /* Refire (VS 0x80081034): a wait of n fires every n + 1 ticks, so the
      * WG-MGA1 (wait 1, no hold) fires every other tick, not every tick. */
     {

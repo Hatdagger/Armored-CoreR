@@ -37,12 +37,20 @@ static float g_master = 0.7f;   /* fight sounds */
 static float g_menu = 0.7f;     /* menu and screen sounds */
 static int g_env_volume;        /* ACR_SFX_VOLUME given: it wins over the settings */
 static int g_log, g_tried, g_ok;
+/* Last time the fight was heard (sfx_update). Held loops (boost) only live
+ * while a fight is updating them: once the fight stops calling in (menus,
+ * results, a screen opened mid-round) the mixer lets them go, so a boost
+ * held as the fight ended can't keep playing over the menus. */
+static uint64_t g_fight_ns;
+#define LOOP_TIMEOUT_NS 200000000ull
 
 /* ---- the mixer (the audio thread; the stream's lock guards g_v) ---- */
 
 static void SDLCALL feed(void *user, SDL_AudioStream *stream, int additional, int total) {
     (void)user; (void)total;
     float buf[2 * 512];
+    if (SDL_GetTicksNS() - g_fight_ns > LOOP_TIMEOUT_NS)
+        for (int i = 0; i < VOICES; ++i) if (g_v[i].key) { g_v[i].s = NULL; g_v[i].key = 0; }
     while (additional > 0) {
         const int frames = SDL_min(additional / 8 + 1, 512);
         SDL_memset(buf, 0, sizeof(float) * 2 * (size_t)frames);
@@ -243,7 +251,7 @@ static void hold(int key, int n, int on, float vol, float pan) {
     SDL_LockAudioStream(g_stream);
     voice *v = NULL;
     for (int i = 0; i < VOICES && !v; ++i) if (g_v[i].s && g_v[i].key == key) v = &g_v[i];
-    if (!on) { if (v) v->s = NULL; }
+    if (!on) { if (v) { v->s = NULL; v->key = 0; } }
     else {
         if (!v) {
             for (int i = 0; i < VOICES && !v; ++i) if (!g_v[i].s) v = &g_v[i];
@@ -320,6 +328,7 @@ static void ac_pos(const acr_gen1_battle *b, int k, float p[3]) {
 }
 
 void sfx_update(const acr_gen1_battle *b, const sfx_listen *l, uint64_t now_ns) {
+    g_fight_ns = SDL_GetTicksNS();
     float dt = g_last_ns ? (float)(now_ns - g_last_ns) / 1e6f : 0.0f;
     if (dt > 100.0f) dt = 100.0f;
     g_last_ns = now_ns;
