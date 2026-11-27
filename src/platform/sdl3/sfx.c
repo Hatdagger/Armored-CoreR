@@ -51,6 +51,7 @@ typedef struct voice {
 } voice;
 static voice g_v[VOICES];
 static SDL_AudioStream *g_stream;
+static SDL_AudioDeviceID g_dev;
 static float g_master = 0.7f;   /* fight sounds */
 static float g_menu = 0.7f;     /* menu and screen sounds */
 static int g_env_volume;        /* ACR_SFX_VOLUME given: it wins over the settings */
@@ -169,10 +170,22 @@ int sfx_open(const char *import_dir) {
     if (!any) return 0;
     load_loops(import_dir);
     if (!SDL_WasInit(SDL_INIT_AUDIO) && !SDL_InitSubSystem(SDL_INIT_AUDIO)) return 0;
+#ifdef SDL_PLATFORM_ANDROID
+    /* Android: a roomier buffer, so the mixer never runs dry (crackles). */
+    SDL_SetHint(SDL_HINT_AUDIO_DEVICE_SAMPLE_FRAMES, "1024");
+#endif
+    /* The mix is 22,050 Hz (the game's); the device stays at its own rate
+     * (48,000 on most phones) and SDL converts. Asking the device for
+     * 22,050 itself gave a crunchy, underrunning path on Android. */
     const SDL_AudioSpec spec = { SDL_AUDIO_F32, 2, RATE };
-    g_stream = SDL_OpenAudioDeviceStream(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, &spec, feed, NULL);
-    if (!g_stream) return 0;
-    SDL_ResumeAudioStreamDevice(g_stream);
+    const SDL_AudioDeviceID dev = SDL_OpenAudioDevice(SDL_AUDIO_DEVICE_DEFAULT_PLAYBACK, NULL);
+    if (!dev) return 0;
+    g_stream = SDL_CreateAudioStream(&spec, NULL);
+    if (!g_stream) { SDL_CloseAudioDevice(dev); return 0; }
+    if (!SDL_SetAudioStreamGetCallback(g_stream, feed, NULL) || !SDL_BindAudioStream(dev, g_stream)) {
+        SDL_DestroyAudioStream(g_stream); g_stream = NULL; SDL_CloseAudioDevice(dev); return 0;
+    }
+    g_dev = dev;
     g_ok = 1;
     return 1;
 }
@@ -180,6 +193,8 @@ int sfx_open(const char *import_dir) {
 void sfx_close(void) {
     if (g_stream) SDL_DestroyAudioStream(g_stream);
     g_stream = NULL;
+    if (g_dev) SDL_CloseAudioDevice(g_dev);
+    g_dev = 0;
     for (int n = 0; n < S_COUNT; ++n) { SDL_free(g_s[n].pcm); g_s[n].pcm = NULL; }
     for (int n = 0; n < SFX_UI_COUNT; ++n) { SDL_free(g_ui[n].pcm); g_ui[n].pcm = NULL; }
     g_ok = 0;
