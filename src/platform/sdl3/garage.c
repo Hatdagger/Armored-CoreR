@@ -886,7 +886,13 @@ static void xmb_draw(garage_ui *ui, const garage_data *d, float hud_w, int elaps
     const int col = ui->xmb_col, n = col_items(col);
     for (int j = 0; j < n; ++j) {
         const float kk = (float)j - ui->xmb_rpos;
-        const float y = kk >= 0 ? sub_y + kk * 34 * k : icon_y - 6 * k + kk * 28 * k;
+        /* below the icon from 0 on, above it from -1 down; in between it
+         * slides straight from one spot to the other, both ways */
+        const float above1 = icon_y - 6 * k - 28 * k;
+        float y;
+        if (kk >= 0) y = sub_y + kk * 34 * k;
+        else if (kk <= -1) y = icon_y - 6 * k + kk * 28 * k;
+        else y = above1 + (sub_y - above1) * (kk + 1);
         if (y < cy + 2 || y > cy + ch - 12) continue;
         const int on = j == ui->xmb_row;
         const int id = k_col_items[col][j];
