@@ -62,6 +62,8 @@ typedef struct garage_ui {
     int xmb_hold_ms;
     int arena_row;              /* GC_ARENA: the arena list's row to open on */
     int specs_open;             /* ASSEMBLE: the specs window (Y / Triangle) */
+    int slot_run;               /* ASSEMBLE: the slot cursor without wrapping (slot = slot_run mod rows) */
+    float slot_pos;             /* ASSEMBLE: where the slot list's slide is (eased towards slot_run) */
     int anim_ms;                /* a running clock for the menus' animations */
 } garage_ui;
 

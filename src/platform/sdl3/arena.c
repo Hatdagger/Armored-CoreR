@@ -37,7 +37,7 @@ static struct {
     char (*names)[ACR_GEN1_PART_MAX][24];
     int screen, cur;                     /* AS_PICK: the row */
     int arena, page, lcur, ltop;         /* AS_LADDER: arena, page (arena 0: 0 ranked, 1 sub), row, scroll */
-    int ask;                             /* AS_ASK: 0 YES, 1 NO */
+    int ask;                             /* (unused: the challenge window is the stage select now) */
     int fight_arena, fight_rank;
     rogue_fight fight;
     acr_gen1_arena_payout pay;
@@ -383,7 +383,8 @@ static int step(int cur, int n, garage_action a) {
 
 /* No match timer: an Arena fight goes on until one side is down or out of
  * the area, or the player gives up (a loss) (user, 2026-11-25). */
-enum { PR_ARENAS = ACR_GEN1_ARENA_COUNT + 1, PR_STAGE = PR_ARENAS, PR_BACK, PR_COUNT };
+/* (the stage is picked in the challenge window: user, 2026-11-27) */
+enum { PR_ARENAS = ACR_GEN1_ARENA_COUNT + 1, PR_BACK = PR_ARENAS, PR_COUNT };
 enum { ROW_PP = 0, ROW_MOA_SUB = 1, ROW_MOA = 2 };
 
 /* The list's rows: PP ARENA (Project Phantasma's, the main one), then
@@ -425,10 +426,6 @@ static arena_command input(garage_action a) {
         if (!A.ok) { if (a == GA_OK || a == GA_CANCEL) return AC_LEAVE; return AC_NONE; }
         A.cur = step(A.cur, PR_COUNT, a);
         if (a == GA_CANCEL) return AC_LEAVE;
-        if (A.cur == PR_STAGE && (a == GA_LEFT || a == GA_RIGHT || a == GA_OK)) {
-            cycle_stage(a == GA_LEFT ? -1 : 1);
-            return AC_NONE;
-        }
         if (a != GA_OK) return AC_NONE;
         if (A.cur == PR_BACK) return AC_LEAVE;
         {
@@ -467,10 +464,10 @@ static arena_command input(garage_action a) {
         A.screen = AS_ASK;
         return AC_NONE;
     }
-    case AS_ASK:
-        if (a == GA_LEFT || a == GA_RIGHT || a == GA_UP || a == GA_DOWN) { A.ask = 1 - A.ask; return AC_NONE; }
-        if (a == GA_CANCEL || (a == GA_OK && A.ask == 1)) { A.screen = AS_LADDER; return AC_NONE; }
-        if (a != GA_OK) return AC_NONE;
+    case AS_ASK:   /* the challenge window: Left / Right pick the stage, A fights, B backs out */
+        if (a == GA_LEFT || a == GA_RIGHT) { cycle_stage(a == GA_LEFT ? -1 : 1); return AC_NONE; }
+        if (a == GA_CANCEL) { A.screen = AS_LADDER; return AC_NONE; }
+        if (a != GA_OK) { A.snd = -3; return AC_NONE; }
         {   /* the game checks the opponent is there after YES (FDAT 206 0x800BF43C) */
             const int rank = cursor_rank(), absent = acr_gen1_arena_absent_at(&A.s, A.arena, rank);
             if (absent == ACR_GEN1_ARENA_ABSENT) { default_win(rank); return AC_NONE; }
@@ -569,7 +566,7 @@ static void draw_pick(float hud_w) {
     text_right(x + w - 120, 64, "RANK", DIM);
     text_right(x + w, 64, "STATUS", DIM);
     for (int i = 0; i < PR_COUNT; ++i) {
-        const float y = 86 + 20.0f * (float)i + (i >= PR_STAGE ? 10 : 0);
+        const float y = 86 + 20.0f * (float)i + (i >= PR_BACK ? 10 : 0);
         const int sel = A.cur == i;
         if (sel) row_bar(x, y, w + 12);
         char line[64];
@@ -607,10 +604,6 @@ static void draw_pick(float hud_w) {
             const char *st = why == ACR_GEN1_ARENA_NO_DATA ? "NO DATA" : !open ? "LOCKED"
                            : sub_done ? "CLEARED" : me == 1 ? "CHAMPION" : "OPEN";
             if (open) text_right(x + w, y, st, GOOD); else text_right(x + w, y, st, DIM);
-        } else if (i == PR_STAGE) {
-            acr_hud_text(x, y, "STAGE", sel ? 255 : 220, sel ? 220 : 230, sel ? 120 : 235);
-            SDL_snprintf(line, sizeof line, "< %s >", A.nstages ? stage_name(stage_now()) : "NONE");
-            text_right(x + w, y, line, WHITE);
         } else {
             acr_hud_text(x, y, "BACK", sel ? 255 : 220, sel ? 220 : 230, sel ? 120 : 235);
         }
@@ -746,16 +739,17 @@ static void draw_ask(float hud_w, int elapsed_ms) {
     SDL_snprintf(line, sizeof line, "%s %s?", acr_gen1_arena_is_rematch(&A.s, A.arena, cursor_rank()) ? "REMATCH" : "CHALLENGE", name);
     const float w = 8.0f * (float)SDL_strlen(line) + 48 > 360 ? 8.0f * (float)SDL_strlen(line) + 48 : 360;
     const float x = hud_w * 0.5f - w * 0.5f, y = 180;
-    panel(x, y, w, 96);
+    panel(x, y, w, 108);
     acr_hud_text(x + 24, y + 14, line, WHITE);
-    SDL_snprintf(line, sizeof line, "STAGE %s   NO TIME LIMIT", stage_name(stage_now()));
-    acr_hud_text(x + 24, y + 32, line, DIM);
-    for (int k = 0; k < 2; ++k) {
-        const float bx = x + w * 0.5f + (k ? 20 : -100);
-        if (A.ask == k) row_bar(bx, y + 64, 80);
-        if (A.ask == k) acr_hud_text(bx + 16, y + 64, k ? "NO" : "YES", HILITE);
-        else acr_hud_text(bx + 16, y + 64, k ? "NO" : "YES", WHITE);
-    }
+    acr_hud_text(x + 24, y + 32, "NO TIME LIMIT", DIM);
+    /* the stage select in place of YES / NO */
+    acr_hud_text(x + 24, y + 56, "STAGE", DIM);
+    SDL_snprintf(line, sizeof line, "<  %s  >", A.nstages ? stage_name(stage_now()) : "NONE");
+    const float lw = 8.0f * (float)SDL_strlen(line);
+    row_bar(x + w * 0.5f - lw * 0.5f - 16, y + 56, lw + 32);
+    acr_hud_text(x + w * 0.5f - lw * 0.5f, y + 56, line, HILITE);
+    static const char k_keys[] = "A: FIGHT   B: BACK   LEFT/RIGHT: STAGE";
+    acr_hud_text(x + w * 0.5f - 4.0f * (float)(sizeof k_keys - 1), y + 84, k_keys, DIM);
 }
 
 static void draw_result(float hud_w) {

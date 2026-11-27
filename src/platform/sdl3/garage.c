@@ -2,6 +2,7 @@
 
 #include <SDL3/SDL.h>
 
+#include <math.h>
 #include <string.h>
 
 #include "../../model/acr_model.h"
@@ -228,6 +229,8 @@ static void assembly_open_slot(garage_ui *ui, const garage_data *d) {
 
 static void assembly_open(garage_ui *ui, const garage_data *d) {
     ui->screen = 1;
+    ui->slot_run = ui->slot;
+    ui->slot_pos = (float)ui->slot;
     ui->list_open = 0;
     assembly_open_slot(ui, d);
 }
@@ -471,7 +474,8 @@ garage_command garage_input(garage_ui *ui, garage_data *d, garage_action a) {
     if (ui->screen == 1) {   /* ASSEMBLE */
         const int n = assembly_list(ui, d, list);
         if (a == GA_UP || a == GA_DOWN) {
-            ui->slot = (ui->slot + (a == GA_UP ? ROWS - 1 : 1)) % ROWS;
+            ui->slot_run += a == GA_UP ? -1 : 1;   /* wraps: past ARM WEAPON R comes HEAD again */
+            ui->slot = ((ui->slot_run % ROWS) + ROWS) % ROWS;
             assembly_open_slot(ui, d);
             sfx_ui(SFX_UI_CURSOR);
             return GC_NONE;
@@ -1106,26 +1110,94 @@ static void assemble_draw(garage_ui *ui, const garage_data *d, float hud_w, int 
     else SDL_snprintf(line, sizeof line, "AC: %s   COAM %ld", d->hangar->ac_name, (long)d->hangar->credits);
     acr_hud_text_size(hud_w - 19 - (float)SDL_strlen(line) * 7.5f, 18, line, 7.5f, 0xc9, 0xc2, 0xb2, 255);
 
-    /* the slot list */
+    /* the slot list: the chosen slot always in the focus row at the top,
+     * the list sliding up into it (as the hangar menu's items), wrapping
+     * round from the last slot to the first */
     acr_hud_rect(lx, AS_TOP, AS_LEFT_W, AS_BOTTOM - AS_TOP, 0x8d, 0x9a, 0xa3, 255, 0);
     acr_hud_text_size(lx + 9, AS_TOP + 8, "PART SLOTS", 7, 0xc9, 0xd0, 0xd6, 255);
-    const float rh = (AS_BOTTOM - AS_TOP - 26) / ROWS;
-    for (int r = 0; r < ROWS; ++r) {
+    ease(&ui->slot_pos, (float)ui->slot_run, elapsed_ms);
+    const float rh = 27, list_top = AS_TOP + 22, list_rows = 6;
+    const float list_bottom = list_top + rh * list_rows;
+    acr_hud_rect(lx + 4, list_top, AS_LEFT_W - 8, rh - 2, 0xd8, 0x32, 0x2a, 90, 1);   /* the focus row */
+    acr_hud_rect(lx + 4, list_top, AS_LEFT_W - 8, rh - 2, 0xff, 0x5a, 0x4e, 255, 0);
+    const int first = (int)floorf(ui->slot_pos);
+    const float off = ui->slot_pos - (float)first;
+    for (int i = -1; i <= (int)list_rows; ++i) {
+        const float y = list_top + ((float)i - off) * rh;
+        if (y < list_top - rh * 0.6f || y > list_bottom - rh * 0.4f) continue;
+        /* fade at the edges of the list as rows slide in and out */
+        float vis = 1.0f;
+        if (y < list_top) vis = 1.0f - (list_top - y) / (rh * 0.6f);
+        if (y + rh > list_bottom) vis = 1.0f - (y + rh - list_bottom) / (rh * 0.6f);
+        if (vis <= 0) continue;
+        const int r = (((first + i) % ROWS) + ROWS) % ROWS;
         const int s = k_rows[r];
-        const float y = AS_TOP + 22 + r * rh;
-        const int sel = r == ui->slot;
-        if (sel) {
-            acr_hud_rect(lx + 4, y, AS_LEFT_W - 8, rh - 2, 0xd8, 0x32, 0x2a, 90, 1);
-            acr_hud_rect(lx + 4, y, AS_LEFT_W - 8, rh - 2, 0xff, 0x5a, 0x4e, 255, 0);
-        }
-        acr_hud_text_size(lx + 10, y + 3, k_row_name[r], 6.5f, sel ? 0xff : 0xb0, sel ? 0xd0 : 0xb8, sel ? 0xc8 : 0xc0, 220);
+        const int sel = r == ui->slot && fabsf(y - list_top) < rh * 0.5f;
+        const uint8_t al = (uint8_t)(255 * (vis > 1 ? 1 : vis));
+        acr_hud_text_size(lx + 10, y + 3, k_row_name[r], 6.5f, sel ? 0xff : 0xb0, sel ? 0xd0 : 0xb8, sel ? 0xc8 : 0xc0, al);
         if (s >= 0) SDL_strlcpy(line, part_name(d, acr_gen1_slot_category((acr_gen1_slot)s), d->hangar->fitted[s]), sizeof line);
         else {
             int count = 0;
             for (int b = 0; b < ACR_GEN1_OPTION_MAX; ++b) count += (d->hangar->options >> b) & 1;
             SDL_snprintf(line, sizeof line, "%d FITTED", count);
         }
-        acr_hud_text_size(lx + 18, y + 13, line, 8, sel ? 255 : 230, sel ? 240 : 235, sel ? 235 : 239, 255);
+        acr_hud_text_size(lx + 18, y + 13, line, 8, sel ? 255 : 230, sel ? 240 : 235, sel ? 235 : 239, al);
+    }
+    acr_hud_line(lx + 6, list_bottom + 4, lx + AS_LEFT_W - 6, list_bottom + 4, 0x8d, 0x9a, 0xa3, 255);
+
+    /* AC STATUS: the build as it is now, as the original garage shows it */
+    {
+        acr_gen1_fit_numbers fn;
+        const unsigned fail = acr_gen1_garage_check(d->hangar, d->cat, &fn);
+        acr_gen1_fit_build fb;
+        acr_gen1_garage_build(d->hangar, d->cat, &fb);
+        const acr_gen1_build *p = &fb.parts;
+        const long ap = (p->head.present ? p->head.stat_2c : 0) + (p->core.present ? p->core.stat_2c : 0) +
+                        (p->arms.present ? p->arms.stat_2c : 0) + (p->legs.present ? p->legs.stat_2c : 0);
+        const float sx0 = lx + 10, sx1 = lx + AS_LEFT_W - 10;
+        float y = list_bottom + 12;
+        acr_hud_text_size(sx0, y, "AC STATUS", 7, 0xc9, 0xd0, 0xd6, 255);
+        y += 14;
+        struct { const char *label; char value[32]; int bad; } rows[6];
+        int n = 0;
+        rows[n].label = "AP"; SDL_snprintf(rows[n].value, 32, "%ld", ap); rows[n++].bad = 0;
+        rows[n].label = "WEIGHT"; SDL_snprintf(rows[n].value, 32, "%u/%u", (unsigned)fn.carried_weight, p->legs.carry_limit);
+        rows[n++].bad = (fail & ACR_GEN1_FAIL_WEIGHT) != 0;
+        rows[n].label = "ARM LOAD"; SDL_snprintf(rows[n].value, 32, "%u/%u", (unsigned)fn.arm_load, p->core.carry_limit);
+        rows[n++].bad = (fail & ACR_GEN1_FAIL_ARM_LOAD) != 0;
+        rows[n].label = "EN. SPARE"; SDL_snprintf(rows[n].value, 32, "%ld", (long)fn.energy_surplus);
+        rows[n++].bad = (fail & ACR_GEN1_FAIL_ENERGY) != 0;
+        rows[n].label = "OPTIONS"; SDL_snprintf(rows[n].value, 32, "%u/%u", (unsigned)fn.option_slots_used, fb.core_option_slots);
+        rows[n++].bad = (fail & ACR_GEN1_FAIL_OPTION_SLOTS) != 0;
+        for (int i = 0; i < n; ++i) {
+            acr_hud_text_size(sx0, y, rows[i].label, 7, 0xb0, 0xb8, 0xc0, 255);
+            const float vw = (float)SDL_strlen(rows[i].value) * 7;
+            if (rows[i].bad) acr_hud_text_size(sx1 - vw, y, rows[i].value, 7, 255, 110, 90, 255);
+            else acr_hud_text_size(sx1 - vw, y, rows[i].value, 7, 230, 235, 239, 255);
+            acr_hud_line(sx0, y + 10, sx1, y + 10, 0x70, 0x7c, 0x86, 120);
+            y += 15;
+        }
+        /* how far over: the numbers the player needs to fix it */
+        y += 3;
+        if (!fail) acr_hud_text_size(sx0, y, "READY FOR SORTIE", 7.5f, 120, 220, 150, 255);
+        else {
+            char over[48];
+            if (fail & ACR_GEN1_FAIL_WEIGHT) {
+                SDL_snprintf(over, sizeof over, "OVERWEIGHT +%ld", (long)fn.carried_weight - (long)p->legs.carry_limit);
+                acr_hud_text_size(sx0, y, over, 7, 255, 110, 90, 255); y += 11;
+            }
+            if (fail & ACR_GEN1_FAIL_ARM_LOAD) {
+                SDL_snprintf(over, sizeof over, "ARMS OVER +%ld", (long)fn.arm_load - (long)p->core.carry_limit);
+                acr_hud_text_size(sx0, y, over, 7, 255, 110, 90, 255); y += 11;
+            }
+            if (fail & ACR_GEN1_FAIL_ENERGY) {
+                SDL_snprintf(over, sizeof over, "ENERGY SHORT %ld", (long)fn.energy_surplus);
+                acr_hud_text_size(sx0, y, over, 7, 255, 110, 90, 255); y += 11;
+            }
+            if (fail & ACR_GEN1_FAIL_MISSING_PART) { acr_hud_text_size(sx0, y, "PARTS MISSING", 7, 255, 110, 90, 255); y += 11; }
+            if (fail & ACR_GEN1_FAIL_NO_BOOSTER) { acr_hud_text_size(sx0, y, "NO BOOSTER", 7, 255, 110, 90, 255); y += 11; }
+            if (fail & ACR_GEN1_FAIL_OPTION_SLOTS) acr_hud_text_size(sx0, y, "OPTION SLOTS FULL", 7, 255, 110, 90, 255);
+        }
     }
 
     /* the AC preview (the 3D AC and its wireframe are main.c's) */

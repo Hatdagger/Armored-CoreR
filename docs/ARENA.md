@@ -38,7 +38,7 @@ and later parts, stages and missions come from Phantasma; the fight rules stay M
 
 ```mermaid
 flowchart TD
-    M["Main menu > ARENA"] --> L["Arena list<br/>(main + 8 Ex Arenas, STAGE)"]
+    M["Main menu > ARENA"] --> L["Arena list<br/>(main + 8 Ex Arenas)"]
     L --> R["Ladder: RANK, PILOT, CHALLENGE / REFERENCE ONLY"]
     R -- "A on an opponent above,<br/>or a DEFEATED one below" --> Q{"CHALLENGE / REMATCH ...?"}
     Q -- YES --> V["VS screen: both ACs, emblem,<br/>count 3..1, shutters"]
@@ -135,7 +135,7 @@ Test switch until missions count: `ACR_ARENA_ABSENT="0:49,0:48"` marks
 
 ## Stages
 
-Pick with STAGE on the arena list (left / right). All four come from the
+Pick in the challenge window (left / right; A fights, B backs out). All four come from the
 disc import; out of area (OoA) boxes are the stage's own, read from the
 disc by acr-import (re-import to get them):
 
