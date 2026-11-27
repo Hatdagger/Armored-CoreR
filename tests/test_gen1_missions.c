@@ -27,11 +27,18 @@ static void test_list(void) {
     EXPECT(l.count == 3);
     const acr_gen1_mission_info *a = &l.m[1], *b = &l.m[2];
     EXPECT(!strcmp(a->id, "MOA-00") && !strcmp(a->name, "First Job"));
-    EXPECT(a->reward == 1200 && a->map == 0 && !a->own && !a->playable);
+    EXPECT(a->reward == 1200 && a->map == 0 && !a->own && a->playable && a->time_ms == 0);   /* flown on its map (2026-11-27) */
     EXPECT(!strcmp(a->sender, "Someone") && !strcmp(a->requester, "A \"Client\""));
     EXPECT(a->pages == 2 && !strcmp(a->page[0], "Line one\nline two") && !strcmp(a->page[1], "%0@1Word@0 here"));
     EXPECT(a->pictures == 1);
     EXPECT(!strcmp(b->id, "MOA-07") && b->pages == 0 && b->sender[0] == 0 && b->map == 7);
+    /* Project Phantasma's list goes after it, ids PP-NN, maps 50-66, flown alone. */
+    static const char *pp = "# pp\ngame = \"pp\"\n\n[[mission]]\nslot     = 3\nname     = \"Raid the Laboratory\"\n"
+                            "reward   = 34000\nmap      = 53\npages    = [\n  \"One\",\n]\n";
+    EXPECT(acr_gen1_missions_append(&l, pp) == 1 && l.count == 4);
+    EXPECT(!strcmp(l.m[3].id, "PP-03") && l.m[3].map == 53 && l.m[3].playable && l.m[3].pages == 1);
+    EXPECT(acr_gen1_mission_map_ok(53) && acr_gen1_mission_map_ok(19) && !acr_gen1_mission_map_ok(20) && !acr_gen1_mission_map_ok(67));
+    EXPECT(acr_gen1_missions_append(&l, k_toml) == 2 && !strcmp(l.m[4].id, "MOA-00"));   /* no game line: MoA ids */
 }
 
 static void test_sortie(void) {

@@ -160,6 +160,7 @@ uint32_t acr_gen1_match_hash(const acr_gen1_match *m) {
     }
     H(b->mission.phase); H(b->mission.timer); H(b->mission.flags); H(b->mission.result);
     H(b->mission.end_ticks);
+    if (b->mission.map) { H(b->mission.clock); H(b->mission.timer2); H(b->mission.step); }   /* mission maps only: an arena fight hashes as before */
 #undef H
     return h;
 }

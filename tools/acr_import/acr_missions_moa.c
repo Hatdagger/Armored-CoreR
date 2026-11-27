@@ -15,14 +15,14 @@
 #define acr_mkdir(p) mkdir((p), 0755)
 #endif
 
-#define SLOTS        20u      /* 0-19; 20-23 are "Dummy" */
-#define TABLE_BYTES  1872u    /* 468 words */
-#define OFF_WINDOW   0u
-#define OFF_NAME     96u
-#define OFF_REWARD   960u
-#define OFF_ENGINE   1056u
-#define OFF_BYTE     1080u
-#define OFF_PAGES    1104u
+/* The mission table's layout: Master of Arena's (24 slots, 0-19 used,
+ * 20-23 "Dummy") and Project Phantasma's (64 slots, 0-16 used; read
+ * 2026-11-27, docs/research/recomp/phantasma/missions-import.md). */
+typedef struct table_layout {
+    unsigned slots, bytes, window, name, reward, engine, byte, pages;
+} table_layout;
+static const table_layout k_moa = { 20u, 1872u, 0u, 96u, 960u, 1056u, 1080u, 1104u };
+static const table_layout k_pp  = { 17u, 4992u, 0u, 256u, 2560u, 2816u, 2880u, 2944u };
 
 static uint16_t u16(const uint8_t *p) { return (uint16_t)(p[0] | p[1] << 8); }
 static uint32_t u32(const uint8_t *p) { return (uint32_t)u16(p) | (uint32_t)u16(p + 2) << 16; }
@@ -159,39 +159,54 @@ static int write_tim_png(const char *path, const tim_view *t, int clear) {
     return ok;
 }
 
-int acr_export_moa_missions(const char *unpacked_dir, const char *out_dir, uint32_t *count,
-                            char *err, size_t err_size) {
+/* Phantasma's narrow space "{4" reads as a plain space; runs of spaces
+ * that leaves inside a name close up. */
+static void narrow_spaces(char *s) {
+    char *w = s;
+    for (const char *r = s; *r; ++r) {
+        if (r[0] == '{' && r[1] == '4') { ++r; if (w == s || w[-1] != ' ') *w++ = ' '; continue; }
+        *w++ = *r;
+    }
+    *w = 0;
+}
+
+static int export_missions(const table_layout *L, const char *unpacked_dir, const char *out_dir, const char *toml_name,
+                           const char *pic_prefix, unsigned map_base, const char *game, uint32_t *count,
+                           char *err, size_t err_size) {
     if (count) *count = 0;
     size_t tn = 0;
     uint8_t *t = read_entry(unpacked_dir, "GG/MS/MIS", 0, &tn);
-    if (!t || tn < TABLE_BYTES) {
+    if (!t || tn < L->bytes) {
         free(t);
         set_err(err, err_size, "the mission table (MIS.T entry 0) could not be read", unpacked_dir);
         return 0;
     }
     if (!make_dirs(out_dir)) { free(t); set_err(err, err_size, "cannot create", out_dir); return 0; }
     char path[1400];
-    snprintf(path, sizeof path, "%s/missions.toml", out_dir);
+    snprintf(path, sizeof path, "%s/%s", out_dir, toml_name);
     FILE *f = fopen(path, "w");
     if (!f) { free(t); set_err(err, err_size, "cannot write", path); return 0; }
-    fprintf(f, "# Master of Arena's missions, imported from your disc by acr-import (GG/MS/MIS.T).\n"
+    fprintf(f, "# %s's missions, imported from your disc by acr-import (GG/MS/MIS.T).\n"
                "# Pages keep the disc's markup: \"@1 ... @0\" highlights words, \"%%n\" shows picture n\n"
-               "# (file MM-pic-n.png) beside the page. Mission n is played on mission map n.\n");
+               "# (file %sMM-pic-n.png) beside the page. map = the engine's mission map: %s.\n",
+            game, pic_prefix, map_base ? "50 + the disc's mission number (stages/50-66)" : "mission n is played on map n");
+    if (map_base) fprintf(f, "game = \"pp\"\n");
     int ok = 1;
     static char text[4096], head[512];
-    for (unsigned s = 0; s < SLOTS && ok; ++s) {
-        char name[33];
+    for (unsigned s = 0; s < L->slots && ok; ++s) {
+        char name[40];
         size_t k = 0;
-        for (; k < 32 && t[OFF_NAME + 32 * s + k] && t[OFF_NAME + 32 * s + k] != '>'; ++k)
-            name[k] = (char)t[OFF_NAME + 32 * s + k];
+        for (; k < 32 && t[L->name + 32 * s + k] && t[L->name + 32 * s + k] != '>'; ++k)
+            name[k] = (char)t[L->name + 32 * s + k];
         name[k] = 0;
-        const uint8_t *win = t + OFF_WINDOW + 4 * s, *pg = t + OFF_PAGES + 32 * s;
+        narrow_spaces(name);
+        const uint8_t *win = t + L->window + 4 * s, *pg = t + L->pages + 32 * s;
         fprintf(f, "\n[[mission]]\nslot     = %u\nname     = ", s);
         put_string(f, name);
         fprintf(f, "\nreward   = %u\nmap      = %u   # the engine's mission number: its map and mission code\n",
-                (unsigned)u32(t + OFF_REWARD + 4 * s), (unsigned)t[OFF_ENGINE + s]);
+                (unsigned)u32(t + L->reward + 4 * s), map_base + (unsigned)t[L->engine + s]);
         fprintf(f, "byte_1160 = %u   # table +1160: 255 except three missions (what it does: unknown)\n",
-                (unsigned)t[OFF_BYTE + s]);
+                (unsigned)t[L->byte + s]);
         if (win[0] == 255) fprintf(f, "offered  = []   # chapter window (none); likely the chapters it is offered in\n");
         else fprintf(f, "offered  = [%u, %u]   # chapter window, first and last; likely the chapters it is offered in\n", win[0], win[1]);
         /* Text pages: the first is the mail header (sender, requester, reward). */
@@ -204,6 +219,7 @@ int acr_export_moa_missions(const char *unpacked_dir, const char *out_dir, uint3
             uint8_t *d = read_entry(unpacked_dir, "GG/MS/MIS", (unsigned)e + 1u, &n);
             if (!d) continue;
             page_text(d, n, first ? head : text, first ? sizeof head : sizeof text);
+            narrow_spaces(first ? head : text);
             free(d);
             if (first) {
                 header_field(head, "Sender:", sender, sizeof sender);
@@ -228,7 +244,7 @@ int acr_export_moa_missions(const char *unpacked_dir, const char *out_dir, uint3
             uint8_t *d = read_entry(unpacked_dir, "GG/MS/MIS", (unsigned)e + 1u, &n);
             tim_view tv;
             if (d && tim_at(d, n, 0, &tv)) {
-                snprintf(path, sizeof path, "%s/%02u-pic-%u.png", out_dir, s, p);
+                snprintf(path, sizeof path, "%s/%s%02u-pic-%u.png", out_dir, pic_prefix, s, p);
                 if (!write_tim_png(path, &tv, 0)) { set_err(err, err_size, "cannot write", path); ok = 0; }
                 pics = p + 1;
             }
@@ -238,8 +254,9 @@ int acr_export_moa_missions(const char *unpacked_dir, const char *out_dir, uint3
         (void)pages;
         if (count) ++*count;
     }
-    if (fclose(f) != 0 && ok) { set_err(err, err_size, "cannot write", "missions.toml"); ok = 0; }
+    if (fclose(f) != 0 && ok) { set_err(err, err_size, "cannot write", toml_name); ok = 0; }
     free(t);
+    if (map_base) return ok;                 /* the report's pictures come from Master of Arena */
     /* The income and expense report and its digits. */
     for (unsigned r = 63; r <= 65 && ok; ++r) {
         size_t n = 0;
@@ -257,4 +274,15 @@ int acr_export_moa_missions(const char *unpacked_dir, const char *out_dir, uint3
         free(d);
     }
     return ok;
+}
+
+int acr_export_moa_missions(const char *unpacked_dir, const char *out_dir, uint32_t *count,
+                            char *err, size_t err_size) {
+    return export_missions(&k_moa, unpacked_dir, out_dir, "missions.toml", "", 0, "Master of Arena", count, err, err_size);
+}
+
+int acr_export_pp_missions(const char *pp_unpacked_dir, const char *out_dir, uint32_t *count,
+                           char *err, size_t err_size) {
+    return export_missions(&k_pp, pp_unpacked_dir, out_dir, "missions-pp.toml", "pp-", ACR_PP_MISSION_MAP_BASE,
+                           "Project Phantasma", count, err, err_size);
 }

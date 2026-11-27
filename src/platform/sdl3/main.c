@@ -1877,12 +1877,13 @@ int main(int argc, char **argv) {
         }                                                                                 \
         /* Mission maps: their units join the fight (team 1, with the target AC; \
          * map 12's friendly units team 0, with the player). */                 \
-        demo_units_join(&g_units, g_import_dir, g_stage_on && !g_rogue_fight ? g_stage_id : -1, &battle,  \
+        demo_units_join(&g_units, g_import_dir, g_stage_on && (!g_rogue_fight || (g_rogue_fight == 3 && missions_solo())) \
+                        ? g_stage_id : -1, &battle,                                       \
                         g_stage_on ? &g_stage.collision : NULL);                          \
         /* Armored-CoreR missions: the variant's rule, and P4 Alternate layout's          \
          * starts and drones (acr_gen1_missions.h). */                                    \
         g_mission_units.objects = 0;                                                      \
-        if (g_rogue_fight == 3) {                                                         \
+        if (g_rogue_fight == 3 && !missions_solo()) {                                     \
             acr_gen1_mission_start_own(&battle, missions_rule());                         \
             /* Testing aid: ACR_MISSION_FOE_HURT=1 starts the opponent below half  \
              * its AP (P4 Altered: the challenger comes at once). */              \
@@ -1972,6 +1973,12 @@ int main(int argc, char **argv) {
         missions_command mcmd = MC_NONE;
         partner_result pgr = PG_NONE;   /* split screen: the partner step's answer this frame */
         static partner_gate pgate;
+        {   /* Testing aid: ACR_MISSION=MOA-05 (or P4) flies that mission straight away. */
+            static int launch_tried;
+            const char *lm_ = launch_tried ? NULL : SDL_getenv("ACR_MISSION");
+            launch_tried = 1;
+            if (lm_ && missions_launch(lm_)) { mode = MODE_MISSIONS; mcmd = MC_SORTIE; }
+        }
         split_menu_command scmd = SM_NONE;
         save_list_command lcmd = SL_NONE;
         garage_action net_action = GA_NONE;   /* the network screens' input this frame */
@@ -2627,6 +2634,7 @@ int main(int argc, char **argv) {
                     if (missions_fight_over(res1_, coop_ && g_split_left[0] ? g_split_quit_ap[0] : battle.f[0].ap, battle.f[0].ap_max,
                                             acr_gen1_mission_ammo_cost(&battle.f[0]), bonus_))
                         hangar_save();
+                    if (!g_split_coop) battle.count = 0;   /* a solo MoA mission flew with count 1 */
                 } else if (was_arena_) { if (arena_fight_over(res1_)) hangar_save(); }
                 if ((was_arena_ || was_mission_) && g_split_coop) {   /* split screen co-op: back to two fighters */
                     battle.count = 0;
@@ -2811,6 +2819,10 @@ int main(int argc, char **argv) {
                 set_rate(&clock, def, g_tick_rate);
                 set_rate(&clock, def2, g_tick_rate);
                 if (g_split_coop) SPLIT_COOP_JOIN(mf);
+                /* A Master of Arena mission (2026-11-27): the player alone on
+                 * the map (count 1), against its units, by its script. */
+                const int solo_ = missions_solo();
+                if (solo_ && !g_split_coop) { battle.count = 1; battle.f[0].team = 0; }
                 SETUP_FIGHTERS();
                 if (g_split_coop) {
                     battle.mission.foe = 2;
@@ -2826,6 +2838,14 @@ int main(int argc, char **argv) {
                     if (SDL_getenv("ACR_MISSION_FOE_HURT")) { battle.f[1].ap = battle.f[1].ap_max; battle.f[2].ap = battle.f[2].ap_max * 49 / 100; }
                     acr_gen1_battle_retarget(&battle);
                     SPLIT_COOP_AI();
+                }
+                if (solo_) {
+                    /* No opponent AC: fighter 1 (split co-op: the opponent's
+                     * fighter 2) is put out of the fight, far under the map. */
+                    const int gone_ = g_split_coop ? 2 : 1;
+                    battle.f[gone_].ap = 0;
+                    battle.f[gone_].ac.y = battle.f[gone_].ac.py = battle.f[gone_].ac.sy = 200000 * 64;
+                    acr_gen1_battle_retarget(&battle);
                 }
                 prevs[0] = *P; prevs[1] = *T;
                 g_radio_until = 0;
@@ -3829,7 +3849,8 @@ int main(int argc, char **argv) {
             }
             /* The computer pilot presses its buttons like a pad, each step. */
             for (int k = 0; k < 2; ++k) {
-                const int by_ai = g_ai_mode && ((k == 1 && !two_players) || (k == 0 && g_autopilot));
+                const int by_ai = g_ai_mode && ((k == 1 && !two_players) || (k == 0 && g_autopilot)) &&
+                                  k < acr_gen1_battle_fighters(&battle);   /* a solo mission has no fighter 1 */
                 if (!by_ai) continue;
                 acr_gen1_ai_step(&g_ai[k], &battle, k, g_stage_on ? g_stage.half : ARENA, &in2[k], &act[k]);
                 g_in[k] = in2[k];
@@ -4138,7 +4159,7 @@ int main(int argc, char **argv) {
         if (g_stage_on) demo_stage_draw(&g_stage, 0);
         if (g_stage_on && g_rogue_fight == 3 && g_mission_units.objects && battle.units)   /* a mission's borrowed units */
             demo_units_draw(&g_mission_units, &battle, (float)SDL_GetTicksNS() / (float)ACR_GEN1_TICK_NS, &g_light);
-        if (g_stage_on && g_stage_id >= 0 && g_stage_id < 20 && !g_rogue_fight) {   /* menu fights: no mission units */
+        if (g_stage_on && acr_gen1_mission_map_ok(g_stage_id) && (!g_rogue_fight || (g_rogue_fight == 3 && missions_solo()))) {   /* menu fights: no mission units, but MoA missions have theirs */
             if (g_units.map != g_stage_id) {
                 demo_units_free(&g_units);
                 demo_units_load(g_import_dir, g_stage_id, &g_units);

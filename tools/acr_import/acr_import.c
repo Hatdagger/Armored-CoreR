@@ -180,6 +180,32 @@ static int probe_visit(void *ctx, const char *disc_path, uint32_t lba, uint32_t 
     return 1;
 }
 
+/* Project Phantasma's missions (2026-11-27): its 17 mission maps as stages
+ * 50-66, the units of both discs (MoA's keep their numbers), and its
+ * briefings. Needs both discs' archives unpacked. Returns 1 done, 0 failed,
+ * -1 not both there. */
+static int export_pp_missions(const char *out_dir, char *err, size_t err_size) {
+    char moa[ACR_PATH_MAX + 16], pp[ACR_PATH_MAX + 16], probe[ACR_PATH_MAX + 64];
+    snprintf(moa, sizeof moa, "%s/unpacked", out_dir);
+    snprintf(pp, sizeof pp, "%s/pp/unpacked", out_dir);
+    snprintf(probe, sizeof probe, "%s/GG/COM/FDAT/206.bin", moa);
+    FILE *f = fopen(probe, "rb");
+    if (!f) return -1;
+    fclose(f);
+    snprintf(probe, sizeof probe, "%s/GG/MS/MIS/000.bin", pp);
+    if (!(f = fopen(probe, "rb"))) return -1;
+    fclose(f);
+    char stages[ACR_PATH_MAX + 16], units[ACR_PATH_MAX + 16], missions[ACR_PATH_MAX + 16];
+    snprintf(stages, sizeof stages, "%s/stages", out_dir);
+    snprintf(units, sizeof units, "%s/units", out_dir);
+    snprintf(missions, sizeof missions, "%s/missions", out_dir);
+    uint32_t n = 0;
+    if (!make_dirs(stages, 1) || !acr_export_pp_mission_stages(pp, moa, stages, &n, err, err_size)) return 0;
+    if (!acr_export_moa_units(moa, pp, units, stages, &n, err, err_size)) return 0;
+    if (!make_dirs(missions, 1) || !acr_export_pp_missions(pp, missions, &n, err, err_size)) return 0;
+    return 1;
+}
+
 /* Project Phantasma: its archives into <out>/pp/unpacked (beside Master
  * of Arena's, which it would otherwise overwrite: the two discs share file
  * names), then its arena into <out>/arena (acr_arena_pp.c). */
@@ -196,7 +222,8 @@ static int import_phantasma(acr_disc *disc, const char *out_dir, acr_import_stat
     char unpacked[ACR_PATH_MAX + 16], arena_dir[ACR_PATH_MAX];
     snprintf(unpacked, sizeof unpacked, "%s/unpacked", pp);
     snprintf(arena_dir, sizeof arena_dir, "%s/arena", out_dir);
-    return acr_export_pp_arena(unpacked, arena_dir, &stats->opponents, err, err_size);
+    if (!acr_export_pp_arena(unpacked, arena_dir, &stats->opponents, err, err_size)) return 0;
+    return export_pp_missions(out_dir, err, err_size) != 0;   /* its missions, once MoA's disc is in too */
 }
 
 static int import_disc(const char *disc_path, const char *out_dir, acr_import_stats *stats,
@@ -253,7 +280,7 @@ static int import_disc(const char *disc_path, const char *out_dir, acr_import_st
             return 0;
         char units_dir[ACR_PATH_MAX];
         snprintf(units_dir, sizeof units_dir, "%s/units", out_dir);
-        if (!acr_export_moa_units(unpacked, units_dir, stages_dir, &stats->units, err, err_size)) return 0;
+        if (!acr_export_moa_units(unpacked, NULL, units_dir, stages_dir, &stats->units, err, err_size)) return 0;
         char hud_dir[ACR_PATH_MAX];
         snprintf(hud_dir, sizeof hud_dir, "%s/hud", out_dir);
         if (!make_dirs(hud_dir, 1) || !acr_export_moa_hud(unpacked, hud_dir, err, err_size)) return 0;
@@ -271,6 +298,8 @@ static int import_disc(const char *disc_path, const char *out_dir, acr_import_st
         char missions_dir[ACR_PATH_MAX];
         snprintf(missions_dir, sizeof missions_dir, "%s/missions", out_dir);
         if (!acr_export_moa_missions(unpacked, missions_dir, &stats->missions, err, err_size)) return 0;
+        /* Project Phantasma imported before Master of Arena: its missions now. */
+        if (!export_pp_missions(out_dir, err, err_size)) return 0;
     }
     return 1;
 }
@@ -341,11 +370,15 @@ int acr_import_refresh(const char *out_dir) {
         have = !head[0] || strstr(head, "box      = [") != NULL;
     }
     f = NULL;
-    if (!have && acr_export_moa_units(unpacked, dir, stages, &n, err, sizeof err) && n) done |= 4;
+    if (!have && acr_export_moa_units(unpacked, NULL, dir, stages, &n, err, sizeof err) && n) done |= 4;
     /* Missions (2026-11-25): the list, briefings and the report pictures. */
     snprintf(probe, sizeof probe, "%s/missions/report-digits.png", out_dir);
     snprintf(dir, sizeof dir, "%s/missions", out_dir);
     if (!(f = fopen(probe, "rb")) && acr_export_moa_missions(unpacked, dir, &n, err, sizeof err)) done |= 8;
+    if (f) fclose(f);
+    /* Project Phantasma's missions (2026-11-27), when both discs are in. */
+    snprintf(probe, sizeof probe, "%s/missions/missions-pp.toml", out_dir);
+    if (!(f = fopen(probe, "rb")) && export_pp_missions(out_dir, err, sizeof err) == 1) done |= 32;
     if (f) fclose(f);
     return done;
 }

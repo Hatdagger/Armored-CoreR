@@ -106,11 +106,12 @@ static void load_pictures(int row) {
     SDL_memset(M.pic, 0, sizeof M.pic);   /* the old textures stay with the renderer; few and small */
     M.pic_for = row;
     const acr_gen1_mission_info *m = &M.list.m[row];
-    if (m->own || SDL_strncmp(m->id, "MOA-", 4)) return;
-    const int slot = SDL_atoi(m->id + 4);
+    const int pp = !SDL_strncmp(m->id, "PP-", 3);
+    if (m->own || (SDL_strncmp(m->id, "MOA-", 4) && !pp)) return;
+    const int slot = SDL_atoi(m->id + (pp ? 3 : 4));
     for (int k = 0; k < m->pictures && k < ACR_GEN1_MISSION_PAGES; ++k) {
         char path[1300];
-        SDL_snprintf(path, sizeof path, "%s/missions/%02d-pic-%d.png", M.import_dir, slot, k);
+        SDL_snprintf(path, sizeof path, "%s/missions/%s%02d-pic-%d.png", M.import_dir, pp ? "pp-" : "", slot, k);
         M.pic[k] = load_png(path);
     }
 }
@@ -125,6 +126,11 @@ void missions_init(const char *import_dir, acr_gen1_hangar *hangar, const acr_ge
     SDL_snprintf(path, sizeof path, "%s/missions/missions.toml", import_dir);
     char *t = SDL_LoadFile(path, NULL);
     M.moa = acr_gen1_missions_build(&M.list, t);
+    SDL_free(t);
+    /* Project Phantasma's missions (2026-11-27), after MoA's. */
+    SDL_snprintf(path, sizeof path, "%s/missions/missions-pp.toml", import_dir);
+    t = SDL_LoadFile(path, NULL);
+    if (t) SDL_Log("missions: %d Project Phantasma missions", acr_gen1_missions_append(&M.list, t));
     SDL_free(t);
     for (int k = 0; k < 3; ++k) {
         SDL_snprintf(path, sizeof path, "%s/missions/report-%d.png", import_dir, 63 + k);
@@ -167,10 +173,13 @@ void missions_open(void) {
 
 /* ---- sortie ---- */
 
+static void scroll_to_cursor(void);
+
 const rogue_fight *missions_fight_info(void) { return &M.fight; }
 int32_t missions_round_ms(void) { return M.fly.time_ms; }
 uint16_t missions_foe_options(void) { return M.foe_options; }
 int missions_rule(void) { return M.fly.rule; }
+int missions_solo(void) { return !M.fly.own && acr_gen1_mission_map_ok(M.fly.map); }
 int missions_variant(void) { return M.fly.variant; }
 int32_t missions_extra_ms(void) { return M.fly.extra_ms; }
 
@@ -219,6 +228,19 @@ static int prepare_sortie(void) {
     else SDL_strlcpy(g->name[1], m->foe_pilot[0] ? m->foe_pilot : "OPPONENT", sizeof g->name[1]);
     M.fight_row = M.cur;
     return 1;
+}
+
+int missions_launch(const char *id) {
+    missions_open();
+    for (int i = 0; i < M.list.count; ++i)
+        if (!SDL_strcasecmp(M.list.m[i].id, id)) {
+            M.cur = i;
+            scroll_to_cursor();
+            if (prepare_sortie()) { SDL_Log("missions: %s launched directly (ACR_MISSION)", id); return 1; }
+            break;
+        }
+    SDL_Log("missions: ACR_MISSION=%s: no such playable mission", id);
+    return 0;
 }
 
 int missions_fight_over(int result, int32_t ap_left, int32_t ap_max, int32_t ammo_cost, int bonus) {

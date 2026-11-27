@@ -789,13 +789,18 @@ static int write_toml(const char *dir, unsigned stage, const chunk *pts, const a
     FILE *f = fopen(path, "w");
     if (!f) return 0;
     const char *name = acr_moa_stage_name(stage);
+    if (stage >= ACR_PP_STAGE_BASE)
+        fprintf(f, "# Project Phantasma mission map %u (its FDAT %u). Engine world units; y is down as in\n"
+                   "# the game, x mirrored (x = -(game x)).\n", stage - ACR_PP_STAGE_BASE, (stage - ACR_PP_STAGE_BASE) * 5 + 4);
+    else
     fprintf(f, "# Master of Arena stage %u (FDAT %u). Engine world units; y is down as in the\n"
                "# game (the floor of Green Silo is at -662), x mirrored (x = -(game x)).\n",
             stage, stage * 5 + 4);
-    if (stage < 20)
+    const int mission_ = stage < 20 || (stage >= ACR_PP_STAGE_BASE && stage < ACR_PP_STAGE_BASE + ACR_PP_STAGE_MAPS);
+    if (mission_)
         fprintf(f, "# A mission map. Its two start records are the arena's; missions don't use\n"
                    "# them as drops (some sit side by side or off the floor).\n");
-    fprintf(f, "id = %u\nname = \"%s\"\nkind = \"%s\"\n", stage, name ? name : "", stage < 20 ? "mission" : "arena");
+    fprintf(f, "id = %u\nname = \"%s\"\nkind = \"%s\"\n", stage, name ? name : "", mission_ ? "mission" : "arena");
     fprintf(f, "visual_faces = %u\ncollision_polygons = %u\nareas = %u\n", (unsigned)faces, (unsigned)polys, areas);
     /* Starts: x, y, z, facing (4096 a turn; the engine's facing, which the
      * mirror leaves as it is). */
@@ -881,70 +886,106 @@ static unsigned chunk3_areas(const chunk *set, area *out, unsigned max, int want
     return n;
 }
 
+/* One stage: FDAT 5s+4 (with its code, 5s+2, for the out-of-area boxes)
+ * and RTIM s from `unpacked_dir`, written as <out_dir>/<id>. Project
+ * Phantasma's mission maps lack Master of Arena's first chunk (an 80-byte
+ * header): `pp` adds an empty one so the chunks line up (2026-11-27).
+ * Returns 1 written, 0 failed (err set), -1 not there. */
+static int export_one(const char *unpacked_dir, unsigned s, unsigned id, int pp, const char *out_dir,
+                      const light_set *lights, unsigned nlights, char *err, size_t err_size) {
+    static area ar[AREAS];
+    char path[1200];
+    snprintf(path, sizeof path, "%s/GG/COM/FDAT/%03u.bin", unpacked_dir, s * 5 + 4);
+    size_t size = 0;
+    uint8_t *d = read_all(path, &size);
+    if (!d) return -1;
+    if (pp) {
+        uint8_t *e = malloc(size + 4);
+        if (!e) { free(d); return -1; }
+        memset(e, 0, 4);
+        memcpy(e + 4, d, size);
+        free(d);
+        d = e;
+        size += 4;
+    }
+    chunk ch[CHUNKS];
+    if (!split(d, size, ch)) { free(d); return -1; }
+    const unsigned areas = read_areas(&ch[8], ar);
+    if (!areas) { free(d); return -1; }
+    char dir[1200];
+    snprintf(dir, sizeof dir, "%s/%02u", out_dir, id);
+    uint32_t faces = 0, polys = 0, tfaces = 0, textures = 0;
+    oa_box oa[8];
+    unsigned noa = 0;
+    {
+        char cpath[1200];
+        snprintf(cpath, sizeof cpath, "%s/GG/COM/FDAT/%03u.bin", unpacked_dir, s * 5 + 2);
+        size_t cn = 0;
+        uint8_t *code = read_all(cpath, &cn);
+        noa = read_out_of_area(code, cn, &ch[10], oa, 8);
+        free(code);
+    }
+    if (!make_dir(dir) || !write_visual(dir, &ch[4], ar, areas, &faces) ||
+        !write_textured(dir, "visual", unpacked_dir, s, &ch[1], ar, areas, nlights ? lights : NULL, &tfaces,
+                        &textures) ||
+        !write_collision(dir, &ch[7], ar, areas, &polys) ||
+        !write_collision_game(dir, &ch[7], ar, areas) ||
+        !write_toml(dir, id, &ch[13], ar, areas, tfaces ? tfaces : faces, polys, oa, noa)) {
+        free(d);
+        set_err(err, err_size, "cannot write the stage files in", dir);
+        return 0;
+    }
+    {
+        area sky[4];
+        const unsigned nsky = chunk3_areas(&ch[3], sky, 4, 0);
+        uint32_t sf = 0, st = 0;
+        char path2[1300];
+        snprintf(path2, sizeof path2, "%s/sky.obj", dir);
+        remove(path2);   /* a stage without a sky keeps none from an older import */
+        if (nsky && !write_textured(dir, "sky", unpacked_dir, s, &ch[3], sky, nsky, NULL, &sf, &st)) {
+            free(d);
+            set_err(err, err_size, "cannot write the sky in", dir);
+            return 0;
+        }
+        area far[4];
+        const unsigned nfar = chunk3_areas(&ch[3], far, 4, 1);
+        snprintf(path2, sizeof path2, "%s/far.obj", dir);
+        remove(path2);
+        /* Lit like an area on set 0 (the stages' floors around it). */
+        if (nfar && !write_textured(dir, "far", unpacked_dir, s, &ch[3], far, nfar, nlights ? lights : NULL, &sf, &st)) {
+            free(d);
+            set_err(err, err_size, "cannot write the far plane in", dir);
+            return 0;
+        }
+    }
+    free(d);
+    return 1;
+}
+
 int acr_export_moa_stages(const char *unpacked_dir, const char *out_dir, uint32_t *stages,
                           char *err, size_t err_size) {
     *stages = 0;
-    static area ar[AREAS];
     static light_set lights[LIGHT_SETS];
     const unsigned nlights = read_light_sets(unpacked_dir, lights);
     for (unsigned s = STAGE_FIRST; s <= STAGE_LAST; ++s) {
-        char path[1200];
-        snprintf(path, sizeof path, "%s/GG/COM/FDAT/%03u.bin", unpacked_dir, s * 5 + 4);
-        size_t size = 0;
-        uint8_t *d = read_all(path, &size);
-        if (!d) continue;
-        chunk ch[CHUNKS];
-        if (!split(d, size, ch)) { free(d); continue; }
-        const unsigned areas = read_areas(&ch[8], ar);
-        if (!areas) { free(d); continue; }
-        char dir[1200];
-        snprintf(dir, sizeof dir, "%s/%02u", out_dir, s);
-        uint32_t faces = 0, polys = 0, tfaces = 0, textures = 0;
-        oa_box oa[8];
-        unsigned noa = 0;
-        {
-            char cpath[1200];
-            snprintf(cpath, sizeof cpath, "%s/GG/COM/FDAT/%03u.bin", unpacked_dir, s * 5 + 2);
-            size_t cn = 0;
-            uint8_t *code = read_all(cpath, &cn);
-            noa = read_out_of_area(code, cn, &ch[10], oa, 8);
-            free(code);
-        }
-        if (!make_dir(dir) || !write_visual(dir, &ch[4], ar, areas, &faces) ||
-            !write_textured(dir, "visual", unpacked_dir, s, &ch[1], ar, areas, nlights ? lights : NULL, &tfaces,
-                            &textures) ||
-            !write_collision(dir, &ch[7], ar, areas, &polys) ||
-            !write_collision_game(dir, &ch[7], ar, areas) ||
-            !write_toml(dir, s, &ch[13], ar, areas, tfaces ? tfaces : faces, polys, oa, noa)) {
-            free(d);
-            set_err(err, err_size, "cannot write the stage files in", dir);
-            return 0;
-        }
-        {
-            area sky[4];
-            const unsigned nsky = chunk3_areas(&ch[3], sky, 4, 0);
-            uint32_t sf = 0, st = 0;
-            char path2[1300];
-            snprintf(path2, sizeof path2, "%s/sky.obj", dir);
-            remove(path2);   /* a stage without a sky keeps none from an older import */
-            if (nsky && !write_textured(dir, "sky", unpacked_dir, s, &ch[3], sky, nsky, NULL, &sf, &st)) {
-                free(d);
-                set_err(err, err_size, "cannot write the sky in", dir);
-                return 0;
-            }
-            area far[4];
-            const unsigned nfar = chunk3_areas(&ch[3], far, 4, 1);
-            snprintf(path2, sizeof path2, "%s/far.obj", dir);
-            remove(path2);
-            /* Lit like an area on set 0 (the stages' floors around it). */
-            if (nfar && !write_textured(dir, "far", unpacked_dir, s, &ch[3], far, nfar, nlights ? lights : NULL, &sf, &st)) {
-                free(d);
-                set_err(err, err_size, "cannot write the far plane in", dir);
-                return 0;
-            }
-        }
-        free(d);
-        ++*stages;
+        const int r = export_one(unpacked_dir, s, s, 0, out_dir, lights, nlights, err, err_size);
+        if (!r) return 0;
+        if (r > 0) ++*stages;
+    }
+    return 1;
+}
+
+int acr_export_pp_mission_stages(const char *pp_unpacked_dir, const char *moa_unpacked_dir, const char *out_dir,
+                                 uint32_t *stages, char *err, size_t err_size) {
+    *stages = 0;
+    static light_set lights[LIGHT_SETS];
+    /* The light sets are Master of Arena's (its FDAT 205, the common block
+     * the Phantasma mission port runs on too). */
+    const unsigned nlights = read_light_sets(moa_unpacked_dir, lights);
+    for (unsigned m = 0; m < ACR_PP_STAGE_MAPS; ++m) {
+        const int r = export_one(pp_unpacked_dir, m, ACR_PP_STAGE_BASE + m, 1, out_dir, lights, nlights, err, err_size);
+        if (!r) return 0;
+        if (r > 0) ++*stages;
     }
     return 1;
 }

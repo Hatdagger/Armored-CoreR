@@ -368,7 +368,7 @@ typedef struct acr_gen1_unit {
 
 typedef struct acr_gen1_battle {
     acr_gen1_fighter f[ACR_GEN1_MAX_FIGHTERS];
-    uint8_t count;                             /* fighters in the fight, 2..4 (0 = the old 2, see above) */
+    uint8_t count;                             /* fighters in the fight, 1..4 (0 = the old 2, see above; 1 = a mission map flown alone) */
     uint8_t units;                             /* mission units in unit[] (0 = none) */
     acr_gen1_unit unit[ACR_GEN1_MAX_UNITS];
     uint8_t targeted;                          /* targets picked at least once (set by retarget) */

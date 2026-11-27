@@ -89,7 +89,11 @@ static const map6_key k_map6_climb[] = {
 #define MAP12_FAIL_WAIT    19   /* 20, counted down the tick it is set */
 #define MAP12_RADIO_TICKS  66   /* stand-in: radio 59, about 3 seconds */
 
-int acr_gen1_mission_has_script(int map) { return map == 2 || map == 6 || map == 12 || map == 13 || map == 15; }
+int acr_gen1_mission_map_ok(int map) {
+    return (map >= 0 && map < 20) || (map >= ACR_GEN1_PP_MAP_BASE && map < ACR_GEN1_PP_MAP_BASE + ACR_GEN1_PP_MAPS);
+}
+
+int acr_gen1_mission_has_script(int map) { return acr_gen1_mission_map_ok(map); }
 
 int acr_gen1_mission_team(int map, int record) {
     return map == 12 && record >= MAP12_FIRST_FRIEND && record <= MAP12_LAST_FRIEND ? 0 : 1;
@@ -104,6 +108,15 @@ int acr_gen1_mission_wait(int map, int record) {
     return ACR_GEN1_WAIT_NONE;
 }
 
+int acr_gen1_mission_wait_flags(int map, int record, unsigned flags) {
+    if (!acr_gen1_mission_has_script(map)) return ACR_GEN1_WAIT_NONE;
+    if (map == 6 && record == MAP6_BIG_MT) return ACR_GEN1_WAIT_SHOWN;
+    if (flags & ACR_GEN1_RECORD_LATE) return ACR_GEN1_WAIT_HIDDEN;
+    return acr_gen1_mission_wait(map, record);
+}
+
+int acr_gen1_mission_clock_ticks(int map) { return map == 3 ? 6600 : map == 14 ? 3960 : 0; }
+
 static acr_gen1_unit *by_record(acr_gen1_battle *b, int record) {
     for (int u = 0; u < b->units; ++u)
         if (b->unit[u].record == record) return &b->unit[u];
@@ -115,6 +128,7 @@ static int destroyed(const acr_gen1_unit *u) { return u->down || u->ap <= 0; }
 void acr_gen1_mission_start(acr_gen1_battle *b, int map) {
     memset(&b->mission, 0, sizeof b->mission);
     if (acr_gen1_mission_has_script(map)) b->mission.map = (uint8_t)(map + 1);
+    b->mission.clock = (uint16_t)acr_gen1_mission_clock_ticks(map);
 }
 
 static void join(acr_gen1_unit *u) {
@@ -185,7 +199,7 @@ static void map6_tick(acr_gen1_battle *b) {
     if (big && big->wait == ACR_GEN1_WAIT_SHOWN) map6_climb(m, big, m->timer++);
     if (tank && !tank->wait && destroyed(tank)) m->flags |= ACR_GEN1_MISSION_BONUS;
     if (!m->end_ticks && big && !big->wait && destroyed(big))
-        m->end_ticks = (uint8_t)(m->flags & ACR_GEN1_MISSION_BONUS ? END_TICKS : MAP6_FADE_TICKS + END_TICKS);
+        m->end_ticks = (uint16_t)(m->flags & ACR_GEN1_MISSION_BONUS ? END_TICKS : MAP6_FADE_TICKS + END_TICKS);
 }
 
 /* Records 4 on still standing, made or waiting (slot 0's count). */
@@ -208,7 +222,7 @@ static void plain_tick(acr_gen1_battle *b, int map) {
         return;
     }
     if (left) return;
-    m->end_ticks = (uint8_t)(map == 15 ? END_TICKS : PLAIN_WAIT + END_TICKS);
+    m->end_ticks = (uint16_t)(map == 15 ? END_TICKS : PLAIN_WAIT + END_TICKS);
 }
 
 static void map12_tick(acr_gen1_battle *b) {
@@ -238,6 +252,258 @@ static void map12_tick(acr_gen1_battle *b) {
     if (friends) return;
     m->phase = -2;                              /* 20 ticks, radio 59, then failed */
     m->timer = MAP12_FAIL_WAIT + MAP12_RADIO_TICKS;
+}
+
+/* ---- The other maps (read 2026-11-27) ----
+ * Slot 0 of maps 0, 1, 3-5, 7-11, 14 and 16-19 (docs/research/gen1-stages.md,
+ * "Mission scripts, all maps"). Places are the game's (x, y down, z); the
+ * battle keeps x the other way round (engine x = -game x). A record named
+ * here waits hidden when its flags say it isn't made at the start
+ * (ACR_GEN1_RECORD_LATE) and joins when its step comes.
+ *
+ * Read from the game, with the game's tick counts:
+ * - map 1 "Defend Submarine": records 10-12 (two gun turrets and a box
+ *   structure) down -> 660 ticks of radio (26, 27) -> once the radio is done
+ *   and the player stands on the ship (its areas 54-56, x 3,750-11,250,
+ *   z -1,250-1,250, on the deck at -250) -> accomplished. The player below
+ *   the sea's surface (y past 256) -> failed (radio 158).
+ * - map 3 "Destroy Cannon": a 5:00 clock (6,600 ticks); the reverse-joint
+ *   AC (record 5) down -> 220 ticks (a fade, record 7 flies off in
+ *   cutscene 2) -> accomplished; the clock out -> 18 ticks of fade -> failed.
+ * - map 4: the five hover guns (records 5-9) down -> 20 ticks, radio 94,
+ *   once it is done record 4 (the AC, cutscene 1) joins; it down -> radio 9,
+ *   20 ticks with the radio -> accomplished.
+ * - map 5: records 4-63 still standing (made or not) under 10 -> 20 ticks
+ *   -> records 15-22 (the eight tanks) join; under 2 -> 159 ticks ->
+ *   cutscene 0 brings the AC (record 5); it down -> 30 ticks -> accomplished.
+ * - map 7: the player in area 39 (x 7,675-8,575, y -1,050-2,600, z
+ *   5,362-5,937; the object's area number +0x30) -> the helicopter (record
+ *   12) joins; the box vehicle (record 5) down -> accomplished.
+ * - map 8: the AC (record 4) down -> 20 ticks (radio 44) -> the player in
+ *   point 4's box (x -4,768 to -2,976, y -1,780 to 12, z -9,536 to -7,232:
+ *   chunk 10's point plus its six signed bytes x 256) -> accomplished.
+ * - map 10: the player in point 0's box (x 2,900-5,972, y 13,071-14,351,
+ *   z -694 to -182: where the research team is) -> 50 ticks of held
+ *   controls, cutscene 2 -> accomplished. The AC (record 5) down is a bonus
+ *   (event flag 15).
+ * - map 11: both quad ACs (records 4, 5; made at the start) down ->
+ *   accomplished. Map 19 (the last one, no briefing): its AC (record 4,
+ *   made at the start) down -> accomplished.
+ * - map 14: a 3:00 clock (3,960 ticks); the AC (record 4) down ->
+ *   accomplished; the clock out -> radio 62 and, once it is done, failed.
+ * - map 17: two tall MTs at a time: 4 and 5 down -> 6 and 7 join; down -> 8
+ *   and 9; down -> the AC (record 10); its AP at 0 -> accomplished.
+ * - map 18: two ACs (records 4, 5) join when stage area 68's gimmick
+ *   triggers; both down -> radio 114, the doors (areas 92 / 93) open; area
+ *   96's gimmick (the core) -> a 64-tick fade -> accomplished.
+ *
+ * Stand-ins, where the game's trigger lives in a stage gimmick (an area
+ * record's controller, +0x2C, its state +16) or object code not read yet:
+ * - map 0: the game ends on area 290's gimmick (a door by the botanical
+ *   zone); here the Armored Car (record 4, AP 1) down ends it.
+ * - map 1: the submarine's hull (areas 54-56, breakable) sinking fails it in
+ *   the game; the engine has no breakable areas, so only the sea fails it.
+ * - map 3: record 5 is made by cutscene 1 (with record 4, the jet); what
+ *   starts that step (a counter, 0x800AB868, reaching 4) is taken as four of
+ *   the eight drones (records 8-15) down, or every unit in the fight down.
+ *   Then 360 ticks (radio 30) and both join.
+ * - map 9 "Recover the secret material": the tank-legged AC (record 4) down
+ *   opens the container (area 169); the ending isn't in slot 0 (no
+ *   0x80052490 there). Here: the AC down, then the player within 1,000 of
+ *   the container -> 200 ticks -> accomplished.
+ * - map 16: records 4-11 (eight MTs) and the AC (record 30) aren't made at
+ *   the start; the AC comes on area 24's gimmick (a switch). Here: everything
+ *   in the fight down -> 4-11 join; those down -> the AC joins; the AC down
+ *   -> 300 ticks (radio 69, 70) -> accomplished, as the game's.
+ * - map 18: the areas' gimmicks are taken as the player inside the area's
+ *   box, grown by 750 for the small switch (area 68).
+ * - "Once the radio is done": the radio's own length isn't read; RADIO_TICKS
+ *   (3 s) as for map 12. */
+#define RADIO_TICKS MAP12_RADIO_TICKS
+
+typedef struct game_box { int16_t x0, y0, z0, x1, y1, z1; } game_box;
+static const game_box k_map1_ship  = { 3750, -2500, -1250, 11250, 625, 1250 };
+static const game_box k_map7_area39 = { 7675, -1050, 5362, 8575, 2600, 5937 };
+static const game_box k_map8_exit  = { -4768, -1780, -9536, -2976, 12, -7232 };
+static const game_box k_map10_team = { 2900, 13071, -694, 5972, 14351, -182 };
+static const game_box k_map18_switch = { -5625, -3125, 18285, -5250, -2812, 18465 };   /* area 68 */
+static const game_box k_map18_core = { -500, -2688, 21875, 500, 5750, 22875 };          /* area 96 */
+static const int16_t k_map9_container[3] = { -5406, 28416, -2293 };                     /* area 169's centre */
+
+/* A player (team 0, standing) inside box g grown by `grow`, as the game's
+ * strict test (min < p < max). */
+static int player_in(const acr_gen1_battle *b, const game_box *g, int grow) {
+    const int n = acr_gen1_battle_fighters(b);
+    for (int i = 0; i < n; ++i) {
+        const acr_gen1_fighter *f = &b->f[i];
+        if (acr_gen1_battle_team(b, i) != 0 || f->ap <= 0) continue;
+        const int32_t x = -f->ac.x / 64, y = f->ac.y / 64, z = f->ac.z / 64;
+        if (x > g->x0 - grow && x < g->x1 + grow && y > g->y0 - grow && y < g->y1 + grow &&
+            z > g->z0 - grow && z < g->z1 + grow) return 1;
+    }
+    return 0;
+}
+
+static int player_near(const acr_gen1_battle *b, const int16_t *p, int32_t r) {
+    const int n = acr_gen1_battle_fighters(b);
+    for (int i = 0; i < n; ++i) {
+        const acr_gen1_fighter *f = &b->f[i];
+        if (acr_gen1_battle_team(b, i) != 0 || f->ap <= 0) continue;
+        const int64_t dx = -f->ac.x / 64 - p[0], dy = f->ac.y / 64 - p[1], dz = f->ac.z / 64 - p[2];
+        if (dx * dx + dy * dy + dz * dz < (int64_t)r * r) return 1;
+    }
+    return 0;
+}
+
+/* Records first..last all destroyed (a record the engine has no unit for
+ * counts as destroyed, as one with no handler does in the game). */
+static int all_down(acr_gen1_battle *b, int first, int last) {
+    for (int r = first; r <= last; ++r) {
+        const acr_gen1_unit *u = by_record(b, r);
+        if (u && !destroyed(u)) return 0;
+    }
+    return 1;
+}
+
+static int down_count(acr_gen1_battle *b, int first, int last) {
+    int n = 0;
+    for (int r = first; r <= last; ++r) {
+        const acr_gen1_unit *u = by_record(b, r);
+        n += u && destroyed(u);
+    }
+    return n;
+}
+
+static void join_records(acr_gen1_battle *b, int first, int last) {
+    for (int u = 0; u < b->units; ++u)
+        if (b->unit[u].record >= first && b->unit[u].record <= last && b->unit[u].wait) join(&b->unit[u]);
+}
+
+/* No enemy unit in the fight still standing. */
+static int fight_clear(const acr_gen1_battle *b) {
+    for (int u = 0; u < b->units; ++u) {
+        const acr_gen1_unit *un = &b->unit[u];
+        if (un->active && (un->team & 1) && !destroyed(un)) return 0;
+    }
+    return 1;
+}
+
+static int rec_down(acr_gen1_battle *b, int r) { return all_down(b, r, r); }
+
+static void finish(acr_gen1_mission *m, int wait, int failed) {
+    if (failed) m->flags |= ACR_GEN1_MISSION_FAIL;
+    m->end_ticks = (uint16_t)(wait + END_TICKS);
+}
+
+/* Counts a timed step down; 1 the tick it runs out. */
+static int count_down(uint16_t *t) { return *t && !--*t; }
+
+static void moa_tick(acr_gen1_battle *b, int map) {
+    acr_gen1_mission *m = &b->mission;
+    /* The mission clock (0x80090FD8; maps 3 and 14). */
+    if (m->clock && !--m->clock && m->phase >= 0) {
+        if (map == 3) { finish(m, 18, 1); return; }
+        if (map == 14) { finish(m, RADIO_TICKS, 1); return; }
+    }
+    switch (map) {
+    case 0:
+        if (rec_down(b, 4)) finish(m, 0, 0);
+        break;
+    case 1: {
+        const int n = acr_gen1_battle_fighters(b);
+        for (int i = 0; i < n; ++i)
+            if (acr_gen1_battle_team(b, i) == 0 && b->f[i].ap > 0 && b->f[i].ac.y / 64 > 256) { finish(m, 0, 1); return; }
+        if (m->phase == 0 && all_down(b, 10, 12)) { m->phase = 1; m->timer = 660 + RADIO_TICKS; }
+        else if (m->phase == 1 && count_down(&m->timer)) m->phase = 2;
+        else if (m->phase == 2 && player_in(b, &k_map1_ship, 0)) {
+            const int32_t deck = -250;
+            for (int i = 0; i < n; ++i)
+                if (acr_gen1_battle_team(b, i) == 0 && b->f[i].ap > 0) {
+                    const int32_t y = b->f[i].ac.y / 64;
+                    if (y - deck < 10 && deck - y < 10) { m->phase = 3; finish(m, 0, 0); return; }
+                }
+        }
+        break;
+    }
+    case 3:
+        if (m->phase == 0 && (down_count(b, 8, 15) >= 4 || fight_clear(b))) { m->phase = 1; m->timer = 360; }
+        else if (m->phase == 1 && count_down(&m->timer)) { join_records(b, 4, 5); m->phase = 2; }
+        else if (m->phase == 2 && rec_down(b, 5)) { m->phase = -1; finish(m, 220, 0); }
+        break;
+    case 4:
+        if (m->phase == 0 && all_down(b, 5, 9)) { m->phase = 1; m->timer = 20 + RADIO_TICKS; }
+        else if (m->phase == 1 && count_down(&m->timer)) { join_records(b, 4, 4); m->phase = 2; }
+        else if (m->phase == 2 && rec_down(b, 4)) finish(m, 20 + RADIO_TICKS, 0);
+        break;
+    case 5: {
+        int left = 0;
+        for (int u = 0; u < b->units; ++u) left += b->unit[u].record >= 4 && !destroyed(&b->unit[u]);
+        if (!(m->step & 1) && left < 10) { m->step |= 1; m->timer2 = 20; }
+        if (count_down(&m->timer2)) join_records(b, 15, 22);
+        if (!(m->step & 2) && left < 2) { m->step |= 2; m->timer = 159; }
+        if (count_down(&m->timer)) join_records(b, 5, 5);
+        if ((m->step & 2) && !m->timer && rec_down(b, 5)) finish(m, 30, 0);
+        break;
+    }
+    case 7:
+        if (!m->step && player_in(b, &k_map7_area39, 0)) { m->step = 1; join_records(b, 12, 12); }
+        if (rec_down(b, 5)) finish(m, 0, 0);
+        break;
+    case 8:
+        if (m->phase == 0 && rec_down(b, 4)) { m->phase = 1; m->timer = 20; }
+        else if (m->phase == 1 && count_down(&m->timer)) m->phase = 2;
+        else if (m->phase == 2 && player_in(b, &k_map8_exit, 0)) finish(m, 0, 0);
+        break;
+    case 9:
+        if (m->phase == 0 && rec_down(b, 4)) m->phase = 1;
+        else if (m->phase == 1 && player_near(b, k_map9_container, 1000)) { m->phase = 2; finish(m, 200, 0); }
+        break;
+    case 10:
+        if (rec_down(b, 5)) m->flags |= ACR_GEN1_MISSION_BONUS;
+        if (player_in(b, &k_map10_team, 0)) finish(m, 50, 0);
+        break;
+    case 11:
+    case 19:
+        if (m->phase == 0) { join_records(b, 4, 5); m->phase = 1; }
+        else if (remaining(b) == 0) finish(m, 0, 0);
+        break;
+    case 14:
+        if (rec_down(b, 4)) { m->phase = -1; finish(m, 0, 0); }
+        break;
+    case 16:
+        if (m->phase == 0 && fight_clear(b)) { join_records(b, 4, 11); m->phase = 1; }
+        else if (m->phase == 1 && fight_clear(b)) { join_records(b, 30, 30); m->phase = 2; }
+        else if (m->phase == 2 && rec_down(b, 30)) finish(m, 300, 0);
+        break;
+    case 17: {
+        static const uint8_t pair[3][2] = { { 4, 5 }, { 6, 7 }, { 8, 9 } };
+        if (m->step < 3) {
+            if (rec_down(b, pair[m->step][0]) && rec_down(b, pair[m->step][1])) {
+                if (++m->step < 3) join_records(b, pair[m->step][0], pair[m->step][1]);
+                else join_records(b, 10, 10);
+            }
+        } else if (rec_down(b, 10)) finish(m, 0, 0);
+        break;
+    }
+    case 18:
+        if (m->phase == 0 && player_in(b, &k_map18_switch, 750)) { join_records(b, 4, 5); m->phase = 1; }
+        else if (m->phase == 1 && all_down(b, 4, 5)) m->phase = 2;
+        else if (m->phase == 2 && player_in(b, &k_map18_core, 0)) finish(m, 64, 0);
+        break;
+    default:
+        /* Project Phantasma's maps (50-66): their scripts aren't read yet.
+         * Stand-in: everything in the fight down brings in what waits (the
+         * records the map makes later, flag 0x40), all at once; once that is
+         * down too, accomplished. */
+        if (m->phase == 0 && fight_clear(b)) {
+            int waiting = 0;
+            for (int u = 0; u < b->units; ++u)
+                if (b->unit[u].wait == ACR_GEN1_WAIT_HIDDEN && !destroyed(&b->unit[u])) { join(&b->unit[u]); ++waiting; }
+            m->phase = 1;
+            if (!waiting) finish(m, 0, 0);
+        } else if (m->phase == 1 && fight_clear(b)) finish(m, 0, 0);
+        break;
+    }
 }
 
 int acr_gen1_mission_players_down(const acr_gen1_battle *b) {
@@ -282,7 +548,9 @@ void acr_gen1_mission_tick(acr_gen1_battle *b) {
             m->result = m->flags & ACR_GEN1_MISSION_FAIL ? ACR_GEN1_MISSION_FAILED : ACR_GEN1_MISSION_DONE;
         return;
     }
-    if (m->map == 7) map6_tick(b);
-    else if (m->map == 13) map12_tick(b);
-    else plain_tick(b, m->map - 1);
+    const int map = m->map - 1;
+    if (map == 6) map6_tick(b);
+    else if (map == 12) map12_tick(b);
+    else if (map == 2 || map == 13 || map == 15) plain_tick(b, map);
+    else moa_tick(b, map);
 }

@@ -32,7 +32,7 @@
 #define acr_mkdir(p) mkdir((p), 0755)
 #endif
 
-#define MAPS        20u
+#define MAPS        (ACR_PP_STAGE_BASE + ACR_PP_STAGE_MAPS)   /* 0-19 MoA, 50-66 Project Phantasma (2026-11-27) */
 #define CHUNKS      14u
 #define POINT_SIZE  40u
 #define MAX_UNITS   128u
@@ -100,8 +100,10 @@ typedef struct map_file {
     const uint8_t *slot[MAX_SLOTS];   /* chunk 2 entries, after the size word; NULL = empty */
     uint32_t slot_n[MAX_SLOTS];
     int unit[MAX_SLOTS];              /* unit number of each slot, -1 none */
-    acr_moa_vram *vram;               /* RTIM <map>, loaded when needed */
+    acr_moa_vram *vram;               /* RTIM <rtim> of `unpacked`, loaded when needed */
     int vram_tried;
+    const char *unpacked;             /* the disc's unpacked archives (MoA's or Phantasma's) */
+    unsigned rtim;                    /* its RTIM entry: the disc's own mission number */
 } map_file;
 
 static int split(const uint8_t *d, size_t size, chunk out[CHUNKS]) {
@@ -137,8 +139,9 @@ static void read_slots(map_file *m) {
 }
 
 static const acr_moa_vram *map_vram(map_file *m, const char *unpacked, unsigned map) {
+    (void)unpacked; (void)map;
     if (!m->vram_tried) {
-        m->vram = acr_moa_vram_load(unpacked, map);
+        m->vram = acr_moa_vram_load(m->unpacked, m->rtim);
         m->vram_tried = 1;
     }
     return m->vram;
@@ -736,6 +739,9 @@ static int write_objects(const map_file *m, const unit *units, unsigned map, con
     FILE *f = fopen(path, "wb");
     if (!f) return 0;
     const chunk *c = &m->ch[13];
+    if (map >= ACR_PP_STAGE_BASE)
+        fprintf(f, "# Project Phantasma mission %u, imported as map %u (its FDAT %u chunk 13).\n",
+                map - ACR_PP_STAGE_BASE, map, 5 * (map - ACR_PP_STAGE_BASE) + 4);
     fprintf(f, "# Master of Arena mission map %u: its object records (FDAT %u chunk 13,\n"
                "# 40 bytes each), imported from your disc by acr-import.\n"
                "# position: engine x = -(game x), y down and z as in the game (as stage.toml).\n"
@@ -787,8 +793,8 @@ static int write_objects(const map_file *m, const unit *units, unsigned map, con
 
 /* ---- all of it ------------------------------------------------------------------ */
 
-int acr_export_moa_units(const char *unpacked_dir, const char *units_dir, const char *stages_dir,
-                         uint32_t *units_out, char *err, size_t err_size) {
+int acr_export_moa_units(const char *unpacked_dir, const char *pp_unpacked_dir, const char *units_dir,
+                         const char *stages_dir, uint32_t *units_out, char *err, size_t err_size) {
     *units_out = 0;
     map_file *maps = calloc(MAPS, sizeof *maps);
     unit *units = calloc(MAX_UNITS, sizeof *units);
@@ -797,10 +803,24 @@ int acr_export_moa_units(const char *unpacked_dir, const char *units_dir, const 
     if (!ok) set_err(err, err_size, "out of memory", NULL);
     for (unsigned s = 0; ok && s < MAPS; ++s) {
         map_file *m = &maps[s];
+        const int pp = s >= ACR_PP_STAGE_BASE;
+        if (!pp && s >= 20) continue;
+        if (pp && !pp_unpacked_dir) continue;
+        m->unpacked = pp ? pp_unpacked_dir : unpacked_dir;
+        m->rtim = pp ? s - ACR_PP_STAGE_BASE : s;
         char path[1200];
-        snprintf(path, sizeof path, "%s/GG/COM/FDAT/%03u.bin", unpacked_dir, 5 * s + 4);
+        snprintf(path, sizeof path, "%s/GG/COM/FDAT/%03u.bin", m->unpacked, 5 * m->rtim + 4);
         m->data = read_all(path, &m->size);
         if (!m->data) continue;                           /* not on this import: skipped */
+        if (pp) {   /* Phantasma's maps lack MoA's first chunk: an empty one lines them up */
+            uint8_t *e = malloc(m->size + 4);
+            if (!e) { free(m->data); m->data = NULL; continue; }
+            memset(e, 0, 4);
+            memcpy(e + 4, m->data, m->size);
+            free(m->data);
+            m->data = e;
+            m->size += 4;
+        }
         if (!split(m->data, m->size, m->ch)) { free(m->data); m->data = NULL; continue; }
         read_slots(m);
         for (unsigned k = 0; ok && k < m->n_slots; ++k) {

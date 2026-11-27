@@ -40,6 +40,7 @@ empty arena with Gen 1 movement.
 | Computer opponent (AI presets, AI against AI) | first version |
 | Online: 1v1 and co-op with rollback, over LAN, direct IP, or the internet with mission-briefing codes | first version |
 | Rogue Arena: 19 + 1 ladder, prizes, ghosts (from the AC1Recomp fork) | first version |
+| Missions: Master of Arena's 20 and Project Phantasma's 17 from your discs, on their own maps with their units | first version |
 
 ## Building
 
@@ -54,7 +55,8 @@ the core, tools and tests, add `-DACR_BUILD_GAME=OFF`.
 
 ## Importing your disc
 
-Re-import after updating to this version: Ocean Platform's sea and Garden
+Re-import after updating to this version: Project Phantasma's 17 missions (its maps, units
+and briefings) are imported once both discs are in. Before that, Ocean Platform's sea and Garden
 Plaza's grass now reach the horizon (`far.obj`). Before that, the stages gained the game's own
 stage lights (an older import keeps one fixed light). Before that, Rogue Arena needed the game's
 arena opponents (`arena/`), the fight sounds need the game's shared fight

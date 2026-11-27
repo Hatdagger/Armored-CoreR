@@ -23,7 +23,11 @@
  * Units are numbered U00, U01... in order of first use (map, then slot), and
  * the same model used on several maps is written once. Reads
  * <unpacked>/GG/COM/FDAT and RTIM. Returns 0 with a message in `err` on failure. */
-int acr_export_moa_units(const char *unpacked_dir, const char *units_dir, const char *stages_dir,
-                         uint32_t *units, char *err, size_t err_size);
+/* pp_unpacked_dir (may be NULL): Project Phantasma's archives too
+ * (2026-11-27); its 17 mission maps' units join the list after Master of
+ * Arena's (whose U-numbers stay put) and their objects are written as
+ * stages/50-66/objects.toml. */
+int acr_export_moa_units(const char *unpacked_dir, const char *pp_unpacked_dir, const char *units_dir,
+                         const char *stages_dir, uint32_t *units_out, char *err, size_t err_size);
 
 #endif

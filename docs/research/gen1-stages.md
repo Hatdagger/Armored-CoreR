@@ -772,8 +772,8 @@ made or not.
   but itself". So, as read, the friendlies may aim at the player and at
   each other; whether their shots hurt them (the shot side, in the EXE)
   is not read. **To check in the game.**
-- Maps 1, 3, 4, 5, 7-11, 14, 16-19: not read yet (timers in 14 "Hercules
-  in 3 minutes"; 3, 12, 14 fail).
+- Maps 1, 3, 4, 5, 7-11, 14, 16-19: read 2026-11-27, see "Mission scripts,
+  all maps" below.
 
 **In the engine**: maps 2, 12, 13 and 15 run these rules (records 11-14
 of map 13 wait hidden); radio and cutscenes are left out. Units the engine
@@ -787,6 +787,94 @@ failed ending is a result of its own (`ACR_GEN1_MISSION_FAILED`, the
 battle's 2), shown as "MISSION FAILED"; radio 59's length is a stand-in
 (66 ticks, about 3 s). AC TEST: `ACR_FRIENDS_DOWN=1` starts with the
 friendly units destroyed (`ACR_UNITS_DOWN=1` now only the enemy ones).
+
+## Mission scripts, all maps (read 2026-11-27)
+
+Slot 0 of every remaining map, read with `tools/research/recomp/mips_dis.py`
+on FDAT `5s+0` (loaded at `0x800A0DD0`). Every map's slot 0 has the same
+frame: nothing while the ending runs (`0x800A0DBC & 0x381`) or the player's
+AP (`0x801E73B0`, object 0 +360) is 0; `0x8009105C` each tick; radio through
+`0x80058B1C(0, 0, line)`; the ending through `0x80052490(128)` (accomplished)
+or `(256)` (failed), 100 ticks before the report.
+
+**"Not made at the start" is a record flag.** Record +16 (raw word 8) bit
+`0x40` marks exactly the records the scripts later make with `0x8007ECEC`
+or a cutscene's `1003 n`, on all 20 maps (map 4's AC, map 5's tanks and
+AC, map 6's tank AC and big MT, map 13's drones, map 17's waves, map 18's
+two ACs...). Map 5 clears the bit itself (`andi 0xFFBF` on entry +20) when
+it makes its tanks. The engine reads it from objects.toml's `raw`
+(`acr_gen1_mission_wait_flags`).
+
+**Places the scripts test.** The player object's position is
+`0x801E7250` (object 0 +8, s16 x, y, z in game units). Two kinds of test:
+- *A point's box*: chunk 10's 32-byte points are copied to 52-byte
+  entries (`0x80078DE8`: raw +0..15 to +0..15, raw +16..31 to +34..49), and
+  a map's set-up builds a box from entry +0 (x, y, z) plus the six signed
+  bytes at raw +16..+21 x 256 (min x, y, z, then max). Map 8: point 3
+  (radio) and point 4 (the exit); map 10: point 0 (the research team) and 1
+  (radio).
+- *An area*: object +0x30 is the number of the area record (chunk 8) the
+  object stands in (map 7: area 39; map 1: areas 54-56, the ship).
+- *An area's gimmick*: a stage node (area record, 64 bytes from
+  `0x801CFAB0`) has a controller at +0x2C whose byte +16 is a state; doors,
+  switches, lifts. The map's own code drives them (map 0's `0x800A1F84`).
+  Not read: what sets the state (a touch, a shot). Used by maps 0 (area
+  290), 9 (169), 16 (24), 18 (68 and 96).
+
+**The mission clock** (`0x80090FD8(ticks, 256, 139)`): map 3 6,600 ticks
+(5:00), map 14 3,960 (3:00); `0x800A0DC4` (mission +20) between 1 and a few
+means it ran out.
+
+| Map | Win (game) | Fail (game) | Steps and late arrivals |
+| --- | --- | --- | --- |
+| 0 Eliminate Fugitive | area 290's gimmick (state 1) -> cutscenes, record 5 (an AC) appears in the ending | - | stand-in: the Armored Car (4) down wins |
+| 1 Defend Submarine | records 10-12 down -> 660 ticks (radio 26 at 560, 27 at 0) -> radio done and the player on the ship (area 54-56, deck within 10) | the player below the sea (y > 256); the sub's area 56 destroyed (its hull is breakable) | records 13-15 wait (made by code not read) |
+| 3 Destroy Cannon | record 5 down -> 220 ticks (fade; record 7 made, cutscene 2) | the 5:00 clock out -> 18 ticks of fade | cutscene 1 makes record 4 (with 5, stand-in); its start is a counter (`0x800AB868`) reaching 4: taken as 4 of the 8 drones down |
+| 4 | record 4 (the AC) down -> radio 9 -> 20 ticks | - | records 5-9 down -> 20 ticks, radio 94, then record 4 (cutscene 1) |
+| 5 | record 5 (the AC) down -> 30 ticks | - | left (records 4-63 with a handler, not destroyed, made or not) < 10 -> 20 ticks -> records 15-22 (list `0x800AA2B0`); < 2 -> 159 ticks -> cutscene 0 makes record 5 |
+| 7 | record 5 (box vehicle) down | - | the player in area 39 -> record 12 (helicopter); record 4 (quad AC) down = event flag 27 |
+| 8 | the player in point 4's box, after record 4 (the AC) down + 20 ticks | - | point 3's box plays radio 41-43 |
+| 9 Recover material | (not in slot 0) | - | record 4 down -> flag 14 and area 169's animation starts (the container opens); stand-in: then within 1,000 of it + 200 ticks |
+| 10 Locate team | the player in point 0's box -> 50 ticks of held controls, cutscene 2 | - | record 5 down = event flag 15 (bonus) |
+| 11 Goldy | records 4 and 5 down | - | both made at the start |
+| 14 Hercules | record 4 down | the 3:00 clock out -> radio 62, then failed | - |
+| 16 | record 30 (the AC) down -> 300 ticks (radio 69, 70) | - | area 24's gimmick makes record 30; records 4-11 wait too (made by code not read). Stand-in: all down -> 4-11, all down -> 30 |
+| 17 Defend gates | record 10's AP 0 | - | pairs (list `0x800A8748`): 4-5, then 6-7, then 8-9, then record 10 |
+| 18 Factory core | area 96's gimmick -> 64-tick fade | - | area 68's gimmick -> records 4, 5 (ACs); both down -> radio 114, the doors (areas 92 / 93) open |
+| 19 Final | record 4 down | - | record 4 made at the start |
+
+Cutscenes that make records (chunk 5, `1003 n`): 0: c0 4, c1 4 5; 1: c0
+10-12; 3: c1 4, c2 7; 4: c1 4; 5: c0 5; 6: c2 4, c3 6; 7: c0 12; 10: c0 4;
+14: c0 / c1 4; 15: c0 4-10; 17: c0 10. (`tools` for this: the inline
+scripts in the 2026-11-27 session, to fold into moa_missions.py.)
+
+**In the engine** (`src/gen1/acr_gen1_mission.c`, `moa_tick`): every
+row of the table, stand-ins as marked, radio and cutscenes left out
+("once the radio is done" = 66 ticks). Tests: `tests/test_gen1_units.c`
+(maps 1, 3, 4, 7, 8, 10, 11, 14, 16, 17, 18 and a one-fighter battle).
+
+## Project Phantasma's mission maps (read 2026-11-27)
+
+Phantasma's FDAT `5m+4` (m = 0-16) is the same map file as MoA's without
+the first chunk (MoA's 80-byte chunk 0): with an empty chunk 0 put in front
+every chunk lines up (10 = 16,384, 11 = 14,336, 13 = 10,240 bytes as in
+MoA). Textures are its RTIM m. acr-import writes them as stages 50-66 and
+their objects / units (units numbered after MoA's 43: U43 on). The mission
+table (MIS.T entry 0) is MoA's layout with 64 slots: names +256, rewards
++2560, engine numbers +2816, a byte +2880, page records +2944; 17 missions
+(0-16); "{4" is a narrow space. The 0x40 record flag looks the same (maps
+50-66 have 0-13 such records). Their scripts (FDAT `5m+0`, Phantasma's
+module base `0x80097A38`) are not read: the engine's stand-in is "all
+down -> the waiting records join -> all down wins".
+
+## Armored Core (AC1) missions (surveyed 2026-11-27)
+
+AC1's MIS.T entry 0 has the same 64-slot table: 50 slots, 0 a dummy and
+16, 29, 39 "Omitted", so 46 missions with names, rewards (0 for some), chapter
+windows and page records in the same places. Its FDAT (206 entries) is
+**not** five entries a mission: sizes don't follow the MoA pattern, so
+which map and code a mission uses has to be found in AC1's mission engine
+first. Not imported.
 
 ## Mission units (read 2026-11-22)
 
