@@ -206,6 +206,16 @@ static acr_gen1_arena_why why_at(int rank) {
     return acr_gen1_arena_can_challenge(&A.s, A.arena, rank, legs_kind(), build_fail());
 }
 
+/* Whether the ladder rules let this opponent be fought (the next rank up, a
+ * rematch, anyone in the sub arena), as in the game: their names are yellow.
+ * Leg type and an incomplete AC are about your build: still yellow, and A
+ * says why. */
+static int fightable(int rank) {
+    const acr_gen1_arena_why why = why_at(rank);
+    if (acr_gen1_arena_absent_at(&A.s, A.arena, rank) == ACR_GEN1_ARENA_ABSENT_DONE) return 0;
+    return why == ACR_GEN1_ARENA_OK || why == ACR_GEN1_ARENA_WRONG_LEGS || why == ACR_GEN1_ARENA_INCOMPLETE;
+}
+
 /* The rows of the ladder page: first rank and count. */
 static void page_range(int *first, int *count) {
     const int places = A.s.a[A.arena].places;
@@ -443,11 +453,8 @@ static arena_command input(garage_action a) {
         if (a != GA_OK) return AC_NONE;
         const int rank = cursor_rank();
         const acr_gen1_arena_why why = why_at(rank);
-        if (why != ACR_GEN1_ARENA_OK) {
-            if (rank == acr_gen1_arena_rank(&A.s, A.arena)) say("THAT'S YOU.");
-            else say(acr_gen1_arena_why_text(why));
-            return AC_NONE;
-        }
+        if (!fightable(rank)) { A.snd = -3; return AC_NONE; }   /* not available yet: nothing happens */
+        if (why != ACR_GEN1_ARENA_OK) { say(acr_gen1_arena_why_text(why)); return AC_NONE; }
         if (!A.nstages) { say("RE-IMPORT YOUR DISC: NO STAGES FOUND."); return AC_NONE; }
         A.ask = 0;
         A.screen = AS_ASK;
@@ -659,7 +666,6 @@ static void draw_ladder(float hud_w, int elapsed_ms) {
     const int unranked = A.arena == ACR_GEN1_ARENA_MOA && A.page == 1;
     if (!unranked) acr_hud_text(lx, 56, "RANK", DIM);
     acr_hud_text(lx + 52, 56, "PILOT", DIM);
-    text_right(lx + lw, 56, "CHALLENGE", DIM);
     for (int i = 0; i < LADDER_ROWS && A.ltop + i < count; ++i) {
         const int rank = first + A.ltop + i;
         const float y = 76 + 22.0f * (float)i;
@@ -677,13 +683,10 @@ static void draw_ladder(float hud_w, int elapsed_ms) {
         }
         if (rank == me && A.h) SDL_snprintf(line, sizeof line, "%.20s", A.h->pilot_name[0] ? A.h->pilot_name : "YOU");
         else SDL_snprintf(line, sizeof line, "%.20s", f ? (f->pilot[0] ? f->pilot : f->ac) : "?");
-        if (rank == me) acr_hud_text(lx + 52, y, line, HILITE);
-        else if (sel) acr_hud_text(lx + 52, y, line, HILITE);
+        /* Just names: yellow = can be fought now, white = not yet; you in green. */
+        if (rank == me) acr_hud_text(lx + 52, y, line, GOOD);
+        else if (fightable(rank)) acr_hud_text(lx + 52, y, line, HILITE);
         else acr_hud_text(lx + 52, y, line, WHITE);
-        const char *st;
-        uint8_t c[3];
-        status_of(rank, &st, c);
-        text_right(lx + lw, y, st, c[0], c[1], c[2]);
     }
     if (count > LADDER_ROWS) {   /* scroll marks */
         if (A.ltop > 0) acr_hud_text(lx + lw / 2, 64, "^", DIM);
@@ -740,7 +743,8 @@ static void draw_ladder(float hud_w, int elapsed_ms) {
             acr_hud_text(px + 12, 352, line, GOOD);
         }
         const acr_gen1_arena_why why = why_at(rank);
-        if (why != ACR_GEN1_ARENA_OK) acr_hud_text(px + 12, 372, acr_gen1_arena_why_text(why), DIM);
+        if (!fightable(rank)) { /* not available yet: no hint */ }
+        else if (why != ACR_GEN1_ARENA_OK) acr_hud_text(px + 12, 372, acr_gen1_arena_why_text(why), DIM);
         else if (absent == ACR_GEN1_ARENA_ABSENT_DONE) acr_hud_text(px + 12, 372, "OPPONENT IS UNABLE TO COMPETE.", DIM);
         else if (acr_gen1_arena_is_rematch(&A.s, A.arena, rank)) acr_hud_text(px + 12, 372, "DEFEATED.  A: REMATCH (NO PRIZE)", GOOD);
         else acr_hud_text(px + 12, 372, "A: CHALLENGE", GOOD);
