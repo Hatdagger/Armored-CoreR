@@ -1039,6 +1039,51 @@ int main(void) {
         EXPECT(vb.shot[si].active && top_y < y_launch - 300 * 64);
     }
 
+    /* SP-M/AUTO: launchers fire by themselves with a gun selected, each on
+     * its own lock; hold-Select toggles it; a manual switch to missiles
+     * stops it; Human PLUS and SP-MODERN switch it off. */
+    {
+        const acr_gen1_actions idle[2] = { { 0 } };
+        acr_gen1_battle ab;
+        setup(&ab, 3000);
+        acr_gen1_fighter *f = &ab.f[0];
+        f->weapons = 3;
+        f->weapon[0] = rifle(); f->ammo[0] = 200;
+        f->weapon[1] = small_missile(); f->ammo[1] = 40;
+        f->weapon[2] = small_missile(); f->ammo[2] = 40;
+        f->weapon[2].lock_ticks = 4;                  /* the second launcher locks faster */
+        f->auto_fitted = f->auto_on = 1;
+        int first[3] = { -1, -1, -1 }, seen = 0;
+        for (int t = 0; t < 120; ++t) {
+            acr_gen1_battle_step(&ab, none, idle);
+            seen |= f->auto_seen;
+            for (int k = 1; k < 3; ++k) if (first[k] < 0 && f->ammo[k] < 40) first[k] = t;
+        }
+        EXPECT(first[1] >= 0 && first[2] >= 0);       /* both fired with the rifle selected */
+        EXPECT(first[2] < first[1]);                  /* on their own timings */
+        EXPECT(seen && f->current == 0 && f->locks == 0);   /* the selected weapon's lock untouched */
+        const uint16_t a1 = f->ammo[1], a2 = f->ammo[2];
+        acr_gen1_actions tog[2] = { { 0 } };
+        tog[0].auto_toggle = 1;
+        acr_gen1_battle_step(&ab, none, tog);
+        EXPECT(!f->auto_on);
+        for (int t = 0; t < 120; ++t) acr_gen1_battle_step(&ab, none, idle);
+        EXPECT(f->ammo[1] == a1 && f->ammo[2] == a2);  /* off: nothing fires */
+        acr_gen1_battle_step(&ab, none, tog);
+        EXPECT(f->auto_on);
+        acr_gen1_actions sw[2] = { { 0 } };
+        sw[0].next_weapon = 1;
+        acr_gen1_battle_step(&ab, none, sw);
+        for (int t = 0; t < 20 && f->current != 1; ++t) acr_gen1_battle_step(&ab, none, idle);
+        EXPECT(f->current == 1 && !f->auto_on);        /* switched to missiles by hand: stops */
+        f->human_plus = 1;
+        EXPECT(!acr_gen1_auto_active(f));
+        f->human_plus = 0; f->modern = 1;
+        EXPECT(!acr_gen1_auto_active(f));
+        f->modern = 0;
+        EXPECT(acr_gen1_auto_active(f));
+    }
+
     if (failures) { printf("%d failure(s)\n", failures); return 1; }
     printf("gen1 battle: all passed (first hit after %d steps)\n", steps);
     return 0;

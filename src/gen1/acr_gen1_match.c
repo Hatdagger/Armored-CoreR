@@ -138,6 +138,12 @@ uint32_t acr_gen1_match_hash(const acr_gen1_match *m) {
         H(f->stagger); H(f->knock_x); H(f->knock_z);
         H(f->intercept_burst); H(f->intercept_shot); H(f->hit_flash); H(f->last_missile);
         H(f->cam_pitch); H(f->cam_yaw); H(f->team); H(f->target);
+        H(f->auto_fitted); H(f->auto_on);
+        for (int w = 0; w < ACR_GEN1_MAX_WEAPONS; ++w) {
+            const acr_gen1_auto_lock *al = &f->auto_lock[w];
+            H(al->locks); H(al->lock_count); H(al->volley_ticks); H(al->tone_tick);
+            H(al->cursor_yaw); H(al->cursor_pitch); H(al->cooldown);
+        }
         const acr_gen1_ai *ai = &m->ai[i];
         H(ai->rng); H(ai->think_ms); H(ai->move); H(ai->strafe); H(ai->strafe_ms); H(ai->boost);
         H(ai->boost_ms); H(ai->hop); H(ai->fire); H(ai->want_locks); H(ai->want_weapon); H(ai->switch_ms);
