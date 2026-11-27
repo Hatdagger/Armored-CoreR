@@ -23,6 +23,7 @@ typedef struct acr_gen1_stage_poly {
     int32_t n[3];             /* unit normal x 4096, from the corners */
     int64_t d;                /* n . p + d = 0 for points p on the polygon */
     int32_t lo[3], hi[3];     /* bounding box */
+    int16_t area;             /* the area record that placed it (the OBJ's "o areaN"), -1 unknown */
 } acr_gen1_stage_poly;
 
 /* The collision as the game keeps it (acr-import's collision.txt), for the
@@ -62,6 +63,7 @@ typedef struct acr_gen1_stage_bound {
 } acr_gen1_stage_bound;
 
 #define ACR_GEN1_STAGE_BOUNDS 8
+#define ACR_GEN1_STAGE_MOVED  48    /* areas that can be moved (ACR_GEN1_MAX_DOORS) */
 /* Box 0 is the whole level; boxes 1 and 2 overlap to make the arena floor.
  * Inside box 0 and outside one inner box: a warning. Inside box 0 and
  * outside both: that side loses (bits 0-2 exactly 1, the arena engine's
@@ -82,6 +84,10 @@ typedef struct acr_gen1_stage {
     /* Out-of-area boxes (0: none known for this stage; the rule is off). */
     acr_gen1_stage_bound bound[ACR_GEN1_STAGE_BOUNDS];
     uint8_t bounds;
+    int16_t next_area;        /* while parsing: the area of the polygons that follow */
+    /* Areas moved from where the disc puts them, and by how much (game axes). */
+    struct { int16_t area; int32_t off[3]; } moved[ACR_GEN1_STAGE_MOVED];
+    uint8_t moveds;
 } acr_gen1_stage;
 
 /* Parses the collision OBJ text (v / f lines; anything else is skipped).
@@ -106,6 +112,15 @@ int acr_gen1_stage_ceiling(const acr_gen1_stage *s, int32_t x, int32_t z, int32_
  * if it moved. */
 int acr_gen1_stage_push(const acr_gen1_stage *s, int32_t *x, int32_t *z, int32_t feet_y, int32_t height,
                         int32_t radius, int32_t step);
+
+/* Moves area `area` (the importer's number) by `step` (game axes: x not
+ * mirrored, y down): its polygons and, with the game's collision, its
+ * record (the game's 0x80077D8C adds the step to the centre and boxes).
+ * For the moving map parts (acr_gen1_gimmick.h). */
+void acr_gen1_stage_move_area(acr_gen1_stage *s, int area, const int32_t step[3]);
+/* Puts area `area` `off` from where the disc has it (moving it by the
+ * difference from where it is now). */
+void acr_gen1_stage_place_area(acr_gen1_stage *s, int area, const int32_t off[3]);
 
 /* First polygon hit going from a to b: 1 and *t (0..1024 along the way). */
 int acr_gen1_stage_segment(const acr_gen1_stage *s, const int32_t a[3], const int32_t b[3], int32_t *t);

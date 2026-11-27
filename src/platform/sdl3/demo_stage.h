@@ -19,7 +19,8 @@ typedef struct demo_stage {
     /* Textured faces, two batches per texture (the game's texture pages):
      * the faces, then those lying over another face in the same plane
      * (drawn pulled toward the eye so they don't flicker through it). */
-    struct { acr_vtx *v; int count; uint32_t texture; uint8_t semi, overlay; } batch[32];
+    struct { acr_vtx *v; int16_t *area; int count; uint32_t texture; uint8_t semi, overlay; } batch[32];
+    int16_t *tri_area, *semi_area;  /* the area each vertex of tris / semi belongs to (-1 none) */
     int batches;
     /* The sky (sky.obj, imports from 2026-11-19 on): drawn around the eye. */
     struct { acr_vtx *v; int count; uint32_t texture; } sky[4];
@@ -42,11 +43,20 @@ typedef struct demo_stage {
      * here so AC TEST's test boundary can be swapped back. */
     acr_gen1_stage_bound own_bound[ACR_GEN1_STAGE_BOUNDS];
     uint8_t own_bounds;
+    /* Mission maps: gimmicks.txt (imports from 2026-11-27 on; NULL: none),
+     * read into the battle (acr_gen1_gimmicks_parse) when a fight starts. */
+    char *gimmicks;
+    struct { int16_t area; int32_t off[3]; } drawn_moved[ACR_GEN1_STAGE_MOVED];
+    uint8_t drawn_moveds;
 } demo_stage;
 
 /* Loads <import_dir>/stages/<id>/; 0 (and nothing kept) if it isn't there. */
 int  demo_stage_load(const char *import_dir, int id, demo_stage *out);
 void demo_stage_free(demo_stage *s);
+/* Draws area `area` `off` from where the disc puts it (game axes: x not
+ * mirrored, y down): a moving map part (acr_gen1_gimmick.h). The collision
+ * is moved by the battle (acr_gen1_stage_place_area). */
+void demo_stage_place_area(demo_stage *s, int area, const int32_t off[3]);
 /* Draws it in the current 3D view: pass 0 = solid faces and outlines,
  * pass 1 = see-through faces (after everything else). */
 void demo_stage_draw(const demo_stage *s, int pass);

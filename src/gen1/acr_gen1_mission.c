@@ -127,6 +127,7 @@ static int destroyed(const acr_gen1_unit *u) { return u->down || u->ap <= 0; }
 
 void acr_gen1_mission_start(acr_gen1_battle *b, int map) {
     memset(&b->mission, 0, sizeof b->mission);
+    b->gim.stage = 0;    /* the platform reads the map's doors again: all shut */
     if (acr_gen1_mission_has_script(map)) b->mission.map = (uint8_t)(map + 1);
     b->mission.clock = (uint16_t)acr_gen1_mission_clock_ticks(map);
 }
@@ -406,9 +407,15 @@ static void moa_tick(acr_gen1_battle *b, int map) {
         if (map == 14) { finish(m, RADIO_TICKS, 1); return; }
     }
     switch (map) {
-    case 0:
-        if (rec_down(b, 4)) finish(m, 0, 0);
+    case 0: {
+        /* The game: area 290's door (by the botanical zone) starting to
+         * open ends it. Without the doors (an import from before them):
+         * the Armored Car (record 4) down. */
+        const int d = acr_gen1_door_find(&b->gim, 290);
+        if (d >= 0 ? b->gim.door[d].state == 1 || b->gim.door[d].state == 3 : rec_down(b, 4))
+            finish(m, 0, 0);
         break;
+    }
     case 1: {
         const int n = acr_gen1_battle_fighters(b);
         for (int i = 0; i < n; ++i)

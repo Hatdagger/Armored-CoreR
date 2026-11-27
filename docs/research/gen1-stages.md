@@ -347,6 +347,74 @@ yet: which object draws the sky in the game, and whether it moves with
 the camera (a sphere of 1,024 world units around the arena's middle would
 sit inside the dome, so it must).
 
+## Doors and other moving areas (read 2026-11-27)
+
+**The area loader** (mission engine FDAT 207, `0x80077A9C`-`0x80077CFC`)
+copies the 512 records into 64-byte slots, then walks chunk 8's **tail**
+(after byte 26,624) record by record, skipping records whose +0x06 or model
+(+0x1E) is -1. Each record takes (+0x26 + +0x0E) u16 area numbers (its link
+list; RAM +0x28 points at it) and then (byte +0x30) u16 words of **gimmick
+data** (RAM +0x38). On map 0 this uses 20,222 of the tail's 20,224 bytes.
+Byte +0x31 (RAM +0x3D), if not 255, picks a set-up function from the map
+code's table at FDAT 5s+0 +96 (loaded at `0x800A0DD0`); it is called with
+the area once the map is loaded.
+
+**Area numbers.** The game numbers records 0-511 as on the disc. acr-import
+leaves out records with an all-zero box, so its numbers (the OBJ files'
+`o areaN`) differ on 13 of the 20 maps; gimmicks.txt carries both.
+
+**The door** (map 0: set-up `0x800A2600`; the same code, moved, is handler
+0 on maps 0, 1, 2, 5, 6, 7, 9, 10, 14, 16, 18, 19; found by its `li a0, 26`,
+the controller's size, before `jal 0x80077D28`). The controller (area
++0x2C): +0 tick `0x800A2498`, +4 message handler `0x800A1FD4`, +8/+10/+12
+this tick's step (`0x80077D8C` adds it to the area's centre and both
+boxes), +16 state, +17 ticks moved, +18 ticks a move takes
+(distance / speed), +19 data +4 / speed, +22 the larger of the second box's
+x and z sizes, +24 its y size, +26..+33 a stepper (`0x800135DC`: the
+distance spread over the ticks as two step sizes), +34 where it sits shut.
+
+Gimmick data (12 bytes): u16 speed, u16 distance, u16 (0 on all doors),
+then bytes +6 radio line while locked (0 = not locked), +7 axis (0-3: a
+quarter turn added to the area's own, the step is (0, 0, s) turned by it
+(`0x80013C18`); 4 up; more down), +8 / +9 open / close sounds
+(`0x80052D88` / `0x80052F78`), +10 stays open, +11 opens when the player is
+near.
+
+States (jump table `0x800A0F70`): 0 shut; 1 opening (then 3); 3 open,
+waiting (shuts, state 2, once the player isn't near); 2 shutting (opens
+again if the player comes back; at 0 ticks: state 0, put back exactly where
+it was, link [0]'s flag 0x100 set again); 4 opening for good (then 6); 10
+shutting (message 0x8202). `0x800A1F84` sets a state on the door and on
+link list [1..] (its other pieces); state 4 also clears data +6 (unlocks).
+Messages: 0x8100 (the player runs into it, sender type & 7 == 2): a locked
+door plays its radio line, otherwise it opens (not for +11 doors, not in
+state 4 or over); 0x8200 open; 0x8201 unlock and open for good; 0x8202
+shut. +11 doors open from the tick when the player is near
+(`0x800A2130`: `0x80012BAC`, the player within +22 + its own radius across
+and between the door's height and its own). Link [0] is the area behind
+the door: its flag 0x100 is cleared while the door is open (likely
+drawing; the engine draws everything).
+
+Map 0: 16 door pieces. 13 rise 750 at 8 a tick (93 ticks) when the player
+comes near, area 290's ending the mission (the game's win: its gimmick
+starting to open); 153 / 154 are a pair that slide apart 500 each, locked
+with radio line 159 until the script unlocks them (not read); 155 / 156
+never move (speed 0, line 161).
+
+Other set-up kinds, not read: a 12-byte controller (data with 18,246 /
+20,082 at +8: maps 1, 5, 7, 9, 16, 18, 19; map 18's switch 68 and core 96,
+map 9's container), a 28-byte one (maps 1, 6) and ones without a
+controller (maps 1-4, 6, 7, 11, 12, 16, 18).
+
+**In the engine:** acr-import writes `stages/<NN>/gimmicks.txt` (mission
+maps; not Phantasma's yet); `src/gen1/acr_gen1_gimmick.c` runs the door
+rules each tick inside the battle (`acr_gen1_battle.gim`, so rollback
+snapshots carry them); the stage's collision and drawing are put where the
+doors are (`acr_gen1_stage_place_area`, `demo_stage_place_area`). Map 0 is
+won when door 290 opens. Tests: `tests/test_gen1_gimmick.c`. Not done: the
+radio lines and sounds, scripts' unlocks (map 0's 153 / 154, map 18's
+92 / 93), the other kinds.
+
 ## Points (chunk 13)
 
 256 records of 40 bytes: `s16 x, y, z`, `s16` (-1 from record 3 on),

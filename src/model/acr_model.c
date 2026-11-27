@@ -452,14 +452,15 @@ int acr_mtl_parse(const char *text, acr_mtl *out) {
 void acr_mesh_free(acr_mesh *mesh) {
     free(mesh->v);
     free(mesh->material);
+    free(mesh->area);
     memset(mesh, 0, sizeof *mesh);
 }
 
 int acr_obj_parse(const char *text, const acr_mtl *mtl, acr_mesh *out) {
     memset(out, 0, sizeof *out);
     float *pos = NULL, *nrm = NULL, *uv = NULL, *col = NULL;
-    uint32_t np = 0, nn = 0, nt = 0, cp = 0, cn = 0, ct = 0, cv = 0, cm = 0, cc = 0;
-    int mat = 0, ok = 1;
+    uint32_t np = 0, nn = 0, nt = 0, cp = 0, cn = 0, ct = 0, cv = 0, cm = 0, cc = 0, ca = 0;
+    int mat = 0, ok = 1, area = -1;
     for (const char *p = text; *p && ok; ) {
         const char *e = line_end(p), *s = skip_ws(p, e);
         if (e - s >= 2 && s[0] == 'v' && (s[1] == ' ' || s[1] == 'n' || s[1] == 't')) {
@@ -490,6 +491,13 @@ int acr_obj_parse(const char *text, const acr_mtl *mtl, acr_mesh *out) {
                 memcpy(col + *cnt * 3, rgb, sizeof rgb);
             }
             (*cnt)++;
+        } else if (e - s > 6 && !memcmp(s, "o area", 6)) {
+            long a = 0;
+            const char *q = s + 6;
+            while (q < e && *q >= '0' && *q <= '9') a = a * 10 + (*q++ - '0');
+            area = q > s + 6 && a < 32768 ? (int)a : -1;
+        } else if (e - s >= 2 && s[0] == 'o' && s[1] == ' ') {
+            area = -1;
         } else if (starts(s, e, "usemtl")) {
             const char *a = skip_ws(s + 6, e), *b = a;
             while (b < e && *b != ' ' && *b != '\r') ++b;
@@ -517,7 +525,8 @@ int acr_obj_parse(const char *text, const acr_mtl *mtl, acr_mesh *out) {
             for (int t = 1; t + 1 < corners; ++t) {
                 const int c3[3] = { 0, t, t + 1 };
                 if (!grow((void **)&out->v, &cv, (uint32_t)(out->tri_count + 1) * 3, sizeof *out->v) ||
-                    !grow((void **)&out->material, &cm, (uint32_t)out->tri_count + 1, 1)) { ok = 0; break; }
+                    !grow((void **)&out->material, &cm, (uint32_t)out->tri_count + 1, 1) ||
+                    !grow((void **)&out->area, &ca, (uint32_t)out->tri_count + 1, sizeof *out->area)) { ok = 0; break; }
                 for (int j = 0; j < 3; ++j) {
                     acr_mesh_vertex *v = &out->v[out->tri_count * 3 + j];
                     memset(v, 0, sizeof *v);
@@ -529,6 +538,7 @@ int acr_obj_parse(const char *text, const acr_mtl *mtl, acr_mesh *out) {
                     if (ni >= 1 && (uint32_t)ni <= nn) memcpy(v->n, nrm + (ni - 1) * 3, sizeof v->n);
                 }
                 if (!ok) break;
+                out->area[out->tri_count] = (int16_t)area;
                 out->material[out->tri_count++] = (uint8_t)mat;
             }
         }

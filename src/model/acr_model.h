@@ -132,6 +132,7 @@ typedef struct acr_mesh {
     int has_colour;             /* 1 if any vertex line carried a colour */
     acr_mesh_vertex *v;         /* 3 per triangle */
     uint8_t *material;          /* one per triangle, index into the acr_mtl */
+    int16_t *area;              /* one per triangle: N from the last "o areaN..." line, -1 none */
 } acr_mesh;
 
 /* Triangles only (the export writes triangles; larger faces are fanned). */

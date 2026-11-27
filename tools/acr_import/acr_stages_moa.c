@@ -886,6 +886,77 @@ static unsigned chunk3_areas(const chunk *set, area *out, unsigned max, int want
     return n;
 }
 
+/* ---- moving map parts (doors) ----
+ *
+ * The mission engine's area loader (FDAT 207 0x80077A9C-0x80077CFC) copies
+ * the 52-byte records into 64-byte slots, then walks chunk 8's tail (after
+ * the 512 records) record by record, skipping records whose +0x06 or model
+ * (+0x1E) is -1: each takes (+0x26 + +0x0E) u16 area numbers (its link
+ * list) and then (byte +0x30) u16 words of gimmick data. Byte +0x31, if not
+ * 255, picks a set-up function from the map code's table (FDAT 5s+0 +96,
+ * loaded at 0x800A0DD0). The one most maps share (map 0: 0x800A2600) makes
+ * a 26-byte controller (`li a0, 26` before 0x80077D28): a door. Its data:
+ * u16 speed, u16 distance, then bytes +6 radio line while locked, +7 axis
+ * (0-3 a quarter turn added to the area's, 4 up), +8 / +9 open / close
+ * sounds, +10 stays open, +11 opens when the player comes near. Area
+ * numbers in the file are the importer's (records with an all-zero box
+ * left out); the game's own number is kept too.
+ *
+ *   door <area> <game area> <quarter> <cx> <cy> <cz> <size xz> <size y>
+ *        <speed> <distance> <b6> <b7> <b8> <b9> <b10> <b11> <partners> <area>...
+ *
+ * Game axes (x not mirrored, y down), world units. */
+static int write_gimmicks(const char *dir, const chunk *c8, const uint8_t *code, size_t code_n) {
+    char path[1200];
+    snprintf(path, sizeof path, "%s/gimmicks.txt", dir);
+    FILE *f = fopen(path, "w");
+    if (!f) return 0;
+    fprintf(f, "# Moving map parts (FDAT 5s+4 chunk 8 and its tail; the map code's set-up table).\n"
+               "# door <area> <game area> <quarter> <cx> <cy> <cz> <size xz> <size y> <speed> <distance>\n"
+               "#      <locked radio> <axis> <open sound> <close sound> <stays open> <opens near>\n"
+               "#      <partners> <partner areas...>  (game axes, y down)\n");
+    if (c8->n < AREAS * AREA_SIZE || !code || code_n < 128) { fclose(f); return 1; }
+    int16_t compact[AREAS];
+    for (unsigned i = 0, n = 0; i < AREAS; ++i) {
+        const uint8_t *r = c8->p + i * AREA_SIZE;
+        int zero = 1;
+        for (int k = 0; k < 3; ++k) if (s16(r + 2 * k) || s16(r + 8 + 2 * k)) zero = 0;
+        compact[i] = zero ? -1 : (int16_t)n++;
+    }
+    const uint8_t *tail = c8->p + AREAS * AREA_SIZE;
+    const size_t tail_n = c8->n - AREAS * AREA_SIZE;
+    size_t p = 0;
+    for (unsigned i = 0; i < AREAS; ++i) {
+        const uint8_t *r = c8->p + i * AREA_SIZE;
+        if (s16(r + 6) == -1 || s16(r + 0x1E) == -1) continue;
+        const unsigned links = (unsigned)(s16(r + 0x26) + s16(r + 0x0E)), words = r[0x30];
+        if (p + 2u * (links + words) > tail_n) break;
+        const uint8_t *link = tail + p, *g = tail + p + 2u * links;
+        p += 2u * (links + words);
+        const unsigned h = r[0x31];
+        if (h == 255 || compact[i] < 0 || words < 6) continue;
+        const uint32_t fn = u32(code + 96 + 4 * (h & 7));
+        if (fn < 0x800A0DD0u || fn - 0x800A0DD0u + 24 > code_n) continue;
+        if (u32(code + (fn - 0x800A0DD0u) + 20) != 0x2404001Au) continue;   /* li a0, 26: a door */
+        const int sx = s16(r + 0x20) - s16(r + 0x18), sy = s16(r + 0x22) - s16(r + 0x1A),
+                  sz = s16(r + 0x24) - s16(r + 0x1C);
+        const unsigned partners = (unsigned)s16(r + 0x26);
+        fprintf(f, "door %d %u %u %d %d %d %d %d %u %d %u %u %u %u %u %u %u", compact[i], i,
+                (unsigned)((u16(r + 0x16) >> 10) & 3), s16(r + 0x10), s16(r + 0x12), s16(r + 0x14),
+                sz > sx ? sz : sx, sy, u16(g), s16(g + 2), g[6], g[7], g[8], g[9], g[10], g[11],
+                partners > 1 ? partners - 1 : 0);
+        /* The link list: [0] the area behind the door (hidden while it is
+         * shut), [1..] the door's other pieces, moved with it. */
+        for (unsigned k = 1; k < partners && k < links; ++k) {
+            const unsigned a = u16(link + 2 * k);
+            fprintf(f, " %d", a < AREAS ? compact[a] : -1);
+        }
+        fputc('\n', f);
+    }
+    fclose(f);
+    return 1;
+}
+
 /* One stage: FDAT 5s+4 (with its code, 5s+2, for the out-of-area boxes)
  * and RTIM s from `unpacked_dir`, written as <out_dir>/<id>. Project
  * Phantasma's mission maps lack Master of Arena's first chunk (an 80-byte
@@ -934,6 +1005,19 @@ static int export_one(const char *unpacked_dir, unsigned s, unsigned id, int pp,
         free(d);
         set_err(err, err_size, "cannot write the stage files in", dir);
         return 0;
+    }
+    if (s < 20 && !pp) {   /* mission maps: their code is FDAT 5s+0 */
+        char cpath[1200];
+        snprintf(cpath, sizeof cpath, "%s/GG/COM/FDAT/%03u.bin", unpacked_dir, s * 5);
+        size_t cn = 0;
+        uint8_t *code = read_all(cpath, &cn);
+        const int ok = write_gimmicks(dir, &ch[8], code, cn);
+        free(code);
+        if (!ok) {
+            free(d);
+            set_err(err, err_size, "cannot write the stage files in", dir);
+            return 0;
+        }
     }
     {
         area sky[4];
