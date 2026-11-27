@@ -290,6 +290,10 @@ usual income and expense report follows (reward, ammunition, repair).
 MISSIONS menu until play-testing shows they all work; the proper unlock
 structure (chapters) comes after.
 
+**Original content stays as on the disc (user, 2026-11-27):** disc
+missions get no variants and no added content; variants and extras are for
+our own custom campaign only. The stand-ins below are temporary.
+
 **Known gaps:** no radio voices or text, no cutscenes, MoA's mail. Some Phantasma drops may sit
 inside a wall (PP-11 looked wrong in a headless check). Split screen co-op
 on a disc mission still runs with an opponent slot that is put out of the
