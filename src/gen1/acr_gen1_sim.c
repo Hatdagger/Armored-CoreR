@@ -88,6 +88,16 @@ static void walk(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_input in,
     else if (in.move < 0)   { start = ACR_GEN1_ANIM_BACK_START;     loop = ACR_GEN1_ANIM_BACK; }
     else if (in.strafe < 0) { start = ACR_GEN1_ANIM_STRAFE_L_START; loop = ACR_GEN1_ANIM_STRAFE_L; }
     else if (in.strafe > 0) { start = ACR_GEN1_ANIM_STRAFE_R_START; loop = ACR_GEN1_ANIM_STRAFE_R; }
+    /* Diagonals: the set's own diagonal walk (the game has eight walking
+     * directions); a set without it walks the straight track turned 45. */
+    int diag_track = 0;
+    if (in.move && in.strafe) {
+        uint8_t ds, dl;
+        if (in.move > 0) { ds = in.strafe < 0 ? ACR_GEN1_ANIM_FWD_L_START : ACR_GEN1_ANIM_FWD_R_START; }
+        else             { ds = in.strafe < 0 ? ACR_GEN1_ANIM_BACK_L_START : ACR_GEN1_ANIM_BACK_R_START; }
+        dl = (uint8_t)(ds + 1);
+        if (def->anim[dl] && def->anim[dl]->count) { start = ds; loop = dl; diag_track = 1; }
+    }
     if (ac->anim != start && ac->anim != loop)
         set_anim(ac, def->anim[start] ? start : loop);
     const acr_gen1_root_track *t = def->anim[ac->anim];
@@ -101,10 +111,10 @@ static void walk(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_input in,
         unsigned frames;
         if (!acr_gen1_root_span(t, ac->anim_frame, d, &frames)) { ac->anim_frame = t->length; return; }
         /* Walking diagonally (forward or back with a strafe): the walk
-         * track turned 45 degrees toward the strafe side. The game's own
-         * diagonal walking is not measured yet. */
+         * track turned 45 degrees toward the strafe side, only for a set
+         * without its own diagonal track. */
         int turn = 0;
-        if (in.move && in.strafe) turn = (in.move > 0 ? in.strafe : -in.strafe) * 512;
+        if (in.move && in.strafe && !diag_track) turn = (in.move > 0 ? in.strafe : -in.strafe) * 512;
         int32_t wx, wz;
         to_world((uint16_t)((ac->yaw + turn) & 4095), d[0], d[2], &wx, &wz);
         acr_gen1_stepper_init(&ac->step[0], (int)frames, div_round(wx, 4));
@@ -391,7 +401,7 @@ void acr_gen1_ac_tick(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
         --ac->quick_ticks;
         drain = 4;                              /* paid at the press: no cost, no refill */
         if (ac->state == ACR_GEN1_GROUND) {
-            ac->coast = 3;
+            ac->coast = ACR_GEN1_BOOST_COAST_TICKS;
             mx = ac->vx;
             mz = ac->vz;
             goto moved;
@@ -494,14 +504,14 @@ void acr_gen1_ac_tick(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
             ac->vx += dx * (int32_t)m->boost_accel / 4096;
             ac->vz += dz * (int32_t)m->boost_accel / 4096;
             limit_length(&ac->vx, &ac->vz, top);
-            ac->coast = 3;
+            ac->coast = ACR_GEN1_BOOST_COAST_TICKS;
             drain = 3;                          /* marker: cruise (a ground boost at CRUISE_PCT) */
             set_anim(ac, ACR_GEN1_ANIM_IDLE);
         } else if (ground_boost && dir && moving) {
             ac->vx += dx * (int32_t)m->boost_accel / 4096;
             ac->vz += dz * (int32_t)m->boost_accel / 4096;
             limit_length(&ac->vx, &ac->vz, m->boost_max);
-            ac->coast = 3;                      /* measured: 2-3 ticks at full speed */
+            ac->coast = ACR_GEN1_BOOST_COAST_TICKS;   /* measured: 2-3 ticks at full speed */
             drain = 2;                          /* marker: ground boost (half cost) */
             set_anim(ac, ACR_GEN1_ANIM_IDLE);
         } else if (can_jump && ac->vx == 0 && ac->vz == 0) {
