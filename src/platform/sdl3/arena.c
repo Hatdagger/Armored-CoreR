@@ -584,8 +584,9 @@ static void draw_pick(float hud_w) {
                     if (me <= ACR_GEN1_ARENA_RANKED) SDL_snprintf(line, sizeof line, "%d / %d", me, ACR_GEN1_ARENA_RANKED);
                     else SDL_snprintf(line, sizeof line, "-- / %d", ACR_GEN1_ARENA_RANKED);
                 } else if (i == ROW_MOA_SUB) {
-                    if (me > ACR_GEN1_ARENA_RANKED) SDL_snprintf(line, sizeof line, "%d / %d", me, A.s.a[ar].places);
-                    else SDL_snprintf(line, sizeof line, "--");
+                    /* unranked: just how many entries it has (35 with MoA's 50 places) */
+                    (void)me;
+                    SDL_snprintf(line, sizeof line, "%d", A.s.a[ar].places - ACR_GEN1_ARENA_RANKED);
                 } else SDL_snprintf(line, sizeof line, "%d / %d", me, A.s.a[ar].places);
                 text_right(x + w - 120, y, line, open ? 220 : 120, open ? 230 : 135, open ? 235 : 145);
             }
@@ -654,7 +655,9 @@ static void draw_ladder(float hud_w, int elapsed_ms) {
     page_range(&first, &count);
     const float lx = 36, lw = 380;
     panel(lx - 16, 48, lw + 28, 26 + 22.0f * LADDER_ROWS);
-    acr_hud_text(lx, 56, "RANK", DIM);
+    /* MoA SUB-ARENA is unranked: no rank numbers. */
+    const int unranked = A.arena == ACR_GEN1_ARENA_MOA && A.page == 1;
+    if (!unranked) acr_hud_text(lx, 56, "RANK", DIM);
     acr_hud_text(lx + 52, 56, "PILOT", DIM);
     text_right(lx + lw, 56, "CHALLENGE", DIM);
     for (int i = 0; i < LADDER_ROWS && A.ltop + i < count; ++i) {
@@ -663,8 +666,10 @@ static void draw_ladder(float hud_w, int elapsed_ms) {
         const int sel = A.ltop + i == A.lcur;
         if (sel) row_bar(lx, y, lw + 12);
         char line[64];
-        SDL_snprintf(line, sizeof line, "%2d", rank);
-        acr_hud_text(lx + 4, y, line, WHITE);
+        if (!unranked) {
+            SDL_snprintf(line, sizeof line, "%2d", rank);
+            acr_hud_text(lx + 4, y, line, WHITE);
+        }
         const acr_gen1_rogue_foe *f = foe_at(rank);
         if (f) {   /* its emblem, small */
             const uint32_t em = vs_emblem(A.import_dir, A.arena, f->rank);
@@ -698,7 +703,8 @@ static void draw_ladder(float hud_w, int elapsed_ms) {
             for (int s = 0; s < SLOT_COUNT; ++s) parts[s] = A.h->fitted[s];
             g_draw_ac(parts, (const uint8_t (*)[3])A.h->colours, px + 8, 92, pw - 16, 230, 1.0f, A.spin, 0, 1.0f);
         }
-        SDL_snprintf(line, sizeof line, "YOUR RANK  %d / %d", me, A.s.a[A.arena].places);
+        if (unranked) SDL_snprintf(line, sizeof line, "SUB-ARENA (UNRANKED)");
+        else SDL_snprintf(line, sizeof line, "YOUR RANK  %d / %d", me, A.s.a[A.arena].places);
         acr_hud_text(px + 12, 336, line, WHITE);
     } else if (f) {
         acr_hud_text(px + 12, 58, f->ac[0] ? f->ac : "AC", HILITE);
@@ -774,18 +780,25 @@ static void draw_result(float hud_w) {
     if (A.pay.won) acr_hud_text_size(wx, y + 18, word, 24, GOOD, 255);
     else acr_hud_text_size(wx, y + 18, word, 24, BAD, 255);
     acr_hud_text(x + 24, y + 62, A.pay_foe, WHITE);
+    /* A sub-arena fight (unranked): no rank numbers in the result. */
+    const int unranked = A.arena == ACR_GEN1_ARENA_MOA && A.pay.old_rank > ACR_GEN1_ARENA_RANKED;
     if (A.pay.default_win) {
         acr_hud_text(x + 24, y + 86, "OPPONENT UNAVAILABLE, DEFAULT WIN.", HILITE);
-        SDL_snprintf(line, sizeof line, "RANK  %d  >  %d", A.pay.old_rank, A.pay.new_rank);
-        acr_hud_text(x + 24, y + 110, line, HILITE);
+        if (!unranked) {
+            SDL_snprintf(line, sizeof line, "RANK  %d  >  %d", A.pay.old_rank, A.pay.new_rank);
+            acr_hud_text(x + 24, y + 110, line, HILITE);
+        }
         if (A.pay.new_rank == 1) acr_hud_text(x + 24, y + 182, "YOU ARE THE TOP OF THIS ARENA.", HILITE);
     } else if (A.pay.rematch) {
-        SDL_snprintf(line, sizeof line, "REMATCH: RANK STAYS %d", A.pay.old_rank);
+        if (unranked) SDL_snprintf(line, sizeof line, "REMATCH");
+        else SDL_snprintf(line, sizeof line, "REMATCH: RANK STAYS %d", A.pay.old_rank);
         acr_hud_text(x + 24, y + 86, line, WHITE);
         acr_hud_text(x + 24, y + 110, "NO PRIZE IN A REMATCH. GOOD FIGHT.", DIM);
     } else if (A.pay.won) {
-        SDL_snprintf(line, sizeof line, "RANK  %d  >  %d", A.pay.old_rank, A.pay.new_rank);
-        acr_hud_text(x + 24, y + 86, line, HILITE);
+        if (!unranked) {
+            SDL_snprintf(line, sizeof line, "RANK  %d  >  %d", A.pay.old_rank, A.pay.new_rank);
+            acr_hud_text(x + 24, y + 86, line, HILITE);
+        }
         if (A.pay.money) {   /* a repeat win over the same opponent: no prize line */
             num((long)A.pay.money, c, sizeof c);
             SDL_snprintf(line, sizeof line, "PRIZE MONEY   %s C", c);
@@ -798,8 +811,10 @@ static void draw_result(float hud_w) {
         }
         if (A.pay.new_rank == 1) acr_hud_text(x + 24, y + 182, "YOU ARE THE TOP OF THIS ARENA.", HILITE);
     } else {
-        SDL_snprintf(line, sizeof line, "RANK  %d", A.pay.old_rank);
-        acr_hud_text(x + 24, y + 86, line, WHITE);
+        if (!unranked) {
+            SDL_snprintf(line, sizeof line, "RANK  %d", A.pay.old_rank);
+            acr_hud_text(x + 24, y + 86, line, WHITE);
+        }
         acr_hud_text(x + 24, y + 110, "NO PRIZE. REPAIR, REBUILD, TRY AGAIN.", DIM);
     }
     hints(hud_w, "A: GO ON");
