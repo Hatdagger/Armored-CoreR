@@ -251,6 +251,103 @@ int demo_model_part_tip(const demo_model *m, const acr_pose *pose, unsigned kind
     return found;
 }
 
+/* Each posed vertex of the parts in `kinds` (right, up, forward, world
+ * units), as demo_model_part_tip; `node_of` gets the node's index. */
+typedef void (*vertex_fn)(void *ctx, int node, const float p[3]);
+static int each_vertex(const demo_model *m, const acr_pose *pose, unsigned kinds, float scale,
+                       float mat[ACR_SKEL_MAX_NODES][12], vertex_fn fn, void *ctx) {
+    if (!m->ok) return 0;
+    acr_pose_matrices(&m->skel, pose, mat);
+    int found = 0;
+    for (int i = 0; i < m->skel.count; ++i) {
+        const acr_skel_node *node = &m->skel.node[i];
+        if (node->draw_kind >= ACR_PART_KINDS || !(kinds & (1u << node->draw_kind))) continue;
+        const demo_part_model *p = &m->part[node->draw_kind];
+        if (!p->present || node->draw_piece >= p->pieces || p->marker[node->draw_piece]) continue;
+        const acr_mesh *mesh = &p->piece[node->draw_piece];
+        const float *M = mat[i];
+        float d[3] = { 0, 0, 0 };
+        if (p->has_joint[node->draw_piece]) {
+            const int *jt = p->joint[node->draw_piece];
+            d[0] = (float)(node->pos[0] + jt[0]);
+            d[1] = -(float)(node->pos[1] + jt[1]);
+            d[2] = -(float)(node->pos[2] + jt[2]);
+        }
+        for (int v = 0; v < mesh->tri_count * 3; ++v) {
+            const float vx = mesh->v[v].p[0] + d[0], vy = mesh->v[v].p[1] + d[1], vz = mesh->v[v].p[2] + d[2];
+            const float q[3] = { -(M[0] * vx + M[1] * vy + M[2] * vz + M[3]) * scale,
+                                 (M[4] * vx + M[5] * vy + M[6] * vz + M[7]) * scale,
+                                 (M[8] * vx + M[9] * vy + M[10] * vz + M[11]) * scale };
+            fn(ctx, i, q);
+            found = 1;
+        }
+    }
+    return found;
+}
+
+typedef struct { int side, n; float mn[3], mx[3]; } box_ctx;
+static void box_vertex(void *c, int node, const float p[3]) {
+    (void)node;
+    box_ctx *b = c;
+    if ((b->side < 0 && p[0] > 0) || (b->side > 0 && p[0] < 0)) return;
+    for (int k = 0; k < 3; ++k) {
+        if (!b->n || p[k] < b->mn[k]) b->mn[k] = p[k];
+        if (!b->n || p[k] > b->mx[k]) b->mx[k] = p[k];
+    }
+    b->n++;
+}
+
+int demo_model_part_box(const demo_model *m, const acr_pose *pose, unsigned kinds, int side, float scale,
+                        float mn[3], float mx[3]) {
+    float mat[ACR_SKEL_MAX_NODES][12];
+    box_ctx b = { side, 0, { 0 }, { 0 } };
+    each_vertex(m, pose, kinds, scale, mat, box_vertex, &b);
+    if (!b.n) return 0;
+    memcpy(mn, b.mn, sizeof b.mn);
+    memcpy(mx, b.mx, sizeof b.mx);
+    return 1;
+}
+
+typedef struct { int side, n; float root[3], tip[3], best; } reach_ctx;
+static void reach_vertex(void *c, int node, const float p[3]) {
+    (void)node;
+    reach_ctx *r = c;
+    if ((r->side < 0 && p[0] > 0) || (r->side > 0 && p[0] < 0)) return;
+    const float dx = p[0] - r->root[0], dy = p[1] - r->root[1], dz = p[2] - r->root[2];
+    const float d = dx * dx + dy * dy + dz * dz;
+    if (!r->n || d > r->best) { r->best = d; memcpy(r->tip, p, sizeof r->tip); }
+    r->n++;
+}
+
+int demo_model_part_reach(const demo_model *m, const acr_pose *pose, unsigned kinds, int side, float scale,
+                          float root[3], float tip[3]) {
+    if (!m->ok) return 0;
+    float mat[ACR_SKEL_MAX_NODES][12];
+    acr_pose_matrices(&m->skel, pose, mat);
+    /* The shoulder: the side's first node drawing these parts whose parent
+     * draws something else (parents come before children). */
+    int found = 0;
+    reach_ctx r = { side, 0, { 0 }, { 0 }, 0 };
+    for (int i = 0; i < m->skel.count && !found; ++i) {
+        const acr_skel_node *node = &m->skel.node[i];
+        if (node->draw_kind >= ACR_PART_KINDS || !(kinds & (1u << node->draw_kind))) continue;
+        const int par = node->parent;
+        if (par >= 0 && m->skel.node[par].draw_kind < ACR_PART_KINDS && (kinds & (1u << m->skel.node[par].draw_kind)))
+            continue;
+        const float *M = mat[i];
+        const float q[3] = { -M[3] * scale, M[7] * scale, M[11] * scale };
+        if ((side < 0 && q[0] > 0) || (side > 0 && q[0] < 0)) continue;
+        memcpy(r.root, q, sizeof r.root);
+        found = 1;
+    }
+    if (!found) return 0;
+    each_vertex(m, pose, kinds, scale, mat, reach_vertex, &r);
+    if (!r.n) return 0;
+    memcpy(root, r.root, sizeof r.root);
+    memcpy(tip, r.tip, sizeof r.tip);
+    return 1;
+}
+
 void demo_model_draw_pose(const demo_model *m, const acr_pose *pose, float x, float y, float z,
                           float yaw, float scale, const acr_lighting *light) {
     if (!m->ok) return;

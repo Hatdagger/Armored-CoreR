@@ -70,6 +70,18 @@ int demo_model_bounds(const demo_model *m, int anim, unsigned tick, float mn[3],
  * as drawn). Where a weapon's shots leave from. 0 when none is drawn. */
 int demo_model_part_tip(const demo_model *m, const acr_pose *pose, unsigned kinds, float scale, float out[3]);
 
+/* The posed box of the parts in `kinds` (right, up, forward of the AC's
+ * feet, world units at `scale`), only vertices on one side when `side` is
+ * -1 (left) or +1 (right), 0 for all. 0 when none is drawn. */
+int demo_model_part_box(const demo_model *m, const acr_pose *pose, unsigned kinds, int side, float scale,
+                        float mn[3], float mx[3]);
+
+/* An arm's reach on one side (-1 left, +1 right): `root` its shoulder (the
+ * side's first node drawing `kinds`), `tip` its vertex farthest from it.
+ * Same space as demo_model_part_box. Where a blade's beam leaves from. */
+int demo_model_part_reach(const demo_model *m, const acr_pose *pose, unsigned kinds, int side, float scale,
+                          float root[3], float tip[3]);
+
 /* A garage model on its own (acr-import's models/menu/<kind>/NN: one OBJ,
  * its MTL and texture.png), as the OPTIONAL PARTS page shows a part. */
 typedef struct demo_object {

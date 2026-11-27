@@ -453,6 +453,38 @@ static void draw_aimed(int who, const demo_model *m, acr_pose *pose, Uint64 now,
                        demo_model_part_tip(m, pose, g_muzzle_parts[who], ACR_GEN1_MODEL_SCALE, g_muzzle[who].p) &&
                        fabsf(g_muzzle[who].p[0]) < 600 && fabsf(g_muzzle[who].p[2]) < 600 &&
                        g_muzzle[who].p[1] > -100 && g_muzzle[who].p[1] < 600;   /* else the stand-in */
+    {   /* where the booster's nozzles and the blade arm are, for the effects */
+        const float fx_ = sinf(yaw), fz_ = cosf(yaw), rx_ = cosf(yaw), rz_ = -sinf(yaw);
+#define TO_WORLD(o, l) do { (o)[0] = x + rx_ * (l)[0] + fx_ * (l)[2]; (o)[1] = y + (l)[1]; \
+                            (o)[2] = z + rz_ * (l)[0] + fz_ * (l)[2]; } while (0)
+        fx_rig rig;
+        SDL_zero(rig);
+        rig.back[0] = -fx_; rig.back[2] = -fz_;
+        float mn[3], mx[3];
+        if (demo_model_part_box(m, pose, 1u << ACR_PART_BOOSTER, 0, ACR_GEN1_MODEL_SCALE, mn, mx)) {
+            const float w = mx[0] - mn[0], cx = (mn[0] + mx[0]) * 0.5f, cy = (mn[1] + mx[1]) * 0.5f;
+            /* wide boosters: a nozzle each side */
+            const float l0[3] = { w > 50.0f ? cx - w * 0.28f : cx, cy, mn[2] + 4.0f };
+            const float l1[3] = { cx + w * 0.28f, cy, mn[2] + 4.0f };
+            rig.nozzles = w > 50.0f ? 2 : 1;
+            TO_WORLD(rig.nozzle[0], l0);
+            if (rig.nozzles == 2) TO_WORLD(rig.nozzle[1], l1);
+        } else if (demo_model_part_box(m, pose, 1u << ACR_PART_CORE, 0, ACR_GEN1_MODEL_SCALE, mn, mx)) {
+            const float l0[3] = { (mn[0] + mx[0]) * 0.5f, mn[1] + (mx[1] - mn[1]) * 0.6f, mn[2] };
+            rig.nozzles = 1;     /* no booster piece drawn: the core's back */
+            TO_WORLD(rig.nozzle[0], l0);
+        }
+        float root[3], tip[3];
+        /* the blade is on the left arm (model right is -x, so left is side -1) */
+        if (demo_model_part_reach(m, pose, (1u << ACR_PART_ARMS) | (1u << ACR_PART_HAND), -1, ACR_GEN1_MODEL_SCALE,
+                                  root, tip)) {
+            rig.blade_ok = 1;
+            TO_WORLD(rig.blade_root, root);
+            TO_WORLD(rig.blade_tip, tip);
+        }
+#undef TO_WORLD
+        fx_set_rig(who, &rig);
+    }
     demo_model_draw_pose(m, pose, x, y, z, yaw, ACR_GEN1_MODEL_SCALE, &g_light);
 }
 
@@ -3398,16 +3430,6 @@ int main(int argc, char **argv) {
             if (odyaw < -2048) odyaw += 4096;
             draw_ac(j, o, ox[j], oy[j], oz[j], ((float)op.syaw + odyaw * a) * (6.2831853f / 4096.0f),
                     (battle.f[j].kneeling || battle.f[j].stand_ms > 0) ? 150.0f : 0.0f);
-        }
-        if (battle.f[view].swing >= ACR_GEN1_BLADE_LUNGE_MS) {   /* blade arc while lunging */
-            float r = 205.0f;
-            for (int k = 0; k < battle.f[view].weapons; ++k)
-                if (battle.f[view].weapon[k].kind == ACR_GEN1_BLADE) r = (float)battle.f[view].weapon[k].range;
-            for (int k = -3; k < 3; ++k) {
-                const float a0 = yaw + k * 0.25f, a1 = yaw + (k + 1) * 0.25f;
-                line3(v3(px + sinf(a0) * r, py + 110, pz + cosf(a0) * r),
-                      v3(px + sinf(a1) * r, py + 110, pz + cosf(a1) * r), 120, 200, 255);
-            }
         }
         {   /* height marker, down to the floor under the AC */
             float ground = 0;

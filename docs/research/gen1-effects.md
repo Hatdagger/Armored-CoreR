@@ -54,3 +54,20 @@ weapon's shot from tables chosen by the part's `model_id`, not mapped yet;
 until then the look goes by weapon type (play-test 2026-11-19: rifles fire a
 purple-ish blob, round in front with a narrower tail; machine guns a
 streak).
+
+## Boosting and the blade (fx.c, matched by eye)
+
+- Booster: while the AC burns its booster (the button with energy to
+  spend, the modern toggle with a direction held, or a quick-boost burst)
+  each nozzle shows a flickering plume (picture 15's rocket flame, orange
+  with a white core) pointing backward and a little down, with a glow on
+  the nozzle. Lighting it gives a hot flash (picture 00), briefly longer
+  plumes, and a dust puff when it lights on the ground. Nozzles sit on the
+  back face of the posed booster piece (two on wide boosters); with no
+  booster piece, the core's back.
+- Blade: during a swing a light-blue beam (picture 15's wide capsule, white
+  core) leaves the left hand along the forearm, about 3/4 of the blade's
+  reach long, with a glow at the hand and a fading sheet over the last
+  ~0.1 s of the slash. It lights over 60 ms, holds to 900 ms, and is gone
+  by 1,150 ms of the 1,450 ms swing. The game's own blade sprite and
+  per-blade colours (MOONLIGHT) are not mapped yet.

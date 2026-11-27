@@ -156,6 +156,13 @@ static struct {
 static int32_t g_ap[ACR_GEN1_MAX_FIGHTERS];
 static uint8_t g_bhit[ACR_GEN1_MAX_FIGHTERS];   /* last blade_hit_seq seen */
 static int g_ap_ok;
+static fx_rig g_rig[ACR_GEN1_MAX_FIGHTERS];
+static uint8_t g_rig_ok[ACR_GEN1_MAX_FIGHTERS];
+static uint8_t g_boosting[ACR_GEN1_MAX_FIGHTERS];
+static float g_boost_ms[ACR_GEN1_MAX_FIGHTERS];   /* how long the boost has burned (ignition flare) */
+/* The blade's slash trail: the beam's last few spots, newest first. */
+#define FX_TRAIL 10
+static struct { int n; float t[FX_TRAIL]; float base[FX_TRAIL][3], end[FX_TRAIL][3]; } g_trail[ACR_GEN1_MAX_FIGHTERS];
 static uint8_t g_unit_down[ACR_GEN1_MAX_UNITS];   /* each unit's down counter last seen */
 static uint64_t g_last_ns;
 static float g_now_ms;          /* a running clock for flicker */
@@ -182,8 +189,17 @@ static part *spawn(int sheet, int frames, int blend, const float p[3], float lif
     return q;
 }
 
+void fx_set_rig(int fighter, const fx_rig *rig) {
+    if (fighter < 0 || fighter >= ACR_GEN1_MAX_FIGHTERS || !rig) return;
+    g_rig[fighter] = *rig;
+    g_rig_ok[fighter] = 1;
+}
+
 void fx_reset(void) {
     memset(g_part, 0, sizeof g_part);
+    memset(g_boosting, 0, sizeof g_boosting);
+    memset(g_trail, 0, sizeof g_trail);
+    memset(g_rig_ok, 0, sizeof g_rig_ok);
     memset(g_seen, 0, sizeof g_seen);
     memset(g_unit_down, 0, sizeof g_unit_down);
     g_ap_ok = 0;
@@ -253,6 +269,83 @@ static void ac_blast(const float feet[3]) {
         part *f = spawn(SH_FIRE, 4, B_ADD, q, 3200, 200, 160, 255, 255, 255, 255);
         f->age = -500 - i * 150.0f; f->loop_ms = 70; f->ground = 1;
     }
+}
+
+
+/* ---- boosting and the blade (matched by eye, like the rest) ---- */
+
+/* Burning the booster this step: the button (or the modern toggle with a
+ * direction, or a quick-boost burst) with energy to spend. */
+static int boosting(const acr_gen1_fighter *f) {
+    const acr_gen1_ac *ac = &f->ac;
+    if (f->ap <= 0) return 0;
+    if (ac->quick_ticks) return 1;
+    if (ac->drained || ac->energy <= 0 || ac->state == ACR_GEN1_LANDING || f->used.crouch) return 0;
+    return f->used.boost || (f->used.cruise && (f->used.move || f->used.strafe));
+}
+
+/* The rig as drawn, or a stand-in spot from the AC's place and facing. */
+static void rig_of(const acr_gen1_battle *b, int k, fx_rig *r) {
+    if (g_rig_ok[k]) { *r = g_rig[k]; return; }
+    const acr_gen1_ac *ac = &b->f[k].ac;
+    const float yaw = (float)ac->syaw * (6.2831853f / 4096.0f), fx = sinf(yaw), fz = cosf(yaw);
+    const float rx = cosf(yaw), rz = -sinf(yaw);
+    const float x = (float)ac->sx / 64.0f, y = -(float)ac->sy / 64.0f, z = (float)ac->sz / 64.0f;
+    memset(r, 0, sizeof *r);
+    r->nozzles = 1;
+    r->nozzle[0][0] = x - fx * 45; r->nozzle[0][1] = y + 140; r->nozzle[0][2] = z - fz * 45;
+    r->back[0] = -fx; r->back[2] = -fz;
+    r->blade_ok = 1;
+    r->blade_root[0] = x - rx * 55; r->blade_root[1] = y + 150; r->blade_root[2] = z - rz * 55;
+    r->blade_tip[0] = x - rx * 55 + fx * 70; r->blade_tip[1] = y + 110; r->blade_tip[2] = z - rz * 55 + fz * 70;
+}
+
+/* A boost lighting: a hot flash at each nozzle, and dust off the floor
+ * when it starts on the ground. */
+static void boost_ignite(const fx_rig *r, int on_ground, const float feet[3]) {
+    for (int n = 0; n < r->nozzles; ++n) {
+        part *f = spawn(SH_FLASH, 4, B_ADD, r->nozzle[n], 120, 30, 75, 255, 215, 150, 255);
+        f->spin = rnd() * 6.283f;
+    }
+    if (on_ground)
+        for (int i = 0; i < 2; ++i) {
+            const float q[3] = { feet[0] + r->back[0] * (40 + i * 40) + (rnd() - 0.5f) * 30, feet[1] + 15,
+                                 feet[2] + r->back[2] * (40 + i * 40) + (rnd() - 0.5f) * 30 };
+            part *d = spawn(SH_SMOKE, 1, B_SEMI, q, 520, 40, 120, 165, 160, 150, 90);
+            d->spin = rnd() * 6.283f; d->rise = 0.03f;
+        }
+}
+
+/* How strongly the blade's beam shows `ms` into a swing, 0..1. */
+static float blade_glow(int ms) {
+    if (ms <= 0) return 0.0f;
+    if (ms < 60) return (float)ms / 60.0f;
+    if (ms < 900) return 1.0f;
+    if (ms < 1150) return (float)(1150 - ms) / 250.0f;
+    return 0.0f;
+}
+
+/* The beam's reach as drawn, from the blade's reach in the fight. */
+static float blade_len(const acr_gen1_fighter *f) {
+    float r = 205.0f;
+    for (int k = 0; k < f->weapons; ++k)
+        if (f->weapon[k].kind == ACR_GEN1_BLADE) r = (float)f->weapon[k].range;
+    r *= 0.75f;
+    return r < 120.0f ? 120.0f : r > 280.0f ? 280.0f : r;
+}
+
+static int has_blade(const acr_gen1_fighter *f) {
+    for (int k = 0; k < f->weapons; ++k)
+        if (f->weapon[k].kind == ACR_GEN1_BLADE) return 1;
+    return 0;
+}
+
+static void blade_line(const acr_gen1_battle *b, int k, const fx_rig *r, float base[3], float end[3]) {
+    float d[3] = { r->blade_tip[0] - r->blade_root[0], r->blade_tip[1] - r->blade_root[1], r->blade_tip[2] - r->blade_root[2] };
+    const float l = sqrtf(d[0] * d[0] + d[1] * d[1] + d[2] * d[2]);
+    if (l > 1e-3f) for (int i = 0; i < 3; ++i) d[i] /= l;
+    const float len = blade_len(&b->f[k]);
+    for (int i = 0; i < 3; ++i) { base[i] = r->blade_tip[i]; end[i] = r->blade_tip[i] + d[i] * len; }
 }
 
 /* ---- watching the fight ---- */
@@ -392,6 +485,38 @@ void fx_update(const acr_gen1_battle *b, uint64_t now_ns) {
         }
         g_bhit[k] = b->f[k].blade_hit_seq;
         g_ap[k] = b->f[k].ap;
+        {   /* the booster lighting */
+            const int on = boosting(&b->f[k]);
+            if (on && !g_boosting[k] && g_ap_ok) {
+                fx_rig r;
+                float feet[3];
+                rig_of(b, k, &r);
+                ac_feet(b, k, feet);
+                boost_ignite(&r, b->f[k].ac.state != ACR_GEN1_AIR, feet);
+            }
+            g_boost_ms[k] = on ? (g_boosting[k] ? g_boost_ms[k] + dt : 0.0f) : 0.0f;
+            g_boosting[k] = (uint8_t)on;
+        }
+        {   /* the blade's trail: where the beam was, a spot every 12 ms */
+            const int ms = b->f[k].swing;
+            if (!ms || !has_blade(&b->f[k]) || b->f[k].ap <= 0) g_trail[k].n = 0;
+            else {
+                for (int i = 0; i < g_trail[k].n; ++i) g_trail[k].t[i] += dt;
+                if (!g_trail[k].n || g_trail[k].t[0] >= 12.0f) {
+                    fx_rig r;
+                    rig_of(b, k, &r);
+                    if (r.blade_ok) {
+                        if (g_trail[k].n < FX_TRAIL) g_trail[k].n++;
+                        memmove(&g_trail[k].t[1], &g_trail[k].t[0], sizeof(float) * (FX_TRAIL - 1));
+                        memmove(&g_trail[k].base[1], &g_trail[k].base[0], sizeof(float) * 3 * (FX_TRAIL - 1));
+                        memmove(&g_trail[k].end[1], &g_trail[k].end[0], sizeof(float) * 3 * (FX_TRAIL - 1));
+                        g_trail[k].t[0] = 0.0f;
+                        blade_line(b, k, &r, g_trail[k].base[0], g_trail[k].end[0]);
+                    }
+                }
+                while (g_trail[k].n && g_trail[k].t[g_trail[k].n - 1] > 110.0f) g_trail[k].n--;
+            }
+        }
     }
     /* Mission units: a blast sized to the body the tick one is destroyed. */
     for (int u = 0; u < b->units; ++u) {
@@ -577,6 +702,80 @@ void fx_draw(const acr_gen1_battle *b, const float eye[3], const float fwd[3]) {
         shot_pos(s, p);
         const rect all = { 0, 0, (float)g_tex_w[SH_GLOW], (float)g_tex_h[SH_GLOW] };
         billboard(p, 50.0f * flick, 0, right, up, SH_GLOW, all, 140, 200, 255, 255);
+    }
+    flush(SH_GLOW, B_ADD);
+
+    /* Booster flames: a flickering plume out of each nozzle, backward and
+     * a little down, longer for a moment as it lights; a hot glow on the
+     * nozzle. */
+    for (int k = 0; k < acr_gen1_battle_fighters(b); ++k) {
+        if (!g_boosting[k]) continue;
+        fx_rig r;
+        rig_of(b, k, &r);
+        const float fl = 0.8f + 0.2f * sinf(g_now_ms * 0.11f + k * 1.7f) + 0.08f * (rnd() - 0.5f);
+        const float lit = g_boost_ms[k] < 120.0f ? 1.0f + 0.6f * (1.0f - g_boost_ms[k] / 120.0f) : 1.0f;
+        float d[3] = { r.back[0], -0.35f, r.back[2] };
+        norm(d);
+        for (int n = 0; n < r.nozzles; ++n) {
+            const float *p = r.nozzle[n];
+            const float len = 62.0f * fl * lit, core = 30.0f * fl * lit;
+            const float tail[3] = { p[0] + d[0] * len, p[1] + d[1] * len, p[2] + d[2] * len };
+            const float tail2[3] = { p[0] + d[0] * core, p[1] + d[1] * core, p[2] + d[2] * core };
+            streak(tail, p, 30.0f, eye, SH_SHOTS, k_plume, 255, 165, 80, 230);
+            streak(tail2, p, 16.0f, eye, SH_SHOTS, k_plume, 255, 240, 200, 255);
+        }
+    }
+    flush(SH_SHOTS, B_ADD);
+    for (int k = 0; k < acr_gen1_battle_fighters(b); ++k) {
+        if (!g_boosting[k]) continue;
+        fx_rig r;
+        rig_of(b, k, &r);
+        const rect all = { 0, 0, (float)g_tex_w[SH_GLOW], (float)g_tex_h[SH_GLOW] };
+        for (int n = 0; n < r.nozzles; ++n)
+            billboard(r.nozzle[n], 34.0f * flick, 0, right, up, SH_GLOW, all, 255, 200, 130, 220);
+    }
+    flush(SH_GLOW, B_ADD);
+
+    /* The blade: a light beam out of the hand along the forearm, its core
+     * white, with a fading sheet over the last ~0.1 s of the slash. */
+    for (int k = 0; k < acr_gen1_battle_fighters(b); ++k) {
+        const acr_gen1_fighter *f = &b->f[k];
+        const float g = f->ap > 0 && has_blade(f) ? blade_glow(f->swing) : 0.0f;
+        if (g <= 0.0f) continue;
+        fx_rig r;
+        rig_of(b, k, &r);
+        if (!r.blade_ok) continue;
+        float base[3], end[3];
+        blade_line(b, k, &r, base, end);
+        const uint8_t a = (uint8_t)(255 * g);
+        /* the trail: quads between the beam's past spots */
+        const float tw = (float)g_tex_w[SH_SHOTS], th = (float)g_tex_h[SH_SHOTS];
+        const float u0 = (k_beam.u + k_beam.w * 0.3f) / tw, u1 = (k_beam.u + k_beam.w * 0.7f) / tw;
+        for (int i = 0; i + 1 < g_trail[k].n; ++i) {
+            const float fade = 1.0f - g_trail[k].t[i + 1] / 110.0f;
+            if (fade <= 0) continue;
+            const float c[4][3] = {
+                { g_trail[k].end[i][0], g_trail[k].end[i][1], g_trail[k].end[i][2] },
+                { g_trail[k].end[i + 1][0], g_trail[k].end[i + 1][1], g_trail[k].end[i + 1][2] },
+                { g_trail[k].base[i + 1][0], g_trail[k].base[i + 1][1], g_trail[k].base[i + 1][2] },
+                { g_trail[k].base[i][0], g_trail[k].base[i][1], g_trail[k].base[i][2] },
+            };
+            quad(c, u0, 0, u1, k_beam.h / th, 120, 180, 255, (uint8_t)(150 * fade * g));
+        }
+        const float fl = 0.9f + 0.1f * sinf(g_now_ms * 0.15f + k);
+        streak(base, end, 30.0f * fl, eye, SH_SHOTS, k_beam, 130, 195, 255, a);
+        streak(base, end, 12.0f, eye, SH_SHOTS, k_beam, 235, 245, 255, a);
+    }
+    flush(SH_SHOTS, B_ADD);
+    for (int k = 0; k < acr_gen1_battle_fighters(b); ++k) {
+        const acr_gen1_fighter *f = &b->f[k];
+        const float g = f->ap > 0 && has_blade(f) ? blade_glow(f->swing) : 0.0f;
+        if (g <= 0.0f) continue;
+        fx_rig r;
+        rig_of(b, k, &r);
+        if (!r.blade_ok) continue;
+        const rect all = { 0, 0, (float)g_tex_w[SH_GLOW], (float)g_tex_h[SH_GLOW] };
+        billboard(r.blade_tip, 46.0f * flick, 0, right, up, SH_GLOW, all, 150, 210, 255, (uint8_t)(230 * g));
     }
     flush(SH_GLOW, B_ADD);
 }
