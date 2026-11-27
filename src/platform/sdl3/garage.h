@@ -1,6 +1,6 @@
 /* The game's menus. The main menu is the hangar (user's design, project doc
  * claude/hangar-menu-and-garage-ui.md): the player's AC on its gantry and
- * an XMB-style menu on the console's CRT, columns SYSTEM, DATA, VERSUS,
+ * an XMB-style menu on the console's CRT, columns SYSTEM, DATA, MULTIPLAYER,
  * ARENA, GARAGE, MISSION with their items under the one in focus.
  * GARAGE > ASSEMBLE: the slot list, the AC with the slot's part as a
  * pulsing red wireframe, the part you are looking at turning on the right
@@ -22,6 +22,9 @@ typedef enum garage_command {
     GC_CHANGED,     /* the build or the stock changed: reload the AC and save */
     GC_TEST,        /* AC TEST with the current build (it passed the check) */
     GC_NETWORK,     /* the NETWORK screen (host or join a match; the build passed the check) */
+    GC_SPLIT,       /* MULTIPLAYER > SPLIT SCREEN: two players on this PC */
+    GC_LAN,         /* MULTIPLAYER > LAN: the NETWORK screen, local network / direct IP only */
+    GC_ONLINE,      /* MULTIPLAYER > ONLINE: the NETWORK screen, internet (mission briefings) only */
     GC_ROGUE,       /* ROGUE ARENA */
     GC_ARENA,       /* ARENA: the ranked ladders (arena_row: which row to start on) */
     GC_MISSIONS,    /* MISSIONS: the mission list, briefings and sorties */

@@ -253,6 +253,12 @@ static void new_arena(void) {
     to_hub();
 }
 
+void rogue_open(const char *pilot, const char *ac);
+void rogue_open_coop(const char *pilot, const char *ac) {
+    rogue_open(pilot, ac);
+    if (R.ok) { R.cur = 1; coop_open(); }
+}
+
 void rogue_open(const char *pilot, const char *ac) {
     SDL_strlcpy(R.pilot, pilot && pilot[0] ? pilot : "RAVEN", sizeof R.pilot);
     SDL_strlcpy(R.ac, ac && ac[0] ? ac : "AC", sizeof R.ac);

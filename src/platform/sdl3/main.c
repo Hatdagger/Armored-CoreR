@@ -69,6 +69,7 @@ static int g_hud_frame = BATTLE_HUD_FRAME_43;
 static int g_hud_frame_arg;   /* --hud-wide given: it wins over SETTINGS > VIDEO */
 #include "net_link.h"
 #include "net_menu.h"
+#include "split_menu.h"
 #include "hangar3d.h"
 #include "net_brief_ui.h"
 #include "../../net/acr_rollback.h"
@@ -623,6 +624,7 @@ static int next_part(const char *dir, int parts[SLOT_COUNT], int slot, demo_ac *
 #define MODE_MISSIONS   13
 #define MODE_SETTINGS   14
 #define MODE_UPDATE     15   /* SETTINGS > UPDATES (Android) */
+#define MODE_SPLIT      16   /* MULTIPLAYER > SPLIT SCREEN */
 static int g_ai_mode = 0;
 static acr_gen1_ai_profile g_rogue_prof;
 static int g_plus2 = 0;                  /* the opponent's Human PLUS level (Rogue Arena) */
@@ -1536,6 +1538,7 @@ int main(int argc, char **argv) {
     static net_link *net = NULL;
     static net_match_info net_info;
     static net_menu nmenu;
+    static split_menu smenu;
     static net_finder *finder = NULL;
     static char net_status[1600];
     /* Over the internet (briefing codes): the editor is mode 5. */
@@ -1736,6 +1739,7 @@ int main(int argc, char **argv) {
         rogue_command rcmd = RC_NONE;
         arena_command acmd = AC_NONE;
         missions_command mcmd = MC_NONE;
+        split_menu_command scmd = SM_NONE;
         garage_action net_action = GA_NONE;   /* the network screens' input this frame */
         int net_action_keys = 0;
         int net_copy = 0, net_paste = 0;      /* copy / paste a briefing code this frame */
@@ -1755,6 +1759,14 @@ int main(int argc, char **argv) {
                 if (e.type == SDL_EVENT_KEY_DOWN) ga = key_action(e.key.scancode);
                 if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) ga = button_action(e.gbutton.button);
                 if (settings_input(&sui, ga)) { mode = 0; gui.screen = 0; }
+                continue;
+            }
+            if (mode == MODE_SPLIT) {   /* MULTIPLAYER > SPLIT SCREEN */
+                garage_action ga = GA_NONE;
+                if (e.type == SDL_EVENT_KEY_DOWN) ga = key_action(e.key.scancode);
+                if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) ga = button_action(e.gbutton.button);
+                const split_menu_command sc = split_menu_input(&smenu, ga);
+                if (sc != SM_NONE) scmd = sc;
                 continue;
             }
             if (mode == MODE_UPDATE) {   /* SETTINGS > UPDATES */
@@ -2498,6 +2510,51 @@ int main(int argc, char **argv) {
                 if (sui.page == 1) sfx_ui(SFX_UI_CURSOR);   /* hear the new menu volume */
             }
         }
+        if (mode == MODE_SPLIT) {   /* MULTIPLAYER > SPLIT SCREEN */
+            smenu.players_ready = pads[0] != NULL;   /* one pad: P1 keyboard, P2 the pad; two: one each */
+            garage_action d = pad_direction(pads[0], SDL_GetTicks());
+            if (d == GA_NONE) d = script_action();
+            if (d != GA_NONE) { const split_menu_command sc = split_menu_input(&smenu, d); if (sc != SM_NONE) scmd = sc; }
+            if (scmd == SM_BACK) { mode = 0; gui.screen = 0; }
+            if (scmd == SM_COOP) { rogue_open_coop(g_hangar.pilot_name, g_hangar.ac_name); mode = MODE_ROGUE; }
+            if (scmd == SM_VERSUS) {
+                const int want_id = split_menu_stage(&smenu);
+                g_stage_on = 0;
+                if (want_id > 0) {
+                    if (g_stage.ok && g_stage_id == want_id) g_stage_on = 1;
+                    else {
+                        demo_stage tmp;
+                        if (demo_stage_load(dir, want_id, &tmp)) {
+                            if (g_stage.ok) demo_stage_free(&g_stage);
+                            g_stage = tmp; g_test_boundary = 0; g_stage_id = want_id; g_stage_on = 1;
+                        }
+                    }
+                }
+                def->stage = def2->stage = battle.stage = g_stage_on ? &g_stage.collision : NULL;
+                memcpy(parts2, parts, sizeof parts2);
+                demo_load(dir, parts2, &ac_data[1], err, sizeof err);
+                g_ai_mode = 0; g_autopilot = 0; g_rogue_fight = 0;
+                two_players = 1;
+                set_rate(&clock, def, g_tick_rate);
+                set_rate(&clock, def2, g_tick_rate);
+                SETUP_FIGHTERS();
+                prevs[0] = *P; prevs[1] = *T;
+                last = SDL_GetTicksNS();
+                mode = 1;
+            }
+            if (mode == MODE_SPLIT) {
+                static Uint64 split_last_ms;
+                const Uint64 now_ms = SDL_GetTicks();
+                const int elapsed = split_last_ms ? (int)(now_ms - split_last_ms) : 0;
+                split_last_ms = now_ms;
+                int pw = 0, ph = 0;
+                SDL_GetWindowSizeInPixels(window, &pw, &ph);
+                if (pw < 1 || ph < 1) { SDL_Delay(10); continue; }
+                acr_render_begin(pw, ph, 18, 22, 28);
+                split_menu_draw(&smenu, acr_render_hud(0, 0, pw, ph), elapsed);
+                goto present;
+            }
+        }
         if (mode == MODE_UPDATE) {
             garage_action d = pad_direction(pads[0], SDL_GetTicks());
             if (d == GA_NONE) d = script_action();
@@ -2598,6 +2655,23 @@ int main(int argc, char **argv) {
             if (gcmd == GC_UPDATES && update_supported()) { update_open(&uui); mode = MODE_UPDATE; }
             if (gcmd == GC_REIMPORT) { disc_pick_open(window); g_reimport_picking = 1; }
             if (gcmd == GC_QUIT) running = 0;
+            if (gcmd == GC_SPLIT) {
+                static int split_inited;
+                if (!split_inited) { split_menu_init(&smenu); split_inited = 1; }
+                for (int i = 0; i < SPLIT_MENU_STAGES; ++i) {
+                    const int id = i == 0 ? 27 : i == 1 ? 39 : 0;
+                    smenu.stage_ok[i] = id == 0 || net_stage_check(dir, id) != 0;
+                }
+                if (!smenu.stage_ok[smenu.stage_pick]) smenu.stage_pick = 2;
+                smenu.message_ms = 0;
+                mode = MODE_SPLIT;
+            }
+            if (gcmd == GC_LAN || gcmd == GC_ONLINE || gcmd == GC_NETWORK) {
+                const int kind = gcmd == GC_LAN ? NET_KIND_LAN : gcmd == GC_ONLINE ? NET_KIND_ONLINE : NET_KIND_ALL;
+                if (nmenu.kind != kind) nmenu.row = 0;
+                nmenu.kind = kind;
+                gcmd = GC_NETWORK;
+            }
             if (gcmd == GC_NETWORK) {
                 mode = 2;
                 nmenu.message_ms = 0;

@@ -20,12 +20,30 @@ static const char k_keys[] = "0123456789.:";
 #define KEY_JOIN ((int)sizeof k_keys)
 #define KEYS     ((int)sizeof k_keys + 1)
 
-enum { ROW_HOST, ROW_HOST_ONLINE, ROW_MODE, ROW_AI, ROW_STAGE, ROW_DELAY, ROW_FOUND };
+enum { ROW_HOST, ROW_HOST_ONLINE, ROW_MODE, ROW_AI, ROW_STAGE, ROW_DELAY, ROW_BRIEF, ROW_ADDRESS, ROW_BACK,
+       ROW_FOUND = 100 };   /* ROW_FOUND + i: the i-th game found on the network */
 
-static int rows(const net_menu *m) { return ROW_FOUND + m->found_n + 3; }
-static int row_brief(const net_menu *m) { return ROW_FOUND + m->found_n; }
-static int row_address(const net_menu *m) { return ROW_FOUND + m->found_n + 1; }
-static int row_back(const net_menu *m) { return ROW_FOUND + m->found_n + 2; }
+/* The rows this screen shows, in order (LAN: no internet rows; ONLINE: no
+ * network list or address). Returns how many. */
+static int row_list(const net_menu *m, int *ids) {
+    int n = 0;
+    const int lan = m->kind != NET_KIND_ONLINE, online = m->kind != NET_KIND_LAN;
+    if (lan) ids[n++] = ROW_HOST;
+    if (online) ids[n++] = ROW_HOST_ONLINE;
+    ids[n++] = ROW_MODE; ids[n++] = ROW_AI; ids[n++] = ROW_STAGE; ids[n++] = ROW_DELAY;
+    if (lan) for (int i = 0; i < m->found_n; ++i) ids[n++] = ROW_FOUND + i;
+    if (online) ids[n++] = ROW_BRIEF;
+    if (lan) ids[n++] = ROW_ADDRESS;
+    ids[n++] = ROW_BACK;
+    return n;
+}
+static int rows(const net_menu *m) { int ids[ROW_BACK + NET_MENU_FOUND + 1]; return row_list(m, ids); }
+/* The row under the cursor (ROW_...). */
+static int cur_row(const net_menu *m) {
+    int ids[ROW_BACK + NET_MENU_FOUND + 1];
+    const int n = row_list(m, ids);
+    return ids[m->row < n ? m->row : n - 1];
+}
 
 const char *net_menu_stage_name(int stage) {
     switch (stage) {
@@ -51,7 +69,7 @@ void net_menu_say(net_menu *m, const char *text) {
     m->message_ms = 4000;
 }
 
-int net_menu_typing(const net_menu *m) { return m->row == row_address(m); }
+int net_menu_typing(const net_menu *m) { return cur_row(m) == ROW_ADDRESS; }
 
 static void add_char(net_menu *m, char c) {
     const size_t n = SDL_strlen(m->address);
@@ -83,13 +101,14 @@ net_menu_command net_menu_input(net_menu *m, garage_action a, int keyboard, char
     if (m->row >= n) m->row = n - 1;
     if (a == GA_UP) { m->row = (m->row + n - 1) % n; return NM_NONE; }
     if (a == GA_DOWN) { m->row = (m->row + 1) % n; return NM_NONE; }
-    const int addr_row = m->row == row_address(m);
+    const int r = cur_row(m);
+    const int addr_row = r == ROW_ADDRESS;
     if (a == GA_LEFT || a == GA_RIGHT) {
         const int d = a == GA_LEFT ? -1 : 1;
-        if (m->row == ROW_STAGE) step_stage(m, d);
-        if (m->row == ROW_DELAY) m->delay = (m->delay + d + 5) % 5;    /* 0..4 */
-        if (m->row == ROW_MODE) m->coop_ai = (m->coop_ai + d + 4) % 4;
-        if (m->row == ROW_AI) {
+        if (r == ROW_STAGE) step_stage(m, d);
+        if (r == ROW_DELAY) m->delay = (m->delay + d + 5) % 5;    /* 0..4 */
+        if (r == ROW_MODE) m->coop_ai = (m->coop_ai + d + 4) % 4;
+        if (r == ROW_AI) {
             const int k = ACR_GEN1_AI_PRESETS - 1;                     /* BALANCED .. EVASIVE */
             m->ai_preset = (m->ai_preset - 1 + d + k) % k + 1;
         }
@@ -101,15 +120,15 @@ net_menu_command net_menu_input(net_menu *m, garage_action a, int keyboard, char
         return NM_BACK;
     }
     if (a != GA_OK) return NM_NONE;
-    if (m->row == ROW_HOST) return NM_HOST;
-    if (m->row == ROW_HOST_ONLINE) return NM_HOST_ONLINE;
-    if (m->row == row_brief(m)) return NM_JOIN_BRIEF;
-    if (m->row == ROW_STAGE) { step_stage(m, 1); return NM_NONE; }
-    if (m->row == ROW_DELAY) { m->delay = (m->delay + 1) % 5; return NM_NONE; }
-    if (m->row == ROW_MODE) { m->coop_ai = (m->coop_ai + 1) % 4; return NM_NONE; }
-    if (m->row == ROW_AI) { m->ai_preset = m->ai_preset % (ACR_GEN1_AI_PRESETS - 1) + 1; return NM_NONE; }
-    if (m->row >= ROW_FOUND && m->row < row_address(m)) {
-        const net_found *g = &m->found[m->row - ROW_FOUND];
+    if (r == ROW_HOST) return NM_HOST;
+    if (r == ROW_HOST_ONLINE) return NM_HOST_ONLINE;
+    if (r == ROW_BRIEF) return NM_JOIN_BRIEF;
+    if (r == ROW_STAGE) { step_stage(m, 1); return NM_NONE; }
+    if (r == ROW_DELAY) { m->delay = (m->delay + 1) % 5; return NM_NONE; }
+    if (r == ROW_MODE) { m->coop_ai = (m->coop_ai + 1) % 4; return NM_NONE; }
+    if (r == ROW_AI) { m->ai_preset = m->ai_preset % (ACR_GEN1_AI_PRESETS - 1) + 1; return NM_NONE; }
+    if (r >= ROW_FOUND) {
+        const net_found *g = &m->found[r - ROW_FOUND];
         if (!g->same_data) {
             net_menu_say(m, "THAT HOST'S GAME DATA IS DIFFERENT: IMPORT THE SAME DISC ON BOTH PCS.");
             return NM_NONE;
@@ -144,29 +163,32 @@ static void row_text(float x, float y, int sel, const char *text) {
 void net_menu_draw(net_menu *m, float hud_w, int elapsed_ms) {
     char line[128];
     const float px = hud_w / 2 - PANEL_W / 2, x = px + 12;
-    acr_hud_text(px, 12, "NETWORK MATCH", HILITE);
+    acr_hud_text(px, 12, m->kind == NET_KIND_LAN ? "MULTIPLAYER  >  LAN" : m->kind == NET_KIND_ONLINE ? "MULTIPLAYER  >  ONLINE" : "NETWORK MATCH", HILITE);
     panel(px, 34, PANEL_W, 400);
     if (m->row >= rows(m)) m->row = rows(m) - 1;
+    const int r = cur_row(m);
+    const int lan = m->kind != NET_KIND_ONLINE, online = m->kind != NET_KIND_LAN;
     float y = 48;
 
     acr_hud_text(x, y, "HOST", DIM); y += 14;
-    row_text(x, y, m->row == ROW_HOST, "HOST ON THIS NETWORK (LAN / DIRECT IP)"); y += 18;
-    row_text(x, y, m->row == ROW_HOST_ONLINE, "HOST ONLINE (SEND A MISSION BRIEFING)"); y += 18;
+    if (lan) { row_text(x, y, r == ROW_HOST, "HOST ON THIS NETWORK (LAN / DIRECT IP)"); y += 18; }
+    if (online) { row_text(x, y, r == ROW_HOST_ONLINE, "HOST ONLINE (SEND A MISSION BRIEFING)"); y += 18; }
     static const char *const k_mode[4] = { "VS  (YOU AGAINST EACH OTHER)", "CO-OP  (YOU TWO VS 1 AI)", "CO-OP  (YOU TWO VS 2 AI)",
                                            "ROGUE ARENA CO-OP  (YOUR RUN)" };
     const int rogue = m->coop_ai == NET_MODE_ROGUE;
     SDL_snprintf(line, sizeof line, "MODE          < %s >", k_mode[m->coop_ai]);
-    row_text(x, y, m->row == ROW_MODE, line); y += 18;
+    row_text(x, y, r == ROW_MODE, line); y += 18;
     SDL_snprintf(line, sizeof line, "AI PILOT      < %s >%s", acr_gen1_ai_preset_name(m->ai_preset),
                  rogue ? "  (NOT USED)" : m->coop_ai ? "" : "  (CO-OP ONLY)");
-    row_text(x, y, m->row == ROW_AI, line); y += 18;
+    row_text(x, y, r == ROW_AI, line); y += 18;
     if (rogue) SDL_snprintf(line, sizeof line, "STAGE         (PICKED IN THE RUN)");
     else SDL_snprintf(line, sizeof line, "STAGE         < %s >", net_menu_stage_name(net_menu_stage(m)));
-    row_text(x, y, m->row == ROW_STAGE, line); y += 18;
+    row_text(x, y, r == ROW_STAGE, line); y += 18;
     SDL_snprintf(line, sizeof line, "INPUT DELAY   < %d >  %s", m->delay,
                  m->delay == 0 ? "(INSTANT, MORE FIXES)" : m->delay == 1 ? "(DEFAULT)" : "(STEADIER, MORE LAG)");
-    row_text(x, y, m->row == ROW_DELAY, line); y += 30;
+    row_text(x, y, r == ROW_DELAY, line); y += 30;
 
+    if (lan) {
     acr_hud_text(x, y, "JOIN: GAMES ON YOUR NETWORK", DIM); y += 14;
     if (!m->found_n) { acr_hud_text(x, y, "LOOKING...  (NONE YET: HOST ON THE OTHER PC FIRST)", DIM); y += 18; }
     for (int i = 0; i < m->found_n; ++i) {
@@ -174,17 +196,22 @@ void net_menu_draw(net_menu *m, float hud_w, int elapsed_ms) {
         SDL_snprintf(line, sizeof line, "%-12.12s %-21s %s%s", g->name[0] ? g->name : "AC", g->this_pc ? "THIS PC" : g->addr,
                      !g->same_data ? "DIFFERENT DATA" : g->rogue ? "ROGUE ARENA" : net_menu_stage_name(g->stage),
                      g->same_data && g->rogue ? "  CO-OP" : g->same_data && g->coop_ai ? "  CO-OP" : "");
-        row_text(x, y, m->row == ROW_FOUND + i, line);
-        if (!g->same_data && m->row != ROW_FOUND + i) acr_hud_text(x + 8 * 35, y, "DIFFERENT DATA", BAD);
+        row_text(x, y, r == ROW_FOUND + i, line);
+        if (!g->same_data && r != ROW_FOUND + i) acr_hud_text(x + 8 * 35, y, "DIFFERENT DATA", BAD);
         y += 18;
     }
     y += 12;
 
+    }
+    if (online) {
     acr_hud_text(x, y, "JOIN OVER THE INTERNET", DIM); y += 14;
-    row_text(x, y, m->row == row_brief(m), "JOIN WITH A MISSION BRIEFING"); y += 18;
+    row_text(x, y, r == ROW_BRIEF, "JOIN WITH A MISSION BRIEFING"); y += 18;
     y += 8;
+    }
+    const int addr_sel = r == ROW_ADDRESS;
+    if (lan) {
     acr_hud_text(x, y, "JOIN BY ADDRESS (DIRECT IP, OR NOT LISTED)", DIM); y += 14;
-    const int addr_sel = m->row == row_address(m);
+    
     const int blink = (SDL_GetTicks() / 400) % 2;
     SDL_snprintf(line, sizeof line, "ADDRESS  %s%s", m->address, addr_sel && blink ? "_" : "");
     row_text(x, y, addr_sel, line); y += 18;
@@ -203,7 +230,8 @@ void net_menu_draw(net_menu *m, float hud_w, int elapsed_ms) {
         y += 18;
     }
     y += 12;
-    row_text(x, y, m->row == row_back(m), "BACK TO THE GARAGE");
+    }
+    row_text(x, y, r == ROW_BACK, "BACK TO THE HANGAR");
 
     if (m->message_ms > 0) {
         m->message_ms -= elapsed_ms;

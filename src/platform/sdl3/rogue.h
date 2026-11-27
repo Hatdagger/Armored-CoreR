@@ -55,6 +55,8 @@ int rogue_init(const char *import_dir, const acr_gen1_catalog *cat,
                char names[ACR_GEN1_CAT_COUNT][ACR_GEN1_PART_MAX][24]);
 /* From the garage's ROGUE ARENA: the start menu. Names for a new run. */
 void rogue_open(const char *pilot, const char *ac);
+/* Straight into CO-OP (MULTIPLAYER > SPLIT SCREEN > CO-OP). */
+void rogue_open_coop(const char *pilot, const char *ac);
 rogue_command rogue_input(garage_action a);
 /* Draws the current screen on the HUD grid (480 high, `hud_w` wide). */
 void rogue_draw(float hud_w, int elapsed_ms);

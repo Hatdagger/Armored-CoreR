@@ -18,7 +18,11 @@ typedef enum net_menu_command {
     NM_JOIN_BRIEF                /* join over the internet: enter a mission briefing */
 } net_menu_command;
 
+/* Which screen: everything, the local network only, or the internet only. */
+enum { NET_KIND_ALL, NET_KIND_LAN, NET_KIND_ONLINE };
+
 typedef struct net_menu {
+    int kind;                        /* NET_KIND_... */
     int row;                         /* cursor */
     int stage_pick;                  /* index into the stage list */
     int stage_ok[NET_MENU_STAGES];   /* that stage is in this import */

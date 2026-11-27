@@ -50,9 +50,9 @@ static const char *const k_menu_info[M_COUNT][2] = {
     [M_REIMPORT] = { "IMPORT A DISC AGAIN.", "SAVES ARE KEPT." },
     [M_QUIT] = { "CLOSE THE GAME.", "" },
     [M_EMBLEM] = { "DESIGN YOUR MARK.", "COMING SOON." },
-    [M_SPLIT] = { "TWO PLAYERS ON ONE SCREEN.", "OPENS THE NETWORK SCREEN." },
-    [M_LAN] = { "FIGHT ON THE SAME NETWORK.", "OPENS THE NETWORK SCREEN." },
-    [M_ONLINE] = { "NETPLAY OVER THE INTERNET.", "OPENS THE NETWORK SCREEN." },
+    [M_SPLIT] = { "TWO PLAYERS ON THIS PC.", "VERSUS OR CO-OP." },
+    [M_LAN] = { "PLAY ON THE SAME NETWORK.", "VERSUS OR CO-OP. DIRECT IP TOO." },
+    [M_ONLINE] = { "PLAY OVER THE INTERNET.", "VERSUS OR CO-OP, WITH BRIEFING CODES." },
     [M_AR_PP] = { "PROJECT PHANTASMA'S", "RANKING LADDER." },
     [M_AR_MOA] = { "MASTER OF ARENA'S", "MAIN RANKS." },
     [M_AR_MOA_SUB] = { "MASTER OF ARENA'S", "LOWER-TIER RANKED BOUTS." },
@@ -62,7 +62,7 @@ static const char *const k_menu_info[M_COUNT][2] = {
 };
 /* The hangar menu's columns, left to right; GARAGE is in focus at the start. */
 enum { X_SYSTEM, X_DATA, X_VERSUS, X_ARENA, X_GARAGE, X_MISSION, X_COLS };
-static const char *const k_col_name[X_COLS] = { "SYSTEM", "DATA", "VERSUS", "ARENA", "GARAGE", "MISSION" };
+static const char *const k_col_name[X_COLS] = { "SYSTEM", "DATA", "MULTIPLAYER", "ARENA", "GARAGE", "MISSION" };
 #define X_ROWS_MAX 8
 static const int k_col_items[X_COLS][X_ROWS_MAX + 1] = {   /* -1 ends a column */
 #ifdef SDL_PLATFORM_ANDROID
@@ -392,7 +392,8 @@ static garage_command choose(garage_ui *ui, garage_data *d, int id, int *err) {
     if (id == M_TEST || id == M_NETWORK || id == M_SPLIT || id == M_LAN || id == M_ONLINE) {
         acr_gen1_fit_numbers n;
         const unsigned fail = acr_gen1_garage_check(d->hangar, d->cat, &n);
-        if (!fail) return id == M_TEST ? GC_TEST : GC_NETWORK;
+        if (!fail) return id == M_TEST ? GC_TEST : id == M_SPLIT ? GC_SPLIT : id == M_LAN ? GC_LAN :
+                           id == M_ONLINE ? GC_ONLINE : GC_NETWORK;
         say(ui, fail & ACR_GEN1_FAIL_MISSING_PART ? "AC EQUIPMENT INCOMPLETE." :
                 fail & ACR_GEN1_FAIL_NO_BOOSTER ? "THESE LEGS NEED A BOOSTER." :
                 fail & ACR_GEN1_FAIL_ENERGY ? "ENERGY OUTPUT TOO LOW." :
@@ -889,7 +890,8 @@ static void xmb_draw(garage_ui *ui, const garage_data *d, float hud_w, int elaps
         const float isz = 34 * k;
         if (on) hs_puff(x + w * 0.5f, icon_y + 4 + isz * 0.5f, isz * 0.9f, 120, 255, 190, 40);
         hangar_icon(i, x + (w - isz) * 0.5f, icon_y + 4, isz, r, g, b, a);
-        const float ts = 8.5f, tw = (float)SDL_strlen(k_col_name[i]) * ts;
+        const float len = (float)SDL_strlen(k_col_name[i]);
+        const float ts = len * 8.5f > 98 * k ? 98 * k / len : 8.5f, tw = len * ts;   /* long names (MULTIPLAYER) shrink to fit */
         if (x + w * 0.5f - tw * 0.5f >= cx && x + w * 0.5f + tw * 0.5f <= cx + cw)
             acr_hud_text_size(x + w * 0.5f - tw * 0.5f, icon_y + 8 + isz, k_col_name[i], ts, r, g, b, a);
     }
