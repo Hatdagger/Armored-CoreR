@@ -373,6 +373,7 @@ int32_t acr_gen1_unit_damage(uint16_t attack, int energy, int8_t n) {
 static void unit_hit_turn(acr_gen1_unit *u);
 
 static void damage_by(acr_gen1_battle *b, int target, int attacker, uint16_t attack, int energy) {
+    if (b->over) return;                                /* the round is decided: hits no longer count */
     if (is_unit(target)) {
         acr_gen1_unit *u = &b->unit[target - ACR_GEN1_MAX_FIGHTERS];
         if (u->ap <= 0 || u->down) return;
@@ -392,6 +393,25 @@ static void damage_by(acr_gen1_battle *b, int target, int attacker, uint16_t att
 
 static void damage(acr_gen1_battle *b, int target, int attacker, const acr_gen1_weapon *w) {
     damage_by(b, target, attacker, w->attack, w->energy);
+}
+
+/* Hit stagger (VS 0x80082500; ACR_GEN1_STAGGER_* in the header): a hit of
+ * `impact` on fighter `target`, travelling along (dx, dz). */
+static void stagger_hit(acr_gen1_battle *b, int target, uint8_t impact, int64_t dx, int64_t dz) {
+    if (b->over || !impact || is_unit(target)) return;
+    acr_gen1_fighter *t = &b->f[target];
+    if (t->ap <= 0 || !t->def) return;
+    const int level = acr_gen1_knockback_level(impact, t->def->stats.stability);
+    if (!level) return;
+    t->hold_left = 0;                                   /* the firing animation is cut short */
+    if (t->kneeling || t->stagger) return;              /* crouched: taken in the stance */
+    t->stagger = (uint8_t)(ACR_GEN1_STAGGER_BASE + ACR_GEN1_STAGGER_PER_LEVEL * level);
+    const int64_t len = isqrt64((uint64_t)(dx * dx + dz * dz));
+    if (!len) { t->knock_x = t->knock_z = 0; return; }
+    int64_t k = (int64_t)impact * ACR_GEN1_KNOCK_PER_IMPACT;
+    if (k > ACR_GEN1_KNOCK_MAX) k = ACR_GEN1_KNOCK_MAX;
+    t->knock_x = (int32_t)(dx * k / len);
+    t->knock_z = (int32_t)(dz * k / len);
 }
 
 /* Blade lunge distance per Gen 1 tick from ACR_GEN1_BLADE_LUNGE_MS (measured: 516 in all). */
@@ -476,7 +496,7 @@ static void blade_step(acr_gen1_battle *b, int i, int blade, int pressed) {
     const int n = acr_gen1_battle_fighters(b);
     const int32_t cost = f->modern ? (int32_t)(w->charge_drain * MT(b, blade_en_pct, BLADE_EN_PCT) / 100u)
                                    : (int32_t)w->charge_drain;
-    if (pressed && !f->swing && !f->recover_ms && w->attack && !me->drained && me->energy > cost) {
+    if (pressed && !f->swing && !f->recover_ms && !f->stagger && w->attack && !me->drained && me->energy > cost) {
         me->energy -= cost;
         f->swing = 1;
         f->swing_hits = 0;
@@ -535,6 +555,7 @@ static void blade_step(acr_gen1_battle *b, int i, int blade, int pressed) {
             f->lunge_done = 1;
             int32_t kx = f->lunge_x, kz = f->lunge_z;
             if (!kx && !kz) fwd_vec(me->yaw, &kx, &kz);
+            stagger_hit(b, j, w->impact, kx, kz);
             acr_gen1_ac_shift(it, kx * ACR_GEN1_BLADE_KNOCK * 64 / 4096, kz * ACR_GEN1_BLADE_KNOCK * 64 / 4096);
         }
         for (int u = 0; u < b->units; ++u) {         /* units in the arc: hit, not knocked back */
@@ -578,8 +599,13 @@ static void launch_missile(acr_gen1_battle *b, int i, int wi, int32_t side) {
     s->x = me->x + side * fz / 4096 * 64;
     s->y = me->y - MUZZLE_UP;
     s->z = me->z - side * fx / 4096 * 64;
-    /* Start: toward the target plus a random spread, at 100 plus the launcher's own motion. */
+    /* Start: toward the target plus a random spread, at 100 plus the launcher's own motion.
+     * The game (0x800815A4) actually points it along the launcher's own
+     * joints (0x80078888); for the vertical launcher (flight kind 4,
+     * WM-SMSS24) that is straight up. Until the joints are read, kind 4
+     * leaves straight up over the AC's facing and the rest at the target. */
     dir_of((it.x - s->x) / 64, (it.y - it.up - s->y) / 64, (it.z - s->z) / 64, &s->yaw, &s->pitch);
+    if (w->flight.kind == 4) { s->yaw = me->yaw; s->pitch = 1024 - 16; }
     if (w->spread_yaw) s->yaw = (uint16_t)((s->yaw + rnd(b) % (w->spread_yaw + 1) - w->spread_yaw / 2) & 4095);
     if (w->spread_pitch) s->pitch = (int16_t)wrap(s->pitch + rnd(b) % (w->spread_pitch + 1) - w->spread_pitch / 2);
     int32_t ux, uy, uz;
@@ -603,12 +629,26 @@ static void missile_tick(acr_gen1_battle *b, int k) {
     uint16_t tyaw = s->yaw;
     int16_t tpitch = s->pitch;
     if (alive) dir_of((t.x - s->x) / 64, (t.y - t.up - s->y) / 64, (t.z - s->z) / 64, &tyaw, &tpitch);
-    if (s->age < s->ignition) {                              /* coasting, unlit */
-        s->vy += ACR_GEN1_GRAVITY;
-        if (fl->kind == 4 && alive) {
-            s->yaw = (uint16_t)(turn_toward(s->yaw, tyaw, fl->turn) & 4095);
-            s->pitch = (int16_t)wrap(turn_toward(s->pitch, tpitch, fl->turn));
+    if (s->age < s->ignition) {
+        if (fl->kind == 4) {
+            /* The vertical missile (0x80089168 -> 0x8008951C): before
+             * ignition it doesn't fall. It flies along its heading, 8 a
+             * tick faster up to its top speed, the heading turning toward
+             * the target (with lead, 0x80088F60) at the flight's turn rate:
+             * up out of the launcher, then over onto the target. */
+            if (alive) {
+                s->yaw = (uint16_t)(turn_toward(s->yaw, tyaw, fl->turn) & 4095);
+                s->pitch = (int16_t)wrap(turn_toward(s->pitch, tpitch, fl->turn));
+            }
+            const int64_t top = (int64_t)fl->top * 64;
+            int64_t sp = isqrt64((uint64_t)((int64_t)s->vx * s->vx + (int64_t)s->vy * s->vy + (int64_t)s->vz * s->vz)) + 8 * 64;
+            if (sp > top) sp = top;
+            int32_t ux, uy, uz;
+            vec_of(s->yaw, s->pitch, &ux, &uy, &uz);
+            s->vx = (int32_t)(ux * sp / 4096); s->vy = (int32_t)(uy * sp / 4096); s->vz = (int32_t)(uz * sp / 4096);
+            return;
         }
+        s->vy += ACR_GEN1_GRAVITY;                           /* coasting, unlit */
         return;
     }
     if (s->split && s->age == s->ignition + s->split) {    /* kind 3: four kind-0 missiles */
@@ -710,7 +750,7 @@ static void missile_fire_tick(acr_gen1_battle *b, int i, int wi, int fire) {
                 --f->ammo[wi];
             }
             if (f->locks) --f->locks;
-            if (!f->volley_ticks) { f->cooldown = w->interval; f->locks = 0; }
+            if (!f->volley_ticks) { f->cooldown = (uint16_t)(w->interval + 1); f->locks = 0; }   /* + 1: as guns (VS 0x800818F0) */
         }
         return;
     }
@@ -842,10 +882,13 @@ static void fighter_tick(acr_gen1_battle *b, int i, int fire) {
     if (f->def) intercept_tick(b, i);
     if (f->ap <= 0 || !f->weapons) return;
     const acr_gen1_weapon *w = &f->weapon[f->current];
-    /* Post-shot hold and refire wait; a cannon's wait pauses during the hold. */
+    /* Post-shot hold and refire wait. The VS gun and cannon routines
+     * (0x80081020, 0x800823EC) only count the wait down while no firing
+     * animation is playing (AC +0x6D = 255), so the wait pauses during the
+     * hold for every gun, not just cannons. */
     if (f->hold_left) --f->hold_left;
-    if (f->cooldown && !(f->hold_left && w->stance)) --f->cooldown;
-    if (w->kind == ACR_GEN1_MISSILE) missile_fire_tick(b, i, f->current, fire && acr_gen1_stance_ok(f));
+    else if (f->cooldown) --f->cooldown;
+    if (w->kind == ACR_GEN1_MISSILE) missile_fire_tick(b, i, f->current, fire && !f->stagger && acr_gen1_stance_ok(f));
 }
 
 /* Gun lock, one tick (VS 0x800800E4; see ACR_GEN1_LEAD_MAX in the header). */
@@ -939,7 +982,7 @@ static void fighter_step(acr_gen1_battle *b, int i, acr_gen1_actions a, int tick
     if (w->ammo && !f->ammo[f->current]) return;
     if (f->modern && w->energy && f->ac.drained) return;   /* modern: no energy weapons until the bar is full */
     if (!acr_gen1_stance_ok(f)) return;
-    if (f->swing || f->recover_ms) return;
+    if (f->swing || f->recover_ms || f->stagger) return;
     int32_t ax, ay, az;
     if (f->locked && !w->straight) {
         vec_of(f->lead_yaw, f->lead_pitch, &ax, &ay, &az);   /* VS 0x80081150: the lock's aim */
@@ -971,9 +1014,14 @@ static void fighter_step(acr_gen1_battle *b, int i, acr_gen1_actions a, int tick
         const unsigned mx = MT(b, bloom_max, BLOOM_MAX);
         f->bloom = (uint16_t)(f->bloom + MT(b, bloom_shot, BLOOM_SHOT) > mx ? mx : f->bloom + MT(b, bloom_shot, BLOOM_SHOT));
     }
-    f->cooldown = w->interval;
+    /* The refire wait (VS 0x80081034): a tick with the wait above 0 counts
+     * it down and does nothing else; the gun fires on a tick that starts at
+     * 0. So a wait of n fires every n + 1 ticks (WG-MGA1, n = 1: every
+     * other tick, 11 a second). Ours counts down before the fire test,
+     * hence the + 1. */
+    f->cooldown = (uint16_t)(w->interval + 1);
     if (f->modern && w->straight)                    /* modern rockets: far slower to refire */
-        f->cooldown = (uint16_t)(w->interval * MT(b, rocket_rof_pct, ROCKET_ROF_PCT) / 100u);
+        f->cooldown = (uint16_t)(w->interval * MT(b, rocket_rof_pct, ROCKET_ROF_PCT) / 100u + 1);
     f->hold_left = w->hold;
 }
 
@@ -1075,10 +1123,14 @@ static void shots_step(acr_gen1_battle *b, int ticks) {
         const int energy = w ? w->energy : 0;
         if (hits_ac && hits_wall) {
             /* How far along the way the AC's middle is, against the wall. */
-            if (target_t <= wall_t) damage_by(b, target, s->owner, attack, energy);
+            if (target_t <= wall_t) {
+                damage_by(b, target, s->owner, attack, energy);
+                if (w) stagger_hit(b, target, w->impact, s->vx, s->vz);
+            }
             s->active = 0;
         } else if (hits_ac) {
             damage_by(b, target, s->owner, attack, energy);
+            if (w) stagger_hit(b, target, w->impact, s->vx, s->vz);
             s->active = 0;
         } else if (hits_wall) {
             s->active = 0;                              /* into the arena */
@@ -1222,9 +1274,12 @@ void acr_gen1_battle_step(acr_gen1_battle *b, const acr_gen1_input in[], const a
     }
     for (int i = 0; i < n; ++i) {
         acr_gen1_fighter *f = &b->f[i];
-        if (f->ap <= 0) {                       /* down: stays where it is */
+        if (f->ap <= 0) {
+            /* Down: no pilot, but the game goes on, so it falls to the ground
+             * where it is (it used to hang in the air). */
             const acr_gen1_input still = { 0 };
-            acr_gen1_ac_advance(&f->ac, f->def, still, 0, 1, 1);
+            f->stagger = 0; f->knock_x = f->knock_z = 0;
+            acr_gen1_ac_advance(&f->ac, f->def, still, ticks, num, den);
             continue;
         }
         acr_gen1_input use = kneel_input(b, f, in[i], act[i]);
@@ -1233,8 +1288,20 @@ void acr_gen1_battle_step(acr_gen1_battle *b, const acr_gen1_input in[], const a
         if (f->recover_ms) use.move = use.strafe = use.boost = use.boost_tapped = use.cruise = use.quick = 0;
         if (f->swing) use.quick = use.cruise = 0;
         if (f->swing) use.move = use.strafe = use.boost = use.boost_tapped = 0;   /* the swing holds the AC */
+        if (f->stagger) {                      /* hit stagger: the pilot has no say */
+            use.move = use.strafe = use.turn = 0;
+            use.boost = use.boost_tapped = use.cruise = use.quick = use.crouch = 0;
+        }
         f->used = use;
         acr_gen1_ac_advance(&f->ac, f->def, use, ticks, num, den);
+        for (int t = 0; t < ticks; ++t) {      /* the push away from the hit, halving each tick */
+            if (f->knock_x || f->knock_z) {
+                acr_gen1_ac_shift(&f->ac, f->knock_x, f->knock_z);
+                f->knock_x /= 2;
+                f->knock_z /= 2;
+            }
+            if (f->stagger) --f->stagger;
+        }
     }
     acr_gen1_battle_retarget_acts(b, act);
     for (int i = 0; i < n; ++i) fighter_step(b, i, act[i], ticks);

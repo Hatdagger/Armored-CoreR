@@ -33,6 +33,7 @@ static void next_round(acr_gen1_match *m, const acr_gen1_battle *start, const ac
     m->round_ms = r->round_ms;
     m->ko_ms = m->over_ms = 0;
     m->round_over = m->result = m->time_up = 0;
+    m->b.over = 0;
     if (m->round < 255) ++m->round;
     start_ai(m, r);
 }
@@ -80,6 +81,7 @@ void acr_gen1_match_step(acr_gen1_match *m, const acr_gen1_battle *start, const 
     if (!res) m->ko_ms = 0;      /* back in the area before it settled */
     if (res && (time_up || (m->ko_ms += step) >= SETTLE_MS)) {
         m->round_over = 1;
+        m->b.over = 1;          /* nothing does damage from here on */
         m->result = (uint8_t)res;
         m->time_up = (uint8_t)time_up;
         if (res == 1 || res == 2) if (m->wins[res - 1] < 255) ++m->wins[res - 1];
@@ -111,7 +113,7 @@ uint32_t acr_gen1_match_hash(const acr_gen1_match *m) {
 #define H(v) (h = mix(h, (int32_t)(v)))
     uint32_t h = 2166136261u;
     H(m->frame); H(m->round_ms); H(m->ko_ms); H(m->over_ms);
-    H(m->round_over); H(m->result); H(m->time_up); H(m->round); H(m->wins[0]); H(m->wins[1]);
+    H(m->round_over); H(m->b.over); H(m->result); H(m->time_up); H(m->round); H(m->wins[0]); H(m->wins[1]);
     const acr_gen1_battle *b = &m->b;
     H(b->rng); H(b->tick_phase);
     H(b->count); H(b->targeted);
@@ -133,6 +135,7 @@ uint32_t acr_gen1_match_hash(const acr_gen1_match *m) {
         H(f->cursor_yaw); H(f->cursor_pitch); H(f->volley_ticks);
         H(f->swing); H(f->swing_hits); H(f->lunge_done); H(f->swing_target); H(f->lunge_x); H(f->lunge_z);
         H(f->kneeling); H(f->human_plus); H(f->kneel_ms);
+        H(f->stagger); H(f->knock_x); H(f->knock_z);
         H(f->intercept_burst); H(f->intercept_shot); H(f->hit_flash); H(f->last_missile);
         H(f->cam_pitch); H(f->cam_yaw); H(f->team); H(f->target);
         const acr_gen1_ai *ai = &m->ai[i];

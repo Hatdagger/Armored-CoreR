@@ -141,7 +141,7 @@ typedef struct part {
     float rise;           /* units a ms upward (smoke) */
 } part;
 
-#define FX_PARTS 512
+#define FX_PARTS 1536   /* missiles' white trails are many small dots */
 static part g_part[FX_PARTS];
 static int g_next;
 
@@ -301,19 +301,26 @@ static void shot_ended(const acr_gen1_battle *b, int k) {
     hit_wall(q, g_seen[k].energy);
 }
 
-static void missile_trail(int k, float dt) {
+/* Behind a missile: a thin, clear white line (user, 2026-11-26: not
+ * smoke), dots of glow close together that thin out and fade where they
+ * are. Rockets keep their smoke puffs. */
+static void missile_trail(int k, float dt, int smoke) {
     (void)dt;
     float *t = g_seen[k].trail, *p = g_seen[k].p;
     const float dx = p[0] - t[0], dy = p[1] - t[1], dz = p[2] - t[2];
     const float len = sqrtf(dx * dx + dy * dy + dz * dz);
-    const float gap = 45.0f;
+    const float gap = smoke ? 45.0f : 20.0f;
     int n = (int)(len / gap);
-    if (n > 8) n = 8;
+    if (n > (smoke ? 8 : 24)) n = smoke ? 8 : 24;
     for (int i = 1; i <= n; ++i) {
         const float u = (float)i / (float)(n);
         const float q[3] = { t[0] + dx * u, t[1] + dy * u, t[2] + dz * u };
-        part *s = spawn(SH_SMOKE, 1, B_SEMI, q, 650 + rnd() * 200, 22, 75, 185, 185, 185, 130);
-        s->spin = rnd() * 6.283f; s->rise = 0.035f;
+        if (smoke) {
+            part *s = spawn(SH_SMOKE, 1, B_SEMI, q, 650 + rnd() * 200, 22, 75, 185, 185, 185, 130);
+            s->spin = rnd() * 6.283f; s->rise = 0.035f;
+        } else {
+            spawn(SH_GLOW, 1, B_ADD, q, 300, 26, 8, 255, 255, 255, 210);
+        }
     }
     if (n) memcpy(t, p, sizeof g_seen[k].trail);
 }
@@ -357,12 +364,12 @@ void fx_update(const acr_gen1_battle *b, uint64_t now_ns) {
         g_seen[k].travelled = s->travelled;
         g_seen[k].age = s->age;
         memcpy(g_seen[k].p, p, sizeof g_seen[k].p);
-        if (!s->missile && g_seen[k].look && g_seen[k].look->look == LOOK_ROCKET) missile_trail(k, dt);
+        if (!s->missile && g_seen[k].look && g_seen[k].look->look == LOOK_ROCKET) missile_trail(k, dt, 1);
         if (s->missile) {
             /* missiles: the heading's step for the hit test */
             const float len = sqrtf(st[0] * st[0] + st[1] * st[1] + st[2] * st[2]);
             if (len > 0) for (int i = 0; i < 3; ++i) st[i] = st[i] / len * 60.0f;
-            missile_trail(k, dt);
+            missile_trail(k, dt, 0);
         }
         memcpy(g_seen[k].step, st, sizeof g_seen[k].step);
     }

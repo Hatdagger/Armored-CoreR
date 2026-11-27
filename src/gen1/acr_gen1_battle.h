@@ -44,7 +44,9 @@ typedef struct acr_gen1_weapon {
     uint16_t lock_ms;       /* guns: non-zero = locks on (the time itself comes from the FCS
                              * value, the target's speed and distance: see gun lock below) */
     uint16_t box_w, box_h;  /* FCS outer lock box: angles off the facing / view tilt, 4096 a turn */
-    uint16_t interval;      /* refire wait after a shot or the last volley, in ticks (detail +0x11) */
+    uint16_t interval;      /* refire wait after a shot or the last volley, in ticks (detail +0x11);
+                             * guns fire every interval + 1 ticks (see ACR_GEN1_STAGGER_* below) */
+    uint8_t  impact;        /* knockback (detail +0x16, blade +0x32): see acr_gen1_knockback_level */
     int32_t  speed;         /* gun shot speed, world units a tick */
     uint8_t  stance;        /* back cannons: needs a steady stance to fire (see below) */
     /* Guns */
@@ -168,6 +170,10 @@ typedef struct acr_gen1_fighter {
     uint8_t  hist_n;
     uint16_t recover_ms;                       /* modern blade: recovery left after a swing */
     uint16_t bloom;                            /* modern: extra shot spread built up by firing */
+    /* Hit stagger (ACR_GEN1_STAGGER_*): ticks left with the controls taken
+     * away, and the push still to come (1/64 units a tick, halving). */
+    uint8_t  stagger;
+    int32_t  knock_x, knock_z;
 } acr_gen1_fighter;
 
 typedef struct acr_gen1_shot {
@@ -325,6 +331,11 @@ typedef struct acr_gen1_battle {
     const acr_gen1_stage *stage;               /* the arena (NULL = open floor): stops shots */
     acr_gen1_modern_tuning modern;             /* 0 fields = the defaults below */
     acr_gen1_mission mission;                  /* the mission map's script (0 = none: the plain rule) */
+    /* The round is decided (user, 2026-11-26): the fight goes on with the
+     * pilots' controls let go (the caller sends empty ones), ACs fall where
+     * they are, shots and missiles still fly, but nothing does damage any
+     * more (a missile landing after the win, an MT still firing). */
+    uint8_t over;
 } acr_gen1_battle;
 
 typedef struct acr_gen1_actions {
@@ -405,6 +416,25 @@ uint8_t acr_gen1_damage_factor(uint32_t defense, int energy, int screen);
 int32_t acr_gen1_hit_ap(uint16_t attack, uint8_t factor);
 /* Knockback level of a hit (VS 0x80079AA4): impact x 256 / (stability x 25 / 4), 0..5. */
 int acr_gen1_knockback_level(uint16_t impact, uint8_t stability);
+
+/* Hit stagger (VS hit callback 0x80082430 / 0x80082500, read 2026-11-26;
+ * ACG1PLUS docs/research/weapon-map.md section 5 and mapping/feel-diff.md
+ * 4.2). Impact 0 (every energy weapon) does nothing. Otherwise the level
+ * (above) is the stun: 0 skips it; 1-5 puts the AC in a hit state (+0x45
+ * = 128 on the ground, animations 37-40 by the side it was hit from; 129
+ * in the air, 41-44) with AC +0xDA = level, counted down a tick at a time
+ * by the stun handler 0x8007FECC while the busy bit (+0x36 bit 0x10)
+ * holds the controls. So most hits freeze a normal AC for 3-5 ticks. The
+ * firing animation is cut short (+0x150 / +0x164 cleared). The push
+ * (0x80079ADC): impact x 3,276 x 8 >> 12, about 3.2 units a tick per
+ * point of impact, at most 98, away from the shot. A crouched AC (state
+ * 34) is pushed in its stance (0x8007B454); ours skips that. A new hit
+ * doesn't restart a stun that is still running.
+ * Ours: the push halves each tick after the first (a stand-in). */
+#define ACR_GEN1_STAGGER_BASE      0
+#define ACR_GEN1_STAGGER_PER_LEVEL 1
+#define ACR_GEN1_KNOCK_PER_IMPACT  205     /* 1/64 units a tick per point of impact (3.2 world units) */
+#define ACR_GEN1_KNOCK_MAX         (98 * 64)
 
 /* One step; in[] and act[] hold one entry per fighter. */
 void acr_gen1_battle_step(acr_gen1_battle *b, const acr_gen1_input in[], const acr_gen1_actions act[]);
