@@ -843,6 +843,7 @@ static int g_split_coop;
  * (g_split_left); the other plays on. */
 static int g_split_session;
 static int g_split_vs;             /* a split screen VERSUS fight */
+static Uint64 g_split_vs_quit_at;  /* a player quit the versus fight (they lose): when */
 static int g_split_left[2];        /* this player has left the session */
 static int g_split_garage = -1;    /* the hub's garage is open for this player */
 static int g_saves_from_split;     /* the save list was opened from the hub */
@@ -2342,24 +2343,29 @@ int main(int argc, char **argv) {
             if (g_split_left[other]) {                       /* both gone: the fight ends */
                 if (g_rogue_fight) rogue_give_up = 1;        /* (a menu fight counts as given up) */
                 else split_vs_end = 1;
-            } else if (g_split_vs) {                         /* versus: the computer flies their AC */
-                g_ai_mode = ACR_GEN1_AI_BALANCED;
-                if (w == 1) two_players = 0; else g_autopilot = 1;
-                const acr_gen1_ai_profile p_ = ai_profile(g_ai_mode);
-                acr_gen1_ai_init(&g_ai[w], &p_, 0x2468u + (uint32_t)(++g_ai_round) * 7919u);
-                split_note(w ? "PLAYER 2 LEFT. THE COMPUTER FLIES THEIR AC." : "PLAYER 1 LEFT. THE COMPUTER FLIES THEIR AC.");
+            } else if (g_split_vs) {                         /* versus: quitting loses the round */
+                g_split_left[w] = 0;
+                if (!round_over) { round_over = 1; round_result = w ? 1 : 2; }
+                g_split_vs_quit_at = SDL_GetTicks();
+                split_note(w ? "PLAYER 2 QUIT. PLAYER 1 WINS." : "PLAYER 1 QUIT. PLAYER 2 WINS.");
             } else {                                         /* co-op: out of the fight, the partner goes on */
                 battle.f[w].ap = 0;
                 split_note(w ? "PLAYER 2 LEFT. PLAYER 1 PLAYS ON." : "PLAYER 1 LEFT. PLAYER 2 PLAYS ON.");
             }
         }
-        if (split_vs_end) {                                  /* versus, nobody left: back to the hub */
+        if (g_split_vs_quit_at && SDL_GetTicks() - g_split_vs_quit_at > 4000) {   /* the result shown: back to the hub */
+            g_split_vs_quit_at = 0;
+            split_vs_end = 1;
+        }
+        if (split_vs_end) {
+            const int p1_in_ = !g_split_left[0], p2_in_ = !g_split_left[1];                                  /* versus, nobody left: back to the hub */
             g_split_vs = 0;
             two_players = SDL_getenv("ACR_TWO") != NULL;
             g_ai_mode = 0; g_autopilot = 0;
-            split_menu_enter(&smenu, 0, 0);
+            split_menu_enter(&smenu, p1_in_, p2_in_);
             g_split_left[0] = g_split_left[1] = 0;
-            mode = MODE_SPLIT;
+            mode = p1_in_ || p2_in_ ? MODE_SPLIT : 0;
+            if (mode == 0) { gui.screen = 0; g_split_session = 0; }
         }
         if (to_garage && g_net) {
             /* Leaving an online match: back to your own build, offline. */
@@ -2894,6 +2900,31 @@ int main(int argc, char **argv) {
                 if (sc != SM_NONE) scmd = sc;
             }
             if (scmd == SM_ALL_LEFT) { mode = 0; gui.screen = 0; g_split_session = 0; }
+            if (scmd == SM_SOLO && smenu.who == 0) {   /* player 2 exited: player 1 plays on alone */
+                mode = 0; gui.screen = 0; g_split_session = 0;
+                garage_say(&gui, "PLAYER 2 LEFT. PLAYING SOLO.");
+            }
+            if (scmd == SM_SOLO && smenu.who == 1) {   /* player 1 exited: the game goes on as player 2's */
+                hangar_save();                         /* player 1's game kept as it is */
+                char was[1200];
+                SDL_strlcpy(was, g_cur_save[0], sizeof was);
+                SDL_strlcpy(g_cur_save[0], g_cur_save[1], sizeof g_cur_save[0]);
+                if (hangar_load()) {
+                    save_remember(0);
+                    SDL_strlcpy(g_cur_save[1], was, sizeof g_cur_save[1]);   /* player 1's save waits as player 2's */
+                    save_remember(1);
+                    g_hangar2_ok = 0;
+                    g_options[0] = g_options[1] = g_hangar.options;
+                    int fitted[SLOT_COUNT];
+                    hangar_parts(fitted);
+                    if (demo_load(dir, fitted, &ac_data[0], err, sizeof err)) memcpy(parts, fitted, sizeof fitted);
+                    garage_say(&gui, "PLAYER 1 LEFT. PLAYER 2'S GAME, SOLO.");
+                } else {
+                    SDL_strlcpy(g_cur_save[0], was, sizeof g_cur_save[0]);
+                    garage_say(&gui, "PLAYER 2'S SAVE COULD NOT BE READ.");
+                }
+                mode = 0; gui.screen = 0; g_split_session = 0;
+            }
             if (scmd == SM_START) {
                 /* Whoever isn't in counts as left from the start. */
                 g_split_session = 1;

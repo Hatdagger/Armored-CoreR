@@ -4,8 +4,8 @@
  * the only controller with player 1 on the keyboard). The top box (VERSUS /
  * CO-OP and where) is shared: either player can change it. Each player
  * picks their save, opens their own garage and says READY; the game starts
- * once everyone in is ready. B leaves (only that player); A joins again.
- * When both have left, it's back to the hangar. */
+ * once everyone in is ready. B exits that player from the game; the
+ * other goes on solo in the hangar with their own save, no restart. */
 #ifndef SPLIT_MENU_H
 #define SPLIT_MENU_H
 
@@ -21,6 +21,7 @@ typedef enum split_menu_command {
     SM_GARAGE,     /* player `who` opens their garage */
     SM_SAVE,       /* player `who` picks their save */
     SM_ALL_LEFT,   /* both players left: back to the hangar */
+    SM_SOLO,       /* a player exited: `who` (the other) plays on solo in the hangar */
     SM_VERSUS_GO,  /* (the caller's own: start the versus fight) */
 } split_menu_command;
 

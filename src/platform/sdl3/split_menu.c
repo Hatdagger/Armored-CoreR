@@ -69,7 +69,8 @@ split_menu_command split_menu_input(split_menu *m, int who, garage_action a) {
     if (a == GA_CANCEL) {                        /* this player leaves (the other stays) */
         if (m->ready[who]) { m->ready[who] = 0; return SM_NONE; }   /* first B: not ready any more */
         m->joined[who] = 0;
-        return !m->joined[0] && !m->joined[1] ? SM_ALL_LEFT : SM_NONE;
+        if (m->joined[1 - who]) { m->who = 1 - who; return SM_SOLO; }   /* the other plays on, solo */
+        return SM_ALL_LEFT;
     }
     if (a == GA_LEFT || a == GA_RIGHT || (a == GA_OK && (*row == ROW_MODE || *row == ROW_STAGE))) {
         if (*row != ROW_MODE && *row != ROW_STAGE) return SM_NONE;
@@ -137,12 +138,12 @@ void split_menu_draw(split_menu *m, float hud_w, int elapsed_ms) {
         row_text(x, y, pw, r == ROW_GARAGE, line); y += 26;
         row_text(x, y, pw, r == ROW_READY, m->ready[p] ? "READY!   (A: NOT READY)" : "READY?   (A: I'M READY)");
         if (m->ready[p]) acr_hud_text(x, y + 20, "WAITING FOR THE OTHER PLAYER...", GOOD);
-        acr_hud_text(x, py + ph - 18, "B: LEAVE (THE OTHER PLAYER STAYS)", DIM);
+        acr_hud_text(x, py + ph - 18, "B: EXIT (THE OTHER PLAYS ON SOLO)", DIM);
     }
     const float by = py + ph + 10;
     acr_hud_text(gap, by, m->coop ? "CO-OP: PLAYER 2 STARTS BEHIND PLAYER 1. BOTH EARN THE PRIZES."
                                   : "VERSUS: ALONE, YOU FIGHT THE COMPUTER.", DIM);
     if (m->message_ms > 0) { m->message_ms -= elapsed_ms; acr_hud_text(gap, by + 16, m->message, HILITE); }
-    acr_hud_text(gap, by + 32, "EACH PLAYER: UP/DOWN MOVE   A: SELECT   LEFT/RIGHT: CHANGE   B: LEAVE", DIM);
-    acr_hud_text(gap, by + 46, "IN A FIGHT: ESC (KEYBOARD) OR BACK+START TWICE LEAVES; THE OTHER PLAYER PLAYS ON.", DIM);
+    acr_hud_text(gap, by + 32, "EACH PLAYER: UP/DOWN MOVE   A: SELECT   LEFT/RIGHT: CHANGE   B: EXIT", DIM);
+    acr_hud_text(gap, by + 46, "IN A FIGHT: ESC OR BACK+START TWICE QUITS (VERSUS: YOU LOSE; CO-OP: THE OTHER PLAYS ON).", DIM);
 }
