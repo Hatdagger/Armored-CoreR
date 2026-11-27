@@ -1,5 +1,6 @@
 """Dump AC2 weapon stats (file ID 10) joined to part names (F block).
 Usage: AC2_DATA=<data dir> python3 weapons.py out.json
+       python3 weapons.py --diff AC2_00010.bin AA_00010.bin   (AC2 vs Another Age changes)
 
 Weapon table: file 00010.bin, offset 0x280b0, 0x80 bytes per row.
 Row number = the u16 at +132 of the part's F-block info record (rifles 32..,
@@ -23,6 +24,8 @@ os.environ.setdefault('AC2_F', DATA + '/AC2_F_3400-3801')
 from join import pkg, info
 
 BASE, STRIDE = 0x280b0, 0x80
+AA_BASE = 0x380f0  # same rows in Another Age's file 10 (AC25DATA.BIN)
+FIELDS = {2: 'ammo', 3: 'ammo_price_or_energy', 8: 'reload', 13: 'attack', 14: 'ammo_heat', 15: 'stun'}
 
 def table():
     return open(DATA + '/AC2_A_0001-0190/00010.bin', 'rb').read()
@@ -44,7 +47,17 @@ def weapon_parts():
         out.append((i, r[:18].decode().strip(), r[18:36].decode().strip(), idx))
     return out
 
+def diff(a_path, b_path):
+    a = open(a_path, 'rb').read(); b = open(b_path, 'rb').read()
+    for i in range(128):
+        x = struct.unpack_from('<18H', a, BASE + i * STRIDE); y = struct.unpack_from('<18H', b, AA_BASE + i * STRIDE)
+        if x == y: continue
+        tag = 'NEW' if not any(x[2:4]) else 'changed'
+        print(i, tag, [(FIELDS.get(k, 'w%d' % k), x[k], y[k]) for k in range(18) if x[k] != y[k]])
+
 if __name__ == '__main__':
+    if sys.argv[1] == '--diff':
+        diff(sys.argv[2], sys.argv[3]); sys.exit()
     b = table()
     res = []
     for f_id, name, typ, idx in weapon_parts():

@@ -41,7 +41,7 @@ Covered in detail in `gen2-models.md`. In short:
 - Mesh counts per part: core 5, booster 2, head 1, arms 8, legs 7-13.
 
 ## F block (3400-3801): the full parts catalogue
-This is the Assembly/Shop data. Each entry is a `JOIN` package: `JOIN`, a u8 mesh count, a joint/parent table (bytes, 0xFF = none), then an offset table (relative to JOIN) pointing to model data and textures. The group sizes match the Prima guide exactly, so this is the authoritative category list.
+This is the Assembly/Shop data. Each entry is a `JOIN` package: `JOIN`, u8 category count, a section-kind list (see Joints below), the index within the category, then section sizes and offsets (relative to JOIN) for the shop model, textures, a settings block and the name/stats record. The group sizes match the Prima guide exactly, so this is the authoritative category list.
 
 | F IDs | Count | Category |
 |---|---|---|
@@ -84,7 +84,8 @@ B (301-828) holds the full-detail models, using the overlap layout above. C (900
 ## Other AC2 files
 | IDs | What |
 |---|---|
-| 1-5, 10 | System/common data (unknown) |
+| 1-5 | System/common data (unknown) |
+| 10 | Game tables: weapon table at 0x280b0 (see Weapon stats), a 0x100-stride projectile table before it (range) |
 | 101-113+ | Stages/maps (ELF path `map/m%03d`). Each has a sound bank (IECS) |
 | 1700-1707 | UI model + textures |
 | 1996-1999 | 1996 textures, 1998 help text (part stat glossary), 1999 mail titles |
@@ -100,17 +101,52 @@ The public CodeBreaker cheats are encrypted and only touch "owned" flags, so the
 ## Parts table (DECODED 2026-11-27, session 2)
 - Part names and stats are NOT in SLUS_200.14. They live inside each F-block JOIN package: the last offset in the 2nd offset table (JOIN+0x34) points to an info record.
 - Info record: `name[18] type[18] u32 price, u8 maker (0 = Zio "Z…", 1 = Emeraude "E…", 2 = third maker), desc[73]`, then stats at +114: `u16 weight, u16 energy drain`, … Armour parts have AP / defence / energy defence a few fields later (head ZHD-GE/OHR: wt 114, drain 350, AP 745, def 155, edef 145).
-- Weapon damage/ammo are NOT in this record (probably in the ELF) — still open.
+- Weapon damage/ammo are NOT in this record: they are in file 10 (see Weapon stats). Guns carry `u8 solid(0)/energy(1), u16 class, u16 weapon-table row` at +128; blades and shields keep their stats in this record.
 - 235 of 240 entries read (`tools/gen2/stats.py` output). The LAST entry of every group (3411, 3425, 3452, 3490, 3506, 3529, 3547, 3567, 3586, 3607, 3651, 3691, 3765) is cut off, because its tail would be in the next ID, which doesn't exist. This needs AC2DATA.BIN read again with corrected offsets (strong evidence that the table offsets are read 32 KB off).
 - 3750-3765 = optional parts (SP-…: shell/energy screens, balancers, FCS accelerator, rapid charge…). 3660-3691 is an exact copy of 3620-3651 (back units).
 - Examples: heads ZHD-GE/OHR, EHD-NIGHTEYE; legs ZLN-XX0/TP (humanoid), ELB-… (reverse joint), ZLF/ELF (four-legged), ZLC/ELC (caterpillar), ZLR (float); weapons KARASAWA-MK2, LS-MOONLIGHT.
 - SLUS_200.14 holds the internal model codes in catalogue order (h01-h12; cn01 cn02 cl01 cl02 ch01 ch02; b01-b07; an/al/ah/awb/awa/awe/awm arms; l2n/l2l/l2h/lr/l4/lt/la legs; wrr/wrm/wrh/wrb/wrsh/wre/wrsp; wlb/wls; wbm/wbr/wbc/wbo/wbd*; exb/exa/exm) as paths `/a2/ac2/model/ac/parts/<kind>/<code>/tp2/<code>` at file offset 0x2ecda0. Counts match the F and B blocks, so the k-th code = k-th F entry = k-th B model of that category.
 - Scripts: `tools/gen2/join.py`, `tools/gen2/stats.py`.
 
+## Weapon stats (DECODED 2026-11-27, session 3)
+- Table in **file 10** (AC2: offset 0x280b0 in `00010.bin`), 0x80 bytes per row. The row number is the u16 at +132 of the part's catalogue record (right-arm guns 32-56, back weapons 64-87, extensions 110-115; rows 0-31 and others are enemy weapons).
+- Row fields (u16 index): w0 high byte = projectile id; w2 = number of ammo; w3 = ammo price (solid) or energy per shot (energy); w8 = reload; w12 = 0x17 solid / 0x27 energy; **w13 = attack power**; w14 = ammo heat; w15 = stun (probably).
+- Checked against published stats: ZWG-SRF/8 521 atk / 80 ammo / 90 price / 44 reload / 93 heat; EWG-SRF-9 608/60/100/52/132; ZWG-HC-IR/K99 2515 atk / 12 ammo / 92 reload / 82 heat. All match.
+- Back cannons have large w8 values (5180, 8312…), so w8 means something different for them (charge?). Not decoded.
+- **Range** is in a separate table just before it (0x100-byte records, range u16 e.g. 1000 at 0x24fca for SRF/8, 910 for SRF-9). How a weapon picks its record there is not decoded yet. Velocity was not found as a raw number.
+- Script: `tools/gen2/weapons.py` (JSON of every shop weapon with its stats).
+
+## Textures per strip (DECODED 2026-11-27, session 3)
+- In each in-game (B block) mesh, the DMA chain sends a small UNPACK to VU address 256 before its strips: a GIF A+D packet. **Register 0x06 = TEX0_1** selects the texture for the strips that follow (0 = untextured). Register 0x14 is also set (not needed).
+- Each texture in the part's F-block JOIN package stores the **same TEX0 value** in its header (+0x10). Rule: strip texture = the package texture with an identical TEX0. All tested parts match (arms use one extra TEX0, 0x…9fd0, that isn't in their own package — probably a shared texture).
+- UVs are 0-1 floats (vertex qword 3); vertex colour (qword 4) is 128.0 (neutral). Textures are greyscale; the game tints them with paint colours.
+- **Markers:** untextured single triangles (small equilateral) are locator points, not geometry: rifle muzzle (z = -3.7), core weapon mounts, head camera, foot contacts on legs. Exported as empty nodes.
+- B model ↔ catalogue: in the stitched B stream (202 models), categories run cores 0-5, boosters 6-21 (pairs), heads 22-33, arms 34-56, legs 57-87, right weapons 88-112, left weapons 113-121, back units 122-153, extensions/inside after. The k-th model of a category = the k-th F entry.
+- Script: `tools/gen2/textured.py` (loader + small software renderer).
+
+## Joints (DECODED 2026-11-27, session 3)
+- The JOIN header bytes are **not a joint table**. Layout: `JOIN`, u8 category count, u8 0, then a **section-kind list** (0 model, 1 texture, 2 settings block, 3 name/stats record, 0xFF = none), then at +0x10 the part's index within its category, +0x14 eight section sizes, +0x34 eight section offsets. The JOIN model (section 0) is a different, shop-screen format.
+- The in-game per-mesh 0x50 block is `pos[3] 1, rot[3] (radians) 1, scale[3] 1, 3 x (count, offset), 0, 0xFFFFFFFF`. The counts are strip count, unique-vertex count and a third list (shadow/collision?). The last word looks like a parent slot but is always -1.
+- So **no parent links are stored**. Parts are stored assembled in rest pose, every mesh pivot is already in place, and the game code knows the skeleton. Inferred rule used for export: arms and legs chain each mesh to the previous mesh on the same side (x sign); centre pieces hang off mesh 0. Biped legs: 0 hip, 1-4 right thigh/shin/foot/toe, 5-8 left, 9 back piece. Arms: 0-3 and 4-7 = shoulder/upper/fore/hand per side.
+- Rotations are non-zero only on small core pieces. Euler order assumed X, Y, Z (unconfirmed).
+
+## glTF export (2026-11-27, session 3)
+- `tools/gen2/gltf.py OUT.glb` writes the PR #64 test AC (core 0, head 0, arms 1, legs 9, booster 0, rifle 0) as one binary glTF: 64 nodes, 27 meshes, 12 embedded textures, about 0.5 MB.
+- Axes are already Armored-CoreR's (x, -y, -z): y up, feet at y = 0, right hand at -x. Units are AC2 units (about 10 tall); PR #64 scales by 83.5 to Gen 1 height.
+- The weapon is a child of the right-hand node, so it follows the arm when animated. Markers are empty nodes named `<part>_meshN_markerK`.
+- Checked by reloading with an independent glTF library (trimesh) and rendering it.
+
+## Another Age vs AC2 (2026-11-27, session 3)
+- **Extraction problem:** in the AA F block, each package's tail (the name/stats record) is cut off: the next package starts about 0x400-0x500 bytes before the current one ends, and the start drifts 0 / 32 KB / 64 KB into each file. Only 86 of 271 AA packages are readable. **AC25DATA.BIN needs re-extracting with corrected table offsets/sizes.** (Same root cause as AC2's 13 truncated last-of-group entries.) `tools/gen2/catalogue.py` reads packages from one stitched stream instead of by file ID.
+- **New parts (23, from the model codes in SLUS_202.49, `/a2/ac5/model/...`; none removed):** heads h13 h14; legs l2n06 l2l04 l2h04 la06; right-arm weapons wrr07 wre05 wre06 wrsp05; left-arm wlb06; back units wbm09-wbm12 (missiles), wbr05 wbr06 (rockets), wbc07-wbc09 (cannons), wbdo01; extensions exs01 exb03. Names read so far: EHD-WACS, ZHD-102/ROCK, EWG-XC213 (laser rifle), EWG-HM-04 (hand missile), EWM-NAP-02 (napalm), EWM-M03, ZWM-GT/00 (ground torpedo), EWR-M40, ZWC-CN/500, EWC-GN-81, ZXR-S/STEALTH, ZES-99/MIRROR (shield).
+- **Weapon table:** same layout, AA file 10 at 0x380f0. New rows 57-60 (right arm), 89-97 (back), 123-125. About 30 existing weapons rebalanced, e.g. rifles +20 ammo, SRF/8 521→551 and SRF-9 608→628 attack, bazooka heat 374→574 / 453→673, laser/pulse/plasma rifle heat lowered (KARASAWA 68→42, K99 82→50), ZWX-E90/MAC 3850→4450 attack and 10→20 ammo, EWX-VLS241 1060→880 attack. `weapons.py --diff` lists them all.
+- The wiki says AA cut SRF/8 reload 44→36 and K99 92→76, but w8 is unchanged for those two (it does change for others). Either the wiki is wrong or AA scales reload elsewhere.
+- Frame parts: of the 90 AA records read, only 2 changed (ZLR-K196/RJ stats, EWX-GCN77-4 weight 1756→1556). The full comparison needs the re-extraction.
+- **Base game:** AC2 stays the base. AA is a superset (same formats, +23 parts, rebalanced numbers), so AA can be layered on later as an option.
+
 ## Open questions
-- Weapon stats (damage, ammo, range) — look in SLUS_200.14.
-- The 13 truncated last-of-group entries.
-- Which texture each strip uses (JOIN offset table: entries 2-3 look like the textures, entry 4 is per-mesh transform data) → textured renders.
-- JOIN joint table: byte 4 = slot count (13 for head?), then a parent list (e.g. 00 00 01 01 02 03 ff…) — not confirmed yet.
-- glTF export of a full textured AC; Another Age comparison.
+- Re-extract AC25DATA.BIN (and AC2's 13 truncated entries) with corrected offsets — read raw BIN.
+- Weapon → range record link; velocity; meaning of w8 for back cannons; AA reload discrepancy.
+- Hierarchy confirmation (game code) and rotation order; animation data (not found yet).
+- Arms' extra shared texture (TEX0 …9fd0); boosters/back units/extensions in the glTF build.
 - The 421-492 block.

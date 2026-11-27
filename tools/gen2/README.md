@@ -18,4 +18,5 @@ Needs numpy and Pillow, plus matplotlib for `render.py`. `weapons.py` also needs
 | `weapons.py OUT.json` | Weapon stats (attack, ammo, reload, heat…) from file 10, joined to part names |
 | `textured.py OUT.png CAT N` | Loads an in-game part with its per-strip textures and renders it (CAT = core, head, arms, legs, booster, rweapon, lweapon, back) |
 | `gltf.py OUT.glb [cat=N ...]` | Exports an assembled, textured AC as binary glTF (default = PR #64 test AC) |
+| `catalogue.py F_FOLDER OUT.json` | Reads every JOIN package from one stitched stream (needed for Another Age, whose file IDs drift) |
 | `cls.py`, `fp.py`, `scan.py`, `hd.py` | First-pass fingerprinting and a hex dump |
