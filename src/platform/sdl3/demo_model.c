@@ -93,7 +93,8 @@ static int load_part(const char *models, int kind, int index, const uint8_t colo
     for (int k = 0; k < pieces; ++k) {
         SDL_snprintf(path, sizeof path, "%s/piece%d.obj", dir, k);
         char *obj = load_text(path);
-        if (obj) acr_obj_parse(obj, &p->mtl, &p->piece[k]);
+        if (obj && acr_obj_parse(obj, &p->mtl, &p->piece[k]))
+            p->marker[k] = p->piece[k].tri_count == 1 && !p->mtl.m[p->piece[k].material[0]].textured;
         SDL_free(obj);
     }
     p->pieces = pieces;
@@ -182,6 +183,7 @@ int demo_model_bounds(const demo_model *m, int anim, unsigned tick, float mn[3],
         if (node->draw_kind >= ACR_PART_KINDS) continue;
         const demo_part_model *p = &m->part[node->draw_kind];
         if (!p->present || node->draw_piece >= p->pieces) continue;
+        if (p->marker[node->draw_piece]) continue;   /* not seen: not framed either */
         const acr_mesh *mesh = &p->piece[node->draw_piece];
         const float *M = mat[i];
         float d[3] = { 0, 0, 0 };
@@ -251,6 +253,7 @@ void demo_model_draw_pose(const demo_model *m, const acr_pose *pose, float x, fl
         if (node->draw_kind >= ACR_PART_KINDS) continue;
         const demo_part_model *p = &m->part[node->draw_kind];
         if (!p->present || node->draw_piece >= p->pieces) continue;
+        if (p->marker[node->draw_piece]) continue;   /* a launch point, not part of the look */
         const acr_mesh *mesh = &p->piece[node->draw_piece];
         const float *M = mat[i];
         /* The pose matrices take off this set's bind position for the node,

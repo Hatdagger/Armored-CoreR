@@ -22,6 +22,10 @@ typedef struct demo_part_model {
      * its vertices by, in the animation set it was exported from. */
     int has_joint[DEMO_MAX_PIECES];
     int joint[DEMO_MAX_PIECES][3];
+    /* A piece that is one untextured triangle: a launch / muzzle point
+     * (every back unit's second piece, the weapon arms' extra pieces), not
+     * meant to be seen. Kept for demo_model_part_tip, never drawn. */
+    int marker[DEMO_MAX_PIECES];
     uint32_t texture;                 /* this part's own texture.png, 0 = none */
 } demo_part_model;
 
