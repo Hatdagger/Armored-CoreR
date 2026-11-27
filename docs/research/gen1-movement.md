@@ -440,7 +440,9 @@ handler, so the AC stops dead. Engine and decisions:
 - **Step heights**: the ground AC falls when the floor is 50 or more below
   its feet (`0x80083960`). The game has no step-up height (box pushed out
   of the nearest polygon); the simple stage uses 75, one move step.
-- **Air slash** (`0x8007EB48`, swing tick AC +0x76): ticks 0-6 velocity
+- **Ground swing** (`0x8007EB48`, AC state 0x20, animation 56; this note
+  used to call it the air slash: a swing *started* in the air is state 0x21,
+  `0x8007F264`, see `docs/feel/blade-hit.md`; swing tick AC +0x76): ticks 0-6 velocity
   untouched; 7-11 kept with **forward** held (pad mask +0x28E, which alone
   gives air state 0x41; not the booster), otherwise `0x80014790(v, 0x500,
   0x1E00)`: horizontal speed capped to 7,680 then less 1,280 a tick; from 12

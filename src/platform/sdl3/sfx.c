@@ -290,7 +290,7 @@ static int fire_sound(int owner, int slot, int energy, int missile, int *blast) 
 static struct { uint8_t on, blast; int32_t travelled; uint16_t age; float p[3]; } g_seen[ACR_GEN1_MAX_SHOTS];
 static struct {
     int32_t ap;
-    uint8_t boosting, boost_down, state, locked, locks, tones, swinging, red, drained;
+    uint8_t boosting, boost_down, state, locked, locks, tones, swinging, red, drained, swing_frame;
 } g_was[ACR_GEN1_MAX_FIGHTERS];
 static int g_was_ok;
 static float g_next_perimeter, g_next_ap_low, g_next_drained;
@@ -373,13 +373,18 @@ void sfx_update(const acr_gen1_battle *b, const sfx_listen *l, uint64_t now_ns) 
         ac_pos(b, k, p);
         const int boosting = !l->round_over && f->ap > 0 && ac->boost_was_down && !ac->drained && ac->energy > 0;
         const int swinging = f->swing != 0;
+        /* The swing's Gen 1 frame (+1; 0 = not swinging): the sound plays on
+         * frame 8 of a ground swing, 5 of an air slash (VS 0x8007EC24 /
+         * 0x8007F5C8), not on the press. */
+        const int swing_frame = swinging ? SDL_min((f->swing - 1) * 22 / 1000 + 1, 250) : 0;
+        const int sound_frame = 1 + (f->air_swing ? ACR_GEN1_AIR_SLASH_SOUND_TICK : ACR_GEN1_BLADE_SOUND_TICK);
         const int red = ac->energy < l->red_zone && !ac->drained;
         const acr_gen1_weapon *w = f->current < f->weapons ? &f->weapon[f->current] : NULL;
         if (g_was_ok) {
             if (f->ap < g_was[k].ap && f->ap > 0) play_at(S_EXPLOSION, p, 0.8f);         /* a hit */
             if (f->ap <= 0 && g_was[k].ap > 0) play_at(S_BIG_EXPLOSION, p, 1.0f);          /* destroyed */
             if (boosting && !g_was[k].boosting) play_at(S_BOOST_START, p, 0.8f);
-            if (swinging && !g_was[k].swinging) play_at(S_BLADE, p, 0.9f);
+            if (swing_frame >= sound_frame && g_was[k].swing_frame < sound_frame) play_at(S_BLADE, p, 0.95f);
             if (ac->state == ACR_GEN1_LANDING && g_was[k].state != ACR_GEN1_LANDING) play_at(S_LANDING, p, 0.7f);
             if (k == me && !l->round_over) {
                 /* lock beeps: the listening AC's own */
@@ -414,6 +419,7 @@ void sfx_update(const acr_gen1_battle *b, const sfx_listen *l, uint64_t now_ns) 
         g_was[k].locks = f->locks;
         g_was[k].tones = f->tones;
         g_was[k].swinging = (uint8_t)swinging;
+        g_was[k].swing_frame = (uint8_t)swing_frame;
         g_was[k].red = (uint8_t)red;
         g_was[k].drained = ac->drained;
     }

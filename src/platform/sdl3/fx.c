@@ -154,6 +154,7 @@ static struct {
     float trail[3];            /* where the missile's last smoke puff went */
 } g_seen[ACR_GEN1_MAX_SHOTS];
 static int32_t g_ap[ACR_GEN1_MAX_FIGHTERS];
+static uint8_t g_bhit[ACR_GEN1_MAX_FIGHTERS];   /* last blade_hit_seq seen */
 static int g_ap_ok;
 static uint8_t g_unit_down[ACR_GEN1_MAX_UNITS];   /* each unit's down counter last seen */
 static uint64_t g_last_ns;
@@ -380,6 +381,16 @@ void fx_update(const acr_gen1_battle *b, uint64_t now_ns) {
             ac_feet(b, k, feet);
             ac_blast(feet);
         }
+        /* A blade hit: the hit dispatcher's flash (VS 0x8008821C ->
+         * 0x8008C164) at the AC's middle. Blades are energy hits (flags
+         * 0x20), so the energy look; the exact sprite is not mapped yet. */
+        if (g_ap_ok && b->f[k].blade_hit_seq != g_bhit[k] && b->f[k].ap > 0) {
+            float mid[3];
+            ac_feet(b, k, mid);
+            mid[1] += 106.0f;                               /* half the hit cylinder (212) */
+            hit_ac(mid, 1);
+        }
+        g_bhit[k] = b->f[k].blade_hit_seq;
         g_ap[k] = b->f[k].ap;
     }
     /* Mission units: a blast sized to the body the tick one is destroyed. */

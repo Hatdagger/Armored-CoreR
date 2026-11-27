@@ -429,6 +429,11 @@ void acr_gen1_ac_tick(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
         mz = ac->vz;
         goto moved;
     }
+    if (in.swing && in.swing_air && ac->state == ACR_GEN1_AIR) {
+        mx = ac->vx;
+        mz = ac->vz;
+        goto moved;
+    }
     if (in.swing && (ac->state == ACR_GEN1_GROUND || ac->state == ACR_GEN1_AIR)) {
         const int k = in.swing - 1;
         if (k >= 12) {

@@ -149,6 +149,8 @@ typedef struct acr_gen1_fighter {
     uint8_t  lunge_done;                       /* a hit or body contact ended the lunge */
     int8_t   swing_target;                     /* AC found ahead at the swing's start, -1 none */
     int32_t  lunge_x, lunge_z;                 /* lunge direction (4096 = 1) */
+    uint8_t  air_swing;                        /* this swing started in the air (AC state 0x21, VS 0x8007F264) */
+    uint8_t  blade_hit_seq;                    /* counts blade hits taken (wraps): the sound and flash watch it */
     /* Stance */
     uint8_t  legs;                             /* ACR_GEN1_LEGS_* */
     uint8_t  human_plus;
@@ -417,6 +419,32 @@ typedef struct acr_gen1_actions {
 #define ACR_GEN1_BLADE_REACH2     420
 #define ACR_GEN1_BLADE_KNOCK      10
 #define ACR_GEN1_BLADE_SWING_MS   1450    /* swing to swing, measured */
+#define ACR_GEN1_BLADE_SOUND_TICK 8       /* the swing sound (#23, id 15) plays on swing frame 8 (VS 0x8007EC24) */
+
+/* Air slash (VS 0x8007F264, read 2026-11-27): a swing started in the air
+ * (AC +0x46 = 0xC0) is AC state 0x21 with animation 47, and a different
+ * handler from the ground swing (state 0x20, animation 56):
+ * - Each tick, with a target, it predicts where the target will be
+ *   (0x800155DC: 5 passes at the AC's air top speed), turns toward that
+ *   point at FOUR times the AC's top turn rate (+0x20E << 2), and aims for
+ *   the point short of it by (both hit radii) x 1.25. Horizontal velocity
+ *   = the gap x 64 on each axis (there in one tick), capped to +- the air
+ *   top speed (+0x206). Vertical: aim above or level (gap <= 256): the gap,
+ *   or less the rise accel x 4 when the gap climbs faster than that; aim
+ *   below: falls 256 a tick more, at most 9,600.
+ * - No target: velocity kept; boost held (and not drained) rises by the
+ *   rise accel, otherwise falls 256 a tick more, at most 9,600, no faster
+ *   up than the rise top speed.
+ * - Sound #23 on frame 5; the blade line is tested on frames 6 and 7 only,
+ *   with the blade's attack x 3 (0x8007F65C: attack + attack x 2).
+ * The swing ends with animation 47. */
+#define ACR_GEN1_AIR_SLASH_TURN_X   4
+#define ACR_GEN1_AIR_SLASH_ATTACK_X 3
+#define ACR_GEN1_AIR_SLASH_HIT_TICK 6     /* and 7 */
+#define ACR_GEN1_AIR_SLASH_SOUND_TICK 5
+#define ACR_GEN1_AIR_SLASH_FALL     256
+#define ACR_GEN1_AIR_SLASH_FALL_MAX 9600
+#define ACR_GEN1_SHOW_AIR_SWING     47
 extern const int16_t acr_gen1_blade_lunge[ACR_GEN1_BLADE_STEPS];
 
 /* Blade waves (VS 0x8007EB48, read 2026-11-27). The wave type is the
@@ -461,8 +489,11 @@ int acr_gen1_knockback_level(uint16_t impact, uint8_t stability);
  * (0x80079ADC): impact x 3,276 x 8 >> 12, about 3.2 units a tick per
  * point of impact, at most 98, away from the shot. A crouched AC (state
  * 34) is pushed in its stance (0x8007B454); ours skips that. A new hit
- * doesn't restart a stun that is still running.
- * Ours: the push halves each tick after the first (a stand-in). */
+ * restarts the stun at its own level, and adds its push, even while
+ * one is running (0x8007BC1C writes +0xDA every time): rapid fire can
+ * hold an AC in place. The hit state replaces whatever state the AC was
+ * in, so a stunning hit also ends the AC's own blade swing.
+ * Ours: no vertical push yet (the game adds half of it in the air). */
 #define ACR_GEN1_STAGGER_BASE      0
 #define ACR_GEN1_STAGGER_PER_LEVEL 1
 #define ACR_GEN1_KNOCK_PER_IMPACT  205     /* 1/64 units a tick per point of impact (3.2 world units) */
