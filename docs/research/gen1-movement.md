@@ -386,6 +386,15 @@ to a smaller degree without booster input". Read from the VS engine:
   of a ground boost) is cut to the air top speed on the first air tick.
   The engine used to ease it down instead.
 
+## Landing states, from the disc (2026-11-27)
+
+Touchdown (`0x8007BA68`; arena engine `0x8007D730`) picks state **0x60**
+below a fall speed of 4,481 (0x1181) and **0x61** from it. 0x60 plays
+animation 23 and any direction or turn ends it at once (`0x80084834`);
+0x61 plays animation 36 to its end (`0x80084C20`). Neither runs a movement
+handler, so the AC stops dead. Engine and decisions:
+[../feel/boost-energy.md](../feel/boost-energy.md).
+
 ## Still to measure
 
 - Landing recovery after longer falls, and whether it depends on fall

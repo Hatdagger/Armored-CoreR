@@ -109,32 +109,54 @@ int main(void) {
     for (int i = 0; i < 20; ++i) acr_gen1_ac_step(&ac, &d, k_none);
     EXPECT(ac.state == ACR_GEN1_GROUND);
 
-    /* Landing check: the pause and the touchdown speed are kept; with the
-     * test switch on, a landing lasts the landing animation (here 13 ticks)
-     * whatever the fall. */
+    /* Landing (VS 0x8007BA68): below 4,481 the soft landing (animation 23,
+     * ended by a direction), from 4,481 the hard one (animation 36, played
+     * out); both stop the AC dead. The old stand-in stays as a test switch. */
     {
-        static const acr_gen1_root_key k_land[] = { { 13, 0, 0, 0 } };
-        static acr_gen1_root_track land = { 13, 1, k_land };
+        static const acr_gen1_root_key k_hard[] = { { 13, 0, 0, 0 } };
+        static acr_gen1_root_track hard = { 13, 1, k_hard };
+        static const acr_gen1_root_key k_soft[] = { { 6, 0, 0, 0 } };
+        static acr_gen1_root_track soft = { 6, 1, k_soft };
         acr_gen1_ac_def dl = make_def();
-        dl.anim[ACR_GEN1_ANIM_LAND] = &land;
-        for (int use_anim = 0; use_anim < 2; ++use_anim) {
-            dl.landing_from_anim = (uint8_t)use_anim;
-            acr_gen1_ac_spawn(&ac, &dl, 0, 0, 0);
-            ac.state = ACR_GEN1_AIR; ac.y = -64; ac.vy = 6000;
-            acr_gen1_ac_step(&ac, &dl, k_none);
-            EXPECT(ac.state == ACR_GEN1_LANDING && ac.vy_at_touchdown == 6256);
-            EXPECT(ac.landing_pause == (use_anim ? 13 : 20));
-            int n = 0;
-            while (ac.state == ACR_GEN1_LANDING && n < 100) { acr_gen1_ac_step(&ac, &dl, k_none); ++n; }
-            EXPECT(n == (use_anim ? 13 : 20));
-        }
-        /* A soft touchdown: no pause from the guess, the full animation when switched. */
-        dl.landing_from_anim = 1;
+        dl.anim[ACR_GEN1_ANIM_LAND] = &hard;
+        dl.anim[ACR_GEN1_ANIM_LAND_SOFT] = &soft;
+        const acr_gen1_input k_turn = { .turn = 1 };
+        /* Hard: 13 ticks, a direction doesn't cut it, sideways speed gone. */
+        acr_gen1_ac_spawn(&ac, &dl, 0, 0, 0);
+        ac.state = ACR_GEN1_AIR; ac.y = -64; ac.vy = 6000; ac.vx = 3000;
+        acr_gen1_ac_step(&ac, &dl, k_none);
+        EXPECT(ac.state == ACR_GEN1_LANDING && ac.vy_at_touchdown == 6256 && !ac.landing_soft);
+        EXPECT(ac.landing_pause == 13 && ac.vx == 0 && ac.vz == 0);
+        int n = 0;
+        while (ac.state == ACR_GEN1_LANDING && n < 100) { acr_gen1_ac_step(&ac, &dl, k_fwd); ++n; }
+        EXPECT(n == 13);
+        /* Just under the line: soft, 6 ticks with no input... */
+        acr_gen1_ac_spawn(&ac, &dl, 0, 0, 0);
+        ac.state = ACR_GEN1_AIR; ac.y = -64; ac.vy = ACR_GEN1_LAND_HARD_VY - 1 - 256;
+        acr_gen1_ac_step(&ac, &dl, k_none);
+        EXPECT(ac.state == ACR_GEN1_LANDING && ac.landing_soft && ac.landing_pause == 6);
+        n = 0;
+        while (ac.state == ACR_GEN1_LANDING && n < 100) { acr_gen1_ac_step(&ac, &dl, k_none); ++n; }
+        EXPECT(n == 6);
+        /* ...and over at once with a turn. */
         acr_gen1_ac_spawn(&ac, &dl, 0, 0, 0);
         ac.state = ACR_GEN1_AIR; ac.y = -64; ac.vy = 1000;
         acr_gen1_ac_step(&ac, &dl, k_none);
-        EXPECT(ac.landing_pause == 13);
-        dl.landing_from_anim = 0;
+        EXPECT(ac.landing_soft);
+        acr_gen1_ac_step(&ac, &dl, k_turn);
+        EXPECT(ac.state == ACR_GEN1_GROUND && ac.turn_rate != 0);
+        /* No animation in the set: the default AC's lengths. */
+        acr_gen1_ac_def dn = make_def();
+        acr_gen1_ac_spawn(&ac, &dn, 0, 0, 0);
+        ac.state = ACR_GEN1_AIR; ac.y = -64; ac.vy = 6000;
+        acr_gen1_ac_step(&ac, &dn, k_none);
+        EXPECT(ac.landing_pause == ACR_GEN1_LAND_HARD_TICKS);
+        /* The old stand-in: 20 at 5,000+, none for a soft fall. */
+        dl.landing_guess = 1;
+        acr_gen1_ac_spawn(&ac, &dl, 0, 0, 0);
+        ac.state = ACR_GEN1_AIR; ac.y = -64; ac.vy = 6000;
+        acr_gen1_ac_step(&ac, &dl, k_none);
+        EXPECT(ac.landing_pause == 20);
         acr_gen1_ac_spawn(&ac, &dl, 0, 0, 0);
         ac.state = ACR_GEN1_AIR; ac.y = -64; ac.vy = 1000;
         acr_gen1_ac_step(&ac, &dl, k_none);

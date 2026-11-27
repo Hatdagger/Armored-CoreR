@@ -47,7 +47,7 @@ int acr_gen1_pose_shown(const acr_gen1_ac *ac, acr_gen1_input in, int swinging, 
         return in.boost ? ACR_GEN1_SHOW_RISE : ACR_GEN1_SHOW_AIR;
     }
     if (swinging) return ACR_GEN1_SHOW_BLADE;
-    if (ac->state == ACR_GEN1_LANDING) return ACR_GEN1_ANIM_LAND;
+    if (ac->state == ACR_GEN1_LANDING) return ac->landing_soft ? ACR_GEN1_ANIM_LAND_SOFT : ACR_GEN1_ANIM_LAND;
     if (in.crouch) return ac->anim;
     if (ac->vx || ac->vz) {
         const int d = stick(in);
@@ -60,11 +60,11 @@ int acr_gen1_pose_shown(const acr_gen1_ac *ac, acr_gen1_input in, int swinging, 
 }
 
 uint16_t acr_gen1_pose_fade_step(int from, int to) {
-    if (from == to || to == ACR_GEN1_ANIM_LAND) return ACR_GEN1_FADE_CUT;
+    if (from == to || to == ACR_GEN1_ANIM_LAND || to == ACR_GEN1_ANIM_LAND_SOFT) return ACR_GEN1_FADE_CUT;
     /* The landing ends in a cut to standing (0x80084C58); moving on from
      * there fades as from standing, and the landing's last pose is close
      * to it. */
-    if (from == ACR_GEN1_ANIM_LAND && to == ACR_GEN1_ANIM_IDLE) return ACR_GEN1_FADE_CUT;
+    if ((from == ACR_GEN1_ANIM_LAND || from == ACR_GEN1_ANIM_LAND_SOFT) && to == ACR_GEN1_ANIM_IDLE) return ACR_GEN1_FADE_CUT;
     /* A walk's start animation runs into its loop without a fade. */
     if (to == from + 1 && (from == ACR_GEN1_ANIM_WALK_START || from == ACR_GEN1_ANIM_STRAFE_L_START ||
                            from == ACR_GEN1_ANIM_STRAFE_R_START || from == ACR_GEN1_ANIM_BACK_START))
