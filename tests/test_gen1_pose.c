@@ -161,6 +161,32 @@ int main(void) {
     EXPECT(acr_gen1_pose_fade_amount(0x400, 2.0f) == 0.5f);
     EXPECT(acr_gen1_pose_fade_amount(0, 0.0f) == 1.0f);
 
+    /* Four legs / caterpillars walk by velocity: the walking loop shows,
+     * not a slide pose; two legs sliding with the same state still brake. */
+    acr_gen1_ac quad = ac_in(ACR_GEN1_GROUND);
+    quad.anim = ACR_GEN1_ANIM_WALK; quad.vz = 2000;
+    EXPECT(acr_gen1_pose_shown_legs(&quad, in(1, 0, 0, 0), 0, 9, 1) == ACR_GEN1_ANIM_WALK);
+    EXPECT(acr_gen1_pose_shown_legs(&quad, in(1, 0, 0, 1), 0, 9, 1) == 48);
+    EXPECT(acr_gen1_pose_shown_legs(&quad, in(1, 0, 0, 0), 0, 9, 0) != ACR_GEN1_ANIM_WALK);
+    /* Fades: their loops 16 ticks; flinches 4. */
+    EXPECT(acr_gen1_pose_fade_step_legs(0, 2, 1) == 0x100);
+    EXPECT(acr_gen1_pose_fade_step_legs(2, 0, 1) == 0x100);
+    EXPECT(acr_gen1_pose_fade_step_legs(0, 2, 0) == 0x200);
+    EXPECT(acr_gen1_pose_fade_step_legs(0, 37, 0) == 0x400);
+    EXPECT(acr_gen1_pose_fade_step_legs(24, 43, 0) == 0x400);
+    /* Hit side, AC facing +z (yaw 0): a shot travelling -z came from the front. */
+    EXPECT(acr_gen1_hit_side(0, 0, -100) == 0);
+    EXPECT(acr_gen1_hit_side(0, 0, 100) == 1);
+    EXPECT(acr_gen1_hit_side(0, 100, 0) == 2);    /* travelling +x: came from the left (-x) */
+    EXPECT(acr_gen1_hit_side(0, -100, 0) == 3);
+    EXPECT(acr_gen1_hit_anim(0, 0) == 37 && acr_gen1_hit_anim(3, 0) == 40);
+    EXPECT(acr_gen1_hit_anim(1, 1) == 42);
+    /* Kneel: forward over the stance time, backwards standing up. */
+    EXPECT(acr_gen1_kneel_tick(0, 0, 400, 8) == 0.0f);
+    EXPECT(acr_gen1_kneel_tick(200, 0, 400, 8) == 4.0f);
+    EXPECT(acr_gen1_kneel_tick(900, 0, 400, 8) == 8.0f);
+    EXPECT(acr_gen1_kneel_tick(0, 100, 400, 8) == 2.0f);
+
     if (failures) printf("%d failures\n", failures);
     else printf("gen1 pose: ok\n");
     return failures != 0;

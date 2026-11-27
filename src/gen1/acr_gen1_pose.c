@@ -37,7 +37,16 @@ static int opposite(int d) {
     return k[d];
 }
 
+static int walk_loop(int a) {
+    return a == 2 || a == 4 || a == 6 || a == 9 || a == 12 || a == 15 || a == 17 || a == 19;
+}
+
 int acr_gen1_pose_shown(const acr_gen1_ac *ac, acr_gen1_input in, int swinging, unsigned jump_ticks) {
+    return acr_gen1_pose_shown_legs(ac, in, swinging, jump_ticks, 0);
+}
+
+int acr_gen1_pose_shown_legs(const acr_gen1_ac *ac, acr_gen1_input in, int swinging, unsigned jump_ticks,
+                             int drive_walk) {
     if (ac->state == ACR_GEN1_CROUCH) return ACR_GEN1_ANIM_JUMP;
     if (ac->state == ACR_GEN1_AIR) {
         if (ac->anim == ACR_GEN1_ANIM_JUMP && ac->anim_frame <= jump_ticks) return ACR_GEN1_ANIM_JUMP;
@@ -49,6 +58,7 @@ int acr_gen1_pose_shown(const acr_gen1_ac *ac, acr_gen1_input in, int swinging, 
     if (swinging) return ACR_GEN1_SHOW_BLADE;
     if (ac->state == ACR_GEN1_LANDING) return ac->landing_soft ? ACR_GEN1_ANIM_LAND_SOFT : ACR_GEN1_ANIM_LAND;
     if (in.crouch) return ac->anim;
+    if (drive_walk && walk_loop(ac->anim) && !in.boost && !in.cruise) return ac->anim;
     if (ac->vx || ac->vz) {
         const int d = stick(in);
         /* Boosting (or the modern boost toggle) with a direction: that way's pose. */
@@ -78,4 +88,30 @@ float acr_gen1_pose_fade_amount(uint16_t step, float ticks) {
     if (!step) return 1.0f;
     const float t = ticks * (float)step / 4096.0f;
     return t <= 0.0f ? 0.0f : t >= 1.0f ? 1.0f : t;
+}
+
+uint16_t acr_gen1_pose_fade_step_legs(int from, int to, int drive_walk) {
+    if (from != to && to >= ACR_GEN1_SHOW_HIT_FRONT && to <= ACR_GEN1_SHOW_AIR_HIT_FRONT + 3) return ACR_GEN1_FADE_QUICK;
+    if (drive_walk && from != to && (to == ACR_GEN1_ANIM_IDLE || walk_loop(to))) return ACR_GEN1_FADE_SLOW;
+    return acr_gen1_pose_fade_step(from, to);
+}
+
+int acr_gen1_hit_side(uint16_t yaw, int64_t dx, int64_t dz) {
+    /* The hit comes from -(dx, dz); seen from the AC: ahead and to the right. */
+    const int64_t s = acr_gen1_sin(yaw), c = acr_gen1_cos(yaw);
+    const int64_t ahead = -(dx * s + dz * c), right = -(dx * c - dz * s);
+    if (mag(ahead) >= mag(right)) return ahead >= 0 ? 0 : 1;
+    return right >= 0 ? 3 : 2;
+}
+
+int acr_gen1_hit_anim(int side, int air) {
+    if (side < 0 || side > 3) side = 0;
+    return (air ? ACR_GEN1_SHOW_AIR_HIT_FRONT : ACR_GEN1_SHOW_HIT_FRONT) + side;
+}
+
+float acr_gen1_kneel_tick(int32_t kneel_ms, int32_t stand_ms, int32_t need_ms, unsigned length) {
+    if (need_ms <= 0 || !length) return 0.0f;
+    const int32_t at = stand_ms > 0 ? stand_ms : kneel_ms;
+    const float t = (float)at / (float)need_ms;
+    return (t >= 1.0f ? 1.0f : t <= 0.0f ? 0.0f : t) * (float)length;
 }

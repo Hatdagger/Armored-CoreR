@@ -1,4 +1,5 @@
 #include "acr_gen1_battle.h"
+#include "acr_gen1_pose.h"
 
 #include <stddef.h>
 #include <string.h>
@@ -425,6 +426,9 @@ static void stagger_hit(acr_gen1_battle *b, int target, uint8_t impact, int64_t 
     if (!t->kneeling) {
         t->stagger = (uint8_t)(ACR_GEN1_STAGGER_BASE + ACR_GEN1_STAGGER_PER_LEVEL * level);
         if (t->swing) { t->swing = 0; t->wave_armed = 0; t->air_swing = 0; }
+        t->hit_side = (uint8_t)acr_gen1_hit_side(t->ac.yaw, dx, dz);
+        t->hit_air = t->ac.state == ACR_GEN1_AIR;
+        ++t->hit_seq;
     }
     const int64_t len = isqrt64((uint64_t)(dx * dx + dz * dz));
     if (!len) { t->knock_x = t->knock_z = 0; return; }
