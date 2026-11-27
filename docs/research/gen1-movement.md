@@ -386,6 +386,15 @@ to a smaller degree without booster input". Read from the VS engine:
   of a ground boost) is cut to the air top speed on the first air tick.
   The engine used to ease it down instead.
 
+## Landing states, from the disc (2026-11-27)
+
+Touchdown (`0x8007BA68`; arena engine `0x8007D730`) picks state **0x60**
+below a fall speed of 4,481 (0x1181) and **0x61** from it. 0x60 plays
+animation 23 and any direction or turn ends it at once (`0x80084834`);
+0x61 plays animation 36 to its end (`0x80084C20`). Neither runs a movement
+handler, so the AC stops dead. Engine and decisions:
+[../feel/boost-energy.md](../feel/boost-energy.md).
+
 ## Still to measure
 
 - Landing recovery after longer falls, and whether it depends on fall
@@ -422,11 +431,7 @@ to a smaller degree without booster input". Read from the VS engine:
 
 ## Landing, kneel, air slash, hit push (VS engine, read 2026-11-27)
 
-- **Touchdown** (`0x8007BA60`): fall speed above 4,480 (`0x1180`) is a hard
-  landing, state 0x61 (rumble 8): the landing animation (36) plays out
-  (`0x80084C20`), then a cut to standing. Otherwise state 0x60 (rumble 4):
-  the landing sound and straight to the ground controls (`0x80084834`),
-  no recovery. Engine: `ACR_GEN1_HARD_LANDING`.
+- **Touchdown**: see the soft / hard landing notes above (PR #35).
 - **Cannon kneel** (`0x80081B18`): a fresh trigger press on the ground (not
   in the air, 0xC0, or ground boosting, 0xB0) zeroes velocity, sets state
   34 and plays animation `0x2A + weapon record +0x0A` (45 on the sets that

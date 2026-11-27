@@ -34,8 +34,9 @@ enum {
     ACR_GEN1_ANIM_STRAFE_R_START = 11, ACR_GEN1_ANIM_STRAFE_R = 12,
     ACR_GEN1_ANIM_BACK_START = 14, ACR_GEN1_ANIM_BACK = 15,
     ACR_GEN1_ANIM_JUMP = 22,
-    ACR_GEN1_ANIM_LAND = 36,
-    ACR_GEN1_ANIM_KNEEL = 45,   /* cannon stance (46 the right back slot: same length on all but 4 sets) */
+    ACR_GEN1_ANIM_LAND_SOFT = 23,   /* landing state 0x60: touchdown below ACR_GEN1_LAND_HARD_VY */
+    ACR_GEN1_ANIM_LAND = 36,        /* landing state 0x61: the kneel after a hard touchdown */
+    ACR_GEN1_ANIM_KNEEL = 45,       /* cannon stance (46 the right back slot: same length on all but 4 sets) */
     ACR_GEN1_ANIM_COUNT = 64
 };
 
@@ -121,6 +122,17 @@ typedef struct acr_gen1_input {
  * by up to ~66 degrees at ~80 degrees a second and it stays where it is let
  * go; L2+R2 together bring it back level in ~0.2 s. Facing units (4096 a
  * circle), per Gen 1 tick (22 a second). */
+/* Landing (VS 0x8007BA68 touchdown, arena 0x8007D730 the same): a fall
+ * speed below 4,481 (0x1181, 1/64 units a tick) is a soft landing (state
+ * 0x60, animation 23): any direction or turn ends it at once (handler
+ * 0x80084834), otherwise it plays out. 4,481 and over is the hard landing
+ * (state 0x61, animation 36): it plays to the end, nothing cancels it
+ * (0x80084C20). Both stop the AC dead: the landing states skip the
+ * movement handlers. Lengths when the set has no such animation: */
+#define ACR_GEN1_LAND_HARD_VY     4481
+#define ACR_GEN1_LAND_SOFT_TICKS  8     /* animation 23, default AC (sets: 8, 9 or 12) */
+#define ACR_GEN1_LAND_HARD_TICKS  16    /* animation 36, default AC (sets: 12, 16 or 20) */
+
 #define ACR_GEN1_PITCH_MAX        751
 #define ACR_GEN1_PITCH_RATE       41
 #define ACR_GEN1_PITCH_LEVEL_RATE 170
@@ -129,15 +141,11 @@ typedef struct acr_gen1_input {
 #define ACR_GEN1_SWING_CAP  0x1E00
 #define ACR_GEN1_SWING_SLOW 0x500
 
-/* Touchdown faster than this (VS 0x8007BA68) is a hard landing. */
-#define ACR_GEN1_HARD_LANDING 0x1180
-
 typedef struct acr_gen1_ac_def {
     acr_gen1_stats  stats;
     acr_gen1_motion motion;
     const acr_gen1_root_track *anim[ACR_GEN1_ANIM_COUNT];   /* NULL = missing */
-    uint16_t landing_steps;   /* ticks of recovery after a hard landing when the set has no landing
-                                 track (measured: about 20 after a hop) */
+    uint16_t landing_steps;   /* landing_guess only: the old stand-in's recovery at 5,000+ */
     /* Steps a second when the engine runs faster than Gen 1's 22 ticks a
      * second (step_rate, with gen1_rate = 22): the game's rules still run
      * 22 times a second, between steps. 0 / 0 = a tick every step. */
@@ -148,9 +156,10 @@ typedef struct acr_gen1_ac_def {
     uint8_t  drive_walk;      /* four-legged and caterpillar legs: walking pushes the AC like
                                  the ground boost (VS 0x80085704), no root motion */
     uint8_t  cruise_pct;      /* the boost toggle's top speed, % of walking pace (0 = CRUISE_PCT) */
-    /* Old test switch, no longer used: a hard landing now always plays the
-     * landing animation out and a soft one has no recovery (touch_down). */
-    uint8_t  landing_from_anim;
+    /* Test: the old stand-in landing (no pause below a 2,000 fall, rising
+     * to landing_steps at 5,000) instead of the game's soft / hard landing
+     * (ACR_GEN1_LAND_HARD_VY). 0 = the game's rule. */
+    uint8_t  landing_guess;
     /* The arena (NULL = the open test floor at y = 0): its floors carry the
      * AC, its walls stop it (acr_gen1_stage.h; step heights are stand-ins). */
     const acr_gen1_stage *stage;
@@ -198,7 +207,8 @@ typedef struct acr_gen1_ac {
     uint8_t  state;
     uint16_t timer;
     int32_t  vy_at_touchdown;  /* fall speed at the latest touchdown */
-    uint16_t landing_pause;    /* ticks the latest landing lasted (0: none) */
+    uint16_t landing_pause;    /* ticks the latest landing lasts if not cut short (0: none) */
+    uint8_t  landing_soft;     /* the landing is the soft one (state 0x60): a direction ends it */
     uint8_t  anim;
     uint16_t anim_frame;
     uint16_t span_left;

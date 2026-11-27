@@ -191,27 +191,31 @@ static void stage_move(acr_gen1_ac *ac, const acr_gen1_ac_def *def, int32_t *flo
     }
 }
 
-/* Touchdown: the fall speed decides the recovery (see below). y is already
- * at the floor. */
+/* Touchdown (VS 0x8007BA68): the fall speed picks the soft landing
+ * (state 0x60, animation 23, cut short by any direction or turn) or the
+ * hard one (0x61, animation 36, played to the end), see
+ * ACR_GEN1_LAND_HARD_VY. Either way the AC stops dead: the landing states
+ * skip the movement handlers, so nothing slides. y is already at the
+ * floor. */
 static void touch_down(acr_gen1_ac *ac, const acr_gen1_ac_def *def) {
     ac->vy_at_touchdown = ac->vy;
     ac->vy = 0;
-    /* Sideways speed carries into a ground slide (the game was only
-     * measured landing with none left). */
+    ac->vx = 0;
+    ac->vz = 0;
     ac->coast = 0;
     ac->state = ACR_GEN1_LANDING;
     set_anim(ac, ACR_GEN1_ANIM_IDLE);
-    /* The game's touchdown (VS 0x8007BA60): a fall faster than 4,480
-     * (0x1180) is a hard landing, state 0x61, whose handler (0x80084C20)
-     * plays the landing animation (36) out and then cuts to standing; any
-     * softer touchdown is state 0x60, which goes straight to the ground
-     * controls (0x80084834): no recovery at all. In ticks; landing_steps
-     * stands in when the set has no landing track. */
     const int32_t fall = ac->vy_at_touchdown;
-    uint32_t ticks = 0;
-    if (fall > ACR_GEN1_HARD_LANDING) {
-        const acr_gen1_root_track *land = def->anim[ACR_GEN1_ANIM_LAND];
-        ticks = land && land->length ? land->length : def->landing_steps;
+    uint32_t ticks;
+    if (def->landing_guess) {                /* test: the old stand-in curve */
+        ticks = 0;
+        if (fall >= 5000) ticks = def->landing_steps;
+        else if (fall > 2000) ticks = (uint32_t)def->landing_steps * (uint32_t)(fall - 2000) / 3000u;
+        ac->landing_soft = 0;
+    } else {
+        ac->landing_soft = fall < ACR_GEN1_LAND_HARD_VY;
+        const acr_gen1_root_track *t = def->anim[ac->landing_soft ? ACR_GEN1_ANIM_LAND_SOFT : ACR_GEN1_ANIM_LAND];
+        ticks = t && t->length ? t->length : ac->landing_soft ? ACR_GEN1_LAND_SOFT_TICKS : ACR_GEN1_LAND_HARD_TICKS;
     }
     ac->timer = (uint16_t)ticks;
     ac->landing_pause = (uint16_t)ticks;
@@ -340,6 +344,14 @@ void acr_gen1_ac_tick(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
     const acr_gen1_stats *s = &def->stats;
     ac->px = ac->x; ac->py = ac->y; ac->pz = ac->z;
     ac->pyaw = ac->yaw;
+
+    /* A soft landing ends as soon as the pad asks for a walk, strafe or
+     * turn (0x80084834 starts that animation the same tick). */
+    if (ac->state == ACR_GEN1_LANDING && ac->landing_soft && (in.move || in.strafe || in.turn)) {
+        ac->state = ACR_GEN1_GROUND;
+        ac->timer = 0;
+        ac->landing_soft = 0;
+    }
 
     /* Turning: speeds up each tick to the top rate, stops at once on
      * release (VS 0x8007E1DC). Crouched in the cannon stance it uses the
@@ -593,8 +605,8 @@ void acr_gen1_ac_tick(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
         break;
     case ACR_GEN1_LANDING:
         if (ac->timer) --ac->timer;
-        if (!ac->timer) ac->state = ACR_GEN1_GROUND;
-        slow_down(&ac->vx, &ac->vz, m->boost_accel);
+        if (!ac->timer) { ac->state = ACR_GEN1_GROUND; ac->landing_soft = 0; }
+        slow_down(&ac->vx, &ac->vz, m->boost_accel);   /* only the stand-in keeps speed */
         mx = ac->vx;
         mz = ac->vz;
         break;
