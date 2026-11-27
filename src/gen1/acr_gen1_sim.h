@@ -48,6 +48,15 @@ typedef struct acr_gen1_input {
     int8_t  look;     /* +1 tilt the view up (L2), -1 down (R2), 2 both: back to level */
     uint8_t crouch;   /* crouched in the cannon stance (VS 0x8007E3E0): crouch turn rates,
                          sliding to a stop, no walking or boosting */
+    /* Blade swing (set by the battle): 0 none, else the swing's tick + 1.
+     * The swing handler (VS 0x8007EB48) replaces the movement rules: no
+     * steering, rising or gravity; ticks 0-6 keep the AC's velocity, ticks
+     * 7-11 keep it with forward held (pad mask +0x28E) and otherwise cut
+     * the horizontal speed to ACR_GEN1_SWING_CAP and slow it by
+     * ACR_GEN1_SWING_SLOW a tick (0x80014790); from tick 12 the velocity
+     * is zero (0x8003EA48), so an air slash hangs until the swing ends. */
+    uint8_t swing;
+    uint8_t swing_fwd;
     /* Modern controls only (SP-MODERN; always 0 with the original pad): */
     uint8_t cruise;   /* the boost toggle is on: the only ground boost, faster than walking
                          (ACR_GEN1_CRUISE_PCT); also lets the booster rise */
@@ -114,6 +123,9 @@ typedef struct acr_gen1_input {
 #define ACR_GEN1_PITCH_LEVEL_RATE 170
 
 /* Everything fixed for one AC during a match. */
+#define ACR_GEN1_SWING_CAP  0x1E00
+#define ACR_GEN1_SWING_SLOW 0x500
+
 /* Touchdown faster than this (VS 0x8007BA68) is a hard landing. */
 #define ACR_GEN1_HARD_LANDING 0x1180
 

@@ -465,8 +465,9 @@ static void lunge_move(acr_gen1_battle *b, int i, int from, int to) {
             f->lunge_done = 1;
         }
     }
+    /* On top of the AC's own velocity, which the swing handler keeps or
+     * slows (in.swing): an air slash carries on. */
     acr_gen1_ac_shift(me, (int32_t)(f->lunge_x * d / 4096), (int32_t)(f->lunge_z * d / 4096));
-    me->vx = me->vz = 0;
 }
 
 /* How far the blade must reach to touch target t from `me` (flat): its
@@ -1356,7 +1357,12 @@ void acr_gen1_battle_step(acr_gen1_battle *b, const acr_gen1_input in[], const a
         else { use = modern_input(b, i, use, act[i], ticks); use.modern = 1; }
         if (f->recover_ms) use.move = use.strafe = use.boost = use.boost_tapped = use.cruise = use.quick = 0;
         if (f->swing) use.quick = use.cruise = 0;
-        if (f->swing) use.move = use.strafe = use.boost = use.boost_tapped = 0;   /* the swing holds the AC */
+        if (f->swing) {                        /* the swing handler moves the AC (sim: in.swing) */
+            const int k = (f->swing - 1) * 22 / 1000;
+            use.swing = (uint8_t)(k > 250 ? 251 : k + 1);
+            use.swing_fwd = (uint8_t)(use.move > 0);
+            use.move = use.strafe = use.boost = use.boost_tapped = 0;
+        }
         if (f->stagger) {                      /* hit stagger: the pilot has no say */
             use.move = use.strafe = use.turn = 0;
             use.boost = use.boost_tapped = use.cruise = use.quick = use.crouch = 0;
