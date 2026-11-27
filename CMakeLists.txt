@@ -34,6 +34,7 @@ add_library(acr_gen1 STATIC
     src/gen1/acr_gen1_pose.c
     src/gen1/acr_gen1_battle.c
     src/gen1/acr_gen1_mission.c
+    src/gen1/acr_gen1_gimmick.c
     src/gen1/acr_gen1_missions.c
     src/gen1/acr_gen1_garage.c
     src/gen1/acr_gen1_perf.c
@@ -152,6 +153,9 @@ add_test(NAME gen1_arena COMMAND test_gen1_arena)
 add_executable(test_gen1_missions tests/test_gen1_missions.c)
 target_link_libraries(test_gen1_missions PRIVATE acr_gen1)
 add_test(NAME gen1_missions COMMAND test_gen1_missions)
+add_executable(test_gen1_gimmick tests/test_gen1_gimmick.c)
+target_link_libraries(test_gen1_gimmick PRIVATE acr_gen1)
+add_test(NAME gen1_gimmick COMMAND test_gen1_gimmick)
 add_executable(test_rollback tests/test_rollback.c)
 target_link_libraries(test_rollback PRIVATE acr_net)
 add_test(NAME rollback COMMAND test_rollback)

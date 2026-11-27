@@ -176,7 +176,8 @@ static int build_faces(demo_stage *s, const char *obj, const char *mtl_text, con
             s->batch[s->batches + ov].semi = mtl.m[i].semi;
             s->batch[s->batches + ov].overlay = (uint8_t)ov;
             s->batch[s->batches + ov].v = SDL_malloc(sizeof(acr_vtx) * (size_t)(mesh.tri_count * 3 + 3));
-            if (!s->batch[s->batches + ov].v) { acr_mesh_free(&mesh); return 0; }
+            s->batch[s->batches + ov].area = SDL_malloc(sizeof(int16_t) * (size_t)(mesh.tri_count * 3 + 3));
+            if (!s->batch[s->batches + ov].v || !s->batch[s->batches + ov].area) { acr_mesh_free(&mesh); return 0; }
         }
         mtl.m[i].kind = (uint8_t)s->batches;          /* which batch (kind is unused here); +1 = overlays */
         s->batches += 2;
@@ -192,7 +193,9 @@ static int build_faces(demo_stage *s, const char *obj, const char *mtl_text, con
     }
     s->tris = SDL_malloc(sizeof *s->tris * (size_t)(mesh.tri_count * 3 + 3));
     s->semi = SDL_malloc(sizeof *s->semi * (size_t)(mesh.tri_count * 3 + 3));
-    if (!s->tris || !s->semi) { acr_mesh_free(&mesh); return 0; }
+    s->tri_area = SDL_malloc(sizeof(int16_t) * (size_t)(mesh.tri_count * 3 + 3));
+    s->semi_area = SDL_malloc(sizeof(int16_t) * (size_t)(mesh.tri_count * 3 + 3));
+    if (!s->tris || !s->semi || !s->tri_area || !s->semi_area) { acr_mesh_free(&mesh); return 0; }
     const float L[3] = { 0.3f, 0.9f, 0.3f };
     for (int t = 0; t < mesh.tri_count; ++t) {
         const float *a = mesh.v[t * 3].p, *b = mesh.v[t * 3 + 1].p, *c = mesh.v[t * 3 + 2].p;
@@ -215,6 +218,7 @@ static int build_faces(demo_stage *s, const char *obj, const char *mtl_text, con
             const int bi = m->kind + (mark[t] ? 1 : 0);
             acr_vtx *out = s->batch[bi].v + s->batch[bi].count;
             for (int j = 0; j < 3; ++j) {
+                s->batch[bi].area[s->batch[bi].count + j] = mesh.area ? mesh.area[t] : -1;
                 out[j] = vtx(mesh.v[t * 3 + j].p, c[0], c[1], c[2], s->batch[bi].semi ? 128 : 255);
                 out[j].u = mesh.v[t * 3 + j].uv[0];
                 out[j].v = 1.0f - mesh.v[t * 3 + j].uv[1];
@@ -224,7 +228,11 @@ static int build_faces(demo_stage *s, const char *obj, const char *mtl_text, con
         }
         const int semi = m && m->semi;
         acr_vtx *out = semi ? s->semi + s->semi_count : s->tris + s->tri_count;
-        for (int j = 0; j < 3; ++j) out[j] = vtx(mesh.v[t * 3 + j].p, r, g, bl, semi ? 40 : 255);
+        int16_t *oa = semi ? s->semi_area + s->semi_count : s->tri_area + s->tri_count;
+        for (int j = 0; j < 3; ++j) {
+            out[j] = vtx(mesh.v[t * 3 + j].p, r, g, bl, semi ? 40 : 255);
+            oa[j] = mesh.area ? mesh.area[t] : -1;
+        }
         if (semi) s->semi_count += 3;
         else s->tri_count += 3;
     }
@@ -580,6 +588,8 @@ int demo_stage_load(const char *dir, int id, demo_stage *out) {
         SDL_free(sky); SDL_free(sky_mtl);
         out->ok = 1;
         out->id = id;
+        SDL_snprintf(path, sizeof path, "%s/gimmicks.txt", sdir);
+        out->gimmicks = load_text(path);
         load_far(out, sdir);
         setup_backdrop(out);
         const char *n = SDL_strstr(toml, "name = \"");
@@ -601,9 +611,11 @@ int demo_stage_load(const char *dir, int id, demo_stage *out) {
 
 static void demo_stage_free_draw(demo_stage *s) {
     SDL_free(s->tris); SDL_free(s->semi); SDL_free(s->edges);
+    SDL_free(s->tri_area); SDL_free(s->semi_area);
     s->tris = s->semi = s->edges = NULL;
+    s->tri_area = s->semi_area = NULL;
     s->tri_count = s->semi_count = s->edge_count = 0;
-    for (int i = 0; i < s->batches; ++i) SDL_free(s->batch[i].v);   /* textures stay with GL */
+    for (int i = 0; i < s->batches; ++i) { SDL_free(s->batch[i].v); SDL_free(s->batch[i].area); }   /* textures stay with GL */
     s->batches = 0;
     for (int i = 0; i < s->skies; ++i) SDL_free(s->sky[i].v);
     s->skies = 0;
@@ -617,9 +629,38 @@ static void demo_stage_free_draw(demo_stage *s) {
 }
 
 void demo_stage_free(demo_stage *s) {
+    SDL_free(s->gimmicks);
+    s->gimmicks = NULL;
     acr_gen1_stage_free(&s->collision);
     demo_stage_free_draw(s);
     SDL_memset(s, 0, sizeof *s);
+}
+
+static void move_vtx(acr_vtx *v, const int16_t *area, int count, int a, const float d[3]) {
+    if (!v || !area) return;
+    for (int i = 0; i < count; ++i)
+        if (area[i] == a) { v[i].x += d[0]; v[i].y += d[1]; v[i].z += d[2]; }
+}
+
+void demo_stage_place_area(demo_stage *s, int area, const int32_t off[3]) {
+    if (!s->ok || area < 0) return;
+    int i = 0;
+    while (i < s->drawn_moveds && s->drawn_moved[i].area != area) ++i;
+    if (i == s->drawn_moveds) {
+        if ((!off[0] && !off[1] && !off[2]) || s->drawn_moveds >= ACR_GEN1_STAGE_MOVED) return;
+        s->drawn_moved[i].area = (int16_t)area;
+        SDL_memset(s->drawn_moved[i].off, 0, sizeof s->drawn_moved[i].off);
+        ++s->drawn_moveds;
+    }
+    const int32_t step[3] = { off[0] - s->drawn_moved[i].off[0], off[1] - s->drawn_moved[i].off[1],
+                              off[2] - s->drawn_moved[i].off[2] };
+    SDL_memcpy(s->drawn_moved[i].off, off, sizeof s->drawn_moved[i].off);
+    if (!step[0] && !step[1] && !step[2]) return;
+    /* Drawn in the engine's world: x mirrored, y up. */
+    const float d[3] = { (float)-step[0], (float)-step[1], (float)step[2] };
+    for (int i = 0; i < s->batches; ++i) move_vtx(s->batch[i].v, s->batch[i].area, s->batch[i].count, area, d);
+    move_vtx(s->tris, s->tri_area, s->tri_count, area, d);
+    move_vtx(s->semi, s->semi_area, s->semi_count, area, d);
 }
 
 void demo_stage_draw(const demo_stage *s, int pass) {

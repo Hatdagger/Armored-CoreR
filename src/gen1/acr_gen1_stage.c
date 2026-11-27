@@ -49,6 +49,7 @@ int acr_gen1_stage_add(acr_gen1_stage *s, const int32_t (*v)[3], int corners) {
     }
     acr_gen1_stage_poly *p = &s->poly[s->polys];
     memset(p, 0, sizeof *p);
+    p->area = s->next_area;
     p->corners = (uint8_t)corners;
     for (int i = 0; i < corners; ++i)
         for (int k = 0; k < 3; ++k) {
@@ -86,6 +87,7 @@ int acr_gen1_stage_add(acr_gen1_stage *s, const int32_t (*v)[3], int corners) {
 
 int acr_gen1_stage_parse(const char *text, acr_gen1_stage *out) {
     memset(out, 0, sizeof *out);
+    out->next_area = -1;
     int32_t (*vert)[3] = NULL;
     uint32_t nv = 0, cap = 0;
     int ok = 1;
@@ -107,6 +109,12 @@ int acr_gen1_stage_parse(const char *text, acr_gen1_stage *out) {
             /* OBJ y is up; the fight's y is down. */
             vert[nv][0] = c[0]; vert[nv][1] = -c[1]; vert[nv][2] = c[2];
             ++nv;
+        } else if (e - s > 6 && !strncmp(s, "o area", 6)) {
+            /* "o area<N>-model<M>": the area that placed what follows. */
+            long a = 0;
+            const char *q = s + 6;
+            while (q < e && *q >= '0' && *q <= '9') a = a * 10 + (*q++ - '0');
+            out->next_area = (int16_t)(q > s + 6 && a < 32768 ? a : -1);
         } else if (e - s > 2 && s[0] == 'f' && s[1] == ' ') {
             int32_t c[4][3];
             int corners = 0;
@@ -226,6 +234,44 @@ int acr_gen1_stage_push(const acr_gen1_stage *s, int32_t *x, int32_t *z, int32_t
         }
     }
     return moved;
+}
+
+void acr_gen1_stage_move_area(acr_gen1_stage *s, int area, const int32_t step[3]) {
+    if (area < 0 || (!step[0] && !step[1] && !step[2])) return;
+    /* The polygons are in the engine's world: x mirrored. */
+    const int32_t e[3] = { -step[0], step[1], step[2] };
+    for (uint32_t i = 0; i < s->polys; ++i) {
+        acr_gen1_stage_poly *p = &s->poly[i];
+        if (p->area != area) continue;
+        for (int c = 0; c < p->corners; ++c)
+            for (int k = 0; k < 3; ++k) p->v[c][k] += e[k];
+        for (int k = 0; k < 3; ++k) { p->lo[k] += e[k]; p->hi[k] += e[k]; }
+        p->d -= (int64_t)p->n[0] * e[0] + (int64_t)p->n[1] * e[1] + (int64_t)p->n[2] * e[2];
+    }
+    if ((uint32_t)area < s->areas) {
+        acr_gen1_stage_area *a = &s->area[area];
+        for (int k = 0; k < 3; ++k) {
+            a->lo[k] = (int16_t)(a->lo[k] + step[k]);
+            a->hi[k] = (int16_t)(a->hi[k] + step[k]);
+            a->centre[k] = (int16_t)(a->centre[k] + step[k]);
+        }
+    }
+}
+
+void acr_gen1_stage_place_area(acr_gen1_stage *s, int area, const int32_t off[3]) {
+    if (area < 0) return;
+    int i = 0;
+    while (i < s->moveds && s->moved[i].area != area) ++i;
+    if (i == s->moveds) {
+        if (!off[0] && !off[1] && !off[2]) return;
+        if (s->moveds >= ACR_GEN1_STAGE_MOVED) return;
+        s->moved[i].area = (int16_t)area;
+        s->moved[i].off[0] = s->moved[i].off[1] = s->moved[i].off[2] = 0;
+        ++s->moveds;
+    }
+    const int32_t step[3] = { off[0] - s->moved[i].off[0], off[1] - s->moved[i].off[1], off[2] - s->moved[i].off[2] };
+    acr_gen1_stage_move_area(s, area, step);
+    memcpy(s->moved[i].off, off, sizeof s->moved[i].off);
 }
 
 int acr_gen1_stage_segment(const acr_gen1_stage *s, const int32_t a[3], const int32_t b[3], int32_t *t) {

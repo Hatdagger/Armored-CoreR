@@ -3866,11 +3866,31 @@ int main(int argc, char **argv) {
             }
             /* The arena's floors and walls (the defs are reloaded on part changes). */
             def->stage = def2->stage = battle.stage = g_stage_on ? &g_stage.collision : NULL;
+            /* The mission map's doors: read into the battle when it starts (a
+             * new battle has none), so rollback snapshots carry them. */
+            battle.moving = g_stage_on ? &g_stage.collision : NULL;
+            if (g_stage_on && battle.gim.stage != g_stage.id + 1) {
+                acr_gen1_gimmicks_parse(g_stage.gimmicks ? g_stage.gimmicks : "", &battle.gim);
+                battle.gim.stage = (int16_t)(g_stage.id + 1);
+                for (int i_ = 0; i_ < g_stage.collision.moveds; ++i_) {   /* all shut again */
+                    const int32_t z_[3] = { 0, 0, 0 };
+                    acr_gen1_stage_place_area(&g_stage.collision, g_stage.collision.moved[i_].area, z_);
+                }
+            }
             battle.over = (uint8_t)round_over;    /* decided: hits after this don't count */
             {   /* the game ticks this step runs (as acr_gen1_battle_step counts them) */
                 const int wticks = battle.step_rate && battle.gen1_rate
                     ? (int)((battle.tick_phase + battle.gen1_rate) / battle.step_rate) : 1;
                 acr_gen1_battle_step(&battle, in2, act);
+                if (g_stage_on && battle.gim.stage == g_stage.id + 1) {
+                    for (int i_ = 0; i_ < battle.gim.doors; ++i_)
+                        demo_stage_place_area(&g_stage, battle.gim.door[i_].area, battle.gim.door[i_].offset);
+                    if (battle.gim.doors == 0)
+                        for (int i_ = 0; i_ < g_stage.drawn_moveds; ++i_) {
+                            const int32_t z_[3] = { 0, 0, 0 };
+                            demo_stage_place_area(&g_stage, g_stage.drawn_moved[i_].area, z_);
+                        }
+                }
                 const int ear_ = g_net ? net_info.local : 0;
                 for (int t_ = 0; t_ < wticks; ++t_)
                     for (int k_ = 0; k_ < acr_gen1_battle_fighters(&battle) && k_ < ACR_GEN1_MAX_FIGHTERS; ++k_) {

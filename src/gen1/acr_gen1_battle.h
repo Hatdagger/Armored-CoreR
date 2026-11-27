@@ -17,6 +17,7 @@
 
 #include "acr_gen1_sim.h"
 #include "acr_gen1_mission.h"
+#include "acr_gen1_gimmick.h"
 
 enum { ACR_GEN1_GUN, ACR_GEN1_MISSILE, ACR_GEN1_BLADE };
 enum { ACR_GEN1_MOUNT_HAND, ACR_GEN1_MOUNT_BACK, ACR_GEN1_MOUNT_ARMS };
@@ -382,6 +383,12 @@ typedef struct acr_gen1_battle {
     const acr_gen1_stage *stage;               /* the arena (NULL = open floor): stops shots */
     acr_gen1_modern_tuning modern;             /* 0 fields = the defaults below */
     acr_gen1_mission mission;                  /* the mission map's script (0 = none: the plain rule) */
+    /* Moving map parts (doors), ticked with the mission (0 doors = none).
+     * `moving` (the same stage as `stage`, writable; NULL = don't move its
+     * collision) is put where the doors are each tick; the platform moves
+     * what it draws the same way (both catch up after a rollback). */
+    acr_gen1_gimmicks gim;
+    acr_gen1_stage *moving;
     /* The round is decided (user, 2026-11-26): the fight goes on with the
      * pilots' controls let go (the caller sends empty ones), ACs fall where
      * they are, shots and missiles still fly, but nothing does damage any
