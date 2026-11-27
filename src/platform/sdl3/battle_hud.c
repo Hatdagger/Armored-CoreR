@@ -3,6 +3,7 @@
  * game's own HUD sheet (RTIM 61, VRAM 896,256: four one-colour layers) and
  * text sheet (VRAM 832,256). */
 #include "battle_hud.h"
+#include "battle_warn.h"
 
 #include <SDL3/SDL.h>
 
@@ -173,10 +174,10 @@ void battle_hud_draw(const battle_hud_state *s, float hud_w, int frame) {
         SDL_snprintf(line, sizeof line, "%d", ap);
         const int n = (int)SDL_strlen(line);
         /* The digits are the AP as it is (arena 0x800572A4: (AP x 4 + 3)
-         * / 4 each frame, no counting down). They turn red below 1,000 AP
-         * (the user's rule; the game itself reddens them at a tenth of the
-         * AC's AP, the same test as ARMOR LOW). */
-        const int low = ap < 1000;
+         * / 4 each frame, no counting down). They turn red at a tenth of
+         * the AC's AP or below, as the game (arena 0x80057280, the same
+         * test as ARMOR LOW). */
+        const int low = battle_warn_ap_low(ap, s->ap_max);
         const uint8_t ar = low ? 230 : 58, ag = low ? 48 : 214, ab = low ? 40 : 58;
         for (int i = 0; i < n; ++i) {
             const float x = 96.0f - 16.0f * (float)(n - i);

@@ -3415,6 +3415,7 @@ int main(int argc, char **argv) {
                 battle_hud_state hs;
                 SDL_zero(hs);
                 hs.ap = me->ap;
+                hs.ap_max = me->ap_max;
                 hs.energy = ac.energy;
                 hs.energy_max = st->energy_capacity;
                 hs.red_zone = st->red_zone;

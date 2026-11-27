@@ -30,7 +30,7 @@ typedef struct battle_hud_weapon {
 } battle_hud_weapon;
 
 typedef struct battle_hud_state {
-    int ap;
+    int ap, ap_max;          /* ap_max: the AC's full AP (the digits redden at a tenth) */
     int energy, energy_max, red_zone;
     int drained;
     int enemy_ap;            /* < 0: no enemy */
