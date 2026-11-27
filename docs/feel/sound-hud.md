@@ -15,8 +15,9 @@ Sources, in the order they win:
 3. The user's own rules (AP red below 1,000, clock above the radar, REC).
 
 Prerequisites: `feel/lockon` (#39), `feel/weapons` (#41), `feel/blade-hit`
-(#40) and `feel/camera` (#38) are merged. `feel/animations` (#42) is not,
-so footsteps follow walking speed, not the animation frames.
+(#40) and `feel/camera` (#38) are merged. `feel/animations` (#42) merged
+while this pass was under way, so the footsteps were moved onto its
+animation frames before the PR (see the footstep row).
 
 A tick is one game logic step: 22 a second (the game draws one HUD frame
 per step). Volumes are the game's, 0-127.
@@ -78,7 +79,7 @@ one-shot): loops are #02, #04, #19, #31, #37.
 
 | Sound | Old | New | Source |
 |---|---|---|---|
-| Footsteps | none | the record's two steps per walk cycle, volume 50. The cycle runs on distance walked: one cycle per walk animation length x walking pace (`acr_gen1_walk_pace`), so at normal walking it lands on the animation's frames 5 and 12 of 16, and slows or speeds with the AC. Not while boosting, in the air or landing. | record entries 0-1 |
+| Footsteps | none | the record's two steps per walk cycle, volume 50, **on the walk animation's frames**: when the sim's frame (`ac->anim_frame`) of a walk loop (2, 4, 6, 9, 12, 15, 17, 19) reaches 5 and 12, as the game fires at frame counter = record frame + 1. Four legs and caterpillars walk in a single pose (feel/animations), and a set without a long enough track has no frames to key on: those step by distance walked, one 16-frame cycle per 16 ticks of walking pace (`acr_gen1_walk_pace`). Not while boosting, in the air or landing. | record entries 0-1, `0x8007A9E0` |
 | Turning | none | held while the AC turns (`turn_rate` not 0), volume 40: #37, caterpillars #04 | byte 0x11 |
 | Drive drone | none | four legs #02, caterpillars #04, held the whole fight at 50 + s / 128 with the pitch rise. Two-legged ACs' drive sound is #01, a one-shot: with a handle it can't sustain, so it's left out (call made; the game may re-key it in a way the static read can't show) | `0x80087108` |
 | Jump take-off | none | #37 at 60 when the take-off crouch starts (caterpillars have none) | entry 3 |
@@ -130,9 +131,9 @@ falls.
 
 ## Not done / open
 
-- Footsteps by animation frame: when `feel/animations` merges, the steps
-  can key off `ac->anim_frame` of the walk animations (frames 5 and 12)
-  instead of distance.
+- Four legs and caterpillars: whether the game's step events still fire
+  while their walk is a single pose (the event compares the frame
+  counter) isn't settled; the engine gives them distance-timed steps.
 - The per-set step frames (3 / 9, 4 / 14) need the set number in the AC.
 - The two-legged drive (#01 with a handle): what the voice manager
   (`0x80052ED0`, a 60-count release) does with a held one-shot can't be

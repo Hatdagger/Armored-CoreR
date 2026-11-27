@@ -397,6 +397,8 @@ static struct {
     float walk;              /* walk cycle phase, 0..1 */
     float drive;             /* the drive sound's speed (AC +0x116): toward the ground speed */
     float hard_land_ms;      /* > 0: the hard landing's thud is due at this clock */
+    uint8_t anim;            /* the sim's animation and frame last update (footsteps) */
+    uint16_t anim_frame;
 } g_was[ACR_GEN1_MAX_FIGHTERS];
 static int g_was_ok;
 static uint64_t g_last_ns;
@@ -555,23 +557,41 @@ void sfx_update(const acr_gen1_battle *b, const sfx_listen *l, uint64_t now_ns) 
         }
 
         /* Footsteps: the walk cycle's two steps (record entries 0-1, volume
-         * 50). feel/animations is not merged, so the cycle runs on the
-         * distance walked: one cycle per walk animation's length at the
-         * walking pace, steps at frames 4 and 11 of 16 (+1, as the game
-         * compares). Legs: #01 twice; four legs #02 then #01; caterpillars
-         * #04 (their tread sound) then #01. */
-        const int walking = alive && on_ground && !boosting && moved > 0.5f;
-        if (walking && f->def) {
-            const acr_gen1_root_track *t = f->def->anim[ACR_GEN1_ANIM_WALK];
-            const int frames = t && t->count && t->keys[t->count - 1].frame ? t->keys[t->count - 1].frame : WALK_CYCLE;
-            const float stride = (float)acr_gen1_walk_pace(f->def) * (float)frames;
+         * 50), on the walk animation's own frames now that feel/animations
+         * is in: the game fires an entry when the frame counter (+0x76)
+         * reaches its frame + 1, so frames 5 and 12 of the walk loops (2, 4,
+         * 6, 9, 12, 15, 17, 19); the start animations have none. Legs: #01
+         * twice; four legs #02 then #01; caterpillars #04 (their tread
+         * sound) then #01. Four legs and caterpillars walk in a single pose
+         * (docs/feel/animations.md), and a set may have no walk track: those
+         * step by distance walked, one 16-frame cycle per 16 ticks at the
+         * walking pace. */
+        const int walking = alive && on_ground && !boosting;
+        const int loop_anim = ac->anim == 2 || ac->anim == 4 || ac->anim == 6 || ac->anim == 9 || ac->anim == 12 ||
+                              ac->anim == 15 || ac->anim == 17 || ac->anim == 19;
+        const int step1 = legs == LEG_FOUR ? S_QUAD_STEP : legs == LEG_TREADS ? S_TREADS : S_FOOTSTEP;
+        const int e1 = STEP_1_FRAME + 1, e2 = STEP_2_FRAME + 1;
+        if (walking && loop_anim && f->def && f->def->anim[ac->anim] && f->def->anim[ac->anim]->length > e2) {
+            const int now = ac->anim_frame;
+            const int was = g_was_ok && g_was[k].anim == ac->anim ? g_was[k].anim_frame : -1;
+            if (now != was) {
+                for (int e = 0; e < 2; ++e) {
+                    const int at = e ? e2 : e1;
+                    const int hit = was < 0 ? now >= at && now - 1 < at
+                                  : now > was ? was < at && at <= now
+                                  : at > was || at <= now;   /* the loop wrapped */
+                    if (hit) play_at(e ? S_FOOTSTEP : step1, p, 50);
+                }
+            }
+            g_was[k].walk = 0.0f;
+        } else if (walking && moved > 0.5f && f->def) {
+            const float stride = (float)acr_gen1_walk_pace(f->def) * (float)WALK_CYCLE;
             const float was = g_was[k].walk;
-            float now = was + (stride > 1.0f ? moved / stride : 0.0f);
-            const float e1 = (float)(STEP_1_FRAME + 1) / WALK_CYCLE, e2 = (float)(STEP_2_FRAME + 1) / WALK_CYCLE;
+            const float now = was + (stride > 1.0f ? moved / stride : 0.0f);
+            const float f1 = (float)e1 / WALK_CYCLE, f2 = (float)e2 / WALK_CYCLE;
             for (float base = 0.0f; base < now; base += 1.0f) {
-                if (was < base + e1 && now >= base + e1)
-                    play_at(legs == LEG_FOUR ? S_QUAD_STEP : legs == LEG_TREADS ? S_TREADS : S_FOOTSTEP, p, 50);
-                if (was < base + e2 && now >= base + e2) play_at(S_FOOTSTEP, p, 50);
+                if (was < base + f1 && now >= base + f1) play_at(step1, p, 50);
+                if (was < base + f2 && now >= base + f2) play_at(S_FOOTSTEP, p, 50);
             }
             g_was[k].walk = now - floorf(now);
         } else g_was[k].walk = 0.0f;   /* walking starts over from the start animation */
@@ -610,6 +630,8 @@ void sfx_update(const acr_gen1_battle *b, const sfx_listen *l, uint64_t now_ns) 
         g_was[k].swing_frame = (uint8_t)swing_frame;
         g_was[k].sx = ac->sx;
         g_was[k].sz = ac->sz;
+        g_was[k].anim = ac->anim;
+        g_was[k].anim_frame = ac->anim_frame;
     }
     g_was_ok = 1;
 
