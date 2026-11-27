@@ -316,14 +316,22 @@ static void boost_ignite(const fx_rig *r, int on_ground, const float feet[3]) {
         }
 }
 
-/* How strongly the blade's beam shows `ms` into a swing, 0..1. */
-static float blade_glow(int ms) {
-    if (ms <= 0) return 0.0f;
-    if (ms < 60) return (float)ms / 60.0f;
+/* When the beam lights: not at the swing's start but once the arm has
+ * wound up to its rightmost and starts sweeping left (user, 2026-11-27).
+ * lit: the swing's ms it lit at, -1 not yet; lat: the hand's last spot
+ * across the AC (+ right). */
+static struct { int lit, have; float lat, start, top; } g_slash[ACR_GEN1_MAX_FIGHTERS];
+
+/* How strongly the blade's beam shows `ms` into a swing, 0..1: lights over
+ * 60 ms from `lit`, holds to 900 ms, gone by 1,150 ms (of the swing). */
+static float blade_glow_from(int ms, int lit) {
+    if (ms <= 0 || lit < 0 || ms < lit) return 0.0f;
+    if (ms - lit < 60) return (float)(ms - lit) / 60.0f * (ms < 900 ? 1.0f : (float)(1150 - ms) / 250.0f);
     if (ms < 900) return 1.0f;
     if (ms < 1150) return (float)(1150 - ms) / 250.0f;
     return 0.0f;
 }
+static float blade_glow_k(int k, int ms) { return blade_glow_from(ms, g_slash[k].lit); }
 
 /* The beam's reach as drawn, from the blade's reach in the fight. */
 static float blade_len(const acr_gen1_fighter *f) {
@@ -497,8 +505,29 @@ void fx_update(const acr_gen1_battle *b, uint64_t now_ns) {
             g_boost_ms[k] = on ? (g_boosting[k] ? g_boost_ms[k] + dt : 0.0f) : 0.0f;
             g_boosting[k] = (uint8_t)on;
         }
-        {   /* the blade's trail: where the beam was, a spot every 12 ms */
+        {   /* the beam lights when the hand turns back left at the wind-up's end */
             const int ms = b->f[k].swing;
+            if (!ms) { g_slash[k].lit = -1; g_slash[k].have = 0; }
+            else if (g_slash[k].lit < 0) {
+                fx_rig r;
+                rig_of(b, k, &r);
+                if (!r.blade_ok) g_slash[k].lit = ms;   /* no model to follow: as before */
+                else {
+                    const float right[2] = { -r.back[2], r.back[0] };
+                    const float lat = (r.blade_tip[0] - r.blade_root[0]) * right[0] + (r.blade_tip[2] - r.blade_root[2]) * right[1];
+                    if (!g_slash[k].have) g_slash[k].start = g_slash[k].top = lat;
+                    if (lat > g_slash[k].top) g_slash[k].top = lat;
+                    /* wound up (went right of where it began), now coming back */
+                    const int wound = g_slash[k].top > g_slash[k].start + 2.0f;
+                    if (g_slash[k].have && wound && lat < g_slash[k].lat - 0.5f) g_slash[k].lit = ms;
+                    else if (ms >= 700) g_slash[k].lit = ms;   /* never seen turning: don't lose the slash */
+                    g_slash[k].lat = lat;
+                    g_slash[k].have = 1;
+                }
+            }
+        }
+        {   /* the blade's trail: where the beam was, a spot every 12 ms */
+            const int ms = g_slash[k].lit >= 0 ? b->f[k].swing : 0;
             if (!ms || !has_blade(&b->f[k]) || b->f[k].ap <= 0) g_trail[k].n = 0;
             else {
                 for (int i = 0; i < g_trail[k].n; ++i) g_trail[k].t[i] += dt;
@@ -782,7 +811,7 @@ void fx_draw(const acr_gen1_battle *b, const float eye[3], const float fwd[3]) {
      * white, with a fading sheet over the last ~0.1 s of the slash. */
     for (int k = 0; k < acr_gen1_battle_fighters(b); ++k) {
         const acr_gen1_fighter *f = &b->f[k];
-        const float g = f->ap > 0 && has_blade(f) ? blade_glow(f->swing) : 0.0f;
+        const float g = f->ap > 0 && has_blade(f) ? blade_glow_k(k, f->swing) : 0.0f;
         if (g <= 0.0f) continue;
         fx_rig r;
         rig_of(b, k, &r);
@@ -814,7 +843,7 @@ void fx_draw(const acr_gen1_battle *b, const float eye[3], const float fwd[3]) {
     flush(SH_SHOTS, B_ADD);
     for (int k = 0; k < acr_gen1_battle_fighters(b); ++k) {
         const acr_gen1_fighter *f = &b->f[k];
-        const float g = f->ap > 0 && has_blade(f) ? blade_glow(f->swing) : 0.0f;
+        const float g = f->ap > 0 && has_blade(f) ? blade_glow_k(k, f->swing) : 0.0f;
         if (g <= 0.0f) continue;
         fx_rig r;
         rig_of(b, k, &r);
