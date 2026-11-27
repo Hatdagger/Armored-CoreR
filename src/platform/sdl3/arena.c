@@ -182,6 +182,11 @@ int arena_reload(void) {
     return A.ok;
 }
 
+void arena_new_game(void) {
+    acr_gen1_arena_new(&A.s, &A.w);
+    save();
+}
+
 void arena_open(void) {
     A.screen = AS_PICK;
     A.cur = 0;
