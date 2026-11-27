@@ -36,6 +36,12 @@ uint16_t missions_foe_options(void);
  * acr_gen1_mission_start_own), and the time a late arrival adds (ms). */
 int missions_variant(void);
 int missions_rule(void);
+/* The sortie is a Master of Arena mission: the player alone on its map
+ * against the map's units, run by the map's script (no opponent AC). */
+int missions_solo(void);
+/* Testing aid (ACR_MISSION=MOA-05, P4, ...): picks that mission and
+ * prepares its sortie, skipping the screens; 1 when it can fly. */
+int missions_launch(const char *id);
 int32_t missions_extra_ms(void);
 /* The radio line for an event of the sortie (0 the start, 1 the challenger
  * comes), NULL none. */

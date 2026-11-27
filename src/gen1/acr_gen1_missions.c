@@ -1,6 +1,7 @@
 /* Gen 1 missions: list, sortie check, report and record. See
  * acr_gen1_missions.h for where each rule comes from. */
 #include "acr_gen1_missions.h"
+#include "acr_gen1_mission.h"
 #include "acr_gen1_battle.h"
 
 #include <stdarg.h>
@@ -210,6 +211,15 @@ int acr_gen1_missions_build(acr_gen1_mission_list *list, const char *toml) {
             }
         }
         line = next ? next + 1 : NULL;
+    }
+    /* Master of Arena's missions fly on their own maps since 2026-11-27:
+     * the player alone against the map's units, by the map's script
+     * (acr_gen1_mission.h). Maps 3 and 14 run the game's mission clock. */
+    for (int i = 0; i < list->count; ++i) {
+        acr_gen1_mission_info *mi = &list->m[i];
+        if (mi->own || mi->map < 0 || mi->map >= 20) continue;
+        mi->playable = 1;
+        mi->time_ms = (int32_t)((int64_t)acr_gen1_mission_clock_ticks(mi->map) * 1000 / 22);
     }
     return read;
 }

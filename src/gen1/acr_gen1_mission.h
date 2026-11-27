@@ -52,15 +52,27 @@ typedef struct acr_gen1_mission {
     uint16_t timer;        /* ticks left in a timed step */
     uint8_t  flags;
     uint8_t  result;       /* ACR_GEN1_MISSION_*; DONE / FAILED once the end delay ran out */
-    uint8_t  end_ticks;    /* the end delay counting down (0x800A0DC0's 100) */
+    uint16_t end_ticks;    /* the end delay counting down (0x800A0DC0's 100, plus the map's own wait) */
+    uint16_t clock;        /* maps 3 and 14: game ticks left on the mission clock (0x80090FD8), 0 = none */
+    uint16_t timer2;       /* a second timed step (map 3's drones, map 5's reinforcements) */
+    uint8_t  step;         /* a second step counter (map 17's waves, map 5's calls) */
     uint8_t  foe;          /* own missions: the opponent's fighter (0 = fighter 1; co-op on one PC: 2) */
     int32_t  from[3];      /* map 6: where the big MT's current cutscene key started (1/64 units) */
 } acr_gen1_mission;
 
-/* 1 if map `map` (0-19) has a script here. */
+/* 1 if map `map` (0-19) has a script here (since 2026-11-27: all 20;
+ * docs/research/gen1-stages.md "Mission scripts, all maps"). */
 int acr_gen1_mission_has_script(int map);
 /* How chunk 13 record `record` of map `map` waits (ACR_GEN1_WAIT_*). */
 int acr_gen1_mission_wait(int map, int record);
+/* The same from the record's own flags (record +16, its raw word 8): bit
+ * 0x40 = "not made at the start" (read 2026-11-27: on all 20 maps it marks
+ * exactly the records the scripts make later with 0x8007ECEC or a
+ * cutscene's 1003). Those wait hidden; map 6's big MT waits shown. */
+#define ACR_GEN1_RECORD_LATE 0x40
+int acr_gen1_mission_wait_flags(int map, int record, unsigned flags);
+/* Maps 3 and 14: the mission clock at the start, in game ticks (0 none). */
+int acr_gen1_mission_clock_ticks(int map);
 /* The battle team of record `record` of map `map`: 1 the enemy side, 0
  * the player's (map 12's friendly units, the game's team 4). */
 int acr_gen1_mission_team(int map, int record);

@@ -351,7 +351,10 @@ int main(void) {
         b.f[0].ap = 0;
         EXPECT(acr_gen1_battle_result(&b, 0) == 2);             /* the player down loses */
     }
-    EXPECT(!acr_gen1_mission_has_script(5) && acr_gen1_mission_wait(5, 4) == ACR_GEN1_WAIT_NONE);
+    EXPECT(acr_gen1_mission_has_script(5) && !acr_gen1_mission_has_script(20) && acr_gen1_mission_wait(5, 4) == ACR_GEN1_WAIT_NONE);
+    EXPECT(acr_gen1_mission_wait_flags(5, 5, 0x1C0) == ACR_GEN1_WAIT_HIDDEN && acr_gen1_mission_wait_flags(5, 6, 0x200) == ACR_GEN1_WAIT_NONE);
+    EXPECT(acr_gen1_mission_wait_flags(6, 6, 0x340) == ACR_GEN1_WAIT_SHOWN && acr_gen1_mission_wait_flags(13, 11, 0) == ACR_GEN1_WAIT_HIDDEN);
+    EXPECT(acr_gen1_mission_wait_flags(-1, 5, 0x40) == ACR_GEN1_WAIT_NONE);
 
     /* Maps 2, 15 and 13: everything from record 4 down wins, the request
      * 29 ticks later (2, 13) or at once (15), the ending 100 after it; map 13 makes records 11-14 when fewer
@@ -425,6 +428,170 @@ int main(void) {
         EXPECT(acr_gen1_battle_result(&b, 0) == (fail ? 2 : 1));
         EXPECT(b.mission.result == (fail ? ACR_GEN1_MISSION_FAILED : ACR_GEN1_MISSION_DONE));
         EXPECT(ticks == (fail ? 19 + 66 + 101 : 101));
+    }
+
+
+    /* The other MoA maps (2026-11-27): a mission map flown alone (count 1),
+     * the map's rules ticked by themselves so the player stays where put.
+     * Records from `first` to `last` as units; `late` ones wait hidden
+     * (record flag 0x40). */
+    {
+        acr_gen1_unit v;
+#define SOLO(map_) do { setup(&b); b.count = 1; b.f[0].team = 0; b.f[1].ap = 0; } while (0)
+#define ADD(rec_, late_) do { v = mt(0, 30000 + 300 * (rec_), 0, ACR_GEN1_BRAIN_NONE); v.record = (uint8_t)(rec_); \
+        v.wait = (uint8_t)acr_gen1_mission_wait_flags(cur_map, (rec_), (late_) ? 0x40 : 0); v.active = !v.wait; \
+        acr_gen1_battle_add_unit(&b, &v); } while (0)
+#define KILL(rec_) do { for (int k_ = 0; k_ < b.units; ++k_) if (b.unit[k_].record == (rec_)) b.unit[k_].ap = 0, b.unit[k_].down = 1; } while (0)
+#define TICKS(n_) for (int t_ = 0; t_ < (n_); ++t_) acr_gen1_mission_tick(&b)
+#define AT(gx_, gy_, gz_) (b.f[0].ac.x = -(gx_) * 64, b.f[0].ac.y = (gy_) * 64, b.f[0].ac.z = (gz_) * 64)
+        int cur_map;
+        /* One AC against units: count 1 is one fighter; the units decide it. */
+        cur_map = 2; SOLO(2);
+        EXPECT(acr_gen1_battle_fighters(&b) == 1);
+        ADD(4, 0);
+        acr_gen1_mission_start(&b, -1);
+        acr_gen1_battle_retarget(&b);
+        EXPECT(acr_gen1_battle_target_any(&b, 0) == ACR_GEN1_UNIT(0));
+        for (int t = 0; t < 20; ++t) acr_gen1_battle_step(&b, none, idle);
+        EXPECT(acr_gen1_battle_result(&b, 0) == 0);
+        KILL(4);
+        EXPECT(acr_gen1_battle_result(&b, 0) == 1);
+
+        /* Map 4: hover guns 5-9 down -> 20 ticks + the radio -> the AC (4) joins; it down -> 20 + radio + 100. */
+        cur_map = 4; SOLO(4);
+        for (int r = 5; r <= 9; ++r) ADD(r, 0);
+        ADD(4, 1);
+        acr_gen1_mission_start(&b, 4);
+        EXPECT(!b.unit[5].active);
+        for (int r = 5; r <= 9; ++r) KILL(r);
+        TICKS(1 + 20 + 66);
+        EXPECT(b.unit[5].active && acr_gen1_battle_result(&b, 0) == 0);
+        KILL(4);
+        TICKS(1 + 20 + 66 + 99);
+        EXPECT(b.mission.result == 0);
+        TICKS(1);
+        EXPECT(acr_gen1_battle_result(&b, 0) == 1);
+
+        /* Map 17: pairs 4-5, 6-7, 8-9, then the AC (10). */
+        cur_map = 17; SOLO(17);
+        ADD(4, 0); ADD(5, 0); ADD(6, 1); ADD(7, 1); ADD(8, 1); ADD(9, 1); ADD(10, 1);
+        acr_gen1_mission_start(&b, 17);
+        KILL(4); TICKS(5);
+        EXPECT(!b.unit[2].active);
+        KILL(5); TICKS(1);
+        EXPECT(b.unit[2].active && b.unit[3].active && !b.unit[4].active);
+        KILL(6); KILL(7); TICKS(1);
+        EXPECT(b.unit[4].active && !b.unit[6].active);
+        KILL(8); KILL(9); TICKS(1);
+        EXPECT(b.unit[6].active && acr_gen1_battle_result(&b, 0) == 0);
+        KILL(10); TICKS(101);
+        EXPECT(acr_gen1_battle_result(&b, 0) == 1);
+
+        /* Map 8: the AC (4) down, 20 ticks, then the exit box (point 4). */
+        cur_map = 8; SOLO(8);
+        ADD(4, 0);
+        acr_gen1_mission_start(&b, 8);
+        AT(-3800, -500, -8400);
+        TICKS(50);
+        EXPECT(!b.mission.end_ticks);                     /* the AC still stands */
+        KILL(4); AT(0, 0, 0); TICKS(60);
+        EXPECT(!b.mission.end_ticks);
+        AT(-3800, -500, -8400); TICKS(1);
+        EXPECT(b.mission.end_ticks == 100);
+
+        /* Map 10: reaching the research team (point 0's box), 50 + 100 ticks. */
+        cur_map = 10; SOLO(10);
+        ADD(5, 0);
+        acr_gen1_mission_start(&b, 10);
+        AT(4000, 13500, -400); TICKS(1);
+        EXPECT(b.mission.end_ticks == 150);
+
+        /* Map 1: the sea fails it; turrets 10-12 down, 660 + radio, on the deck wins. */
+        cur_map = 1; SOLO(1);
+        for (int r = 10; r <= 12; ++r) ADD(r, 0);
+        acr_gen1_mission_start(&b, 1);
+        AT(7000, 300, 0); TICKS(1);
+        EXPECT(b.mission.end_ticks && (b.mission.flags & ACR_GEN1_MISSION_FAIL));
+        SOLO(1);
+        for (int r = 10; r <= 12; ++r) ADD(r, 0);
+        acr_gen1_mission_start(&b, 1);
+        AT(7000, -250, 0);
+        for (int r = 10; r <= 12; ++r) KILL(r);
+        TICKS(1 + 660 + 65);
+        EXPECT(!b.mission.end_ticks);
+        TICKS(2);
+        EXPECT(b.mission.end_ticks && !(b.mission.flags & ACR_GEN1_MISSION_FAIL));
+
+        /* Map 14: the 3:00 clock out fails it (radio, then the ending). */
+        cur_map = 14; SOLO(14);
+        ADD(4, 0);
+        acr_gen1_mission_start(&b, 14);
+        EXPECT(b.mission.clock == 3960);
+        TICKS(3959);
+        EXPECT(!b.mission.end_ticks);
+        TICKS(1);
+        EXPECT(b.mission.end_ticks && (b.mission.flags & ACR_GEN1_MISSION_FAIL));
+        TICKS(66 + 100);
+        EXPECT(acr_gen1_battle_result(&b, 0) == 2);
+
+        /* Map 3: four drones down -> 360 ticks -> the jet and the AC join; the AC down wins. */
+        cur_map = 3; SOLO(3);
+        ADD(4, 1); ADD(5, 1); ADD(7, 1);
+        for (int r = 8; r <= 15; ++r) ADD(r, 0);
+        acr_gen1_mission_start(&b, 3);
+        for (int r = 8; r <= 11; ++r) KILL(r);
+        TICKS(1 + 360);
+        EXPECT(b.unit[0].active && b.unit[1].active && !b.unit[2].active);
+        KILL(5); TICKS(1);
+        EXPECT(b.mission.end_ticks == 320);
+
+        /* Map 16: what's in the fight down -> 4-11 join -> down -> the AC (30) -> down, 300 + 100. */
+        cur_map = 16; SOLO(16);
+        ADD(12, 0); ADD(4, 1); ADD(11, 1); ADD(30, 1);
+        acr_gen1_mission_start(&b, 16);
+        KILL(12); TICKS(1);
+        EXPECT(b.unit[1].active && b.unit[2].active && !b.unit[3].active);
+        KILL(4); KILL(11); TICKS(1);
+        EXPECT(b.unit[3].active);
+        KILL(30); TICKS(1);
+        EXPECT(b.mission.end_ticks == 400);
+
+        /* Map 11 / 19: their ACs are made at the start. */
+        cur_map = 11; SOLO(11);
+        ADD(4, 1); ADD(5, 1);
+        acr_gen1_mission_start(&b, 11);
+        TICKS(1);
+        EXPECT(b.unit[0].active && b.unit[1].active && !b.mission.end_ticks);
+        KILL(4); KILL(5); TICKS(1);
+        EXPECT(b.mission.end_ticks == 100);
+
+        /* Map 7: area 39 brings the helicopter (12); the box vehicle (5) down wins. */
+        cur_map = 7; SOLO(7);
+        ADD(5, 0); ADD(12, 1);
+        acr_gen1_mission_start(&b, 7);
+        TICKS(5);
+        EXPECT(!b.unit[1].active);
+        AT(8125, 0, 5600); TICKS(1);
+        EXPECT(b.unit[1].active);
+        KILL(5); TICKS(1);
+        EXPECT(b.mission.end_ticks == 100);
+
+        /* Map 18: the switch brings two ACs; both down, then the core. */
+        cur_map = 18; SOLO(18);
+        ADD(4, 1); ADD(5, 1); ADD(7, 0);
+        acr_gen1_mission_start(&b, 18);
+        AT(0, -2500, 22375); TICKS(3);
+        EXPECT(!b.mission.end_ticks && !b.unit[0].active);
+        AT(-5437, -2900, 18375); TICKS(1);
+        EXPECT(b.unit[0].active && b.unit[1].active);
+        KILL(4); KILL(5); TICKS(1);
+        AT(0, -2500, 22375); TICKS(1);
+        EXPECT(b.mission.end_ticks == 164);
+#undef SOLO
+#undef ADD
+#undef KILL
+#undef TICKS
+#undef AT
     }
 
     if (failures) { printf("%d failure(s)\n", failures); return 1; }

@@ -143,6 +143,14 @@ int demo_units_load(const char *import_dir, int map, demo_units *u) {
             else if ((v = value(p, e, "ap"))) o->ap = SDL_atoi(v);
             else if ((v = value(p, e, "attack"))) o->attack = SDL_atoi(v);
             else if ((v = value(p, e, "energy_n"))) o->energy_n = SDL_atoi(v);
+            else if ((v = value(p, e, "raw")) && *v == '[') {
+                char *q = (char *)v + 1;            /* word 8: the record's flags */
+                for (int k = 0; k <= 8; ++k) {
+                    const long w = SDL_strtol(q, &q, 10);
+                    while (*q == ',' || *q == ' ') ++q;
+                    if (k == 8) o->flags = (int)(w & 0xFFFF);
+                }
+            }
             else if ((v = value(p, e, "box")) && *v == '[') {
                 char *q = (char *)v + 1;
                 o->half = (int)SDL_strtol(q, &q, 10);
@@ -346,8 +354,11 @@ static int join_object(demo_units *u, demo_unit_object *o, int map, int motion_m
     n.half = (uint16_t)(o->half > 0 ? o->half : 100);
     n.height = (uint16_t)(o->height > 0 ? o->height : 200);
     n.record = (uint8_t)o->record;
-    n.wait = (uint8_t)(map >= 0 ? acr_gen1_mission_wait(map, o->record) : ACR_GEN1_WAIT_NONE);
-    if (stage && !n.wait) {     /* standing on something? (map 6's big MT waits under the sea for its script) */
+    n.wait = (uint8_t)(map >= 0 ? acr_gen1_mission_wait_flags(map, o->record, (unsigned)o->flags) : ACR_GEN1_WAIT_NONE);
+    int anims = 0;
+    for (int k = 0; k < ACR_ANIM_MAX; ++k) anims += m->anims.anim[k].frames > 0;
+    const int walker = anims >= 10;     /* an MT walks; turrets, aircraft and drones stay where placed */
+    if (stage && !n.wait && walker) {   /* standing on something? (map 6's big MT waits under the sea for its script) */
         const int32_t pos[3] = { x, y, z };
         int32_t fy = 0;
         if (!acr_gen1_stage_floor_probe(stage, pos, ACR_GEN1_STAGE_PROBE_HALF, n.height, ACR_GEN1_STAGE_AC_MASK, &fy) ||
@@ -360,9 +371,7 @@ static int join_object(demo_units *u, demo_unit_object *o, int map, int motion_m
     n.ap = n.ap_max = o->ap;
     n.attack = (uint16_t)(o->attack > 0 ? o->attack : 0);
     n.energy_n = (int8_t)o->energy_n;
-    int anims = 0;
-    for (int k = 0; k < ACR_ANIM_MAX; ++k) anims += m->anims.anim[k].frames > 0;
-    n.brain = (uint8_t)(anims >= 10 ? ACR_GEN1_BRAIN_MT : n.attack ? ACR_GEN1_BRAIN_TURRET : ACR_GEN1_BRAIN_NONE);
+    n.brain = (uint8_t)(walker ? ACR_GEN1_BRAIN_MT : n.attack ? ACR_GEN1_BRAIN_TURRET : ACR_GEN1_BRAIN_NONE);
     if (n.brain == ACR_GEN1_BRAIN_MT && o->handler > 0) n.motion = unit_motion(u, import_dir, motion_map, o->handler);
     o->unit = acr_gen1_battle_add_unit(b, &n);
     return o->unit;

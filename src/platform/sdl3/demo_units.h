@@ -36,6 +36,7 @@ typedef struct demo_unit_object {
     int type;
     int half, height;                   /* body box (chunk 12), 0 = not in the import */
     int ap, attack, energy_n;           /* record +22, +24, +16 bits 8-11 */
+    int flags;                          /* record +16 (raw word 8): 0x40 = made later by the script */
     int unit;                           /* its unit in the joined battle, -1 none */
 } demo_unit_object;
 

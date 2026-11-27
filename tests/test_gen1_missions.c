@@ -27,7 +27,7 @@ static void test_list(void) {
     EXPECT(l.count == 3);
     const acr_gen1_mission_info *a = &l.m[1], *b = &l.m[2];
     EXPECT(!strcmp(a->id, "MOA-00") && !strcmp(a->name, "First Job"));
-    EXPECT(a->reward == 1200 && a->map == 0 && !a->own && !a->playable);
+    EXPECT(a->reward == 1200 && a->map == 0 && !a->own && a->playable && a->time_ms == 0);   /* flown on its map (2026-11-27) */
     EXPECT(!strcmp(a->sender, "Someone") && !strcmp(a->requester, "A \"Client\""));
     EXPECT(a->pages == 2 && !strcmp(a->page[0], "Line one\nline two") && !strcmp(a->page[1], "%0@1Word@0 here"));
     EXPECT(a->pictures == 1);

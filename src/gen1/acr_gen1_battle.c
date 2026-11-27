@@ -146,8 +146,10 @@ static void muzzle_at(const acr_gen1_battle *b, int i, int32_t m[3]) {
 /* ---- fighters, teams, targets ---- */
 
 int acr_gen1_battle_fighters(const acr_gen1_battle *b) {
+    /* count 1: a mission map flown alone (the player against the map's
+     * units; since 2026-11-27), 0: the old two-AC fight. */
     const int n = b->count ? b->count : 2;
-    return n > ACR_GEN1_MAX_FIGHTERS ? ACR_GEN1_MAX_FIGHTERS : n < 2 ? 2 : n;
+    return n > ACR_GEN1_MAX_FIGHTERS ? ACR_GEN1_MAX_FIGHTERS : n;
 }
 
 int acr_gen1_battle_team(const acr_gen1_battle *b, int i) { return b->count ? (b->f[i].team & 1) : i; }
