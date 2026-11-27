@@ -627,29 +627,6 @@ static void draw_pick(float hud_w) {
     hints(hud_w, "UP/DOWN: CHOOSE   LEFT/RIGHT: STAGE   A: ENTER   B: BACK");
 }
 
-static void status_of(int rank, const char **text, uint8_t c[3]) {
-    const int me = acr_gen1_arena_rank(&A.s, A.arena);
-    static const uint8_t good[3] = { GOOD }, dim[3] = { DIM }, hi[3] = { HILITE }, bad[3] = { BAD };
-    const uint8_t *k = dim;
-    const int absent = acr_gen1_arena_absent_at(&A.s, A.arena, rank);
-    if (rank == me) { *text = "YOU"; k = hi; }
-    else if (absent == ACR_GEN1_ARENA_ABSENT_DONE) *text = "UNABLE";
-    else if (absent == ACR_GEN1_ARENA_ABSENT && why_at(rank) == ACR_GEN1_ARENA_OK) { *text = "UNAVAILABLE"; k = hi; }
-    else if (acr_gen1_arena_defeated(&A.s, A.arena, rank) && rank > me) {
-        static const uint8_t down[3] = { 200, 110, 100 };
-        *text = "DEFEATED";             /* a rematch, for fun: no rank, no prize */
-        k = why_at(rank) == ACR_GEN1_ARENA_OK ? down : dim;
-    } else {
-        switch (why_at(rank)) {
-        case ACR_GEN1_ARENA_OK: *text = "CHALLENGE"; k = good; break;
-        case ACR_GEN1_ARENA_DONE: *text = "BEATEN"; break;
-        case ACR_GEN1_ARENA_WRONG_LEGS: *text = "LEG TYPE"; k = bad; break;
-        case ACR_GEN1_ARENA_INCOMPLETE: *text = "CHALLENGE"; k = bad; break;
-        default: *text = "REFERENCE ONLY"; break;
-        }
-    }
-    memcpy(c, k, 3);
-}
 
 static void draw_ladder(float hud_w, int elapsed_ms) {
     char title[64];
