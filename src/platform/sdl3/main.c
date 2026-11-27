@@ -2097,7 +2097,11 @@ int main(int argc, char **argv) {
                 if (g_paused) {
                     garage_action ga = GA_NONE;
                     if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat) ga = key_action(e.key.scancode);
-                    if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) ga = button_action(e.gbutton.button);
+                    if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) {
+                        ga = button_action(e.gbutton.button);
+                        if (e.gbutton.button == SDL_GAMEPAD_BUTTON_DPAD_UP) ga = GA_UP;
+                        if (e.gbutton.button == SDL_GAMEPAD_BUTTON_DPAD_DOWN) ga = GA_DOWN;
+                    }
                     if (e.type == SDL_EVENT_GAMEPAD_BUTTON_UP && e.gbutton.button == SDL_GAMEPAD_BUTTON_BACK) back_held = 0;
                     if (esc || start || ga == GA_CANCEL) { g_paused = 0; sfx_ui(SFX_UI_BACK); }
                     else if (ga == GA_UP || ga == GA_DOWN) { g_pause_sel ^= 1; sfx_ui(SFX_UI_CURSOR); }
@@ -3695,6 +3699,18 @@ int main(int argc, char **argv) {
         for (int k = 0; k < 2; ++k) {
             if (!in2[k].boost) boost_released[k] = 1;
             in2[k].boost_tapped = (uint8_t)(in2[k].boost && boost_released[k]);
+        }
+        if (g_paused && mode == 1) {
+            /* Paused: the controls do nothing to the fight (the poses read
+             * them too); the left stick moves the menu's cursor. */
+            for (int k = 0; k < ACR_GEN1_MAX_FIGHTERS; ++k) { SDL_zero(in2[k]); SDL_zero(act[k]); }
+            for (int k = 0; k < 2; ++k)
+                switch_pressed[k] = blade_pressed[k] = target_pressed[k] = lock_pressed[k] = quick_pressed[k] = 0;
+            static int pause_stick;
+            const int ay = ctl[0] ? SDL_GetGamepadAxis(ctl[0], SDL_GAMEPAD_AXIS_LEFTY) : 0;
+            const int dir = ay < -20000 ? -1 : ay > 20000 ? 1 : 0;
+            if (dir && dir != pause_stick) { g_pause_sel ^= 1; sfx_ui(SFX_UI_CURSOR); }
+            pause_stick = dir;
         }
         g_in[0] = in2[0];
         g_in[1] = in2[1];
