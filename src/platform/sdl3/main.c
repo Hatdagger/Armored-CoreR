@@ -687,6 +687,7 @@ static uint8_t g_paint_default[4][3];   /* the disc's default colours (models/co
  * garage, player 2's a copy of them offline (the same build), each
  * player's own online. */
 static uint16_t g_options[2];
+#define ACR_AUTO_HOLD_MS 500   /* SP-M/AUTO: Select held this long (stand-in) */
 static int modern_of(int who) { return (g_options[who] & ACR_GEN1_OPTION_MODERN) != 0; }
 static const char *g_import_dir = "";
 /* The arena: Green Silo (stage 27) when the import has it; F7 cycles Green
@@ -1598,6 +1599,10 @@ int main(int argc, char **argv) {
         /* SP-MODERN: pilots only (the AI flies the original controls). */           \
         f_->modern = (uint8_t)(i_ < 2 && !(i_ == 0 && g_autopilot) &&                 \
                                !(i_ == 1 && g_ai_mode && !g_net && !two_players) && modern_of(i_)); \
+        /* SP-M/AUTO: on at the start (acr_gen1_auto_active rules out           \
+         * SP-MODERN and Human PLUS). */                                         \
+        f_->auto_fitted = (uint8_t)(i_ < 2 && (g_options[i_] & ACR_GEN1_OPTION_AUTO_LAUNCHER)); \
+        f_->auto_on = f_->auto_fitted;                                                \
         d_->def.cruise_pct = (uint8_t)(f_->legs == ACR_GEN1_LEGS_TWO ? ACR_GEN1_CRUISE_PCT \
                                        : ACR_GEN1_CRUISE_HEAVY_PCT);                    \
     } while (0)
@@ -1684,6 +1689,9 @@ int main(int argc, char **argv) {
         target_pressed[2] = { 0, 0 };   /* switch target: Back/Select tap, X */
     /* Modern controls, per player slot here (0 = this PC's player online). */
     int cruise_on[2] = { 0, 0 }, quick_pressed[2] = { 0, 0 }, lock_pressed[2] = { 0, 0 }, l2_was[2] = { 0, 0 };
+    /* SP-M/AUTO: Select held on its own this long switches it on / off. */
+    int auto_pressed[2] = { 0, 0 }, back_who = 0;
+    Uint64 back_down_ms = 0;
     SDL_Gamepad *pads[2] = { pad, NULL };
     {   /* a second controller, if there is one */
         int count = 0;
@@ -2002,7 +2010,7 @@ int main(int argc, char **argv) {
             if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) {
                 const int btn = e.gbutton.button;
                 cycle_who = !two_players ? 0 : pads[1] ? (player_of(pads, e.gbutton.which, 0) == 1) : 1;
-                if (btn == SDL_GAMEPAD_BUTTON_BACK) { back_held = 1; back_combo = 0; }
+                if (btn == SDL_GAMEPAD_BUTTON_BACK) { back_held = 1; back_combo = 0; back_who = cycle_who; back_down_ms = SDL_GetTicks(); }
                 if (btn == SDL_GAMEPAD_BUTTON_WEST && back_held) { cycle_slot = SLOT_BOOSTER; back_combo = 1; }
                 if (btn == SDL_GAMEPAD_BUTTON_NORTH && back_held) { cycle_slot = SLOT_GEN; back_combo = 1; }
                 if (btn == SDL_GAMEPAD_BUTTON_EAST && back_held) { cycle_slot = SLOT_BACK_L; back_combo = 1; }
@@ -2907,6 +2915,10 @@ int main(int argc, char **argv) {
             in2[0].boost = (uint8_t)v[3];
             hold_fire = v[4];
         }
+        if (back_held && !back_combo && SDL_GetTicks() - back_down_ms >= ACR_AUTO_HOLD_MS) {
+            auto_pressed[back_who] = 1;
+            back_combo = 1;                       /* not a tap: no target switch on release */
+        }
         acr_gen1_actions act[ACR_GEN1_MAX_FIGHTERS] = { { 0 } };
         act[0].fire = (uint8_t)(hold_fire || (!mod[0] && controls_key_held(CK_FIRE)) ||
                                 (ctl[0] && !back_held && (mod[0] ? SDL_GetGamepadAxis(ctl[0], SDL_GAMEPAD_AXIS_RIGHT_TRIGGER) > 8000
@@ -2954,6 +2966,7 @@ int main(int argc, char **argv) {
                 a.blade = (uint8_t)blade_pressed[0];
                 a.switch_target = (uint8_t)target_pressed[0];
                 a.hard_lock = (uint8_t)lock_pressed[0];
+                a.auto_toggle = (uint8_t)auto_pressed[0];
                 in2[0].quick = (uint8_t)quick_pressed[0];
                 if (!acr_rb_tick(&net_rb, acr_rb_pack(&in2[0], &a))) {   /* waiting for them */
                     if (!net_wait_since) net_wait_since = now_ms;
@@ -2962,6 +2975,7 @@ int main(int argc, char **argv) {
                 net_wait_since = 0;
                 ++ran;
                 switch_pressed[0] = blade_pressed[0] = target_pressed[0] = lock_pressed[0] = quick_pressed[0] = 0;
+                auto_pressed[0] = 0;
                 in2[0].boost_tapped = 0;
                 boost_released[0] = !in2[0].boost;
             }
@@ -3034,6 +3048,7 @@ int main(int argc, char **argv) {
                 act[k].blade = (uint8_t)blade_pressed[k]; blade_pressed[k] = 0;
                 act[k].switch_target = (uint8_t)target_pressed[k]; target_pressed[k] = 0;
                 act[k].hard_lock = (uint8_t)lock_pressed[k]; lock_pressed[k] = 0;
+                act[k].auto_toggle = (uint8_t)auto_pressed[k]; auto_pressed[k] = 0;
                 in2[k].quick = (uint8_t)quick_pressed[k]; quick_pressed[k] = 0;
             }
             /* The computer pilot presses its buttons like a pad, each step. */
@@ -3509,7 +3524,11 @@ int main(int argc, char **argv) {
                         bx = (x0 + x1) * 0.5f; by = (y0 + y1) * 0.5f; bw = x1 - x0; bh = y1 - y0;
                         /* The sight takes the lock's colour once the target is locked. */
                         /* (VS 0x800576E0: colours 9 and 10 of 0x8008FDC8) */
-                        const uint8_t cr = me->locked ? 160 : 70, cg = me->locked ? 80 : 150, cb = me->locked ? 50 : 60;
+                        /* SP-M/AUTO: a hidden missile lock working while the
+                         * pilot's own sight has none turns the box yellow. */
+                        const int hidden = !me->locked && me->auto_seen;
+                        const uint8_t cr = me->locked ? 160 : hidden ? 220 : 70, cg = me->locked ? 80 : hidden ? 200 : 150,
+                                      cb = me->locked ? 50 : hidden ? 40 : 60;
                         for (int c = 0; c < 8; ++c)
                             acr_hud_line(hx[c], hy[c], hx[(c + 1) & 7], hy[(c + 1) & 7], cr, cg, cb, 255);
                     }
@@ -3612,6 +3631,7 @@ int main(int argc, char **argv) {
                     if (bx & BATTLE_WARN_BOX_ARMOR_LOW) hs.messages |= BATTLE_HUD_MSG_ARMOR_LOW;
                     if (bx & BATTLE_WARN_BOX_CHARGING) hs.messages |= BATTLE_HUD_MSG_CHARGING;
                 }
+                hs.auto_launcher = acr_gen1_auto_active(me) ? (me->auto_on ? 1 : 2) : 0;
                 /* REC: only while a replay is captured, and never in missions. */
                 hs.recording = g_replay_capturing && g_rogue_fight != 3 && !battle.mission.map && !battle.mission.own;
                 hs.ac_name = g_net ? net_info.name[view] : view == 0 || !two_players ? g_hangar.ac_name : "";
