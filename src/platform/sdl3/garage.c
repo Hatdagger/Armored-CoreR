@@ -595,6 +595,15 @@ static const char *part_name(const garage_data *d, int cat, int index) {
     return n[0] ? n : "?";
 }
 
+/* What a slot row shows: a two-slot back unit (52 and up) fills both back
+ * rows, as it sits on both shoulders. */
+static unsigned shown_fitted(const garage_data *d, int s) {
+    const unsigned v = d->hangar->fitted[s];
+    if (v != ACR_GEN1_NO_PART || (s != ACR_GEN1_SLOT_BACK_L && s != ACR_GEN1_SLOT_BACK_R)) return v;
+    const unsigned o = d->hangar->fitted[s == ACR_GEN1_SLOT_BACK_L ? ACR_GEN1_SLOT_BACK_R : ACR_GEN1_SLOT_BACK_L];
+    return o != ACR_GEN1_NO_PART && o >= 52 ? o : v;
+}
+
 /* Price, weight and drain of a part, in the right-hand column. */
 static void part_info(const garage_data *d, int cat, int index, float x, float y) {
     if (index == ACR_GEN1_NO_PART || index < 0) return;
@@ -1135,7 +1144,7 @@ static void assemble_draw(garage_ui *ui, const garage_data *d, float hud_w, int 
         const int sel = r == ui->slot && fabsf(y - list_top) < rh * 0.5f;
         const uint8_t al = (uint8_t)(255 * (vis > 1 ? 1 : vis));
         acr_hud_text_size(lx + 10, y + 3, k_row_name[r], 6.5f, sel ? 0xff : 0xb0, sel ? 0xd0 : 0xb8, sel ? 0xc8 : 0xc0, al);
-        if (s >= 0) SDL_strlcpy(line, part_name(d, acr_gen1_slot_category((acr_gen1_slot)s), d->hangar->fitted[s]), sizeof line);
+        if (s >= 0) SDL_strlcpy(line, part_name(d, acr_gen1_slot_category((acr_gen1_slot)s), shown_fitted(d, s)), sizeof line);
         else {
             int count = 0;
             for (int b = 0; b < ACR_GEN1_OPTION_MAX; ++b) count += (d->hangar->options >> b) & 1;
@@ -1285,7 +1294,7 @@ void garage_draw(garage_ui *ui, const garage_data *d, float hud_w, int elapsed_m
             if (sel) acr_hud_rect(lx + 4, y - 3, PANEL_W - 8, 25, ui->list_open ? 40 : 60, ui->list_open ? 46 : 70, ui->list_open ? 30 : 40, 255, 1);
             acr_hud_text(lx + 10, y, k_row_name[r], DIM);
             if (s >= 0) {
-                acr_hud_text(lx + 20, y + 11, part_name(d, acr_gen1_slot_category((acr_gen1_slot)s), d->hangar->fitted[s]),
+                acr_hud_text(lx + 20, y + 11, part_name(d, acr_gen1_slot_category((acr_gen1_slot)s), shown_fitted(d, s)),
                              sel ? 255 : 220, sel ? 220 : 230, sel ? 120 : 235);
             } else {
                 int count = 0;

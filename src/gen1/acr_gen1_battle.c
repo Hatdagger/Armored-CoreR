@@ -744,7 +744,7 @@ static void blade_step(acr_gen1_battle *b, int i, int blade, int pressed) {
 
 /* ---- missiles ---- */
 
-static void launch_missile(acr_gen1_battle *b, int i, int wi, int32_t side) {
+static void launch_missile(acr_gen1_battle *b, int i, int wi, int32_t side, int32_t fan) {
     acr_gen1_fighter *f = &b->f[i];
     const acr_gen1_weapon *w = &f->weapon[wi];
     const int t = acr_gen1_battle_target_any(b, i);
@@ -771,6 +771,16 @@ static void launch_missile(acr_gen1_battle *b, int i, int wi, int32_t side) {
      * leaves straight up over the AC's facing and the rest at the target. */
     dir_of((it.x - s->x) / 64, (it.y - it.up - s->y) / 64, (it.z - s->z) / 64, &s->yaw, &s->pitch);
     if (w->flight.kind == 4) { s->yaw = me->yaw; s->pitch = 1024 - 16; }
+    /* Kind 3 (WM-X201, XCS-9900, the split missiles): the game's start is
+     * the tube's own heading plus a quarter of the turn to the target
+     * (0x8008171C: lock offset >> 2), so it climbs away up front and the
+     * four it breaks into dive onto the target. Until the tube vertices are
+     * read the tube is taken as the facing, tilted 30 degrees up. */
+    if (w->flight.kind == 3) {
+        s->yaw = (uint16_t)((me->yaw + wrap(s->yaw - me->yaw) / 4) & 4095);
+        s->pitch = (int16_t)wrap(0x155 + s->pitch / 4);
+    }
+    s->yaw = (uint16_t)((s->yaw + fan) & 4095);
     if (w->spread_yaw) s->yaw = (uint16_t)((s->yaw + rnd(b) % (w->spread_yaw + 1) - w->spread_yaw / 2) & 4095);
     if (w->spread_pitch) s->pitch = (int16_t)wrap(s->pitch + rnd(b) % (w->spread_pitch + 1) - w->spread_pitch / 2);
     int32_t ux, uy, uz;
@@ -912,8 +922,20 @@ static void missile_fire_tick(acr_gen1_battle *b, int i, int wi, int fire) {
     const acr_gen1_weapon *w = &f->weapon[wi];
     if (f->volley_ticks) {
         if (--f->volley_ticks % 4 == 0) {
+            /* Side A, then side B (VS 0x80081A40 / 0x80081A68: one launch
+             * call per side, each with that side's joints). A one-slot unit
+             * fires from its own shoulder; a two-slot unit's A is the left.
+             * The game points each missile along its own launcher tube
+             * (vertex pairs of the launcher model, 0x80078888); until those
+             * are read, several from one side leave fanned out across the
+             * facing, 0x100 apart, from tubes 20 apart. */
+            const int32_t a_sign = w->back_side == 1 ? 1 : -1;
             for (int s = 0; s < w->volley_a + w->volley_b && f->ammo[wi]; ++s) {
-                launch_missile(b, i, wi, s < w->volley_a ? -60 : 60);
+                const int on_b = s >= w->volley_a;
+                const int n = on_b ? s - w->volley_a : s, cnt = on_b ? w->volley_b : w->volley_a;
+                const int32_t sign = on_b ? -a_sign : a_sign;
+                const int32_t off2 = 2 * n - (cnt - 1);              /* tube offset x 2 from the middle */
+                launch_missile(b, i, wi, sign * 60 + off2 * 10, off2 * 0x80 * sign);
                 --f->ammo[wi];
             }
             if (f->locks) --f->locks;
