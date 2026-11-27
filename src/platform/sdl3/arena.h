@@ -29,6 +29,8 @@ int arena_reload(void);
 void arena_say(const char *t);
 /* Main menu > ARENA. */
 void arena_open(void);
+/* A new game: every arena back to the start, saved. */
+void arena_new_game(void);
 arena_command arena_input(garage_action a);
 void arena_draw(float hud_w, int elapsed_ms);
 

@@ -16,12 +16,12 @@
  * screen, so no shop and no AC TEST. */
 enum {
     M_GARAGE, M_SHOP, M_ARENA, M_MISSIONS, M_NETWORK, M_ROGUE, M_SYSTEM,
-    M_ASSEMBLY, M_OPTIONS, M_PERFORMANCE, M_COLOR, M_TEST, M_SAVE, M_LOAD, M_SETTINGS, M_CONTROLS, M_VIDEO, M_AUDIO, M_UPDATES, M_REIMPORT, M_QUIT, M_BACK, M_EXIT_RUN,
+    M_ASSEMBLY, M_OPTIONS, M_PERFORMANCE, M_COLOR, M_TEST, M_SAVE, M_LOAD, M_NEWGAME, M_SETTINGS, M_CONTROLS, M_VIDEO, M_AUDIO, M_UPDATES, M_REIMPORT, M_QUIT, M_BACK, M_EXIT_RUN,
     M_COUNT
 };
 static const char *const k_menu[M_COUNT] = {
     "GARAGE", "SHOP", "ARENA", "MISSIONS", "NETWORK", "ROGUE ARENA", "SYSTEM",
-    "ASSEMBLY", "OPTIONAL PARTS", "PERFORMANCE", "CHANGE COLOR", "AC TEST", "SAVE", "LOAD", "SETTINGS", "CONTROLS", "VIDEO", "AUDIO", "UPDATES", "RE-IMPORT DISC", "EXIT GAME", "BACK",
+    "ASSEMBLY", "OPTIONAL PARTS", "PERFORMANCE", "CHANGE COLOR", "AC TEST", "SAVE", "LOAD", "NEW GAME", "SETTINGS", "CONTROLS", "VIDEO", "AUDIO", "UPDATES", "RE-IMPORT DISC", "EXIT GAME", "BACK",
     "BACK TO THE ARENA"
 };
 /* Not built yet: shown, not chosen. */
@@ -31,7 +31,7 @@ static int menu_ready(int id) {
 }
 static const int k_page_main[] = { M_GARAGE, M_SHOP, M_ARENA, M_MISSIONS, M_NETWORK, M_ROGUE, M_SYSTEM };
 static const int k_page_garage[] = { M_ASSEMBLY, M_OPTIONS, M_PERFORMANCE, M_COLOR, M_TEST, M_BACK };
-static const int k_page_system[] = { M_SAVE, M_LOAD, M_SETTINGS, M_QUIT, M_BACK };
+static const int k_page_system[] = { M_SAVE, M_LOAD, M_NEWGAME, M_SETTINGS, M_QUIT, M_BACK };
 /* RE-IMPORT DISC: import a disc again over the old import (saves kept).
  * UPDATES only in the Android app (update.h); the PC gets new builds from GitHub. */
 #ifdef SDL_PLATFORM_ANDROID
@@ -46,7 +46,7 @@ static int menu_items(const garage_ui *ui, const int **ids) {
     if (ui->rogue) { *ids = k_page_rogue; return 2; }
     switch (ui->page) {
     case GARAGE_PAGE_GARAGE: *ids = k_page_garage; return 6;
-    case GARAGE_PAGE_SYSTEM: *ids = k_page_system; return 5;
+    case GARAGE_PAGE_SYSTEM: *ids = k_page_system; return (int)SDL_arraysize(k_page_system);
     case GARAGE_PAGE_SETTINGS: *ids = k_page_settings; return (int)SDL_arraysize(k_page_settings);
     default: *ids = k_page_main; return 7;
     }
@@ -263,8 +263,11 @@ garage_command garage_input(garage_ui *ui, garage_data *d, garage_action a) {
             else *cur = items - 1;              /* the main menu: to SYSTEM */
             return GC_NONE;
         }
-        if (a != GA_OK) return GC_NONE;
+        /* NEW GAME asks for a second A on it (any other press cancels). */
+        static int new_game_armed;
+        if (a != GA_OK) { new_game_armed = 0; return GC_NONE; }
         const int id = ids[*cur];
+        if (id != M_NEWGAME) new_game_armed = 0;
         if (!menu_ready(id)) { say(ui, "NOT AVAILABLE YET."); return GC_NONE; }
         switch (id) {
         case M_GARAGE: open_page(ui, GARAGE_PAGE_GARAGE); return GC_NONE;
@@ -305,6 +308,10 @@ garage_command garage_input(garage_ui *ui, garage_data *d, garage_action a) {
         case M_UPDATES: return GC_UPDATES;
         case M_REIMPORT: return GC_REIMPORT;
         case M_SAVE: return GC_SAVE;
+        case M_NEWGAME:
+            if (!new_game_armed) { new_game_armed = 1; say(ui, "A AGAIN: NEW GAME. YOUR SAVE AND ARENA RANKS ARE REPLACED."); return GC_NONE; }
+            new_game_armed = 0;
+            return GC_NEWGAME;
         case M_LOAD: return GC_LOAD;
         case M_QUIT: case M_EXIT_RUN: return GC_QUIT;
         default: break;

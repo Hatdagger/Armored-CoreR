@@ -6,7 +6,8 @@
  *  - GG/MS/MENU_TIM.T entries 232-281 description 1, 282-330 emblems (TIM),
  *    332-381 portraits, 382 the builds (50 x 64 bytes, Master of Arena's
  *    layout), 432-481 description 2, 482 the names (24-byte slots ended by
- *    '>': 49 pilots, then 49 ACs), 483 the rewards (8 bytes a rank: u32
+ *    '>': pilot, AC, pilot, AC ... for ranks 1-49; rank 1 Necron /
+ *    Black Dragon, rank 26 Executioner / Hell Bent), 483 the rewards (8 bytes a rank: u32
  *    money, u16 prize id 0-8 or 0xFFFF).
  *  - The AI settings are not with the opponents: the arena engine (FDAT 205)
  *    keeps 49 records of 60 bytes at +0x453C8 (RAM 0x8008E498). Record =

@@ -46,6 +46,7 @@
 #include "demo_data.h"
 #include "../../gen1/acr_gen1_pose.h"
 #include "../../gen1/acr_gen1_ai.h"
+#include "../../gen1/acr_gen1_arena.h"
 #include "demo_model.h"
 #include "demo_stage.h"
 #include "demo_units.h"
@@ -537,7 +538,7 @@ static int phantasma_imported(const char *dir) {
     SDL_PathInfo info;
     return SDL_GetPathInfo(path, &info) && info.type == SDL_PATHTYPE_FILE;
 }
-static long g_new_credits = 0;
+static long g_new_credits = 80000;   /* a new game's credits (--credits N) */
 static int g_tick_rate = 60;   /* test: steps a second; 22 = Gen 1's own pace */
 static int g_landing_anim = 0; /* test: the old stand-in landing curve instead of the disc's (F3 / Back + R3) */
 static const int k_tick_rates[] = { 22, 30, 45, 60 };
@@ -678,9 +679,9 @@ static int parse_args(int argc, char **argv, const char **dir, int parts[SLOT_CO
 /* ---------------- garage ---------------- */
 
 /* Test builds: a new game owns every part and the shop starts empty (it
- * stocks what you sell it). A release turns this off and sets the starting
- * credits instead. */
-static const int k_test_kit = 1;
+ * stocks what you sell it). Off: as in the game, a new game owns only the
+ * starting AC, the shop sells the parts, and you start with 80,000 C. */
+static const int k_test_kit = 0;
 static uint8_t g_paint_default[4][3];   /* the disc's default colours (models/colours.toml): CHANGE COLOR's DEFAULT */
 /* Each player's optional parts (bit n = option n): player 1's from the
  * garage, player 2's a copy of them offline (the same build), each
@@ -826,7 +827,10 @@ static void save_path(char *out, size_t size) {
 }
 
 /* Loads the save, or starts a new one from the starting AC. */
+static int g_start_parts[SLOT_COUNT];   /* the starting AC (a new game's build) */
+static void hangar_fresh(void);
 static void hangar_open(const int start[SLOT_COUNT]) {
+    memcpy(g_start_parts, start, sizeof g_start_parts);
     char path[1200];
     save_path(path, sizeof path);
     /* The disc's default colours (CHANGE COLOR's DEFAULT, a new game's paint). */
@@ -850,6 +854,12 @@ static void hangar_open(const int start[SLOT_COUNT]) {
     if (ok) acr_gen1_mission_record_read(missions_record(), text);   /* the save's [missions] */
     SDL_free(text);
     if (ok) return;
+    hangar_fresh();
+}
+
+/* A new game: the starting AC, the starting credits, the disc's paint. */
+static void hangar_fresh(void) {
+    const int *start = g_start_parts;
     uint8_t s[SLOT_COUNT];
     for (int i = 0; i < SLOT_COUNT; ++i) s[i] = (uint8_t)start[i];
     acr_gen1_hangar_new(&g_hangar, s, 0, (int32_t)g_new_credits);
@@ -1363,6 +1373,11 @@ int main(int argc, char **argv) {
     if (k_test_kit)
         for (int c = 0; c < ACR_GEN1_CAT_COUNT; ++c)
             for (int i = 0; i < ACR_GEN1_PART_MAX; ++i) g_catalog.part[c][i].for_sale = 0;
+    /* Arena prize parts are won, not bought (sold back, the shop stocks them). */
+    for (int p = 0; p < ACR_GEN1_ARENA_PRIZES; ++p) {
+        int pc, pi;
+        if (acr_gen1_arena_prize_part(p, &pc, &pi)) g_catalog.part[pc][pi].for_sale = 0;
+    }
     hangar_open(parts);
     /* SP-MODERN is there from the start, older saves included. */
     if (!g_hangar.owned[ACR_GEN1_CAT_OPTION][ACR_GEN1_OPTION_MODERN_BIT])
@@ -2476,6 +2491,16 @@ int main(int argc, char **argv) {
                 SDL_StartTextInput(window);
             }
             if (gcmd == GC_SAVE) garage_say(&gui, hangar_save() ? "SAVED." : "COULD NOT SAVE.");
+            if (gcmd == GC_NEWGAME) {
+                hangar_fresh();
+                memset(missions_record(), 0, sizeof *missions_record());
+                g_options[0] = g_options[1] = g_hangar.options;
+                arena_new_game();
+                int fitted[SLOT_COUNT];
+                hangar_parts(fitted);
+                if (demo_load(dir, fitted, &ac_data[0], err, sizeof err)) memcpy(parts, fitted, sizeof fitted);
+                garage_say(&gui, hangar_save() ? "NEW GAME STARTED. SAVED." : "NEW GAME STARTED (COULD NOT SAVE).");
+            }
             if (gcmd == GC_LOAD) {
                 if (hangar_load()) {
                     int fitted[SLOT_COUNT];
