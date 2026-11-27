@@ -206,6 +206,16 @@ static acr_gen1_arena_why why_at(int rank) {
     return acr_gen1_arena_can_challenge(&A.s, A.arena, rank, legs_kind(), build_fail());
 }
 
+/* Whether the ladder rules let this opponent be fought (the next rank up, a
+ * rematch, anyone in the sub arena), as in the game: their names are yellow.
+ * Leg type and an incomplete AC are about your build: still yellow, and A
+ * says why. */
+static int fightable(int rank) {
+    const acr_gen1_arena_why why = why_at(rank);
+    if (acr_gen1_arena_absent_at(&A.s, A.arena, rank) == ACR_GEN1_ARENA_ABSENT_DONE) return 0;
+    return why == ACR_GEN1_ARENA_OK || why == ACR_GEN1_ARENA_WRONG_LEGS || why == ACR_GEN1_ARENA_INCOMPLETE;
+}
+
 /* The rows of the ladder page: first rank and count. */
 static void page_range(int *first, int *count) {
     const int places = A.s.a[A.arena].places;
@@ -443,11 +453,8 @@ static arena_command input(garage_action a) {
         if (a != GA_OK) return AC_NONE;
         const int rank = cursor_rank();
         const acr_gen1_arena_why why = why_at(rank);
-        if (why != ACR_GEN1_ARENA_OK) {
-            if (rank == acr_gen1_arena_rank(&A.s, A.arena)) say("THAT'S YOU.");
-            else say(acr_gen1_arena_why_text(why));
-            return AC_NONE;
-        }
+        if (!fightable(rank)) { A.snd = -3; return AC_NONE; }   /* not available yet: nothing happens */
+        if (why != ACR_GEN1_ARENA_OK) { say(acr_gen1_arena_why_text(why)); return AC_NONE; }
         if (!A.nstages) { say("RE-IMPORT YOUR DISC: NO STAGES FOUND."); return AC_NONE; }
         A.ask = 0;
         A.screen = AS_ASK;
@@ -584,8 +591,9 @@ static void draw_pick(float hud_w) {
                     if (me <= ACR_GEN1_ARENA_RANKED) SDL_snprintf(line, sizeof line, "%d / %d", me, ACR_GEN1_ARENA_RANKED);
                     else SDL_snprintf(line, sizeof line, "-- / %d", ACR_GEN1_ARENA_RANKED);
                 } else if (i == ROW_MOA_SUB) {
-                    if (me > ACR_GEN1_ARENA_RANKED) SDL_snprintf(line, sizeof line, "%d / %d", me, A.s.a[ar].places);
-                    else SDL_snprintf(line, sizeof line, "--");
+                    /* unranked: just how many entries it has (35 with MoA's 50 places) */
+                    (void)me;
+                    SDL_snprintf(line, sizeof line, "%d", A.s.a[ar].places - ACR_GEN1_ARENA_RANKED);
                 } else SDL_snprintf(line, sizeof line, "%d / %d", me, A.s.a[ar].places);
                 text_right(x + w - 120, y, line, open ? 220 : 120, open ? 230 : 135, open ? 235 : 145);
             }
@@ -619,29 +627,6 @@ static void draw_pick(float hud_w) {
     hints(hud_w, "UP/DOWN: CHOOSE   LEFT/RIGHT: STAGE   A: ENTER   B: BACK");
 }
 
-static void status_of(int rank, const char **text, uint8_t c[3]) {
-    const int me = acr_gen1_arena_rank(&A.s, A.arena);
-    static const uint8_t good[3] = { GOOD }, dim[3] = { DIM }, hi[3] = { HILITE }, bad[3] = { BAD };
-    const uint8_t *k = dim;
-    const int absent = acr_gen1_arena_absent_at(&A.s, A.arena, rank);
-    if (rank == me) { *text = "YOU"; k = hi; }
-    else if (absent == ACR_GEN1_ARENA_ABSENT_DONE) *text = "UNABLE";
-    else if (absent == ACR_GEN1_ARENA_ABSENT && why_at(rank) == ACR_GEN1_ARENA_OK) { *text = "UNAVAILABLE"; k = hi; }
-    else if (acr_gen1_arena_defeated(&A.s, A.arena, rank) && rank > me) {
-        static const uint8_t down[3] = { 200, 110, 100 };
-        *text = "DEFEATED";             /* a rematch, for fun: no rank, no prize */
-        k = why_at(rank) == ACR_GEN1_ARENA_OK ? down : dim;
-    } else {
-        switch (why_at(rank)) {
-        case ACR_GEN1_ARENA_OK: *text = "CHALLENGE"; k = good; break;
-        case ACR_GEN1_ARENA_DONE: *text = "BEATEN"; break;
-        case ACR_GEN1_ARENA_WRONG_LEGS: *text = "LEG TYPE"; k = bad; break;
-        case ACR_GEN1_ARENA_INCOMPLETE: *text = "CHALLENGE"; k = bad; break;
-        default: *text = "REFERENCE ONLY"; break;
-        }
-    }
-    memcpy(c, k, 3);
-}
 
 static void draw_ladder(float hud_w, int elapsed_ms) {
     char title[64];
@@ -654,17 +639,20 @@ static void draw_ladder(float hud_w, int elapsed_ms) {
     page_range(&first, &count);
     const float lx = 36, lw = 380;
     panel(lx - 16, 48, lw + 28, 26 + 22.0f * LADDER_ROWS);
-    acr_hud_text(lx, 56, "RANK", DIM);
+    /* MoA SUB-ARENA is unranked: no rank numbers. */
+    const int unranked = A.arena == ACR_GEN1_ARENA_MOA && A.page == 1;
+    if (!unranked) acr_hud_text(lx, 56, "RANK", DIM);
     acr_hud_text(lx + 52, 56, "PILOT", DIM);
-    text_right(lx + lw, 56, "CHALLENGE", DIM);
     for (int i = 0; i < LADDER_ROWS && A.ltop + i < count; ++i) {
         const int rank = first + A.ltop + i;
         const float y = 76 + 22.0f * (float)i;
         const int sel = A.ltop + i == A.lcur;
         if (sel) row_bar(lx, y, lw + 12);
         char line[64];
-        SDL_snprintf(line, sizeof line, "%2d", rank);
-        acr_hud_text(lx + 4, y, line, WHITE);
+        if (!unranked) {
+            SDL_snprintf(line, sizeof line, "%2d", rank);
+            acr_hud_text(lx + 4, y, line, WHITE);
+        }
         const acr_gen1_rogue_foe *f = foe_at(rank);
         if (f) {   /* its emblem, small */
             const uint32_t em = vs_emblem(A.import_dir, A.arena, f->rank);
@@ -672,13 +660,10 @@ static void draw_ladder(float hud_w, int elapsed_ms) {
         }
         if (rank == me && A.h) SDL_snprintf(line, sizeof line, "%.20s", A.h->pilot_name[0] ? A.h->pilot_name : "YOU");
         else SDL_snprintf(line, sizeof line, "%.20s", f ? (f->pilot[0] ? f->pilot : f->ac) : "?");
-        if (rank == me) acr_hud_text(lx + 52, y, line, HILITE);
-        else if (sel) acr_hud_text(lx + 52, y, line, HILITE);
+        /* Just names: yellow = can be fought now, white = not yet; you in green. */
+        if (rank == me) acr_hud_text(lx + 52, y, line, GOOD);
+        else if (fightable(rank)) acr_hud_text(lx + 52, y, line, HILITE);
         else acr_hud_text(lx + 52, y, line, WHITE);
-        const char *st;
-        uint8_t c[3];
-        status_of(rank, &st, c);
-        text_right(lx + lw, y, st, c[0], c[1], c[2]);
     }
     if (count > LADDER_ROWS) {   /* scroll marks */
         if (A.ltop > 0) acr_hud_text(lx + lw / 2, 64, "^", DIM);
@@ -698,7 +683,8 @@ static void draw_ladder(float hud_w, int elapsed_ms) {
             for (int s = 0; s < SLOT_COUNT; ++s) parts[s] = A.h->fitted[s];
             g_draw_ac(parts, (const uint8_t (*)[3])A.h->colours, px + 8, 92, pw - 16, 230, 1.0f, A.spin, 0, 1.0f);
         }
-        SDL_snprintf(line, sizeof line, "YOUR RANK  %d / %d", me, A.s.a[A.arena].places);
+        if (unranked) SDL_snprintf(line, sizeof line, "SUB-ARENA (UNRANKED)");
+        else SDL_snprintf(line, sizeof line, "YOUR RANK  %d / %d", me, A.s.a[A.arena].places);
         acr_hud_text(px + 12, 336, line, WHITE);
     } else if (f) {
         acr_hud_text(px + 12, 58, f->ac[0] ? f->ac : "AC", HILITE);
@@ -734,7 +720,8 @@ static void draw_ladder(float hud_w, int elapsed_ms) {
             acr_hud_text(px + 12, 352, line, GOOD);
         }
         const acr_gen1_arena_why why = why_at(rank);
-        if (why != ACR_GEN1_ARENA_OK) acr_hud_text(px + 12, 372, acr_gen1_arena_why_text(why), DIM);
+        if (!fightable(rank)) { /* not available yet: no hint */ }
+        else if (why != ACR_GEN1_ARENA_OK) acr_hud_text(px + 12, 372, acr_gen1_arena_why_text(why), DIM);
         else if (absent == ACR_GEN1_ARENA_ABSENT_DONE) acr_hud_text(px + 12, 372, "OPPONENT IS UNABLE TO COMPETE.", DIM);
         else if (acr_gen1_arena_is_rematch(&A.s, A.arena, rank)) acr_hud_text(px + 12, 372, "DEFEATED.  A: REMATCH (NO PRIZE)", GOOD);
         else acr_hud_text(px + 12, 372, "A: CHALLENGE", GOOD);
@@ -774,18 +761,25 @@ static void draw_result(float hud_w) {
     if (A.pay.won) acr_hud_text_size(wx, y + 18, word, 24, GOOD, 255);
     else acr_hud_text_size(wx, y + 18, word, 24, BAD, 255);
     acr_hud_text(x + 24, y + 62, A.pay_foe, WHITE);
+    /* A sub-arena fight (unranked): no rank numbers in the result. */
+    const int unranked = A.arena == ACR_GEN1_ARENA_MOA && A.pay.old_rank > ACR_GEN1_ARENA_RANKED;
     if (A.pay.default_win) {
         acr_hud_text(x + 24, y + 86, "OPPONENT UNAVAILABLE, DEFAULT WIN.", HILITE);
-        SDL_snprintf(line, sizeof line, "RANK  %d  >  %d", A.pay.old_rank, A.pay.new_rank);
-        acr_hud_text(x + 24, y + 110, line, HILITE);
+        if (!unranked) {
+            SDL_snprintf(line, sizeof line, "RANK  %d  >  %d", A.pay.old_rank, A.pay.new_rank);
+            acr_hud_text(x + 24, y + 110, line, HILITE);
+        }
         if (A.pay.new_rank == 1) acr_hud_text(x + 24, y + 182, "YOU ARE THE TOP OF THIS ARENA.", HILITE);
     } else if (A.pay.rematch) {
-        SDL_snprintf(line, sizeof line, "REMATCH: RANK STAYS %d", A.pay.old_rank);
+        if (unranked) SDL_snprintf(line, sizeof line, "REMATCH");
+        else SDL_snprintf(line, sizeof line, "REMATCH: RANK STAYS %d", A.pay.old_rank);
         acr_hud_text(x + 24, y + 86, line, WHITE);
         acr_hud_text(x + 24, y + 110, "NO PRIZE IN A REMATCH. GOOD FIGHT.", DIM);
     } else if (A.pay.won) {
-        SDL_snprintf(line, sizeof line, "RANK  %d  >  %d", A.pay.old_rank, A.pay.new_rank);
-        acr_hud_text(x + 24, y + 86, line, HILITE);
+        if (!unranked) {
+            SDL_snprintf(line, sizeof line, "RANK  %d  >  %d", A.pay.old_rank, A.pay.new_rank);
+            acr_hud_text(x + 24, y + 86, line, HILITE);
+        }
         if (A.pay.money) {   /* a repeat win over the same opponent: no prize line */
             num((long)A.pay.money, c, sizeof c);
             SDL_snprintf(line, sizeof line, "PRIZE MONEY   %s C", c);
@@ -798,8 +792,10 @@ static void draw_result(float hud_w) {
         }
         if (A.pay.new_rank == 1) acr_hud_text(x + 24, y + 182, "YOU ARE THE TOP OF THIS ARENA.", HILITE);
     } else {
-        SDL_snprintf(line, sizeof line, "RANK  %d", A.pay.old_rank);
-        acr_hud_text(x + 24, y + 86, line, WHITE);
+        if (!unranked) {
+            SDL_snprintf(line, sizeof line, "RANK  %d", A.pay.old_rank);
+            acr_hud_text(x + 24, y + 86, line, WHITE);
+        }
         acr_hud_text(x + 24, y + 110, "NO PRIZE. REPAIR, REBUILD, TRY AGAIN.", DIM);
     }
     hints(hud_w, "A: GO ON");
