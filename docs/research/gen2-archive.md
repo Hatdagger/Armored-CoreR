@@ -59,7 +59,7 @@ This is the Assembly/Shop data. Each entry is a `JOIN` package: `JOIN`, a u8 mes
 | 3660-3691 | 32 | Back units (set 2) |
 | 3700-3724 | 25 | Right-arm weapons |
 | 3730-3738 | 9 | Left-arm weapons |
-| 3750-3765 | 16 | Unknown |
+| 3750-3765 | 16 | Optional parts (SP-…) |
 | 3780, 3800-3801 | 3 | Unknown |
 
 ## B / C blocks: in-game models
@@ -97,9 +97,20 @@ B (301-828) holds the full-detail models, using the overlap layout above. C (900
 Reference: the Prima guide's AC2 counts are Head 12, Core 6, Arms 23, Legs 31, Booster 7, FCS 10, Generator 8, Radiator 8, Inside 7.
 The public CodeBreaker cheats are encrypted and only touch "owned" flags, so they don't help with the file map.
 
+## Parts table (DECODED 2026-11-27, session 2)
+- Part names and stats are NOT in SLUS_200.14. They live inside each F-block JOIN package: the last offset in the 2nd offset table (JOIN+0x34) points to an info record.
+- Info record: `name[18] type[18] u32 price, u8 maker (0 = Zio "Z…", 1 = Emeraude "E…", 2 = third maker), desc[73]`, then stats at +114: `u16 weight, u16 energy drain`, … Armour parts have AP / defence / energy defence a few fields later (head ZHD-GE/OHR: wt 114, drain 350, AP 745, def 155, edef 145).
+- Weapon damage/ammo are NOT in this record (probably in the ELF) — still open.
+- 235 of 240 entries read (`tools/gen2/stats.py` output). The LAST entry of every group (3411, 3425, 3452, 3490, 3506, 3529, 3547, 3567, 3586, 3607, 3651, 3691, 3765) is cut off, because its tail would be in the next ID, which doesn't exist. This needs AC2DATA.BIN read again with corrected offsets (strong evidence that the table offsets are read 32 KB off).
+- 3750-3765 = optional parts (SP-…: shell/energy screens, balancers, FCS accelerator, rapid charge…). 3660-3691 is an exact copy of 3620-3651 (back units).
+- Examples: heads ZHD-GE/OHR, EHD-NIGHTEYE; legs ZLN-XX0/TP (humanoid), ELB-… (reverse joint), ZLF/ELF (four-legged), ZLC/ELC (caterpillar), ZLR (float); weapons KARASAWA-MK2, LS-MOONLIGHT.
+- SLUS_200.14 holds the internal model codes in catalogue order (h01-h12; cn01 cn02 cl01 cl02 ch01 ch02; b01-b07; an/al/ah/awb/awa/awe/awm arms; l2n/l2l/l2h/lr/l4/lt/la legs; wrr/wrm/wrh/wrb/wrsh/wre/wrsp; wlb/wls; wbm/wbr/wbc/wbo/wbd*; exb/exa/exm) as paths `/a2/ac2/model/ac/parts/<kind>/<code>/tp2/<code>` at file offset 0x2ecda0. Counts match the F and B blocks, so the k-th code = k-th F entry = k-th B model of that category.
+- Scripts: `tools/gen2/join.py`, `tools/gen2/stats.py`.
+
 ## Open questions
-- Which texture each strip uses (GS TEX0 in the mesh packets, or the JOIN offset table).
-- The JOIN joint table layout (needed for animation).
-- Part names and stats from SLUS_200.14.
-- The 421-492 block and F 3750-3765.
-- Another Age differences.
+- Weapon stats (damage, ammo, range) — look in SLUS_200.14.
+- The 13 truncated last-of-group entries.
+- Which texture each strip uses (JOIN offset table: entries 2-3 look like the textures, entry 4 is per-mesh transform data) → textured renders.
+- JOIN joint table: byte 4 = slot count (13 for head?), then a parent list (e.g. 00 00 01 01 02 03 ff…) — not confirmed yet.
+- glTF export of a full textured AC; Another Age comparison.
+- The 421-492 block.
