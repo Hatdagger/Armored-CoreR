@@ -1039,6 +1039,27 @@ int main(void) {
         EXPECT(vb.shot[si].active && top_y < y_launch - 300 * 64);
     }
 
+    {   /* AC bodies: walking, then ground boosting, straight at another AC
+         * doesn't go through it (no AC-AC bodies before 2026-11-27). */
+        static acr_gen1_battle c;
+        setup(&c, 600);                              /* 600 apart, facing each other */
+        acr_gen1_input go[2];
+        memset(go, 0, sizeof go);
+        go[0].move = 1;                              /* walk, then ground boost once moving */
+        int passed = 0;
+        for (int t = 0; t < 160; ++t) {
+            go[0].boost = (uint8_t)(t >= 10);
+            acr_gen1_battle_step(&c, go, idle);
+            if (c.f[0].ac.z > c.f[1].ac.z) passed = 1;
+            c.f[0].ac.energy = 28000;               /* keep boosting */
+        }
+        EXPECT(!passed);
+        EXPECT((c.f[1].ac.z - c.f[0].ac.z) / 64 >= 2 * ACR_GEN1_HIT_RADIUS - 1);
+        /* and two ACs put inside each other are pushed apart */
+        setup(&c, 40);
+        acr_gen1_battle_step(&c, none, idle);
+        EXPECT((c.f[1].ac.z - c.f[0].ac.z) / 64 >= 2 * ACR_GEN1_HIT_RADIUS);
+    }
     if (failures) { printf("%d failure(s)\n", failures); return 1; }
     printf("gen1 battle: all passed (first hit after %d steps)\n", steps);
     return 0;

@@ -26,6 +26,10 @@
 int  sfx_open(const char *import_dir);
 void sfx_close(void);
 
+/* Split audio: player 2's sounds on their own output (an SDL playback
+ * device id), stereo there; 0 puts them back on the shared one. 1 if done. */
+int sfx_p2_output(uint32_t device);
+
 /* SETTINGS > AUDIO: fight sounds and menu / screen sounds, 0..1 each
  * (ignored when ACR_SFX_VOLUME is set). */
 void sfx_set_volume(float fight, float menu);
@@ -41,6 +45,11 @@ typedef struct sfx_listen {
     int view;            /* the AC whose ears and warnings these are */
     unsigned beeps;      /* its warning beeps due since the last update (BATTLE_WARN_BEEP_*) */
     int round_over;      /* no warnings, no loops */
+    /* Split audio (two players on one shared screen): `view` is heard in
+     * mono on the left, `view2` (with its own beeps2) in mono on the right. */
+    int split;
+    int view2;
+    unsigned beeps2;
 } sfx_listen;
 
 /* Once a frame, after the fight has stepped. `now_ns` is a steady clock. */

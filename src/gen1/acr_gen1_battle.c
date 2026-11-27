@@ -897,12 +897,17 @@ static void missile_lock_tick(acr_gen1_battle *b, int i, const acr_gen1_weapon *
     unsigned cap = w->max_locks ? w->max_locks : 1;
     if (cap > ammo) cap = ammo;
     if (cap > ACR_GEN1_MAX_LOCKS) cap = ACR_GEN1_MAX_LOCKS;
-    if (f->locks >= cap) { f->tone_tick = 0; return; }
-    if (!(f->tone_tick++ & 3)) ++f->tones;                 /* the locking beep, every 4th tick */
     uint16_t tyaw;
     int16_t tpitch;
     dir_of((t->x - f->ac.x) / 64, (t->y - f->ac.y) / 64, (t->z - f->ac.z) / 64, &tyaw, &tpitch);
     const int32_t ry = wrap(tyaw - view_yaw(f)), rp = wrap(tpitch - view_pitch(f));
+    if (f->locks >= cap) {   /* every lock taken: the cursor stays on the target */
+        f->cursor_yaw = (int16_t)ry;
+        f->cursor_pitch = (int16_t)rp;
+        f->tone_tick = 0;
+        return;
+    }
+    if (!(f->tone_tick++ & 3)) ++f->tones;                 /* the locking beep, every 4th tick */
     const int32_t sp = w->lock_value * 3 / 16 > 0 ? w->lock_value * 3 / 16 : 1;
     f->cursor_yaw = (int16_t)turn_toward(f->cursor_yaw, ry, sp);
     f->cursor_pitch = (int16_t)turn_toward(f->cursor_pitch, rp, sp);
@@ -1287,6 +1292,7 @@ static int segment_hits_box(int64_t x0, int64_t y0, int64_t z0, int64_t x1, int6
 
 static void units_step(acr_gen1_battle *b, int ticks);
 static void bodies_step(acr_gen1_battle *b);
+static void ac_bodies_step(acr_gen1_battle *b, int64_t was[][2]);
 
 static void shots_step(acr_gen1_battle *b, int ticks) {
     for (int k = 0; k < ACR_GEN1_MAX_SHOTS; ++k) {
@@ -1529,6 +1535,8 @@ void acr_gen1_battle_step(acr_gen1_battle *b, const acr_gen1_input in[], const a
         num = b->tick_phase;
         den = b->step_rate;
     }
+    int64_t was[ACR_GEN1_MAX_FIGHTERS][2];   /* where each AC stood before this step (bodies_step) */
+    for (int i = 0; i < n && i < ACR_GEN1_MAX_FIGHTERS; ++i) { was[i][0] = b->f[i].ac.x; was[i][1] = b->f[i].ac.z; }
     for (int i = 0; i < n; ++i) {
         acr_gen1_fighter *f = &b->f[i];
         if (f->ap <= 0) {
@@ -1568,6 +1576,7 @@ void acr_gen1_battle_step(acr_gen1_battle *b, const acr_gen1_input in[], const a
     for (int i = 0; i < n; ++i) fighter_step(b, i, act[i], ticks);
     units_step(b, ticks);
     bodies_step(b);
+    ac_bodies_step(b, was);
     shots_step(b, ticks);
 }
 
@@ -1941,6 +1950,62 @@ static void units_step(acr_gen1_battle *b, int ticks) {
             if (b->unit[u].active) unit_tick(b, u);
         acr_gen1_mission_tick(b);
     }
+}
+
+/* AC against AC: two hit cylinders (radius 75, 212 tall) can't overlap.
+ * Checked along the whole step, from where each stood before it, so a fast
+ * boost or blade lunge can't carry one AC through the other between two
+ * steps (user, 2026-11-27: it could). Passing through: the mover is put
+ * back at contact on the side it came from; overlapping: both pushed apart
+ * evenly. Ours: the game's own AC body test is still to be read. */
+static void ac_bodies_step(acr_gen1_battle *b, int64_t was[][2]) {
+    const int n = acr_gen1_battle_fighters(b);
+    const int64_t R = 2 * ACR_GEN1_HIT_RADIUS;          /* centre to centre, world units */
+    for (int i = 0; i < n && i < ACR_GEN1_MAX_FIGHTERS; ++i)
+        for (int j = i + 1; j < n && j < ACR_GEN1_MAX_FIGHTERS; ++j) {
+            acr_gen1_ac *a = &b->f[i].ac, *c = &b->f[j].ac;
+            if (!b->f[i].def || !b->f[j].def) continue;
+            /* y is down: each spans [y - 212, y] */
+            if (a->y / 64 - ACR_GEN1_HIT_HEIGHT >= c->y / 64 || c->y / 64 - ACR_GEN1_HIT_HEIGHT >= a->y / 64) continue;
+            /* j as seen from i, before and after the step (world units) */
+            const int64_t sx = (was[j][0] - was[i][0]) / 64, sz = (was[j][1] - was[i][1]) / 64;
+            const int64_t ex = (c->x - a->x) / 64, ez = (c->z - a->z) / 64;
+            const int64_t mx = ex - sx, mz = ez - sz, m2 = mx * mx + mz * mz;
+            /* the closest the two came during the step */
+            int64_t t_num = m2 ? -(sx * mx + sz * mz) : 0;
+            if (t_num < 0) t_num = 0;
+            if (t_num > m2) t_num = m2;
+            const int64_t cx = m2 ? sx + mx * t_num / m2 : ex, cz = m2 ? sz + mz * t_num / m2 : ez;
+            const int64_t e2 = ex * ex + ez * ez, s2 = sx * sx + sz * sz;
+            const int crossed = cx * cx + cz * cz < R * R && e2 >= R * R && s2 >= R * R && t_num < m2;
+            if (!crossed && e2 >= R * R) continue;
+            int64_t nx, nz, need;
+            if (crossed) {                                   /* went through: back to contact, on the near side */
+                const int64_t sl = (int64_t)isqrt64((uint64_t)s2);
+                /* the one that moved more takes the correction */
+                const int64_t di = (a->x / 64 - was[i][0] / 64) * (a->x / 64 - was[i][0] / 64) + (a->z / 64 - was[i][1] / 64) * (a->z / 64 - was[i][1] / 64);
+                const int64_t dj = (c->x / 64 - was[j][0] / 64) * (c->x / 64 - was[j][0] / 64) + (c->z / 64 - was[j][1] / 64) * (c->z / 64 - was[j][1] / 64);
+                if (!sl) continue;
+                const int64_t px = sx * (R + 1) / sl, pz = sz * (R + 1) / sl;   /* j from i at contact */
+                if (di >= dj) {   /* i moved: put it back in front of j */
+                    a->vx = a->vz = 0;
+                    acr_gen1_ac_shift(a, (int32_t)((c->x / 64 - px - a->x / 64) * 64), (int32_t)((c->z / 64 - pz - a->z / 64) * 64));
+                } else {
+                    c->vx = c->vz = 0;
+                    acr_gen1_ac_shift(c, (int32_t)((a->x / 64 + px - c->x / 64) * 64), (int32_t)((a->z / 64 + pz - c->z / 64) * 64));
+                }
+                continue;
+            }
+            /* overlapping: apart along the line between them, half each */
+            const int64_t el = (int64_t)isqrt64((uint64_t)e2);
+            if (el) { nx = ex; nz = ez; } else { nx = sx ? sx : 1; nz = sz; }
+            const int64_t nl = el ? el : (int64_t)isqrt64((uint64_t)(nx * nx + nz * nz));
+            if (!nl) continue;
+            need = R + 1 - el;
+            const int64_t hx = nx * need / nl / 2 + (nx > 0 ? 1 : nx < 0 ? -1 : 0), hz = nz * need / nl / 2 + (nz > 0 ? 1 : nz < 0 ? -1 : 0);
+            acr_gen1_ac_shift(a, (int32_t)(-hx * 64), (int32_t)(-hz * 64));
+            acr_gen1_ac_shift(c, (int32_t)(hx * 64), (int32_t)(hz * 64));
+        }
 }
 
 /* Bodies: an AC can't stand inside a unit. The unit's body is a square,

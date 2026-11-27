@@ -13,6 +13,7 @@
 typedef enum arena_command {
     AC_NONE,
     AC_FIGHT,       /* start the fight in arena_fight_info() (now: when arena_vs_due()) */
+    AC_PARTNER,     /* split screen: confirmed; ask about player 2 (partner_gate.h), then arena_go() */
     AC_LEAVE,       /* back to the main menu */
     AC_IMPORT_PP    /* the Phantasma row without its data: ask for the Project Phantasma disc */
 } arena_command;
@@ -57,6 +58,10 @@ int32_t arena_round_ms(void);
 /* The fight is over: 1 won, 2 lost, 3 draw (a loss). Books the result and
  * pays a win into the garage; 1 = the garage changed (save it). */
 int arena_fight_over(int result);
-void arena_pay_other(acr_gen1_hangar *h);
+void arena_result_other(acr_gen1_hangar *h, int result);   /* with player 2's ladder swapped in */
+void arena_swap_player(void);
+void arena_partner_gate(int on);   /* split screen: confirming a challenge returns AC_PARTNER */
+void arena_go(void);               /* after AC_PARTNER: on to the VS screen and the fight */    /* split screen: player 1's / player 2's ladder */
+void arena_reset_ladder(void);   /* a new game's ladder (player 2's new save) */
 
 #endif

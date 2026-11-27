@@ -4,7 +4,10 @@
  * the only controller with player 1 on the keyboard). The top box (VERSUS /
  * CO-OP and where) is shared: either player can change it. Each player
  * picks their save, opens their own garage and says READY; the game starts
- * once everyone in is ready. B exits that player from the game; the
+ * once everyone in is ready. SCREEN (with a second monitor) puts player 2
+ * there; SOUND splits the speakers (player 1 left, player 2 right, each
+ * mono), shares them, or gives player 2 their own sound output.
+ * The game starts once everyone in is ready. B exits that player from the game; the
  * other goes on solo in the hangar with their own save, no restart. */
 #ifndef SPLIT_MENU_H
 #define SPLIT_MENU_H
@@ -12,6 +15,9 @@
 #include "garage.h"
 
 #define SPLIT_MENU_STAGES 3
+#define SPLIT_MENU_OUTS 6
+
+enum { SPLIT_SOUND_SIDES, SPLIT_SOUND_SHARED, SPLIT_SOUND_DEVICE };
 
 enum { SPLIT_COOP_ARENA, SPLIT_COOP_ROGUE, SPLIT_COOP_MISSIONS, SPLIT_COOP_WHERE };
 
@@ -37,6 +43,15 @@ typedef struct split_menu {
     int stage_pick;
     int stage_ok[SPLIT_MENU_STAGES];
     int p2_controls;                     /* player 2 has something to play with (set by the caller) */
+    /* Where player 2 is shown and heard. The caller lists the other
+     * monitors (screen_name) and sound outputs (audio_name); SCREEN shows
+     * only with a second monitor. */
+    int screens;                         /* other monitors listed */
+    char screen_name[SPLIT_MENU_OUTS][48];
+    int screen_pick;                     /* 0 one shared screen, k: player 2 on screen_name[k - 1] */
+    int audio_outs;
+    char audio_name[SPLIT_MENU_OUTS][48];
+    int sound_pick;                      /* SPLIT_SOUND_... , or SPLIT_SOUND_DEVICE + k: player 2 on audio_name[k] */
     char message[120];
     int message_ms;
 } split_menu;
