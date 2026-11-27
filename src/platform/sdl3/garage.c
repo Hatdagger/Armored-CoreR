@@ -16,12 +16,12 @@
  * screen, so no shop and no AC TEST. */
 enum {
     M_GARAGE, M_SHOP, M_ARENA, M_MISSIONS, M_NETWORK, M_ROGUE, M_SYSTEM,
-    M_ASSEMBLY, M_OPTIONS, M_PERFORMANCE, M_COLOR, M_TEST, M_SAVE, M_LOAD, M_SETTINGS, M_CONTROLS, M_VIDEO, M_AUDIO, M_UPDATES, M_QUIT, M_BACK, M_EXIT_RUN,
+    M_ASSEMBLY, M_OPTIONS, M_PERFORMANCE, M_COLOR, M_TEST, M_SAVE, M_LOAD, M_SETTINGS, M_CONTROLS, M_VIDEO, M_AUDIO, M_UPDATES, M_REIMPORT, M_QUIT, M_BACK, M_EXIT_RUN,
     M_COUNT
 };
 static const char *const k_menu[M_COUNT] = {
     "GARAGE", "SHOP", "ARENA", "MISSIONS", "NETWORK", "ROGUE ARENA", "SYSTEM",
-    "ASSEMBLY", "OPTIONAL PARTS", "PERFORMANCE", "CHANGE COLOR", "AC TEST", "SAVE", "LOAD", "SETTINGS", "CONTROLS", "VIDEO", "AUDIO", "UPDATES", "EXIT GAME", "BACK",
+    "ASSEMBLY", "OPTIONAL PARTS", "PERFORMANCE", "CHANGE COLOR", "AC TEST", "SAVE", "LOAD", "SETTINGS", "CONTROLS", "VIDEO", "AUDIO", "UPDATES", "RE-IMPORT DISC", "EXIT GAME", "BACK",
     "BACK TO THE ARENA"
 };
 /* Not built yet: shown, not chosen. */
@@ -32,11 +32,12 @@ static int menu_ready(int id) {
 static const int k_page_main[] = { M_GARAGE, M_SHOP, M_ARENA, M_MISSIONS, M_NETWORK, M_ROGUE, M_SYSTEM };
 static const int k_page_garage[] = { M_ASSEMBLY, M_OPTIONS, M_PERFORMANCE, M_COLOR, M_TEST, M_BACK };
 static const int k_page_system[] = { M_SAVE, M_LOAD, M_SETTINGS, M_QUIT, M_BACK };
-/* UPDATES only in the Android app (update.h); the PC gets new builds from GitHub. */
+/* RE-IMPORT DISC: import a disc again over the old import (saves kept).
+ * UPDATES only in the Android app (update.h); the PC gets new builds from GitHub. */
 #ifdef SDL_PLATFORM_ANDROID
-static const int k_page_settings[] = { M_CONTROLS, M_VIDEO, M_AUDIO, M_UPDATES, M_BACK };
+static const int k_page_settings[] = { M_CONTROLS, M_VIDEO, M_AUDIO, M_UPDATES, M_REIMPORT, M_BACK };
 #else
-static const int k_page_settings[] = { M_CONTROLS, M_VIDEO, M_AUDIO, M_BACK };
+static const int k_page_settings[] = { M_CONTROLS, M_VIDEO, M_AUDIO, M_REIMPORT, M_BACK };
 #endif
 static const int k_page_rogue[] = { M_ASSEMBLY, M_EXIT_RUN };
 static const char *const k_page_title[GARAGE_PAGES] = { "MAIN MENU", "GARAGE", "SYSTEM", "SETTINGS" };
@@ -302,6 +303,7 @@ garage_command garage_input(garage_ui *ui, garage_data *d, garage_action a) {
         case M_VIDEO: return GC_VIDEO;
         case M_AUDIO: return GC_AUDIO;
         case M_UPDATES: return GC_UPDATES;
+        case M_REIMPORT: return GC_REIMPORT;
         case M_SAVE: return GC_SAVE;
         case M_LOAD: return GC_LOAD;
         case M_QUIT: case M_EXIT_RUN: return GC_QUIT;

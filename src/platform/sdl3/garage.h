@@ -27,6 +27,7 @@ typedef enum garage_command {
     GC_VIDEO,       /* SYSTEM > SETTINGS > VIDEO */
     GC_AUDIO,       /* SYSTEM > SETTINGS > AUDIO */
     GC_UPDATES,     /* SYSTEM > SETTINGS > UPDATES (Android: a newer APK from GitHub) */
+    GC_REIMPORT,    /* SYSTEM > SETTINGS > RE-IMPORT DISC: pick a disc, import it over the old one */
     GC_SAVE,        /* SYSTEM > SAVE */
     GC_LOAD,        /* SYSTEM > LOAD: back to the saved garage */
     GC_QUIT         /* SYSTEM > EXIT GAME (in a Rogue Arena run: back to its hub) */

@@ -29,6 +29,15 @@ A newer APK installs over the old one and keeps the import and the saves
 (each build is signed with the same test key, `android/test.keystore`).
 Uninstalling the app deletes them.
 
+## Importing the disc again
+
+**SYSTEM > SETTINGS > RE-IMPORT DISC** (Android and PC). It opens the file
+picker. Pick the Master of Arena .bin, or Project Phantasma's, and it is
+imported over the old import. Saves, Arena and Rogue Arena progress and the
+controller layout are kept. The game then closes. Start it again to load the
+new import. Use it when a change says "re-import the disc" (for example the
+cannon kick from the feel pass).
+
 ## Updating from inside the app
 
 **SYSTEM > SETTINGS > UPDATES** (only in the Android app). Opening the page

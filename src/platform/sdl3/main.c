@@ -527,6 +527,7 @@ static int target_side(void) { const char *e = SDL_getenv("ACR_SIDE"); return e 
 
 static int g_direct_test = 0;   /* part arguments given: no garage */
 static int g_moa_just_imported = 0;   /* this run imported Master of Arena: ask for Phantasma next */
+static int g_reimport_picking = 0;    /* SETTINGS > RE-IMPORT DISC opened the file picker */
 static int g_pp_picking = 0;          /* the ARENA screen opened the file picker for Phantasma */
 
 /* The Project Phantasma disc's arena is in the import. */
@@ -2080,6 +2081,33 @@ int main(int argc, char **argv) {
                 }
             }
         }
+        /* SETTINGS > RE-IMPORT DISC: the picked disc is imported over the old
+         * import (files are overwritten, the saves live elsewhere and stay).
+         * Everything was loaded from the old import at start, so the game
+         * then closes and the next start loads the new one. */
+        if (g_reimport_picking) {
+            char picked[2048];
+            const int pick = disc_pick_poll(picked, sizeof picked);
+            if (pick) g_reimport_picking = 0;
+            if (pick == 1) {
+                disc_pick_file keep;
+                char local[1200], why[600] = "";
+                if (disc_pick_local(picked, &keep, local, sizeof local, why, sizeof why)) {
+                    const int kind = import_disc(window, local, dir, why, sizeof why);
+                    disc_pick_close(&keep);
+                    if (kind) {
+                        show_message(window, kind == 2 ? "PROJECT PHANTASMA RE-IMPORTED.\n\nYOUR SAVES ARE KEPT.\n\nTHE GAME WILL NOW CLOSE: START IT AGAIN."
+                                                       : "MASTER OF ARENA RE-IMPORTED.\n\nYOUR SAVES ARE KEPT.\n\nTHE GAME WILL NOW CLOSE: START IT AGAIN.");
+                        SDL_Delay(4000);
+                        running = 0;
+                    } else {
+                        SDL_Log("re-import: %s", why);
+                        garage_say(&gui, "THE DISC COULD NOT BE IMPORTED. THE OLD IMPORT IS STILL USED.");
+                    }
+                } else garage_say(&gui, "THE DISC COULD NOT BE OPENED.");
+                last = SDL_GetTicksNS();
+            }
+        }
         if (mode == MODE_ARENA) {
             garage_action d = pad_direction(pads[0], SDL_GetTicks());
             if (d == GA_NONE) d = script_action();
@@ -2435,6 +2463,7 @@ int main(int argc, char **argv) {
             if (gcmd == GC_CONTROLS) { controls_open(&cui); mode = MODE_CONTROLS; }
             if (gcmd == GC_VIDEO || gcmd == GC_AUDIO) { settings_open(&sui, gcmd == GC_AUDIO); mode = MODE_SETTINGS; }
             if (gcmd == GC_UPDATES && update_supported()) { update_open(&uui); mode = MODE_UPDATE; }
+            if (gcmd == GC_REIMPORT) { disc_pick_open(window); g_reimport_picking = 1; }
             if (gcmd == GC_QUIT) running = 0;
             if (gcmd == GC_NETWORK) {
                 mode = 2;
