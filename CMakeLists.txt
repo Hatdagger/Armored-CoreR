@@ -90,6 +90,8 @@ enable_testing()
 add_executable(test_core tests/test_core.c)
 target_link_libraries(test_core PRIVATE acr_core)
 add_test(NAME core COMMAND test_core)
+add_executable(test_battle_warn tests/test_battle_warn.c src/platform/sdl3/battle_warn.c)
+add_test(NAME battle_warn COMMAND test_battle_warn)
 add_executable(test_gen1 tests/test_gen1.c)
 target_link_libraries(test_gen1 PRIVATE acr_gen1)
 add_test(NAME gen1 COMMAND test_gen1)
@@ -216,7 +218,7 @@ if(ACR_BUILD_GAME)
     set(ACR_GAME_SOURCES src/platform/sdl3/main.c src/platform/sdl3/demo_data.c src/platform/sdl3/demo_model.c
                    src/platform/sdl3/demo_stage.c src/platform/sdl3/demo_units.c src/platform/sdl3/garage.c src/platform/sdl3/rogue.c src/platform/sdl3/arena.c src/platform/sdl3/controls.c
                    src/platform/sdl3/settings.c src/platform/sdl3/update.c
-                   src/platform/sdl3/battle_hud.c src/platform/sdl3/net_link.c
+                   src/platform/sdl3/battle_hud.c src/platform/sdl3/battle_warn.c src/platform/sdl3/net_link.c
                    src/platform/sdl3/net_menu.c src/platform/sdl3/net_brief_ui.c
                    src/platform/sdl3/fx.c src/platform/sdl3/sfx.c src/platform/sdl3/rogue_sound.c
                    src/platform/sdl3/disc_pick.c

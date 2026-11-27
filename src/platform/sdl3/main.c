@@ -58,6 +58,7 @@
 #include "settings.h"
 #include "update.h"
 #include "battle_hud.h"
+#include "battle_warn.h"
 #include "fx.h"
 #include "sfx.h"
 
@@ -742,6 +743,33 @@ static int g_stage_id = 27, g_stage_on = 0;
 static demo_units g_units = { .map = -1 };
 /* Armored-CoreR missions: units borrowed from another map (P4's drones). */
 static demo_units g_mission_units = { .map = -1 };
+/* The fight's warnings (battle_warn.h): one per AC, run once a game tick;
+ * the listening AC's beeps wait in g_warn_beeps for the sounds. */
+static battle_warn g_warn[ACR_GEN1_MAX_FIGHTERS];
+static unsigned g_warn_beeps;
+/* A replay is being captured (arena and VS fights only; the HUD's REC).
+ * Nothing records fights yet (docs/REPLAYS.md), so it stays 0 until the
+ * recorder sets it. */
+static int g_replay_capturing;
+
+/* World units from (x, z) to the nearest side of the inner area box that
+ * still holds it (the edge it loses at), for the area beep's rate; -1
+ * when the stage has no boxes. */
+static int area_edge(const acr_gen1_stage *st, int32_t x, int32_t y, int32_t z) {
+    if (!st) return -1;
+    int best = -1;
+    for (unsigned i = 0; i < st->bounds && i < ACR_GEN1_STAGE_BOUNDS; ++i) {
+        const acr_gen1_stage_bound *b = &st->bound[i];
+        if (!(b->bit < 8 && ((1u << b->bit) & ACR_GEN1_AREA_INNER))) continue;
+        if (x < b->lo[0] || x > b->hi[0] || y < b->lo[1] || y > b->hi[1] || z < b->lo[2] || z > b->hi[2]) continue;
+        int d = (int)(x - b->lo[0]);
+        if ((int)(b->hi[0] - x) < d) d = (int)(b->hi[0] - x);
+        if ((int)(z - b->lo[2]) < d) d = (int)(z - b->lo[2]);
+        if ((int)(b->hi[2] - z) < d) d = (int)(b->hi[2] - z);
+        if (d > best) best = d;
+    }
+    return best;
+}
 /* A mission's radio line on screen (text only for now) and until when. */
 static char g_radio[96];
 static Uint64 g_radio_until;
@@ -1512,6 +1540,8 @@ int main(int argc, char **argv) {
         memset(battle.shot, 0, sizeof battle.shot);                                       \
         fx_reset();                                                                       \
         sfx_reset();                                                                      \
+        for (int w_ = 0; w_ < ACR_GEN1_MAX_FIGHTERS; ++w_) battle_warn_reset(&g_warn[w_]);    \
+        g_warn_beeps = 0;                                                                 \
         round_ms = g_round_start_ms; round_over = 0; round_result = 0; ko_ms = 0;         \
         for (int i_ = 0; i_ < 2; ++i_) {                                                  \
             const acr_gen1_ai_profile p_ = ai_profile(g_ai_mode);                         \
@@ -2879,7 +2909,29 @@ int main(int argc, char **argv) {
             /* The arena's floors and walls (the defs are reloaded on part changes). */
             def->stage = def2->stage = battle.stage = g_stage_on ? &g_stage.collision : NULL;
             battle.over = (uint8_t)round_over;    /* decided: hits after this don't count */
-            acr_gen1_battle_step(&battle, in2, act);
+            {   /* the game ticks this step runs (as acr_gen1_battle_step counts them) */
+                const int wticks = battle.step_rate && battle.gen1_rate
+                    ? (int)((battle.tick_phase + battle.gen1_rate) / battle.step_rate) : 1;
+                acr_gen1_battle_step(&battle, in2, act);
+                const int ear_ = g_net ? net_info.local : 0;
+                for (int t_ = 0; t_ < wticks; ++t_)
+                    for (int k_ = 0; k_ < acr_gen1_battle_fighters(&battle) && k_ < ACR_GEN1_MAX_FIGHTERS; ++k_) {
+                        const acr_gen1_fighter *wf_ = &battle.f[k_];
+                        battle_warn_in wi_;
+                        SDL_zero(wi_);
+                        wi_.live = !round_over && wf_->ap > 0;
+                        wi_.ap = wf_->ap;
+                        wi_.ap_max = wf_->ap_max;
+                        wi_.energy = wf_->ac.energy;
+                        wi_.energy_max = ac_data[k_].def.stats.energy_capacity;
+                        wi_.red_zone = ac_data[k_].def.stats.red_zone;
+                        wi_.drained = wf_->ac.drained;
+                        wi_.out_of_area = acr_gen1_battle_out_of_area(&battle, k_) == 1;
+                        wi_.edge = wi_.out_of_area ? area_edge(battle.stage, wf_->ac.x / 64, wf_->ac.y / 64, wf_->ac.z / 64) : -1;
+                        const unsigned bp_ = battle_warn_tick(&g_warn[k_], &wi_);
+                        if (k_ == ear_) g_warn_beeps |= bp_;
+                    }
+            }
             if (battle.mission.flags & ACR_GEN1_MISSION_SWAP) {
                 /* P4 Altered circumstances: the examiner withdraws and the
                  * challenger (an arena AC, flown by its own AI) drops in
@@ -2972,8 +3024,8 @@ int main(int argc, char **argv) {
             sfx_listen sl;
             SDL_zero(sl);
             sl.view = ear;
-            sl.red_zone = ac_data[ear].def.stats.red_zone;
-            sl.out_of_area = acr_gen1_battle_out_of_area(&battle, ear) != 0;
+            sl.beeps = g_warn_beeps;
+            g_warn_beeps = 0;
             sl.round_over = round_over;
             sfx_update(&battle, &sl, SDL_GetTicksNS());
         }
@@ -3398,18 +3450,23 @@ int main(int argc, char **argv) {
                     hs.other[hs.others].ally = (un->team & 1) == acr_gen1_battle_team(&battle, view);
                     ++hs.others;
                 }
-                /* HIT: this AC landed one; DAMAGED: it took one. ARMOR LOW
-                 * below a quarter of its AP (threshold not read from the game
-                 * yet); CHARGING while the energy refills after running dry. */
-                if (me->hit_flash & 4) hs.messages |= BATTLE_HUD_MSG_HIT;
+                /* HIT: this AC landed one; DAMAGED: it took one. Both blink
+                 * on their countdown (lit 12 of every 16 ticks, VS
+                 * 0x8005699C). LEAVING AREA, ARMOR LOW (a tenth of the AC's
+                 * AP) and CHARGING blink as the game's (battle_warn.c). */
+                if (battle_warn_blink(me->hit_flash)) hs.messages |= BATTLE_HUD_MSG_HIT;
                 for (int j = 0; j < nf; ++j)     /* an enemy aimed at us landed a hit */
                     if (acr_gen1_battle_team(&battle, j) != acr_gen1_battle_team(&battle, view) &&
-                        acr_gen1_battle_target(&battle, j) == view && (battle.f[j].hit_flash & 4))
+                        acr_gen1_battle_target(&battle, j) == view && battle_warn_blink(battle.f[j].hit_flash))
                         hs.messages |= BATTLE_HUD_MSG_DAMAGED;
-                if (acr_gen1_battle_out_of_area(&battle, view) && !round_over) hs.messages |= BATTLE_HUD_MSG_LEAVING_AREA;
-                if (me->ap > 0 && me->ap * 4 < me->ap_max) hs.messages |= BATTLE_HUD_MSG_ARMOR_LOW;
-                if (ac.drained) hs.messages |= BATTLE_HUD_MSG_CHARGING;
-                hs.recording = 0;   /* no replays yet: REC shows once fights are recorded */
+                if (view < ACR_GEN1_MAX_FIGHTERS && !round_over) {
+                    const unsigned bx = g_warn[view].boxes;
+                    if (bx & BATTLE_WARN_BOX_LEAVING_AREA) hs.messages |= BATTLE_HUD_MSG_LEAVING_AREA;
+                    if (bx & BATTLE_WARN_BOX_ARMOR_LOW) hs.messages |= BATTLE_HUD_MSG_ARMOR_LOW;
+                    if (bx & BATTLE_WARN_BOX_CHARGING) hs.messages |= BATTLE_HUD_MSG_CHARGING;
+                }
+                /* REC: only while a replay is captured, and never in missions. */
+                hs.recording = g_replay_capturing && g_rogue_fight != 3 && !battle.mission.map && !battle.mission.own;
                 hs.ac_name = g_net ? net_info.name[view] : view == 0 || !two_players ? g_hangar.ac_name : "";
                 hs.time_ms = (two_players || g_ai_mode) && g_round_clock ? (int)round_ms : -1;
                 battle_hud_draw(&hs, g_vw, g_hud_frame);

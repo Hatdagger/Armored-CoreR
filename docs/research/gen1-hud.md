@@ -60,7 +60,7 @@ then kana and kanji. Used for the AC's name.
 | Enemy AP (6 x 7) | ending at x 96, y 56 | (58, 214, 58) |
 | Compass band | x 96-225, y 16-30 | screen x 0.88 |
 | Compass ticks / letters | y 17 / 23, window x 97-225, facing at x 161 | (48, 128, 40) / (42, 198, 42) |
-| REC + line | (228, 20); red line (229, 28, 80 x 1) | (80, 255, 170); (120, 16, 16) |
+| REC + line | game: (228, 20); engine: (228, 8), red line (229, 16, 80 x 1), moved up to clear the round clock | (80, 255, 170); (120, 16, 16) |
 | Round clock (big digits, MM:SS) | right-aligned at x 308, y 23, above the radar (user's design; the colon is an 8-wide cell at u 184) | (58, 214, 58) |
 | Radar frame | x 261-307, y 58-101 | bright green |
 | Radar disc | (260, 56), added to the screen | + (64, 120, 24) |
@@ -73,7 +73,7 @@ then kana and kanji. Used for the AC's name.
   ENERGY). The name at the bottom left is the AC's name.
 - Weapons are shown by type (RIFLE, SMALL MISSILE), not part name.
 - The round clock sits above the radar, as big as the AP (the user's call).
-  REC (y 20-28) would overlap it: when replays come, one of them moves.
+  REC (y 20-28) would overlap it, so REC moved up to y 8 (feel/sound-hud).
 - REC shows only while the game records replay data: arena and VS fights,
   never missions. The engine has no replays yet, so it stays off.
 - The FCS sight (big frame) is drawn through the camera
@@ -110,7 +110,7 @@ point in colour 12; not drawn by the engine yet.
 
 - Read the HUD draw code (FDAT 210) for exact positions and blend modes,
   and the split-screen (VS) layout: layer 1's small gauge and words.
-- ARMOR LOW's threshold (the engine guesses a quarter of max AP).
+- ~~ARMOR LOW's threshold~~: a tenth of the AC's AP (VS 0x80056BF0); blink and beep timing in [../feel/sound-hud.md](../feel/sound-hud.md).
 - Radar: scale against radar range, the stage area box drawn in it
   (the grey square in the screenshot), missile blips (radar flag bit 0),
   the yellow line seen at its left edge.

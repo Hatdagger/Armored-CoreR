@@ -6,7 +6,9 @@
  * appearing and ending, AP, boosting, locks, energy) and never changes it.
  * Sounds from either AC are placed by distance and side from the listening
  * AC; the warnings (perimeter, low AP, energy red zone, forced charging)
- * and the lock beeps are the listening AC's own, as the game's are.
+ * and the lock beeps are the listening AC's own, as the game's are. Which
+ * sound plays when, its volume, pitch and priority come from the game's
+ * code (docs/feel/sound-hud.md); the warnings' timing is battle_warn.h.
  *
  * Volumes come from SETTINGS > AUDIO (sfx_set_volume); ACR_SFX_VOLUME=0..100
  * sets both instead and wins over the settings (default 70; 0 = off).
@@ -37,8 +39,7 @@ void sfx_reset(void);
 
 typedef struct sfx_listen {
     int view;            /* the AC whose ears and warnings these are */
-    int red_zone;        /* its energy red zone (compiled stat) */
-    int out_of_area;     /* it is outside the area's inner box */
+    unsigned beeps;      /* its warning beeps due since the last update (BATTLE_WARN_BEEP_*) */
     int round_over;      /* no warnings, no loops */
 } sfx_listen;
 
