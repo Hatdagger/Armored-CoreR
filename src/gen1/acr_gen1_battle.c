@@ -895,12 +895,17 @@ static void missile_lock_tick(acr_gen1_battle *b, int i, const acr_gen1_weapon *
     unsigned cap = w->max_locks ? w->max_locks : 1;
     if (cap > ammo) cap = ammo;
     if (cap > ACR_GEN1_MAX_LOCKS) cap = ACR_GEN1_MAX_LOCKS;
-    if (f->locks >= cap) { f->tone_tick = 0; return; }
-    if (!(f->tone_tick++ & 3)) ++f->tones;                 /* the locking beep, every 4th tick */
     uint16_t tyaw;
     int16_t tpitch;
     dir_of((t->x - f->ac.x) / 64, (t->y - f->ac.y) / 64, (t->z - f->ac.z) / 64, &tyaw, &tpitch);
     const int32_t ry = wrap(tyaw - view_yaw(f)), rp = wrap(tpitch - view_pitch(f));
+    if (f->locks >= cap) {   /* every lock taken: the cursor stays on the target */
+        f->cursor_yaw = (int16_t)ry;
+        f->cursor_pitch = (int16_t)rp;
+        f->tone_tick = 0;
+        return;
+    }
+    if (!(f->tone_tick++ & 3)) ++f->tones;                 /* the locking beep, every 4th tick */
     const int32_t sp = w->lock_value * 3 / 16 > 0 ? w->lock_value * 3 / 16 : 1;
     f->cursor_yaw = (int16_t)turn_toward(f->cursor_yaw, ry, sp);
     f->cursor_pitch = (int16_t)turn_toward(f->cursor_pitch, rp, sp);
