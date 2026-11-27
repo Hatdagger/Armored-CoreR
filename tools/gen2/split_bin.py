@@ -96,15 +96,41 @@ def kind_at(v, byte_off):
     return None
 
 
+F_GROUPS = [(3400, 3411), (3420, 3425), (3430, 3452), (3460, 3490), (3500, 3506), (3520, 3529),
+            (3540, 3547), (3560, 3567), (3580, 3586), (3600, 3607), (3620, 3651), (3660, 3691),
+            (3700, 3724), (3730, 3738), (3750, 3765)]
+
+
+def join_index(i):
+    for lo, hi in F_GROUPS:
+        if lo <= i <= hi: return i - lo
+    return None
+
+
+def matches(v, i, o, k):
+    off = (o + k) * SECTOR
+    if 3400 <= i:
+        h = v.read(off, 0x14)
+        if h[:4] != b"JOIN": return False
+        want = join_index(i)
+        # the package stores its index in the category: rejects a neighbour's package
+        return want is None or struct.unpack_from("<I", h, 0x10)[0] == want
+    if 300 <= i <= 1699: return kind_at(v, off) == "MODEL"
+    return False
+
+
 def detect(v, ents):
-    """Shift (in sectors) at which each recognisable file's header appears."""
+    """Shift (sectors) of each recognisable file. Pass 1 finds every candidate; the
+    block's most common shift is then preferred, so a file never grabs its neighbour."""
+    cand = {i: [k for k in SHIFTS if matches(v, i, o, k)] for i, (o, s) in ents.items() if i >= 300}
+    cand = {i: c for i, c in cand.items() if c}
+    block = {}
+    for i, c in cand.items(): block.setdefault(group(i), Counter()).update(c)
     found = {}
-    for i, (o, s) in ents.items():
-        want = "JOIN" if 3400 <= i <= 3999 or i >= 4000 else ("MODEL" if 300 <= i <= 1699 else None)
-        if not want: continue
-        for k in SHIFTS:
-            if kind_at(v, (o + k) * SECTOR) == want: found[i] = k; break
-    return found
+    for i, c in cand.items():
+        pref = block[group(i)].most_common(1)[0][0]
+        found[i] = pref if pref in c else c[0]
+    return found, {g: cnt.most_common(1)[0][0] for g, cnt in block.items()}
 
 
 def group(i):
@@ -114,13 +140,12 @@ def group(i):
 
 
 def name_ok(b):
+    """Name/stats record = first printable entry in the 2nd offset table (+0x34)."""
     if b[:4] != b"JOIN" or len(b) < 0x54: return False
-    offs = [x for x in struct.unpack_from("<8I", b, 0x34) if x]
-    if not offs: return False
-    o = offs[-1]
-    if o + 0x90 > len(b): return False
-    n = b[o:o + 18].split(b"\0")[0].strip()
-    return len(n) >= 3 and all(32 <= c < 127 for c in n)
+    for o in struct.unpack_from("<8I", b, 0x34):
+        if o != 0xFFFFFFFF and o + 0x90 <= len(b) and all(32 <= c < 127 for c in b[o:o + 18]):
+            return True
+    return False
 
 
 def split(path):
@@ -129,7 +154,8 @@ def split(path):
     label, v, out = hit
     print(f"\n== {label}  ({v.size:,} bytes)  from {path}")
     ents = read_table(v); print(f"   table: {len(ents)} files, IDs {min(ents)}..{max(ents)}")
-    found = detect(v, ents)
+    found, block_shift = detect(v, ents)
+    print(f"   shift per block: {block_shift}")
     if not found: print("!! Could not recognise any file headers; nothing written."); return False
     hist = Counter(found.values()); best, n = hist.most_common(1)[0]
     print(f"   recognised {len(found)} files; shift (sectors) -> count: {dict(hist.most_common(6))}")
@@ -137,7 +163,7 @@ def split(path):
           f"({best * SECTOR:#x} bytes); {n}/{len(found)} agree ({100 * n / len(found):.0f}%)")
     if n < len(found):
         print("   files that disagree use their own detected start (listed in split_log.txt)")
-    starts = {i: (o + found.get(i, best)) for i, (o, s) in ents.items()}
+    starts = {i: (o + found.get(i, block_shift.get(group(i), best))) for i, (o, s) in ents.items()}
     order = sorted(ents, key=lambda i: (starts[i], i))
     os.makedirs(out, exist_ok=True)
     log = open(os.path.join(out, f"split_log_{label.split('.')[0]}.txt"), "w")
@@ -150,16 +176,17 @@ def split(path):
         b = v.read(st * SECTOR, (end - st) * SECTOR)
         d = os.path.join(out, group(i)); os.makedirs(d, exist_ok=True)
         open(os.path.join(d, f"{i:05d}.bin"), "wb").write(b); written += len(b)
-        log.write(f"{i}\t{ents[i][0]}\t{found.get(i, best)}{'' if i in found else '?'}\t{st}\t{len(b)}\n")
+        log.write(f"{i}\t{ents[i][0]}\t{starts[i] - ents[i][0]}{'' if i in found else '?'}\t{st}\t{len(b)}\n")
         if group(i) in ("F", "G") and b[:4] == b"JOIN":
-            if name_ok(b): fok += 1
+            ji = join_index(i)
+            if name_ok(b) and (ji is None or struct.unpack_from("<I", b, 0x10)[0] == ji): fok += 1
             else: fbad += 1; bad.append(i)
         if n_ % 200 == 0: print(f"   writing... {n_}/{len(order)}", end="\r")
     log.close()
     print(f"   wrote {len(order)} files, {written / 1e6:.0f} MB -> {out}          ")
     print(f"   CHECK shop packages with name record intact: {fok} ok, {fbad} bad"
           + (f"  (bad IDs: {bad[:20]})" if bad else ""))
-    print(f"   expected: AC2 240 ok / Another Age 271 ok")
+    print(f"   expected: every shop package ok (AC2: 234 + the unknown 3780/3800/3801 may fail)")
     return True
 
 
