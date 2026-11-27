@@ -163,6 +163,26 @@ int main(void) {
         EXPECT(ac.landing_pause == 0 && ac.state == ACR_GEN1_GROUND);
     }
 
+    /* Heavy bipeds' weapon-arm jump (a known MoA quirk, from the disc's
+     * animation sets): LN-3001 / -3001C / -SSVR / -S3 / LNKS-1B46J with
+     * normal arms (set 8) take off at -249 over 2 frames (1,984 a tick);
+     * with weapon arms (set 32) at -249 in 1 frame (3,968): twice the kick. */
+    {
+        static const acr_gen1_root_key k_n[] = { { 8, 0, 0, 0 }, { 10, 0, -249, 0 } };
+        static const acr_gen1_root_key k_w[] = { { 7, 0, 0, -33 }, { 8, 0, -249, -16 }, { 9, 0, -499, 1 } };
+        static acr_gen1_root_track jn = { 10, 2, k_n }, jw = { 9, 3, k_w };
+        int32_t kick[2];
+        for (int w = 0; w < 2; ++w) {
+            acr_gen1_ac_def dj = make_def();
+            dj.anim[ACR_GEN1_ANIM_JUMP] = w ? &jw : &jn;
+            acr_gen1_ac_spawn(&ac, &dj, 0, 0, 0);
+            int n = 0;
+            while (ac.state != ACR_GEN1_AIR && n < 40) { acr_gen1_ac_step(&ac, &dj, k_up); ++n; }
+            kick[w] = ac.vy;
+        }
+        EXPECT(kick[0] == -1984 && kick[1] == -3968);
+    }
+
     /* Boost hop: boost forward, let go one tick, press again -> airborne at speed. */
     acr_gen1_ac_spawn(&ac, &d, 0, 0, 0);
     acr_gen1_ac_step(&ac, &d, k_fwd);
