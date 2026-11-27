@@ -4,8 +4,8 @@
 #include <string.h>
 
 static const char *const k_name[ACR_GEN1_ARENA_COUNT] = {
-    "MASTER OF ARENA", "HUMANOID LEGS", "FOUR LEGS", "REVERSE JOINT", "CATERPILLAR",
-    "CHAMPION", "GUEST", "FROMSOFT", "MASTER", "ARENA",
+    "MoA ARENA", "HUMANOID LEGS", "FOUR LEGS", "REVERSE JOINT", "CATERPILLAR",
+    "CHAMPION", "GUEST", "FROMSOFT", "MASTER", "PP ARENA",
 };
 
 const char *acr_gen1_arena_name(int arena) {

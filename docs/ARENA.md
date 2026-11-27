@@ -59,7 +59,7 @@ From the AC1Recomp mapping (`docs/mapping/arena-prizes.md`,
 
 | Rule | |
 |---|---|
-| Main arena | 50 places: ranks 1-15 the **ranked** list, 16-50 the **sub arena** (L1 / R1 flips the pages) |
+| Main arena | 50 places: ranks 1-15 the **ranked** list (**MoA ARENA**), 16-50 the **sub arena** (**MoA SUB-ARENA**), each its own row in the ARENA list; Project Phantasma's is **PP ARENA** |
 | Sub arena | in the game each opponent is beaten once and can't be fought again; here they can, as a rematch (below) |
 | Ranked list | opens at the top of the sub arena (rank 16) |
 | Winning | anyone above can be challenged; a win moves you **up one rank** |

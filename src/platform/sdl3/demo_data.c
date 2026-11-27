@@ -676,6 +676,7 @@ int demo_rogue_roster(const char *import_dir, acr_gen1_rogue_foe *out, int max,
     SDL_snprintf(dir, sizeof dir, "%s/arena", import_dir);
     roster_walk w = { out, max, 0, 0, names };
     SDL_EnumerateDirectory(dir, roster_cb, &w);
+    if (w.n >= max) SDL_Log("arena: the roster is full (%d): some opponents were left out", max);
     /* A steady order whatever the file system lists first. */
     for (int i = 1; i < w.n; ++i) {
         const acr_gen1_rogue_foe x = out[i];

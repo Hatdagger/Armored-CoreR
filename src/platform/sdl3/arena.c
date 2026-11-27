@@ -210,7 +210,11 @@ static acr_gen1_arena_why why_at(int rank) {
 static void page_range(int *first, int *count) {
     const int places = A.s.a[A.arena].places;
     if (A.arena == ACR_GEN1_ARENA_MOA && places > ACR_GEN1_ARENA_RANKED) {
-        if (A.page == 0) { *first = 1; *count = ACR_GEN1_ARENA_RANKED; }
+        /* MoA ARENA (page 0) ranks 1-15, with the player's row 16 while
+         * they wait at the top of the sub arena; MoA SUB-ARENA (page 1)
+         * ranks 16-50. Two rows of the list, one ladder underneath. */
+        const int me = acr_gen1_arena_rank(&A.s, A.arena);
+        if (A.page == 0) { *first = 1; *count = ACR_GEN1_ARENA_RANKED + (me == ACR_GEN1_ARENA_RANKED + 1); }
         else { *first = ACR_GEN1_ARENA_RANKED + 1; *count = places - ACR_GEN1_ARENA_RANKED; }
     } else {
         *first = 1; *count = places;
@@ -233,9 +237,6 @@ static void scroll_to_cursor(void) {
  * that can be challenged above (or the player's row). */
 static void ladder_home(void) {
     const int me = acr_gen1_arena_rank(&A.s, A.arena);
-    A.page = acr_gen1_arena_is_sub(A.arena, me) ? 1 : 0;
-    /* At the top of the sub arena the ranked list is the way on. */
-    if (A.arena == ACR_GEN1_ARENA_MOA && me == ACR_GEN1_ARENA_RANKED + 1) A.page = 0;
     int first, count;
     page_range(&first, &count);
     int target = me;
@@ -293,6 +294,12 @@ const acr_gen1_rogue_foe *arena_find_ac(const char *ac) {
     return NULL;
 }
 
+static const char *section_title(int a, int sub) {
+    if (a == ACR_GEN1_ARENA_PP) return "PP ARENA";
+    if (a == ACR_GEN1_ARENA_MOA) return sub ? "MoA SUB-ARENA" : "MoA ARENA";
+    return "EX ARENA";
+}
+
 /* ---- the VS screen (vs_screen.c, shared with Rogue Arena) ----
  * The Arena's is the simpler one (user, 2026-11-25): both ACs, their RANK
  * badges and names, the opponent's emblem, VS, a 3 count and the
@@ -301,13 +308,13 @@ const acr_gen1_rogue_foe *arena_find_ac(const char *ac) {
 static void vs_start(void) {
     const int a = A.fight_arena, rank = A.fight_rank, me = acr_gen1_arena_rank(&A.s, a);
     const int rematch = acr_gen1_arena_is_rematch(&A.s, a, rank);
-    if (a == ACR_GEN1_ARENA_MOA && A.s.a[a].places > ACR_GEN1_ARENA_RANKED)
-        SDL_snprintf(A.vs_right, sizeof A.vs_right, "%s", acr_gen1_arena_is_sub(a, rank) ? "SUB ARENA" : "RANKED");
-    else SDL_snprintf(A.vs_right, sizeof A.vs_right, "%s", acr_gen1_arena_name(a));
+    SDL_snprintf(A.vs_right, sizeof A.vs_right, "%s",
+                 a == ACR_GEN1_ARENA_PP ? "PROJECT PHANTASMA" : a == ACR_GEN1_ARENA_MOA ? "MASTER OF ARENA"
+                                                                 : acr_gen1_arena_name(a));
     vs_setup s;
     SDL_zero(s);
     s.fight = &A.fight;
-    s.mode = a == ACR_GEN1_ARENA_PP ? "ARENA" : "EX ARENA";
+    s.mode = section_title(a, acr_gen1_arena_is_sub(a, rank));
     s.right = A.vs_right;
     s.band[0] = 0xEC; s.band[1] = 0xA8; s.band[2] = 0x24;
     s.rank[0] = me;
@@ -359,15 +366,32 @@ static int step(int cur, int n, garage_action a) {
 
 /* No match timer: an Arena fight goes on until one side is down or out of
  * the area, or the player gives up (a loss) (user, 2026-11-25). */
-enum { PR_STAGE = ACR_GEN1_ARENA_COUNT, PR_BACK, PR_COUNT };
+enum { PR_ARENAS = ACR_GEN1_ARENA_COUNT + 1, PR_STAGE = PR_ARENAS, PR_BACK, PR_COUNT };
+enum { ROW_PP = 0, ROW_MOA_SUB = 1, ROW_MOA = 2 };
 
-/* The list's rows: Project Phantasma's arena (the main one) first, then
- * Master of Arena's main ladder and its Ex Arenas. */
+/* The list's rows: PP ARENA (Project Phantasma's, the main one), then
+ * Master of Arena's main ladder as its two sections, MoA SUB-ARENA (the
+ * unranked 16-50) and MoA ARENA (ranked 1-15), then its Ex Arenas. */
 static int row_arena(int row) {
-    if (row == 0) return ACR_GEN1_ARENA_PP;
-    return row <= ACR_GEN1_ARENA_PP ? row - 1 : row;
+    if (row == ROW_PP) return ACR_GEN1_ARENA_PP;
+    if (row <= ROW_MOA) return ACR_GEN1_ARENA_MOA;
+    return row - 2;
 }
-static int arena_row(int a) { return a == ACR_GEN1_ARENA_PP ? 0 : a < ACR_GEN1_ARENA_PP ? a + 1 : a; }
+static int row_page(int row) { return row == ROW_MOA_SUB ? 1 : 0; }
+static int arena_row(int a, int page) {
+    if (a == ACR_GEN1_ARENA_PP) return ROW_PP;
+    if (a == ACR_GEN1_ARENA_MOA) return page ? ROW_MOA_SUB : ROW_MOA;
+    return a + 2;
+}
+/* MoA ARENA opens at the top of the sub arena (rank 16). */
+static int moa_ranked_open(void) {
+    return acr_gen1_arena_rank(&A.s, ACR_GEN1_ARENA_MOA) <= ACR_GEN1_ARENA_RANKED + 1;
+}
+static acr_gen1_arena_why row_open(int row) {
+    const acr_gen1_arena_why why = acr_gen1_arena_open(&A.s, row_arena(row));
+    if (why == ACR_GEN1_ARENA_OK && row == ROW_MOA && !moa_ranked_open()) return ACR_GEN1_ARENA_LOCKED;
+    return why;
+}
 
 static void cycle_stage(int dir) {
     if (!A.nstages) { say("RE-IMPORT YOUR DISC: NO STAGES FOUND."); return; }
@@ -394,10 +418,11 @@ static arena_command input(garage_action a) {
             const int ar = row_arena(A.cur);
             /* No Phantasma arena yet: its row asks for the disc. */
             if (ar == ACR_GEN1_ARENA_PP && !A.s.a[ar].places) return AC_IMPORT_PP;
-            const acr_gen1_arena_why why = acr_gen1_arena_open(&A.s, ar);
+            const acr_gen1_arena_why why = row_open(A.cur);
             if (why != ACR_GEN1_ARENA_OK && !SDL_getenv("ACR_ARENA_UNLOCK")) { say(acr_gen1_arena_why_text(why)); return AC_NONE; }
             if (!A.s.a[ar].places) { say(acr_gen1_arena_why_text(ACR_GEN1_ARENA_NO_DATA)); return AC_NONE; }
             A.arena = ar;
+            A.page = row_page(A.cur);
             ladder_home();
             A.screen = AS_LADDER;
         }
@@ -405,13 +430,7 @@ static arena_command input(garage_action a) {
     case AS_LADDER: {
         int first, count;
         page_range(&first, &count);
-        if (a == GA_PREV_TAB || a == GA_NEXT_TAB) {
-            if (A.arena == ACR_GEN1_ARENA_MOA && A.s.a[A.arena].places > ACR_GEN1_ARENA_RANKED) {
-                A.page = 1 - A.page;
-                A.lcur = A.ltop = 0;
-            } else A.snd = -2;
-            return AC_NONE;
-        }
+        if (a == GA_PREV_TAB || a == GA_NEXT_TAB) { A.snd = -2; return AC_NONE; }
         if (a == GA_UP || a == GA_DOWN) { A.lcur = step(A.lcur, count, a); scroll_to_cursor(); return AC_NONE; }
         if (a == GA_LEFT || a == GA_RIGHT) {   /* a page of rows at a time */
             A.lcur += a == GA_LEFT ? -LADDER_ROWS : LADDER_ROWS;
@@ -420,7 +439,7 @@ static arena_command input(garage_action a) {
             scroll_to_cursor();
             return AC_NONE;
         }
-        if (a == GA_CANCEL) { A.screen = AS_PICK; A.cur = arena_row(A.arena); return AC_NONE; }
+        if (a == GA_CANCEL) { A.screen = AS_PICK; A.cur = arena_row(A.arena, A.page); return AC_NONE; }
         if (a != GA_OK) return AC_NONE;
         const int rank = cursor_rank();
         const acr_gen1_arena_why why = why_at(rank);
@@ -455,6 +474,11 @@ static arena_command input(garage_action a) {
         return AC_NONE;
     case AS_RESULT:
         if (a != GA_OK && a != GA_CANCEL) return AC_NONE;
+        /* Topped the sub arena: on to MoA ARENA. */
+        if (A.arena == ACR_GEN1_ARENA_MOA && A.page == 1 && moa_ranked_open()) {
+            A.page = 0;
+            say("MoA ARENA IS OPEN.");
+        }
         ladder_home();
         A.screen = AS_LADDER;
         return AC_NONE;
@@ -535,29 +559,38 @@ static void draw_pick(float hud_w) {
         const int sel = A.cur == i;
         if (sel) row_bar(x, y, w + 12);
         char line[64];
-        if (i < ACR_GEN1_ARENA_COUNT) {
+        if (i < PR_ARENAS) {
             const int ar = row_arena(i);
-            const acr_gen1_arena_why why = acr_gen1_arena_open(&A.s, ar);
+            const acr_gen1_arena_why why = row_open(i);
             const int open = why == ACR_GEN1_ARENA_OK;
-            const char *name = acr_gen1_arena_name(ar);
+            const char *name = i == ROW_MOA_SUB ? "MoA SUB-ARENA" : acr_gen1_arena_name(ar);
             if (ar == ACR_GEN1_ARENA_PP && !A.s.a[ar].places) {
-                acr_hud_text(x, y, "ARENA", sel ? 255 : 220, sel ? 220 : 230, sel ? 120 : 235);
+                acr_hud_text(x, y, name, sel ? 255 : 220, sel ? 220 : 230, sel ? 120 : 235);
                 text_right(x + w, y, "A: ADD PROJECT PHANTASMA DISC", sel ? 255 : 150, sel ? 220 : 160, sel ? 120 : 170);
                 continue;
             }
-            if (ar == ACR_GEN1_ARENA_PP) acr_hud_text(x, y, name, sel ? 255 : 220, sel ? 220 : 230, sel ? 120 : 235);
-            else {
+            if (ar == ACR_GEN1_ARENA_PP || ar == ACR_GEN1_ARENA_MOA) {
+                if (open) acr_hud_text(x, y, name, sel ? 255 : 220, sel ? 220 : 230, sel ? 120 : 235);
+                else acr_hud_text(x, y, name, DIM);
+            } else {
                 SDL_snprintf(line, sizeof line, "EX ARENA  %s", name);
                 if (open) acr_hud_text(x, y, line, sel ? 255 : 220, sel ? 220 : 230, sel ? 120 : 235);
                 else acr_hud_text(x, y, line, DIM);
             }
+            const int me = acr_gen1_arena_rank(&A.s, ar);
+            const int sub_done = i == ROW_MOA_SUB && me <= ACR_GEN1_ARENA_RANKED + 1;
             if (A.s.a[ar].places) {
-                const int me = acr_gen1_arena_rank(&A.s, ar);
-                SDL_snprintf(line, sizeof line, "%d / %d", me, A.s.a[ar].places);
+                if (i == ROW_MOA) {
+                    if (me <= ACR_GEN1_ARENA_RANKED) SDL_snprintf(line, sizeof line, "%d / %d", me, ACR_GEN1_ARENA_RANKED);
+                    else SDL_snprintf(line, sizeof line, "-- / %d", ACR_GEN1_ARENA_RANKED);
+                } else if (i == ROW_MOA_SUB) {
+                    if (me > ACR_GEN1_ARENA_RANKED) SDL_snprintf(line, sizeof line, "%d / %d", me, A.s.a[ar].places);
+                    else SDL_snprintf(line, sizeof line, "--");
+                } else SDL_snprintf(line, sizeof line, "%d / %d", me, A.s.a[ar].places);
                 text_right(x + w - 120, y, line, open ? 220 : 120, open ? 230 : 135, open ? 235 : 145);
             }
             const char *st = why == ACR_GEN1_ARENA_NO_DATA ? "NO DATA" : !open ? "LOCKED"
-                           : acr_gen1_arena_rank(&A.s, ar) == 1 ? "CHAMPION" : "OPEN";
+                           : sub_done ? "CLEARED" : me == 1 ? "CHAMPION" : "OPEN";
             if (open) text_right(x + w, y, st, GOOD); else text_right(x + w, y, st, DIM);
         } else if (i == PR_STAGE) {
             acr_hud_text(x, y, "STAGE", sel ? 255 : 220, sel ? 220 : 230, sel ? 120 : 235);
@@ -568,7 +601,7 @@ static void draw_pick(float hud_w) {
         }
     }
     /* ARENA REPORT for the row under the cursor. */
-    if (A.cur < ACR_GEN1_ARENA_COUNT && A.s.a[row_arena(A.cur)].places) {
+    if (A.cur < PR_ARENAS && A.s.a[row_arena(A.cur)].places) {
         const acr_gen1_arena_ladder *l = &A.s.a[row_arena(A.cur)];
         const float ry = 86 + 20.0f * PR_COUNT + 30;
         panel(x - 16, ry, w + 32, 50);
@@ -613,8 +646,8 @@ static void status_of(int rank, const char **text, uint8_t c[3]) {
 static void draw_ladder(float hud_w, int elapsed_ms) {
     char title[64];
     const int me = acr_gen1_arena_rank(&A.s, A.arena);
-    if (A.arena == ACR_GEN1_ARENA_MOA && A.s.a[A.arena].places > ACR_GEN1_ARENA_RANKED)
-        SDL_snprintf(title, sizeof title, "ARENA  -  %s", A.page ? "SUB ARENA" : "RANKED");
+    if (A.arena == ACR_GEN1_ARENA_PP || A.arena == ACR_GEN1_ARENA_MOA)
+        SDL_snprintf(title, sizeof title, "%s", section_title(A.arena, A.page));
     else SDL_snprintf(title, sizeof title, "EX ARENA  -  %s", acr_gen1_arena_name(A.arena));
     header(hud_w, title);
     int first, count;
@@ -708,8 +741,7 @@ static void draw_ladder(float hud_w, int elapsed_ms) {
         if (f->ai.rebel) acr_hud_text(px + 12, 388, "HUMAN PLUS", BAD);
     }
     message(hud_w, elapsed_ms);
-    hints(hud_w, A.arena == ACR_GEN1_ARENA_MOA ? "UP/DOWN: OPPONENT   L1/R1: RANKED / SUB ARENA   A: CHALLENGE   B: BACK"
-                              : "UP/DOWN: OPPONENT   A: CHALLENGE   B: BACK");
+    hints(hud_w, "UP/DOWN: OPPONENT   A: CHALLENGE   B: BACK");
 }
 
 static void draw_ask(float hud_w, int elapsed_ms) {
@@ -733,7 +765,7 @@ static void draw_ask(float hud_w, int elapsed_ms) {
 }
 
 static void draw_result(float hud_w) {
-    header(hud_w, A.arena == ACR_GEN1_ARENA_PP ? "ARENA" : "EX ARENA");
+    header(hud_w, section_title(A.arena, A.page));
     const float w = 440, x = hud_w * 0.5f - w * 0.5f, y = 110;
     panel(x, y, w, 230);
     char line[96], c[24];

@@ -375,7 +375,7 @@ static void test_phantasma(void) {
     EXPECT(acr_gen1_arena_prize_part(31, &cat, &ix) && cat == ACR_GEN1_CAT_GENERATOR && ix == 7);   /* GBX-TL */
     EXPECT(acr_gen1_arena_prize_part(29, &cat, &ix) && cat == ACR_GEN1_CAT_BACK && ix == 15);       /* M118-TD */
     EXPECT(acr_gen1_arena_prize_part(30, &cat, &ix) && cat == ACR_GEN1_CAT_BACK && ix == 35);       /* WC-SPGUN */
-    EXPECT(!strcmp(acr_gen1_arena_name(ACR_GEN1_ARENA_PP), "ARENA"));
+    EXPECT(!strcmp(acr_gen1_arena_name(ACR_GEN1_ARENA_PP), "PP ARENA"));
     /* the standings round-trip with arena 9 in them */
     static char text[40000];
     acr_gen1_arena_write(&s, text, sizeof text);

@@ -29,7 +29,9 @@
 #include "acr_gen1_garage.h"
 
 #define ACR_GEN1_ROGUE_SLOTS     20    /* rank 20 (the player's start) .. rank 1 */
-#define ACR_GEN1_ROGUE_ROSTER    192   /* arena opponents read from the import */
+#define ACR_GEN1_ROGUE_ROSTER    256   /* arena opponents read from the import: Master of Arena's
+                                         * 158 + Project Phantasma's 49 (192 cut Phantasma's
+                                         * off when its folder was listed last, as on Android) */
 #define ACR_GEN1_ROGUE_ARENAS    9     /* runs draw from Master of Arena's arenas 0-8 only */
 #define ACR_GEN1_ROGUE_SAVED_MAX 24    /* parts saved for later */
 #define ACR_GEN1_ROGUE_NAME      20
