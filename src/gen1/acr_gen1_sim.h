@@ -24,6 +24,12 @@
 enum {
     ACR_GEN1_ANIM_IDLE = 0,
     ACR_GEN1_ANIM_WALK_START = 1, ACR_GEN1_ANIM_WALK = 2,
+    /* The diagonals (gen1-models.md "Which pose"): forward-left 3/4,
+     * forward-right 5/6, back-left 16/17, back-right 18/19. */
+    ACR_GEN1_ANIM_FWD_L_START = 3, ACR_GEN1_ANIM_FWD_L = 4,
+    ACR_GEN1_ANIM_FWD_R_START = 5, ACR_GEN1_ANIM_FWD_R = 6,
+    ACR_GEN1_ANIM_BACK_L_START = 16, ACR_GEN1_ANIM_BACK_L = 17,
+    ACR_GEN1_ANIM_BACK_R_START = 18, ACR_GEN1_ANIM_BACK_R = 19,
     ACR_GEN1_ANIM_STRAFE_L_START = 8, ACR_GEN1_ANIM_STRAFE_L = 9,
     ACR_GEN1_ANIM_STRAFE_R_START = 11, ACR_GEN1_ANIM_STRAFE_R = 12,
     ACR_GEN1_ANIM_BACK_START = 14, ACR_GEN1_ANIM_BACK = 15,
@@ -89,6 +95,9 @@ typedef struct acr_gen1_input {
 #define ACR_GEN1_MODERN_RISE_PCT  60    /* SP-MODERN: the rise's lift (acceleration and top speed) */
 #define ACR_GEN1_MODERN_RISE_EN_PCT 125 /* SP-MODERN: the rise's energy cost */
 #define ACR_GEN1_WALK_PACE        34    /* world units a tick when the AC has no walk track (measured 31-38) */
+/* Ticks a ground boost keeps its full speed after it ends, before the slide
+ * slows by the boost acceleration (measured 2-3; docs/feel/movement.md). */
+#define ACR_GEN1_BOOST_COAST_TICKS 3
 #define ACR_GEN1_QUICK_TICKS     4      /* ~0.18 s */
 #define ACR_GEN1_QUICK_CHAIN     3
 #define ACR_GEN1_QUICK_CHAIN_GAP 8      /* ~0.36 s */
