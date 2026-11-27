@@ -163,6 +163,18 @@ int demo_model_load_paint(const char *import_dir, int set, const int parts[SLOT_
 static acr_vtx g_out[MAX_MODEL_TRIS * 3], g_batch[MAX_MODEL_TRIS * 3];
 static uint8_t g_group[MAX_MODEL_TRIS];
 
+/* Garage > ASSEMBLE: the part kinds drawn as a wireframe in one colour
+ * instead of solid (demo_model_set_wire). */
+static unsigned g_wire_kinds;
+static uint8_t g_wire_rgba[4];
+#define MAX_WIRE_VERTS (MAX_MODEL_TRIS * 6)
+static acr_vtx g_wire[MAX_WIRE_VERTS];
+
+void demo_model_set_wire(unsigned kinds, uint8_t r, uint8_t g, uint8_t b, uint8_t a) {
+    g_wire_kinds = kinds;
+    g_wire_rgba[0] = r; g_wire_rgba[1] = g; g_wire_rgba[2] = b; g_wire_rgba[3] = a;
+}
+
 void demo_model_draw(const demo_model *m, int anim, unsigned tick, float x, float y, float z,
                      float yaw, float scale, const acr_lighting *light) {
     if (!m->ok) return;
@@ -247,13 +259,14 @@ void demo_model_draw_pose(const demo_model *m, const acr_pose *pose, float x, fl
     const float s = sinf(yaw), c = cosf(yaw);
     uint32_t group_tex[GROUPS] = { 0 };
     for (int k = 0; k < ACR_PART_KINDS; ++k) group_tex[k] = m->part[k].texture;
-    int n = 0;
+    int n = 0, wn = 0;
     for (int i = 0; i < m->skel.count; ++i) {
         const acr_skel_node *node = &m->skel.node[i];
         if (node->draw_kind >= ACR_PART_KINDS) continue;
         const demo_part_model *p = &m->part[node->draw_kind];
         if (!p->present || node->draw_piece >= p->pieces) continue;
         if (p->marker[node->draw_piece]) continue;   /* a launch point, not part of the look */
+        const int wire = (g_wire_kinds >> node->draw_kind) & 1u;
         const acr_mesh *mesh = &p->piece[node->draw_piece];
         const float *M = mat[i];
         /* The pose matrices take off this set's bind position for the node,
@@ -307,6 +320,15 @@ void demo_model_draw_pose(const demo_model *m, const acr_pose *pose, float x, fl
                 o->u = v->uv[0];
                 o->v = 1.0f - v->uv[1];
             }
+            if (wire) {   /* its three edges as lines, in the wire colour */
+                for (int j = 0; j < 3 && wn + 2 <= MAX_WIRE_VERTS; ++j) {
+                    acr_vtx e0 = g_out[n * 3 + j], e1 = g_out[n * 3 + (j + 1) % 3];
+                    e0.r = e1.r = g_wire_rgba[0]; e0.g = e1.g = g_wire_rgba[1];
+                    e0.b = e1.b = g_wire_rgba[2]; e0.a = e1.a = g_wire_rgba[3];
+                    g_wire[wn++] = e0; g_wire[wn++] = e1;
+                }
+                continue;   /* not drawn solid */
+            }
             ++n;
         }
     }
@@ -323,6 +345,7 @@ void demo_model_draw_pose(const demo_model *m, const acr_pose *pose, float x, fl
                 acr_render_mesh(g_batch, count * 3, g < ACR_PART_KINDS ? group_tex[g] : 0,
                                 ACR_MESH_PS1_TEXEL | (semi ? ACR_MESH_SEMI : 0));
         }
+    if (wn) acr_render_lines(g_wire, wn);
 }
 
 /* ---- one garage model (OPTIONAL PARTS) ---- */

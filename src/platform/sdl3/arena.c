@@ -187,9 +187,11 @@ void arena_new_game(void) {
     save();
 }
 
-void arena_open(void) {
+void arena_open(void) { arena_open_at(0); }
+
+void arena_open_at(int row) {
     A.screen = AS_PICK;
-    A.cur = 0;
+    A.cur = row < 0 || row > ACR_GEN1_ARENA_COUNT ? 0 : row;   /* PR_ARENAS rows */
     A.message[0] = 0;
     A.message_ms = 0;
 }
