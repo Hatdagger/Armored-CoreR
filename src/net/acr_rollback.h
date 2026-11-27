@@ -38,7 +38,7 @@
 #define ACR_RB_PACKET_MAX  176
 #define ACR_RB_PADS_MAX    48    /* pads in one packet */
 
-typedef uint32_t acr_rb_pad;   /* 19 bits used, sent as 3 bytes */
+typedef uint32_t acr_rb_pad;   /* 17 bits used, sent as 3 bytes */
 
 /* A pad: everything a player's controller does in one step. */
 acr_rb_pad acr_rb_pack(const acr_gen1_input *in, const acr_gen1_actions *act);

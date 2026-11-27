@@ -289,13 +289,6 @@ void battle_hud_draw(const battle_hud_state *s, float hud_w, int frame) {
         }
     }
 
-    /* SP-M/AUTO, with the warning boxes bottom right (ours, user
-     * 2026-11-27): green while auto fire runs, red while it is off. */
-    if (s->auto_launcher) {
-        const int on = s->auto_launcher == 1;
-        text(R, 244, 176, "SP-M/AUTO", 1, on ? 90 : 230, on ? 230 : 48, on ? 90 : 40);
-    }
-
     /* Warning boxes, stacked bottom right (HIT green, the rest orange). */
     {
         float y = 184;

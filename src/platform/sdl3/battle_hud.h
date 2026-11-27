@@ -44,8 +44,6 @@ typedef struct battle_hud_state {
     struct { int dx, dz, ally; } other[BATTLE_HUD_MAX_OTHERS];
     int others;
     unsigned messages;       /* BATTLE_HUD_MSG_* */
-    int auto_launcher;       /* SP-M/AUTO label above the warning boxes: 0 not fitted,
-                                1 on (green), 2 off (red) */
     int recording;           /* REC: only while the game records replay data
                                 (arena and VS fights, never missions) */
     const char *ac_name;

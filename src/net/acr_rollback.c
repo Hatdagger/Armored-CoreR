@@ -3,7 +3,7 @@
 #include <string.h>
 
 #define NONE 0xFFFFFFFFu
-#define EDGE_BITS ((1u << 9) | (1u << 12) | (1u << 13) | (1u << 15) | (1u << 16) | (1u << 17) | (1u << 18))
+#define EDGE_BITS ((1u << 9) | (1u << 12) | (1u << 13) | (1u << 15) | (1u << 16) | (1u << 17))
 #define PAD_BYTES 3
 
 enum { PKT_INPUT = 1, PKT_BYE = 2 };
@@ -21,7 +21,7 @@ acr_rb_pad acr_rb_pack(const acr_gen1_input *in, const acr_gen1_actions *act) {
                  (in->boost ? 1u : 0u) << 8 | (in->boost_tapped ? 1u : 0u) << 9 | (in->crouch ? 1u : 0u) << 10 |
                  (act->fire ? 1u : 0u) << 11 | (act->next_weapon ? 1u : 0u) << 12 | (act->blade ? 1u : 0u) << 13 |
                  (in->cruise ? 1u : 0u) << 14 | (in->quick ? 1u : 0u) << 15 | (act->hard_lock ? 1u : 0u) << 16 |
-                 (act->switch_target ? 1u : 0u) << 17 | (act->auto_toggle ? 1u : 0u) << 18;
+                 (act->switch_target ? 1u : 0u) << 17;
     return (acr_rb_pad)p;
 }
 
@@ -42,7 +42,6 @@ void acr_rb_unpack(acr_rb_pad p, acr_gen1_input *in, acr_gen1_actions *act) {
     in->quick = (uint8_t)(p >> 15 & 1u);
     act->hard_lock = (uint8_t)(p >> 16 & 1u);
     act->switch_target = (uint8_t)(p >> 17 & 1u);
-    act->auto_toggle = (uint8_t)(p >> 18 & 1u);
 }
 
 acr_rb_pad acr_rb_held(acr_rb_pad p) { return (acr_rb_pad)(p & ~EDGE_BITS); }

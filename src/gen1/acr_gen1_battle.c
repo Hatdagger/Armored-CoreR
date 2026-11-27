@@ -266,9 +266,6 @@ static void drop_locks(acr_gen1_fighter *f) {
     f->cursor_yaw = f->cursor_pitch = 0;
 }
 
-static void auto_clear(acr_gen1_fighter *f);
-static int auto_volleys(const acr_gen1_fighter *f);
-
 static int64_t dist2(const acr_gen1_battle *b, const acr_gen1_ac *a, int t) {
     tview o;
     view_of(b, t, &o);
@@ -287,7 +284,7 @@ void acr_gen1_battle_retarget_acts(acr_gen1_battle *b, const acr_gen1_actions ac
     for (int i = 0; i < n; ++i) {
         acr_gen1_fighter *f = &b->f[i];
         const int old = b->targeted ? acr_gen1_battle_target_any(b, i) : -1;   /* first pick: nothing held */
-        if ((f->volley_ticks || auto_volleys(f)) && old >= 0) continue;   /* a volley keeps its target */
+        if (f->volley_ticks && old >= 0) continue;          /* a volley keeps its target */
         const acr_gen1_weapon *w = f->weapons && f->current < f->weapons ? &f->weapon[f->current] : NULL;
         const int boxed = w && w->kind != ACR_GEN1_BLADE && w->box_w;
         /* Enemies inside the lock box, near to far (equal: lower number first). */
@@ -327,7 +324,7 @@ void acr_gen1_battle_retarget_acts(acr_gen1_battle *b, const acr_gen1_actions ac
         if (pick < 0)
             for (int j = 0; j < n && pick < 0; ++j) if (enemies(b, i, j)) pick = j;
         if (pick < 0 && !b->count) pick = 1 - i;             /* the old two-AC test: the other AC */
-        if (pick != old) { drop_locks(f); auto_clear(f); }
+        if (pick != old) drop_locks(f);
         f->target = (int8_t)pick;
     }
     b->targeted = 1;
@@ -908,9 +905,9 @@ static void missile_lock_tick(acr_gen1_battle *b, int i, const acr_gen1_weapon *
 }
 
 /* Missile firing (VS 0x80081888), one tick: with a lock and fire held (or
- * autofire, SP-M/AUTO, with every lock taken) a volley run starts: locks x 4 ticks,
+ * SP-M/AUTO with every lock taken) a volley run starts: locks x 4 ticks,
  * a volley from both sides every fourth, one lock each. */
-static void missile_fire_tick(acr_gen1_battle *b, int i, int wi, int fire, int autofire) {
+static void missile_fire_tick(acr_gen1_battle *b, int i, int wi, int fire) {
     acr_gen1_fighter *f = &b->f[i];
     const acr_gen1_weapon *w = &f->weapon[wi];
     if (f->volley_ticks) {
@@ -927,56 +924,8 @@ static void missile_fire_tick(acr_gen1_battle *b, int i, int wi, int fire, int a
     missile_lock_tick(b, i, w, f->ammo[wi]);
     unsigned cap = w->max_locks ? w->max_locks : 1;
     if (cap > f->ammo[wi]) cap = f->ammo[wi];
-    if (!f->cooldown && f->locks && (fire || (autofire && f->locks >= cap)))
+    if (!f->cooldown && f->locks && (fire || (w->auto_launch && f->locks >= cap)))
         f->volley_ticks = (uint8_t)(f->locks * 4);
-}
-
-/* ---- SP-M/AUTO (see acr_gen1_auto_lock in the header) ---- */
-
-int acr_gen1_auto_active(const acr_gen1_fighter *f) {
-    return f->auto_fitted && !f->modern && !f->human_plus;
-}
-
-static void auto_clear(acr_gen1_fighter *f) {
-    memset(f->auto_lock, 0, sizeof f->auto_lock);
-    f->auto_seen = 0;
-}
-
-static int auto_volleys(const acr_gen1_fighter *f) {
-    for (int k = 0; k < ACR_GEN1_MAX_WEAPONS; ++k) if (f->auto_lock[k].volley_ticks) return 1;
-    return 0;
-}
-
-/* One tick: each launcher that is not the selected weapon runs the same
- * lock and fire as a manual one (missile_fire_tick), on its own state, with
- * autofire. Its lock beeps and its "latest missile" (the camera's swing)
- * stay hidden. */
-static void auto_tick(acr_gen1_battle *b, int i) {
-    acr_gen1_fighter *f = &b->f[i];
-    f->auto_seen = 0;
-    if (!acr_gen1_auto_active(f) || !f->auto_on) return;
-    for (int k = 0; k < f->weapons; ++k) {
-        if (k == f->current || f->weapon[k].kind != ACR_GEN1_MISSILE) continue;
-        acr_gen1_auto_lock *a = &f->auto_lock[k];
-        if (a->cooldown) --a->cooldown;
-        if (!f->ammo[k] && !a->volley_ticks) { memset(a, 0, sizeof *a); continue; }
-        if (b->over || f->stagger) continue;
-        /* Swap the launcher's own lock in, run, swap it back out. */
-        const uint8_t locks = f->locks, count = f->lock_count, volley = f->volley_ticks, tick = f->tone_tick,
-                      tones = f->tones;
-        const int16_t cy = f->cursor_yaw, cp = f->cursor_pitch, last = f->last_missile;
-        const uint16_t cool = f->cooldown;
-        f->locks = a->locks; f->lock_count = a->lock_count; f->volley_ticks = a->volley_ticks;
-        f->tone_tick = a->tone_tick; f->cursor_yaw = a->cursor_yaw; f->cursor_pitch = a->cursor_pitch;
-        f->cooldown = a->cooldown;
-        missile_fire_tick(b, i, k, 0, 1);
-        a->locks = f->locks; a->lock_count = f->lock_count; a->volley_ticks = f->volley_ticks;
-        a->tone_tick = f->tone_tick; a->cursor_yaw = f->cursor_yaw; a->cursor_pitch = f->cursor_pitch;
-        a->cooldown = f->cooldown;
-        f->locks = locks; f->lock_count = count; f->volley_ticks = volley; f->tone_tick = tick; f->tones = tones;
-        f->cursor_yaw = cy; f->cursor_pitch = cp; f->last_missile = last; f->cooldown = cool;
-        if (a->locks || a->lock_count || a->cursor_yaw || a->cursor_pitch || a->volley_ticks) f->auto_seen = 1;
-    }
 }
 
 /* Missile interceptor (VS 0x800829E4), one tick for fighter i. */
@@ -1106,8 +1055,7 @@ static void fighter_tick(acr_gen1_battle *b, int i, int fire) {
      * hold for every gun, not just cannons. */
     if (f->hold_left) --f->hold_left;
     else if (f->cooldown) --f->cooldown;
-    if (w->kind == ACR_GEN1_MISSILE) missile_fire_tick(b, i, f->current, fire && !f->stagger && acr_gen1_stance_ok(f), 0);
-    auto_tick(b, i);
+    if (w->kind == ACR_GEN1_MISSILE) missile_fire_tick(b, i, f->current, fire && !f->stagger && acr_gen1_stance_ok(f));
 }
 
 /* Gun lock, one tick (VS 0x800800E4; see ACR_GEN1_LEAD_MAX in the header). */
@@ -1163,11 +1111,6 @@ static void fighter_step(acr_gen1_battle *b, int i, acr_gen1_actions a, int tick
         for (int t = 0; t < ticks; ++t) fighter_tick(b, i, 0);
         return;
     }
-    /* SP-M/AUTO: Select held switches it on / off. */
-    if (a.auto_toggle && acr_gen1_auto_active(f)) {
-        f->auto_on = (uint8_t)!f->auto_on;
-        if (!f->auto_on) auto_clear(f);
-    }
     /* The blade is not in the cycle: guns and missiles only. */
     int blade = -1, cycled = 0;
     for (int k = 0; k < f->weapons; ++k) {
@@ -1208,10 +1151,6 @@ static void fighter_step(acr_gen1_battle *b, int i, acr_gen1_actions a, int tick
         f->current = f->switch_to;
         f->switch_pending = 0;
         drop_locks(f);
-        if (f->weapon[f->current].kind == ACR_GEN1_MISSILE) {   /* SP-M/AUTO: a manual switch to missiles stops it */
-            f->auto_on = 0;
-            auto_clear(f);
-        }
         if (f->kneeling) acr_gen1_stand_up(b, f);
     }
     for (int t = 0; t < ticks; ++t) fighter_tick(b, i, a.fire);

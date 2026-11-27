@@ -77,6 +77,7 @@ typedef struct acr_gen1_weapon {
     uint8_t  volley_a, volley_b;     /* missiles per volley from each side */
     uint8_t  ignition;      /* ticks of coasting before the motor lights */
     uint16_t spread_pitch, spread_yaw;
+    uint8_t  auto_launch;   /* SP-M/AUTO: fires by itself when the locks are full */
     acr_gen1_flight flight, split;   /* split: the four a kind-3 missile breaks into */
     /* Blade */
     uint16_t charge_drain;  /* energy a swing takes (blade +0x2C) */
@@ -127,19 +128,6 @@ uint8_t acr_gen1_cannon_kick(uint8_t base_recoil, uint16_t table_kick, uint32_t 
  * flight keeps its target. Lock-on, the blade's seek and the
  * missiles' homing only ever pick enemies; shots and blade hits land on
  * any AC in the way, teammates included (friendly fire). */
-
-/* SP-M/AUTO (user, 2026-11-27; docs/SP-M-AUTO.md): every missile
- * launcher that is not the selected weapon locks and fires by itself, each
- * with its own hidden lock (the FCS's missile settings: box, range, lock
- * time, lock count), refire wait and volley, never drawn. A launcher fires
- * once its locks are full (or its ammo runs to the locks held). Holding
- * Select switches it on / off (act.auto_toggle); switching to a missile
- * launcher by hand stops it. Not with SP-MODERN or Human PLUS. */
-typedef struct acr_gen1_auto_lock {
-    uint8_t  locks, lock_count, volley_ticks, tone_tick;
-    int16_t  cursor_yaw, cursor_pitch;
-    uint16_t cooldown;
-} acr_gen1_auto_lock;
 
 typedef struct acr_gen1_fighter {
     acr_gen1_ac ac;
@@ -207,11 +195,6 @@ typedef struct acr_gen1_fighter {
     int16_t  last_missile;                     /* shot index of the latest missile launched (+0x1C) */
     uint8_t  team;                             /* 0 or 1 (used when battle.count is set) */
     int8_t   target;                           /* fighter aimed at, -1 none (battle.count set) */
-    /* SP-M/AUTO (see acr_gen1_auto_lock above) */
-    uint8_t  auto_fitted;                      /* the part is fitted (set by the caller, never sent) */
-    uint8_t  auto_on;                          /* the auto-fire sequence is running */
-    uint8_t  auto_seen;                        /* presentation: a hidden lock is building or held */
-    acr_gen1_auto_lock auto_lock[ACR_GEN1_MAX_WEAPONS];
     /* Modern controls (SP-MODERN fitted; see ACR_GEN1_MODERN_* below) */
     uint8_t  modern;
     uint8_t  hard_lock;                        /* on: the camera stays on the target (any distance) */
@@ -410,12 +393,7 @@ typedef struct acr_gen1_actions {
     uint8_t blade;           /* pressed this step: the blade has its own button, as in the game */
     uint8_t switch_target;   /* pressed this step: the next enemy in the sight (ours, for 2+ enemies) */
     uint8_t hard_lock;       /* pressed this step: hard lock on / off (modern controls only) */
-    uint8_t auto_toggle;     /* this step: Select held long enough, SP-M/AUTO on / off */
 } acr_gen1_actions;
-
-/* Is SP-M/AUTO working for this fighter (fitted, and not with SP-MODERN
- * or Human PLUS)? */
-int acr_gen1_auto_active(const acr_gen1_fighter *f);
 
 /* The game draws an AC at a quarter of its model's units (VS model draw
  * 0x80062C00: "a model unit is 1/4 of a world unit"). So ranges, speeds and
