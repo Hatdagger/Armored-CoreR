@@ -13,7 +13,8 @@
 typedef enum arena_command {
     AC_NONE,
     AC_FIGHT,       /* start the fight in arena_fight_info() (now: when arena_vs_due()) */
-    AC_LEAVE        /* back to the main menu */
+    AC_LEAVE,       /* back to the main menu */
+    AC_IMPORT_PP    /* the Phantasma row without its data: ask for the Project Phantasma disc */
 } arena_command;
 
 /* Reads the arena roster from the import and the standings file. The
@@ -22,6 +23,10 @@ typedef enum arena_command {
 int arena_init(const char *import_dir, acr_gen1_hangar *hangar, const acr_gen1_catalog *cat,
                char names[ACR_GEN1_CAT_COUNT][ACR_GEN1_PART_MAX][24]);
 void arena_set_ac_drawer(rogue_ac_drawer fn);
+/* Reads the roster again (after the Project Phantasma disc was imported). */
+int arena_reload(void);
+/* A line in the screen's message box. */
+void arena_say(const char *t);
 /* Main menu > ARENA. */
 void arena_open(void);
 arena_command arena_input(garage_action a);

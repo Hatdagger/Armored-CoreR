@@ -136,6 +136,9 @@ static int draw_lineup(const acr_gen1_rogue_world *w, uint64_t rng, int rungs, i
         /* Main arena rank 1, Hustler One / Nine-Ball, is fought in the
          * story, never in the arena: not in the run. */
         if (f->arena == 0 && f->rank == 1) continue;
+        /* Master of Arena's arenas only (0-8), at parity with AC1Recomp's run:
+         * Project Phantasma's arena (9, the main Arena) isn't drawn. */
+        if (f->arena >= ACR_GEN1_ROGUE_ARENAS) continue;
         rest[nrest].foe = i;
         rest[nrest].score = acr_gen1_rogue_score(f);
         rest[nrest].jitter = (uint32_t)acr_gen1_rogue_next(&rng);

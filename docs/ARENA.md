@@ -11,6 +11,29 @@ garage's own AC, paying prize money and prize parts into the garage.
   files Rogue Arena reads; `prize_money` and `prize_part` are already in
   them). No re-import needed if Rogue Arena works.
 
+## Project Phantasma's arena is the main Arena (user, 2026-11-27)
+
+The normal Arena is **Project Phantasma's 49 + 1** (arena number 9). Master of Arena's ladders stay as
+Ex Arenas: its 50-place main ladder (number 0, now called MASTER OF ARENA, still ranked 1-15 + sub arena)
+and its eight Ex Arenas (1-8). Master of Arena keeps the low numbers so old `arena.toml` standings and
+Rogue Arena runs carry on unchanged. The game takes both discs (content rebase: arena, opponents, AI,
+and later parts, stages and missions come from Phantasma; the fight rules stay Master of Arena's).
+
+- **Import.** Either disc can go first, on the first-run screen, `acr-import <disc> <folder>`, by dropping
+  it on the ARENA screen, or with its row "A: ADD PROJECT PHANTASMA DISC". A Phantasma disc's archives go
+  to `<import>/pp/unpacked`, its arena to `<import>/arena/09-phantasma` (`tools/acr_import/acr_arena_pp.c`).
+- **Data** (ACG1PLUS `docs/research/mapping/content-data.md` 4, `ai.md` 3): builds, names, emblems, prize
+  money and the nine prize parts from `MENU_TIM.T` 282-483. Back weapons 17 and up are one higher in
+  Master of Arena's numbering (checked by name against the disc). Prize ids 23-31 = Phantasma's 0-8.
+- **AI:** Phantasma keeps 49 AI records of 60 bytes in its arena engine; record = rank - 1 is a guess.
+  Read into our editor rows: fly (desire C), blade (lunge chance), lock (from the reaction delay). It has
+  no fire-chance, dodge or range fields: those get 75 / 50 / 50.
+- **Names:** four "Panzern" pilots carry a symbol from Phantasma's font (bytes 0xA2-0xA5); written as
+  Panzern I-IV (a guess at which is which).
+- **Unlocks (ours):** Phantasma's arena from the start, one list (no sub arena); MASTER OF ARENA once
+  Phantasma's is topped (or at once without the Phantasma disc); its Ex Arenas as before, from its ladder.
+- **Rogue Arena** still draws from Master of Arena's arenas only (parity with AC1Recomp).
+
 ## How it plays
 
 ```mermaid

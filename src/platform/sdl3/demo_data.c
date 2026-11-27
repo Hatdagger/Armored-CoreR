@@ -599,7 +599,7 @@ static void roster_file(roster_walk *w, const char *path) {
         const long money = get_int(t, e, "prize_money", 0);
         f->prize_money = (uint32_t)(money > 0 && money < 100000000L ? money : 0);
         const long prize = get_int(t, e, "prize_part", -1);
-        f->prize_part = (uint8_t)(prize >= 0 && prize < 23 ? prize : 255);
+        f->prize_part = (uint8_t)(prize >= 0 && prize < 32 ? prize : 255);   /* ACR_GEN1_ARENA_PRIZES */
         for (int k = 0; k < 12; ++k) {
             const long c = list_at(t, e, "colours", k, 32);
             f->colours[k / 3][k % 3] = (uint8_t)(c >= 0 && c <= 63 ? c : 32);

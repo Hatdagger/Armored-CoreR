@@ -76,6 +76,7 @@ add_library(acr_import_lib STATIC
     tools/acr_import/acr_hud_moa.c
     tools/acr_import/acr_sfx_moa.c
     tools/acr_import/acr_arena_moa.c
+    tools/acr_import/acr_arena_pp.c
     tools/acr_import/acr_missions_moa.c)
 target_include_directories(acr_import_lib PUBLIC tools/acr_import)
 target_link_libraries(acr_import_lib PUBLIC acr_gen1)

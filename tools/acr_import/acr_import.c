@@ -8,6 +8,7 @@
 #include "acr_hud_moa.h"
 #include "acr_sfx_moa.h"
 #include "acr_arena_moa.h"
+#include "acr_arena_pp.h"
 #include "acr_missions_moa.h"
 
 #include <ctype.h>
@@ -164,11 +165,57 @@ static int visit(void *ctx, const char *disc_path, uint32_t lba, uint32_t bytes,
     return ok;
 }
 
+/* Which game a disc is: its boot program's name. */
+typedef struct probe_ctx { int phantasma, moa; } probe_ctx;
+static int probe_visit(void *ctx, const char *disc_path, uint32_t lba, uint32_t bytes, int is_dir) {
+    probe_ctx *p = (probe_ctx *)ctx;
+    (void)lba; (void)bytes;
+    if (is_dir) return 1;
+    char up[64];
+    size_t n = 0;
+    for (const char *q = disc_path; *q && n + 1 < sizeof up; ++q) up[n++] = (char)toupper((unsigned char)*q);
+    up[n] = 0;
+    if (strstr(up, "SLUS_006.70")) p->phantasma = 1;               /* Project Phantasma USA */
+    if (strstr(up, "SLUS_010.30") || strstr(up, "SLPS_018.55")) p->moa = 1;
+    return 1;
+}
+
+/* Project Phantasma: its archives into <out>/pp/unpacked (beside Master
+ * of Arena's, which it would otherwise overwrite: the two discs share file
+ * names), then its arena into <out>/arena (acr_arena_pp.c). */
+static int import_phantasma(acr_disc *disc, const char *out_dir, acr_import_stats *stats, char *err, size_t err_size) {
+    char pp[ACR_PATH_MAX];
+    snprintf(pp, sizeof pp, "%s/pp", out_dir);
+    if (!make_dirs(pp, 1)) { set_err(err, err_size, "cannot create", pp); return 0; }
+    import_ctx c = { disc, pp, stats, err, err_size, 1 };
+    if (!acr_iso_walk(disc, visit, &c)) {
+        if (err && !err[0]) set_err(err, err_size, "the disc's file system could not be read", NULL);
+        return 0;
+    }
+    stats->phantasma = 1;
+    char unpacked[ACR_PATH_MAX + 16], arena_dir[ACR_PATH_MAX];
+    snprintf(unpacked, sizeof unpacked, "%s/unpacked", pp);
+    snprintf(arena_dir, sizeof arena_dir, "%s/arena", out_dir);
+    return acr_export_pp_arena(unpacked, arena_dir, &stats->opponents, err, err_size);
+}
+
 static int import_disc(const char *disc_path, const char *out_dir, acr_import_stats *stats,
                        int archives_only, char *err, size_t err_size) {
     acr_disc disc;
     memset(stats, 0, sizeof *stats);
     if (!acr_disc_open(&disc, disc_path, err, err_size)) return 0;
+    probe_ctx probe_kind = { 0, 0 };
+    acr_iso_walk(&disc, probe_visit, &probe_kind);
+    if (probe_kind.phantasma && !probe_kind.moa) {
+        if (!make_dirs(out_dir, 1)) {
+            acr_disc_close(&disc);
+            set_err(err, err_size, "cannot create", out_dir);
+            return 0;
+        }
+        const int ok = import_phantasma(&disc, out_dir, stats, err, err_size);
+        acr_disc_close(&disc);
+        return ok;
+    }
     if (!make_dirs(out_dir, 1)) {
         acr_disc_close(&disc);
         set_err(err, err_size, "cannot create", out_dir);
@@ -228,6 +275,16 @@ static int import_disc(const char *disc_path, const char *out_dir, acr_import_st
     return 1;
 }
 
+int acr_disc_is_phantasma(const char *disc_path) {
+    acr_disc disc;
+    char err[256];
+    if (!acr_disc_open(&disc, disc_path, err, sizeof err)) return -1;
+    probe_ctx p = { 0, 0 };
+    acr_iso_walk(&disc, probe_visit, &p);
+    acr_disc_close(&disc);
+    return p.phantasma && !p.moa;
+}
+
 int acr_import_disc(const char *disc_path, const char *out_dir, acr_import_stats *stats,
                     char *err, size_t err_size) {
     return import_disc(disc_path, out_dir, stats, 0, err, err_size);
@@ -256,6 +313,20 @@ int acr_import_refresh(const char *out_dir) {
     uint32_t n = 0;
     if (!(f = fopen(probe, "rb")) && acr_export_moa_arena(menu, unpacked, dir, &n, err, sizeof err)) done |= 2;
     if (f) fclose(f);
+    {   /* Project Phantasma's arena (2026-11-27), when its disc was imported */
+        char pp[ACR_PATH_MAX + 32], pp_menu[ACR_PATH_MAX + 64];
+        snprintf(pp, sizeof pp, "%s/pp/unpacked", out_dir);
+        snprintf(pp_menu, sizeof pp_menu, "%s/GG/MS/MENU_TIM/482.bin", pp);
+        snprintf(probe, sizeof probe, "%s/arena/" ACR_ARENA_PP_FOLDER "/01.toml", out_dir);
+        FILE *have_pp = fopen(pp_menu, "rb");
+        if (have_pp) {
+            fclose(have_pp);
+            if (!(f = fopen(probe, "rb"))) {
+                snprintf(dir, sizeof dir, "%s/arena", out_dir);
+                if (acr_export_pp_arena(pp, dir, &n, err, sizeof err)) done |= 16;
+            } else fclose(f);
+        }
+    }
     snprintf(probe, sizeof probe, "%s/units/U00/unit.toml", out_dir);
     char stages[ACR_PATH_MAX + 16];
     snprintf(dir, sizeof dir, "%s/units", out_dir);

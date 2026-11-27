@@ -11,6 +11,11 @@
  *   <out>/units/UNN/...              mission units; <out>/stages/MM/objects.toml (acr_units_moa.c)
  *   <out>/missions/...               mission list, briefings, report pictures (acr_missions_moa.c)
  *
+ * A Project Phantasma disc (SLUS-00670) goes beside it instead: its .T
+ * archives into <out>/pp/unpacked/..., and its arena (Armored-CoreR's main
+ * Arena) into <out>/arena/09-phantasma (acr_arena_pp.c). Either disc can
+ * come first.
+ *
  * A MoA .T archive starts with a u16 entry count followed by count + 1 u16
  * sector offsets (relative to the archive start); entry i covers sectors
  * off[i] up to off[i + 1]. This matches the game's own loader. */
@@ -34,8 +39,12 @@ typedef struct acr_import_stats {
     uint32_t units;            /* mission units written to <out>/units */
     uint32_t opponents;        /* arena opponents written to <out>/arena */
     uint32_t missions;         /* missions written to <out>/missions */
+    uint8_t  phantasma;        /* the disc was Project Phantasma: <out>/pp, its arena in <out>/arena */
 } acr_import_stats;
 
+/* 1 = the disc is Project Phantasma (USA, SLUS-00670), 0 = not, -1 = it
+ * can't be opened. */
+int acr_disc_is_phantasma(const char *disc_path);
 int acr_import_disc(const char *disc_path, const char *out_dir, acr_import_stats *stats,
                     char *err, size_t err_size);
 

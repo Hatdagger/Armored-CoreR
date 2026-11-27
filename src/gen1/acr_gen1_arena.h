@@ -17,6 +17,14 @@
  *  - Champion (arena 5) and Guest (6) give their part (record 0's) only
  *    once every opponent there has been beaten.
  *  - Ex Arenas 1-4 need the matching legs ("Requires a specific leg type.").
+ * Project Phantasma's arena (Armored-CoreR's main one, number 9): 49
+ * opponents and the player, one list (no sub arena), its own prize money
+ * and nine prize parts (ACG1PLUS docs/research/mapping/content-data.md
+ * section 4a). Armored-CoreR's unlocks (user, 2026-11-27; docs/ARENA.md):
+ *  - Phantasma's arena is open from the start;
+ *  - Master of Arena's main ladder opens once Phantasma's is topped (or at
+ *    once when the import has no Phantasma arena);
+ *  - Master of Arena's Ex Arenas open as before, from its main ladder.
  * Armored-CoreR's own choices where the mapping is silent (docs/ARENA.md):
  *  - The beaten opponent drops to just below the player; the ones between
  *    move up one (so the sub arena never strands the player). Beating the
@@ -48,11 +56,18 @@
 
 #include "acr_gen1_rogue.h"
 
-#define ACR_GEN1_ARENA_COUNT  9     /* 0 main, 1-8 the Ex Arenas */
+/* Arena numbers: 0-8 are Master of Arena's (0 its main 50-place ladder,
+ * 1-8 its Ex Arenas), 9 Project Phantasma's 49 + 1, Armored-CoreR's main
+ * Arena (user, 2026-11-27: the normal Arena is Phantasma's; Master of
+ * Arena's ladders stay as Ex Arenas). Master of Arena keeps the low numbers
+ * so saves and Rogue Arena runs made before stay as they are. */
+#define ACR_GEN1_ARENA_COUNT  10
+#define ACR_GEN1_ARENA_MOA    0     /* Master of Arena's main ladder (ranked + sub arena) */
+#define ACR_GEN1_ARENA_PP     9     /* Project Phantasma's: the main Arena */
 #define ACR_GEN1_ARENA_PLACES 50    /* the most places in one arena (arena 0) */
 #define ACR_GEN1_ARENA_RANKED 15    /* arena 0: ranks 1-15 ranked, the rest the sub arena */
 #define ACR_GEN1_ARENA_YOU    255   /* the player's place in holder[] */
-#define ACR_GEN1_ARENA_PRIZES 23
+#define ACR_GEN1_ARENA_PRIZES 32    /* Master of Arena's 0-22, Project Phantasma's 0-8 as 23-31 */
 #define ACR_GEN1_ARENA_CREDITS_MAX 99999999
 
 /* An opponent's presence (ladder.absent[]). */
@@ -111,7 +126,7 @@ int acr_gen1_arena_rank(const acr_gen1_arena *s, int a);
 int acr_gen1_arena_holder(const acr_gen1_arena *s, int a, int rank);
 /* The roster entry for (arena, disc rank). */
 const acr_gen1_rogue_foe *acr_gen1_arena_foe(const acr_gen1_arena_world *w, int a, int disc_rank);
-/* Arena 0's sub arena: rank > 15. */
+/* Master of Arena's main ladder's sub arena: rank > 15. */
 int acr_gen1_arena_is_sub(int a, int rank);
 
 /* Why a challenge can or can't happen (the game's messages in comments). */
