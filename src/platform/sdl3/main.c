@@ -566,6 +566,9 @@ static int target_dist(void) { const char *e = SDL_getenv("ACR_DIST"); return e 
 static int target_side(void) { const char *e = SDL_getenv("ACR_SIDE"); return e ? SDL_atoi(e) : 0; }
 
 static int g_direct_test = 0;   /* part arguments given: no garage */
+/* The pause menu (offline fights, not --test): Start / Esc. The fight stands
+ * still; RESUME or QUIT (a Rogue / arena / mission fight: giving up, a loss). */
+static int g_paused = 0, g_pause_sel = 0;
 static int g_moa_just_imported = 0;   /* this run imported Master of Arena: ask for Phantasma next */
 static int g_reimport_picking = 0;    /* SETTINGS > RE-IMPORT DISC opened the file picker */
 static int g_pp_picking = 0;          /* the ARENA screen opened the file picker for Phantasma */
@@ -1957,6 +1960,32 @@ int main(int argc, char **argv) {
                 if (rc != RC_NONE) rcmd = rc;
                 continue;
             }
+            if (mode == 1 && !g_net && !g_direct_test) {
+                const int esc = e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_ESCAPE;
+                const int start = e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN && e.gbutton.button == SDL_GAMEPAD_BUTTON_START && !back_held;
+                if (g_paused) {
+                    garage_action ga = GA_NONE;
+                    if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat) ga = key_action(e.key.scancode);
+                    if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) ga = button_action(e.gbutton.button);
+                    if (e.type == SDL_EVENT_GAMEPAD_BUTTON_UP && e.gbutton.button == SDL_GAMEPAD_BUTTON_BACK) back_held = 0;
+                    if (esc || start || ga == GA_CANCEL) { g_paused = 0; sfx_ui(SFX_UI_BACK); }
+                    else if (ga == GA_UP || ga == GA_DOWN) { g_pause_sel ^= 1; sfx_ui(SFX_UI_CURSOR); }
+                    else if (ga == GA_OK) {
+                        g_paused = 0;
+                        sfx_ui(SFX_UI_OK);
+                        if (g_pause_sel == 1) {
+                            if (g_rogue_fight) { if (round_over) rogue_done = 1; else rogue_give_up = 1; }
+                            else to_garage = 1;
+                        }
+                    }
+                    continue;
+                }
+                if ((esc || start) && !round_over) {
+                    g_paused = 1; g_pause_sel = 0;
+                    sfx_ui(SFX_UI_OK);
+                    continue;
+                }
+            }
             if (mode == 1 && g_rogue_fight) {
                 /* A Rogue Arena fight: no test keys. Esc (twice) or Back +
                  * Start gives up, which counts as a loss; after the round,
@@ -2038,9 +2067,41 @@ int main(int argc, char **argv) {
                 if (c != GC_NONE) gcmd = c;
                 continue;
             }
-            if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_ESCAPE) {
+            if (e.type == SDL_EVENT_KEY_DOWN && e.key.scancode == SDL_SCANCODE_ESCAPE && (g_direct_test || g_net || round_over)) {
                 if (g_direct_test) running = 0;
                 else to_garage = 1;
+            }
+            if (!g_net && !g_direct_test) {
+                /* Offline play: the gameplay controls only, as online. The
+                 * test keys and Back + button combinations are only in the
+                 * --test build (user, 2026-11-27: they came on by accident).
+                 * Back + Start still leaves; Start / Esc pause (above). */
+                const int who = !two_players ? 0 : pads[1] ? (player_of(pads, controls_event_pad(&e), 0) == 1) : 1;
+                if (controls_key_pressed(&e, CK_SWITCH)) switch_pressed[0] = 1;
+                if (controls_key_pressed(&e, CK_BLADE)) blade_pressed[0] = 1;
+                if (controls_key_pressed(&e, CK_TARGET)) target_pressed[0] = 1;
+                if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) {
+                    const int btn = e.gbutton.button;
+                    if (btn == SDL_GAMEPAD_BUTTON_BACK) { back_held = 1; back_combo = 0; }
+                    else if (back_held) {
+                        back_combo = 1;
+                        if (btn == SDL_GAMEPAD_BUTTON_START) to_garage = 1;
+                    } else if (modern_of(who)) {   /* SP-MODERN: its own fixed layout */
+                        if (btn == SDL_GAMEPAD_BUTTON_NORTH) switch_pressed[who] = 1;
+                        if (btn == SDL_GAMEPAD_BUTTON_LEFT_SHOULDER) cruise_on[who] = !cruise_on[who];
+                        if (btn == SDL_GAMEPAD_BUTTON_WEST) quick_pressed[who] = 1;
+                        if (btn == SDL_GAMEPAD_BUTTON_RIGHT_STICK) lock_pressed[who] = 1;
+                    }
+                }
+                if (!back_held && !modern_of(who)) {
+                    if (controls_pressed(&e, CT_SWITCH)) switch_pressed[who] = 1;
+                    if (controls_pressed(&e, CT_BLADE)) blade_pressed[who] = 1;
+                }
+                if (e.type == SDL_EVENT_GAMEPAD_BUTTON_UP && e.gbutton.button == SDL_GAMEPAD_BUTTON_BACK) {
+                    if (!back_combo) target_pressed[who] = 1;   /* a tap on its own switches target */
+                    back_held = 0;
+                }
+                continue;
             }
             if (g_net) {
                 /* Online: the gameplay controls only (the keyboard's fixed
@@ -3325,7 +3386,7 @@ int main(int argc, char **argv) {
         g_in[1] = in2[1];
 
         const Uint64 now = SDL_GetTicksNS();
-        const uint32_t ticks = acr_clock_advance(&clock, now - last);
+        const uint32_t ticks = g_paused ? 0 : acr_clock_advance(&clock, now - last);   /* paused: the fight stands still */
         last = now;
         battle.step_ms = (uint16_t)(1000 / (g_tick_rate > 0 ? g_tick_rate : 22));
         battle.step_rate = def->step_rate;
@@ -3593,7 +3654,7 @@ int main(int argc, char **argv) {
             sl.beeps = g_warn_beeps;
             g_warn_beeps = 0;
             sl.round_over = round_over;
-            sfx_update(&battle, &sl, SDL_GetTicksNS());
+            if (!g_paused) sfx_update(&battle, &sl, SDL_GetTicksNS());
         }
         for (int vi = 0; vi < views; ++vi) {
         const int view = g_net ? net_info.local : vi;   /* online: your own player, full screen */
@@ -4073,6 +4134,20 @@ int main(int argc, char **argv) {
             battle_hud_text(full_w, g_hud_frame, 0, 160.0f - 2.0f * (float)SDL_strlen(g_radio), 196, g_radio, 0, 140, 230, 255);
         if (g_rogue_fight && !round_over && SDL_GetTicks() < give_up_until)
             battle_hud_text(full_w, g_hud_frame, 0, 160.0f - 2.0f * 29.0f, 180, "ESC AGAIN: GIVE UP (A LOSS)", 0, 255, 90, 70);
+        if (g_paused && mode == 1) {   /* the pause menu */
+            acr_hud_rect(0, 0, full_w, 480, 0, 0, 0, 150, 1);
+            battle_hud_text(full_w, g_hud_frame, 0, 160.0f - 2.0f * 6.0f, 92, "PAUSED", 1, 255, 255, 255);
+            const char *quit = g_rogue_fight == 3 ? "ABORT MISSION" : g_rogue_fight ? "GIVE UP (A LOSS)" : "QUIT";
+            const char *items[2] = { "RESUME", quit };
+            for (int q = 0; q < 2; ++q) {
+                char row[48];
+                SDL_snprintf(row, sizeof row, "%s %s", g_pause_sel == q ? ">" : " ", items[q]);
+                const int on = g_pause_sel == q;
+                battle_hud_text(full_w, g_hud_frame, 0, 160.0f - 2.0f * (float)SDL_strlen(row), 120.0f + 14.0f * (float)q, row, 0,
+                                on ? 255 : 150, on ? 220 : 170, on ? 120 : 180);
+            }
+            battle_hud_text(full_w, g_hud_frame, 0, 160.0f - 2.0f * 30.0f, 160, "A / ENTER: CHOOSE  START / ESC: BACK", 0, 140, 160, 170);
+        }
         if (round_over) {
             /* The result itself is in each player's view; here, how it ended. */
             const int time_up = round_ms <= 0 && (two_players || g_ai_mode);
