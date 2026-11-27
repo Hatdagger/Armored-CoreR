@@ -34,6 +34,9 @@ void arena_new_game(void);
 /* The same, the cursor on arena list row `row` (0 Phantasma, 1 MoA
  * SUB-ARENA, 2 MoA, 3 on the Ex Arenas; the hangar menu's ARENA items). */
 void arena_open_at(int row);
+int arena_hub_available(int row);
+/* After arena_open_at: whether to open the disc picker for Phantasma (once). */
+int arena_take_import(void);
 arena_command arena_input(garage_action a);
 void arena_draw(float hud_w, int elapsed_ms);
 

@@ -36,6 +36,8 @@ static struct {
     const acr_gen1_catalog *cat;
     char (*names)[ACR_GEN1_PART_MAX][24];
     int screen, cur;                     /* AS_PICK: the row */
+    int want_import;                     /* the hub's PP ARENA with no disc yet: ask for it */
+    int only;                            /* opened from a hub entry: 0 the whole list, 1 one ladder (B leaves), 2 Ex Arenas only */
     int arena, page, lcur, ltop;         /* AS_LADDER: arena, page (arena 0: 0 ranked, 1 sub), row, scroll */
     int ask;                             /* (unused: the challenge window is the stage select now) */
     int fight_arena, fight_rank;
@@ -189,12 +191,28 @@ void arena_new_game(void) {
 
 void arena_open(void) { arena_open_at(0); }
 
+static int enter_row(int row);
+
+/* row < 0: the whole arena list (main menu ARENA). The hub's own entries
+ * open their arena: 0 PP ARENA, 1 MoA SUB-ARENA, 2 MoA ARENA go straight
+ * to that ladder (B goes back to the hub); 3 (EX ARENA) opens a list of
+ * just the Ex Arenas (user, 2026-11-27). */
 void arena_open_at(int row) {
     A.screen = AS_PICK;
-    A.cur = row < 0 || row > ACR_GEN1_ARENA_COUNT ? 0 : row;   /* PR_ARENAS rows */
     A.message[0] = 0;
     A.message_ms = 0;
+    A.only = 0;
+    A.cur = 0;
+    if (row < 0 || row > ACR_GEN1_ARENA_COUNT) return;
+    if (row >= 3) { A.only = 2; A.cur = 3; return; }
+    A.cur = row;
+    /* Locked, or no data yet: stay on the list on that row, saying why. */
+    const int e = enter_row(row);
+    if (e == 1) A.only = 1;
+    if (e < 0) A.want_import = 1;   /* no Phantasma disc yet: pick it now */
 }
+
+int arena_take_import(void) { const int w = A.want_import; A.want_import = 0; return w; }
 
 /* ---- the ladder ---- */
 
@@ -385,7 +403,9 @@ static int step(int cur, int n, garage_action a) {
  * the area, or the player gives up (a loss) (user, 2026-11-25). */
 /* (the stage is picked in the challenge window: user, 2026-11-27) */
 enum { PR_ARENAS = ACR_GEN1_ARENA_COUNT + 1, PR_BACK = PR_ARENAS, PR_COUNT };
-enum { ROW_PP = 0, ROW_MOA_SUB = 1, ROW_MOA = 2 };
+enum { ROW_PP = 0, ROW_MOA_SUB = 1, ROW_MOA = 2, ROW_EX = 3 };
+/* The pick list's first row: the Ex-only list starts at the Ex Arenas. */
+static int pick_first(void) { return A.only == 2 ? ROW_EX : 0; }
 
 /* The list's rows: PP ARENA (Project Phantasma's, the main one), then
  * Master of Arena's main ladder as its two sections, MoA SUB-ARENA (the
@@ -411,6 +431,36 @@ static acr_gen1_arena_why row_open(int row) {
     return why;
 }
 
+static void ladder_home(void);
+/* Open the ladder for a list row: 1 opened, 0 refused (said why),
+ * -1 Phantasma's row with no disc yet. */
+static int enter_row(int row) {
+    const int ar = row_arena(row);
+    if (ar == ACR_GEN1_ARENA_PP && !A.s.a[ar].places) return -1;
+    const acr_gen1_arena_why why = row_open(row);
+    if (why != ACR_GEN1_ARENA_OK && !SDL_getenv("ACR_ARENA_UNLOCK")) { say(acr_gen1_arena_why_text(why)); return 0; }
+    if (!A.s.a[ar].places) { say(acr_gen1_arena_why_text(ACR_GEN1_ARENA_NO_DATA)); return 0; }
+    A.arena = ar;
+    A.page = row_page(row);
+    ladder_home();
+    A.screen = AS_LADDER;
+    return 1;
+}
+
+/* Whether a hub arena entry has anything to open right now (the hub
+ * crosses out the rest): 0-2 its ladder, 3 any Ex Arena. */
+int arena_hub_available(int row) {
+    if (!A.ok) return 0;
+    if (SDL_getenv("ACR_ARENA_UNLOCK")) return 1;
+    if (row >= ROW_EX) {
+        for (int r = ROW_EX; r < PR_ARENAS; ++r)
+            if (row_open(r) == ACR_GEN1_ARENA_OK && A.s.a[row_arena(r)].places) return 1;
+        return 0;
+    }
+    if (row == ROW_PP && !A.s.a[ACR_GEN1_ARENA_PP].places) return 1;   /* pressing it adds the disc */
+    return row >= 0 && A.s.a[row_arena(row)].places && row_open(row) == ACR_GEN1_ARENA_OK;
+}
+
 static void cycle_stage(int dir) {
     if (!A.nstages) { say("RE-IMPORT YOUR DISC: NO STAGES FOUND."); return; }
     int i = 0;
@@ -424,22 +474,12 @@ static arena_command input(garage_action a) {
     switch (A.screen) {
     case AS_PICK:
         if (!A.ok) { if (a == GA_OK || a == GA_CANCEL) return AC_LEAVE; return AC_NONE; }
-        A.cur = step(A.cur, PR_COUNT, a);
+        A.cur = pick_first() + step(A.cur - pick_first(), PR_COUNT - pick_first(), a);
         if (a == GA_CANCEL) return AC_LEAVE;
         if (a != GA_OK) return AC_NONE;
         if (A.cur == PR_BACK) return AC_LEAVE;
-        {
-            const int ar = row_arena(A.cur);
-            /* No Phantasma arena yet: its row asks for the disc. */
-            if (ar == ACR_GEN1_ARENA_PP && !A.s.a[ar].places) return AC_IMPORT_PP;
-            const acr_gen1_arena_why why = row_open(A.cur);
-            if (why != ACR_GEN1_ARENA_OK && !SDL_getenv("ACR_ARENA_UNLOCK")) { say(acr_gen1_arena_why_text(why)); return AC_NONE; }
-            if (!A.s.a[ar].places) { say(acr_gen1_arena_why_text(ACR_GEN1_ARENA_NO_DATA)); return AC_NONE; }
-            A.arena = ar;
-            A.page = row_page(A.cur);
-            ladder_home();
-            A.screen = AS_LADDER;
-        }
+        /* No Phantasma arena yet: its row asks for the disc. */
+        if (enter_row(A.cur) < 0) return AC_IMPORT_PP;
         return AC_NONE;
     case AS_LADDER: {
         int first, count;
@@ -453,7 +493,10 @@ static arena_command input(garage_action a) {
             scroll_to_cursor();
             return AC_NONE;
         }
-        if (a == GA_CANCEL) { A.screen = AS_PICK; A.cur = arena_row(A.arena, A.page); return AC_NONE; }
+        if (a == GA_CANCEL) {
+            if (A.only == 1) return AC_LEAVE;   /* opened from its hub entry: back to the hub */
+            A.screen = AS_PICK; A.cur = arena_row(A.arena, A.page); return AC_NONE;
+        }
         if (a != GA_OK) return AC_NONE;
         const int rank = cursor_rank();
         const acr_gen1_arena_why why = why_at(rank);
@@ -561,12 +604,13 @@ static void draw_pick(float hud_w) {
         return;
     }
     const float x = 40, w = 520;
-    panel(x - 16, 56, w + 32, 20 * PR_COUNT + 40);
-    acr_hud_text(x, 64, "ARENA", DIM);
+    const int first = pick_first(), shown = PR_COUNT - first;
+    panel(x - 16, 56, w + 32, 20 * shown + 40);
+    acr_hud_text(x, 64, first ? "EX ARENA" : "ARENA", DIM);
     text_right(x + w - 120, 64, "RANK", DIM);
     text_right(x + w, 64, "STATUS", DIM);
-    for (int i = 0; i < PR_COUNT; ++i) {
-        const float y = 86 + 20.0f * (float)i + (i >= PR_BACK ? 10 : 0);
+    for (int i = first; i < PR_COUNT; ++i) {
+        const float y = 86 + 20.0f * (float)(i - first) + (i >= PR_BACK ? 10 : 0);
         const int sel = A.cur == i;
         if (sel) row_bar(x, y, w + 12);
         char line[64];
@@ -611,7 +655,7 @@ static void draw_pick(float hud_w) {
     /* ARENA REPORT for the row under the cursor. */
     if (A.cur < PR_ARENAS && A.s.a[row_arena(A.cur)].places) {
         const acr_gen1_arena_ladder *l = &A.s.a[row_arena(A.cur)];
-        const float ry = 86 + 20.0f * PR_COUNT + 30;
+        const float ry = 86 + 20.0f * (PR_COUNT - pick_first()) + 30;
         panel(x - 16, ry, w + 32, 50);
         char line[96];
         const int pct = l->challenges ? l->wins * 100 / l->challenges : 0;
