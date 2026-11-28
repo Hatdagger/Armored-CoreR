@@ -11,6 +11,12 @@
 #define HILITE 255, 220, 120
 #define WARN 255, 120, 100
 
+#ifdef SDL_PLATFORM_ANDROID
+#define ANDROID_UI 1
+#else
+#define ANDROID_UI 0
+#endif
+
 enum { R_CHECK, R_INSTALL, R_BACK, R_COUNT };
 
 #ifdef SDL_PLATFORM_ANDROID
@@ -102,17 +108,216 @@ static void do_check(void) { call_activity("check", "(Landroid/app/Activity;)V")
 static void do_install(void) { call_activity("install", "(Landroid/app/Activity;)V"); }
 static int local_build(void) { return call_activity("localBuild", "(Landroid/app/Activity;)I"); }
 
-#else   /* the PC: no page (new builds come from GitHub's Actions tab) */
+#else   /* Windows / Linux: the "desktop-latest" GitHub release */
 
-int update_supported(void) { return 0; }
-static void do_check(void) {}
-static void do_install(void) {}
-static int local_build(void) { return 0; }
-static int get_int(const char *name) { return SDL_strcmp(name, "state") == 0 ? UPDATE_FAILED : 0; }
-static void get_string(const char *name, char *out, size_t size) {
-    SDL_strlcpy(out, SDL_strcmp(name, "message") == 0 ? "UPDATES ARE FOR THE ANDROID APP." : "", size);
+/* The PC build fetches with the system's curl and unpacks with tar (both
+ * ship with Windows 10+ and every desktop Linux). The new files go to a
+ * staging folder; RESTART runs a small script that waits for the game to
+ * close, copies them over this install and starts it again. Saves live in
+ * the pref folder, so they are never touched. */
+
+#ifdef SDL_PLATFORM_WINDOWS
+#include <windows.h>
+#define ACR_ARCHIVE "armored-corer-windows-x64.zip"
+#define ACR_SIZE_LINE 3
+static unsigned long my_pid(void) { return (unsigned long)GetCurrentProcessId(); }
+#else
+#include <unistd.h>
+#define ACR_ARCHIVE "armored-corer-linux-x64.tar.gz"
+#define ACR_SIZE_LINE 4
+static unsigned long my_pid(void) { return (unsigned long)getpid(); }
+#endif
+
+#ifndef ACR_BUILD_NUMBER
+#define ACR_BUILD_NUMBER 0
+#endif
+#define ACR_URL "https://github.com/Hatdagger/Armored-CoreR/releases/download/desktop-latest/"
+
+static SDL_AtomicInt g_state, g_remote, g_progress;
+static SDL_AtomicInt g_busy;
+static char g_msg[160], g_remote_text[64];
+static Sint64 g_remote_size;
+static char g_dir[1024];   /* pref/update/ */
+
+static const char *dir(void) {
+    if (!g_dir[0]) {
+        char *pref = SDL_GetPrefPath("Hatdagger", "Armored-CoreR");
+        SDL_snprintf(g_dir, sizeof g_dir, "%supdate%s", pref ? pref : "",
+#ifdef SDL_PLATFORM_WINDOWS
+                     "\\");
+#else
+                     "/");
+#endif
+        SDL_free(pref);
+        SDL_CreateDirectory(g_dir);
+    }
+    return g_dir;
 }
-static void local_name(char *out, size_t size) { SDL_strlcpy(out, "PC BUILD", size); }
+
+static void fail(const char *m) {
+    SDL_strlcpy(g_msg, m, sizeof g_msg);
+    for (char *p = g_msg; *p; ++p) *p = (char)SDL_toupper((unsigned char)*p);
+    SDL_SetAtomicInt(&g_state, UPDATE_FAILED);
+}
+
+/* Runs a program and waits; 1 when it exited with 0. */
+static int run(const char *const *args) {
+    SDL_Process *p = SDL_CreateProcess(args, false);
+    if (!p) return 0;
+    int code = -1;
+    SDL_WaitProcess(p, true, &code);
+    SDL_DestroyProcess(p);
+    return code == 0;
+}
+
+static int fetch(const char *file, const char *to) {
+    char url[256];
+    SDL_snprintf(url, sizeof url, "%s%s", ACR_URL, file);
+    const char *args[] = { "curl", "-fsSL", "--retry", "2", "-o", to, url, NULL };
+    return run(args);
+}
+
+static int check_thread(void *u) {
+    (void)u;
+    char path[1100];
+    SDL_snprintf(path, sizeof path, "%sversion.txt", dir());
+    SDL_RemovePath(path);
+    if (!fetch("version.txt", path)) { fail("Could not reach GitHub (is curl installed?)"); goto done; }
+    size_t n = 0;
+    char *txt = (char *)SDL_LoadFile(path, &n);
+    if (!txt) { fail("Could not read the version file"); goto done; }
+    /* build, commit, date, windows size, linux size */
+    char *lines[6] = {0};
+    int count = 0;
+    for (char *t = txt, *save = NULL; count < 6 && (t = SDL_strtok_r(count ? NULL : t, "\r\n", &save)); ++count)
+        lines[count] = t;
+    const int remote = lines[0] ? SDL_atoi(lines[0]) : 0;
+    g_remote_size = lines[ACR_SIZE_LINE] ? (Sint64)SDL_strtoll(lines[ACR_SIZE_LINE], NULL, 10) : 0;
+    SDL_snprintf(g_remote_text, sizeof g_remote_text, "%s %s", lines[1] ? lines[1] : "", lines[2] ? lines[2] : "");
+    for (char *p = g_remote_text; *p; ++p) *p = (char)SDL_toupper((unsigned char)*p);
+    SDL_free(txt);
+    if (remote <= 0) { fail("No desktop build has been published yet"); goto done; }
+    SDL_SetAtomicInt(&g_remote, remote);
+    SDL_SetAtomicInt(&g_state, remote > ACR_BUILD_NUMBER ? UPDATE_AVAILABLE
+                             : remote < ACR_BUILD_NUMBER ? UPDATE_NEWER_HERE : UPDATE_UP_TO_DATE);
+done:
+    SDL_SetAtomicInt(&g_busy, 0);
+    return 0;
+}
+
+static int install_thread(void *u) {
+    (void)u;
+    char archive[1100], staged[1100];
+    SDL_snprintf(archive, sizeof archive, "%s%s", dir(), ACR_ARCHIVE);
+    SDL_snprintf(staged, sizeof staged, "%snew", dir());
+    SDL_RemovePath(archive);
+    SDL_SetAtomicInt(&g_progress, 0);
+
+    char url[256];
+    SDL_snprintf(url, sizeof url, "%s%s", ACR_URL, ACR_ARCHIVE);
+    const char *dl[] = { "curl", "-fsSL", "--retry", "2", "-o", archive, url, NULL };
+    SDL_Process *p = SDL_CreateProcess(dl, false);
+    if (!p) { fail("Could not start curl"); goto done; }
+    int code = -1;
+    while (!SDL_WaitProcess(p, false, &code)) {
+        SDL_PathInfo info;
+        if (g_remote_size > 0 && SDL_GetPathInfo(archive, &info))
+            SDL_SetAtomicInt(&g_progress, (int)SDL_min(99, info.size * 100 / g_remote_size));
+        SDL_Delay(200);
+    }
+    SDL_DestroyProcess(p);
+    if (code != 0) { fail("Download failed"); goto done; }
+    SDL_SetAtomicInt(&g_progress, 100);
+
+    /* a clean staging folder, then unpack */
+#ifdef SDL_PLATFORM_WINDOWS
+    const char *rm[] = { "cmd.exe", "/c", "rmdir", "/s", "/q", staged, NULL };
+#else
+    const char *rm[] = { "rm", "-rf", staged, NULL };
+#endif
+    run(rm);
+    SDL_CreateDirectory(staged);
+    const char *untar[] = { "tar", "-xf", archive, "-C", staged, NULL };
+    if (!run(untar)) { fail("Could not unpack the download"); goto done; }
+    SDL_SetAtomicInt(&g_state, UPDATE_CONFIRM);
+done:
+    SDL_SetAtomicInt(&g_busy, 0);
+    return 0;
+}
+
+static int start(SDL_ThreadFunction fn, int state) {
+    if (SDL_GetAtomicInt(&g_busy)) return 0;
+    SDL_SetAtomicInt(&g_busy, 1);
+    g_msg[0] = 0;
+    SDL_SetAtomicInt(&g_state, state);
+    SDL_Thread *t = SDL_CreateThread(fn, "acr-update", NULL);
+    if (!t) { SDL_SetAtomicInt(&g_busy, 0); fail("Could not start the updater"); return 0; }
+    SDL_DetachThread(t);
+    return 1;
+}
+
+/* Writes the swap script, starts it and closes the game. */
+static void restart(void) {
+    const char *base = SDL_GetBasePath();
+    char script[1100], staged[1100];
+    SDL_snprintf(staged, sizeof staged, "%snew", dir());
+#ifdef SDL_PLATFORM_WINDOWS
+    SDL_snprintf(script, sizeof script, "%sapply.bat", dir());
+    char body[4096];
+    SDL_snprintf(body, sizeof body,
+        "@echo off\r\n"
+        ":wait\r\n"
+        "tasklist /FI \"PID eq %lu\" 2>nul | find \"%lu\" >nul && (timeout /t 1 /nobreak >nul & goto wait)\r\n"
+        "xcopy /E /Y /Q /I \"%s\\*\" \"%s.\" >nul\r\n"
+        "start \"\" \"%sarmored-corer.exe\"\r\n",
+        my_pid(), my_pid(), staged, base, base);
+    if (!SDL_SaveFile(script, body, SDL_strlen(body))) { fail("Could not write the update script"); return; }
+    const char *args[] = { "cmd.exe", "/c", script, NULL };
+#else
+    SDL_snprintf(script, sizeof script, "%sapply.sh", dir());
+    char body[4096];
+    SDL_snprintf(body, sizeof body,
+        "#!/bin/sh\n"
+        "while kill -0 %lu 2>/dev/null; do sleep 1; done\n"
+        "cp -rf \"%s\"/. \"%s\"\n"
+        "chmod +x \"%sarmored-corer\" \"%sacr-import\" 2>/dev/null\n"
+        "cd \"%s\" && exec ./armored-corer\n",
+        my_pid(), staged, base, base, base, base);
+    if (!SDL_SaveFile(script, body, SDL_strlen(body))) { fail("Could not write the update script"); return; }
+    const char *args[] = { "sh", script, NULL };
+#endif
+    SDL_Process *p = SDL_CreateProcess(args, false);
+    if (!p) { fail("Could not start the update script"); return; }
+    /* not destroyed: the script outlives the game */
+    SDL_Event q;
+    SDL_zero(q);
+    q.type = SDL_EVENT_QUIT;
+    SDL_PushEvent(&q);
+}
+
+int update_supported(void) { return 1; }
+static void do_check(void) { start(check_thread, UPDATE_CHECKING); }
+static void do_install(void) {
+    if (SDL_GetAtomicInt(&g_state) == UPDATE_CONFIRM) restart();
+    else start(install_thread, UPDATE_DOWNLOADING);
+}
+static int local_build(void) { return ACR_BUILD_NUMBER; }
+static int get_int(const char *name) {
+    if (SDL_strcmp(name, "state") == 0) return SDL_GetAtomicInt(&g_state);
+    if (SDL_strcmp(name, "remoteBuild") == 0) return SDL_GetAtomicInt(&g_remote);
+    if (SDL_strcmp(name, "progress") == 0) return SDL_GetAtomicInt(&g_progress);
+    return 0;
+}
+static void get_string(const char *name, char *out, size_t size) {
+    out[0] = 0;
+    if (SDL_GetAtomicInt(&g_busy)) return;   /* written by the worker */
+    if (SDL_strcmp(name, "message") == 0) SDL_strlcpy(out, g_msg, size);
+    else if (SDL_strcmp(name, "remoteText") == 0) SDL_strlcpy(out, g_remote_text, size);
+}
+static void local_name(char *out, size_t size) {
+    if (ACR_BUILD_NUMBER > 0) SDL_snprintf(out, size, "0.1-TEST.%d (PC)", ACR_BUILD_NUMBER);
+    else SDL_strlcpy(out, "LOCAL PC BUILD", size);
+}
 
 #endif
 
@@ -123,6 +328,9 @@ void update_open(update_ui *ui) {
 
 static int can_install(int state) {
     return state == UPDATE_AVAILABLE || state == UPDATE_NEEDS_PERMISSION ||
+#ifndef SDL_PLATFORM_ANDROID
+           state == UPDATE_CONFIRM ||
+#endif
            (state == UPDATE_FAILED && get_int("remoteBuild") > local_build());
 }
 
@@ -174,7 +382,11 @@ void update_draw(update_ui *ui, float hud_w) {
         SDL_snprintf(line, sizeof line, "DOWNLOADING... %d%%", get_int("progress"));
         status = line;
         break;
+#ifdef SDL_PLATFORM_ANDROID
     case UPDATE_CONFIRM: status = "CONFIRM ON ANDROID'S INSTALL SCREEN."; break;
+#else
+    case UPDATE_CONFIRM: status = "DOWNLOADED. CHOOSE RESTART TO FINISH."; break;
+#endif
     case UPDATE_NEEDS_PERMISSION: status = "ALLOW \"INSTALL UNKNOWN APPS\", COME BACK, PRESS A AGAIN."; break;
     case UPDATE_NEWER_HERE: status = "THIS BUILD IS NEWER THAN THE LATEST RELEASE."; break;
     case UPDATE_FAILED: status = ""; break;
@@ -204,13 +416,15 @@ void update_draw(update_ui *ui, float hud_w) {
         if (sel) acr_hud_rect(lx + 8, y - 4, w - 16, 16, 60, 70, 40, 255, 1);
         const char *label = r == R_CHECK ? "CHECK FOR UPDATES" : r == R_BACK ? "BACK" : line;
         if (r == R_INSTALL) {
-            if (remote > 0) SDL_snprintf(line, sizeof line, "DOWNLOAD AND INSTALL BUILD %d", remote);
+            if (state == UPDATE_CONFIRM && !ANDROID_UI) SDL_strlcpy(line, "RESTART AND UPDATE", sizeof line);
+            else if (remote > 0) SDL_snprintf(line, sizeof line, "DOWNLOAD AND INSTALL BUILD %d", remote);
             else SDL_strlcpy(line, "DOWNLOAD AND INSTALL", sizeof line);
         }
         const int dim = r == R_INSTALL && !installable;
         if (dim) acr_hud_text(lx + 16, y, label, DIM);
         else acr_hud_text(lx + 16, y, label, sel ? 255 : 220, sel ? 220 : 230, sel ? 120 : 235);
     }
-    acr_hud_text(lx + 16, 262, "A: CHOOSE   B: BACK   ANDROID ASKS BEFORE INSTALLING.", DIM);
+    acr_hud_text(lx + 16, 262, ANDROID_UI ? "A: CHOOSE   B: BACK   ANDROID ASKS BEFORE INSTALLING."
+                                          : "A: CHOOSE   B: BACK   THE GAME RESTARTS TO UPDATE.", DIM);
     acr_hud_text(lx + 16, 278, "THE IMPORT AND YOUR SAVES ARE KEPT.", DIM);
 }

@@ -1,7 +1,7 @@
-/* SYSTEM > SETTINGS > UPDATES (Android only, docs/ANDROID.md): checks the
- * "android-latest" GitHub release for a newer build and installs it. The
- * work is done by the app's Java side (android/.../Updater.java), reached
- * over JNI; this file draws the page and passes the buttons on. */
+/* SYSTEM > SETTINGS > UPDATES. Android (docs/ANDROID.md): checks the
+ * "android-latest" GitHub release, work done by Updater.java over JNI.
+ * Windows / Linux (docs/UPDATES.md): checks "desktop-latest" with curl,
+ * unpacks with tar, and a small script swaps the files in on restart. */
 #ifndef UPDATE_H
 #define UPDATE_H
 
@@ -13,7 +13,7 @@ enum {
     UPDATE_CONFIRM, UPDATE_FAILED, UPDATE_NEEDS_PERMISSION, UPDATE_NEWER_HERE
 };
 
-/* 1 where the page exists (the Android app). */
+/* 1 where the page exists (Android, Windows, Linux). */
 int  update_supported(void);
 
 typedef struct update_ui {
