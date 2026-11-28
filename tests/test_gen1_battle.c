@@ -962,6 +962,33 @@ int main(void) {
         EXPECT(bb.f[1].ap < bb.f[1].ap_max && bb.f[0].recover_ms > 0 && bb.f[0].recover_ms <= ACR_GEN1_MODERN_RECOVER_HIT_MS);
     }
 
+    /* Splash (ACG1PLUS weapon-effects.md 2c): a model shot with explosion
+     * #5 hits for its attack, then its blast for about attack / 8 more; an
+     * AC standing beside the blast takes only the splash, shooter included. */
+    {
+        static acr_gen1_battle sb;
+        acr_gen1_actions fire[2] = { { 1, 0, 0, 0 }, { 0 } }, na3[2] = { { 0 }, { 0 } };
+        const acr_gen1_input none3[2] = { { 0 }, { 0 } };
+        setup(&sb, 600);
+        sb.f[0].weapons = 1; sb.f[0].weapon[0] = rifle(); sb.f[0].ammo[0] = 200;
+        sb.f[0].weapon[0].attack = 1600; sb.f[0].weapon[0].blast_on = 1; sb.f[0].weapon[0].blast = 5;
+        for (int k = 0; k < 6; ++k) acr_gen1_battle_step(&sb, none3, fire);
+        for (int k = 0; k < 40; ++k) acr_gen1_battle_step(&sb, none3, na3);
+        const int32_t direct = acr_gen1_hit_ap(1600, 27), took = 8384 - sb.f[1].ap;
+        EXPECT(took > direct && took <= direct + acr_gen1_hit_ap(200, 27) + 1);
+        if (!(took > direct)) printf("  splash: took %d, direct %d\n", took, direct);
+        /* the shooter, 600 away, is past the medium blast's 575: unhurt */
+        EXPECT(sb.f[0].ap == 8384);
+        /* point blank (250): the shooter is caught too */
+        setup(&sb, 250);
+        sb.f[0].weapons = 1; sb.f[0].weapon[0] = rifle(); sb.f[0].ammo[0] = 200;
+        sb.f[0].weapon[0].attack = 1600; sb.f[0].weapon[0].blast_on = 1; sb.f[0].weapon[0].blast = 0;
+        for (int k = 0; k < 6; ++k) acr_gen1_battle_step(&sb, none3, fire);
+        for (int k = 0; k < 40; ++k) acr_gen1_battle_step(&sb, none3, na3);
+        EXPECT(sb.f[0].ap < 8384 && sb.f[1].ap < 8384 - direct);
+        if (!(sb.f[0].ap < 8384)) printf("  self splash: shooter ap %d\n", sb.f[0].ap);
+    }
+
     /* Blade waves (VS 0x8007EB48): LS-2001 sends one only with Human PLUS
      * and boost held; LS-1000W always sends one and has no melee hit; the
      * swing drops every lock when it ends. */

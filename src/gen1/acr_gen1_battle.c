@@ -1385,6 +1385,73 @@ static int segment_hits_box(int64_t x0, int64_t y0, int64_t z0, int64_t x1, int6
 
 static void units_step(acr_gen1_battle *b, int ticks);
 static void bodies_step(acr_gen1_battle *b);
+
+/* ---- splash damage (see acr_gen1_blast) ---- */
+
+/* Explosion records 0 and 5 (PP 0x8008AA50 +2 / +4 / +6 / +8, byte 1):
+ * start scale, growth, its change a tick, falloff, life. */
+static const struct { int16_t start, growth, change, falloff; uint8_t life; } k_blast[2] = {
+    { 100, 512, -26, 9000, 15 },     /* #0 */
+    { 100, 400, -40, 4600, 10 },     /* #5 */
+};
+
+static void spawn_blast(acr_gen1_battle *b, int owner, const acr_gen1_weapon *w, int32_t x, int32_t y, int32_t z) {
+    if (!w || !w->blast_on) return;
+    acr_gen1_blast *bl = NULL;
+    for (int k = 0; k < ACR_GEN1_MAX_BLASTS; ++k) if (!b->blast[k].active) { bl = &b->blast[k]; break; }
+    if (!bl) return;
+    const int r = w->blast == 5 ? 1 : 0;
+    memset(bl, 0, sizeof *bl);
+    bl->active = 1;
+    bl->owner = (uint8_t)owner;
+    bl->x = x; bl->y = y; bl->z = z;
+    bl->scale = k_blast[r].start;
+    bl->growth = k_blast[r].growth;
+    bl->change = k_blast[r].change;
+    bl->falloff = k_blast[r].falloff;
+    bl->life = k_blast[r].life;
+    bl->energy = w->energy;
+    /* Model shots feed attack / 8 and impact / 4 (PP 0x80085600); timed
+     * shells their own record whole (0x80080130). */
+    bl->attack = w->timed ? w->attack : (uint16_t)(w->attack >> 3);
+    bl->impact = w->timed ? w->impact : (uint8_t)(w->impact >> 2);
+}
+
+/* One Gen 1 tick of every blast: grow, then hit what the shell passed. */
+static void blasts_tick(acr_gen1_battle *b) {
+    const int n = acr_gen1_battle_fighters(b);
+    for (int k = 0; k < ACR_GEN1_MAX_BLASTS; ++k) {
+        acr_gen1_blast *bl = &b->blast[k];
+        if (!bl->active) continue;
+        if (!bl->life) { bl->active = 0; continue; }
+        --bl->life;
+        bl->scale += bl->growth;
+        bl->growth += bl->change;
+        const int64_t r_in = bl->prev / 4, r_out = bl->scale / 4;
+        bl->prev = bl->scale;
+        const int64_t cx = bl->x / 64, cy = bl->y / 64, cz = bl->z / 64, R = bl->falloff / 4;
+        for (int t = 0; t < ACR_GEN1_UNIT(b->units); ++t) {
+            if (t >= n && t < ACR_GEN1_MAX_FIGHTERS) continue;
+            tview v;
+            if (!view_of(b, t, &v) || !v.alive) continue;
+            const int unit = is_unit(t);
+            if (unit ? (bl->umask >> (t - ACR_GEN1_MAX_FIGHTERS)) & 1 : (bl->fmask >> t) & 1) continue;
+            int64_t up = v.up / 64;
+            if (!unit) up = ac_height(&b->f[t]) / 2;
+            const int64_t dx = v.x / 64 - cx, dy = v.y / 64 - up - cy, dz = v.z / 64 - cz;
+            const int64_t d = isqrt64((uint64_t)(dx * dx + dy * dy + dz * dz));
+            if (d < r_in || d >= r_out) continue;
+            if (unit) bl->umask |= 1ull << (t - ACR_GEN1_MAX_FIGHTERS);
+            else bl->fmask |= (uint8_t)(1u << t);
+            int64_t f = R > 0 ? 4096 - (d / 2) * 4096 / R : 4096;
+            if (f < 0) f = 0;
+            const uint16_t attack = (uint16_t)(bl->attack * f / 4096);
+            const uint8_t impact = (uint8_t)(bl->impact * f / 4096);
+            if (attack) damage_by(b, t, bl->owner, attack, bl->energy);
+            if (!unit && impact) stagger_hit(b, t, impact, dx * 64, dz * 64);
+        }
+    }
+}
 static void ac_bodies_step(acr_gen1_battle *b, int64_t was[][2]);
 
 static void shots_step(acr_gen1_battle *b, int ticks) {
@@ -1447,6 +1514,7 @@ static void shots_step(acr_gen1_battle *b, int ticks) {
         const uint16_t attack = w ? w->attack : s->attack;
         const int energy = w ? w->energy : s->wave_energy;
         const uint8_t impact = w ? w->impact : s->wave_impact;
+        const int was_active = s->active;
         if (hits_ac && hits_wall) {
             /* How far along the way the AC's middle is, against the wall. */
             if (target_t <= wall_t) {
@@ -1468,7 +1536,19 @@ static void shots_step(acr_gen1_battle *b, int ticks) {
             acr_gen1_gimmicks_hit(&b->gim, hp, 100, attack);
             s->active = 0;                              /* into the arena */
         } else if ((!s->missile && s->travelled > (w ? w->range : s->wave ? s->wave_range : ACR_GEN1_UNIT_RANGE)) || (!b->stage && s->y > 0)) {
-            s->active = 0;                              /* out of range or into the floor */
+            /* Into the floor: a blast; out of range: only a timed shell's
+             * fuse ends in one (a model shot that meets nothing just goes). */
+            if (w && (s->y > 0 || w->timed)) spawn_blast(b, s->owner, w, s->x, s->y > 0 ? 0 : s->y, s->z);
+            s->active = 0;
+        }
+        if (was_active && !s->active && w && (hits_ac || hits_wall)) {
+            int32_t ex = s->x, ey = s->y, ez = s->z;
+            if (hits_wall && !(hits_ac && target_t <= wall_t)) {     /* where it met the wall */
+                ex = x0 + (int32_t)((int64_t)(s->x - x0) * wall_t / 1024);
+                ey = y0 + (int32_t)((int64_t)(s->y - y0) * wall_t / 1024);
+                ez = z0 + (int32_t)((int64_t)(s->z - z0) * wall_t / 1024);
+            }
+            spawn_blast(b, s->owner, w, ex, ey, ez);
         }
     }
 }
@@ -1680,6 +1760,7 @@ void acr_gen1_battle_step(acr_gen1_battle *b, const acr_gen1_input in[], const a
     bodies_step(b);
     ac_bodies_step(b, was);
     shots_step(b, ticks);
+    for (int t = 0; t < ticks; ++t) blasts_tick(b);
 }
 
 int acr_gen1_battle_out_of_area(const acr_gen1_battle *b, int i) {
