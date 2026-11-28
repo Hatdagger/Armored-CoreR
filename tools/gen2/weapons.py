@@ -31,6 +31,8 @@ LNT/250 16), +6 u16 hit-effect id?. Records 82-95 and 108-109 (kinds 23/11) are 
 23 = carrier whose +6 names a kind-11 child record.
 +0x24 float velocity/100, +0x28 float range. Checked: SRF/8 1050/1000, SRF-9 1150/910,
 K99 870/620, XP0808 -/600 (armoredcore.fandom.com). Missiles: +0x28 is lock range, not velocity.
+w8 = recoil<<8 | reload for ALL weapons (checked in the AC2 shop: ZWC-IR/FLUX 32/120, EWC-XP0808 14/26,
+ZWG-AR/K 0/3). w7 is not reload (FLUX 30); possibly charge time.
 Another Age: raw reloads are unchanged, but AA's published reloads are floor(raw*5/6) for all 8
 known pairs (SRF/8 44->36, K99 92->76, XP0808 26->21, S612 48->40, M444 57->47, RRD 45->37,
 T9 24->20, S604 41->34), so AA scales reload in code, not data."""
@@ -51,7 +53,7 @@ def table():
 def row(b, i):
     w = struct.unpack_from('<18H', b, BASE + i * STRIDE)
     return dict(row=i, projectile=w[0] >> 8, ammo=w[2], ammo_price_or_energy=w[3],
-                reload=w[7] if (w[11] >> 8) == 0x23 and w[7] else (w[8] & 0xFF if w[8] > 255 else w[8]), recoil_candidate=w[8] >> 8, reload_w8=w[8], projectile_id=w[0] >> 8, max_locks=w[5] & 0xFF, lock_time=w[5] >> 8, per_lock=w[6] & 0xFF, energy=bool(w[12] & 0x20), attack=w[13], ammo_heat=w[14],
+                reload=w[8] & 0xFF, recoil=w[8] >> 8, w7_unknown=w[7], reload_w8=w[8], projectile_id=w[0] >> 8, max_locks=w[5] & 0xFF, lock_time=w[5] >> 8, per_lock=w[6] & 0xFF, energy=bool(w[12] & 0x20), attack=w[13], ammo_heat=w[14],
                 stun=w[15], raw=list(w), **ballistics(b, w[0] >> 8))
 
 def ballistics(b, i, base=BALL):
