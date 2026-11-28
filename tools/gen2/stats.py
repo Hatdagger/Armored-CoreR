@@ -23,9 +23,10 @@ CATS = [((3400, 3411), 'head'), ((3420, 3425), 'core'), ((3430, 3452), 'arms'), 
 COMMON = {0: 'weight', 1: 'energy_drain', 7: 'armor_points', 8: 'def_shell', 9: 'def_energy', 10: 'cooling'}
 NAMED = {
     'head': {11: 'system_recovery', 12: 'auto_balancer'},
-    'core': {11: 'max_weight', 14: 'ob_power', 15: 'ob_energy_drain'},
+    'core': {11: 'max_weight', 14: 'ob_power', 15: 'ob_energy_drain', 21: 'ob_limit',
+             27: 'vs_mg_response', 28: 'vs_mg_range', 30: 'discharge_heat'},   # w30 AA only (0 in AC2)
     'legs': {12: 'max_weight', 13: 'moving_speed', 14: 'braking', 15: 'landing_stability',
-             16: 'defensive_stability', 18: 'stationary_drain'},
+             16: 'defensive_stability', 18: 'stationary_drain'},   # turning speed = w22 * 4 (below)
     'arms': {},
 }
 # Internal parts (no AP/defence): w0 weight, w1 energy drain, then from w7.
@@ -49,16 +50,20 @@ def decode(cat, r):
     else:
         d['weight'], d['energy_drain'] = u16(r, 0), u16(r, 1)
         for k, n in INTERNAL.get(cat, {}).items(): d[n] = u16(r, k)
+        if cat == 'booster' and u16(r, 8):
+            d['boost_efficiency'] = round(3840000 / u16(r, 8))   # fits shop within rounding
     if cat == 'fcs':
         d['max_lock'] = u16(r, 8) & 0xFF
         d['reticle_mobility'] = u16(r, 8) >> 8
         w7 = u16(r, 7)
         d['target'] = 'multi' if w7 & 0x1000 else 'single'
-        d['lock_type'] = {0: 'standard', 2: 'narrow&deep', 4: 'sideway'}.get(w7 & 0xFF, w7 & 0xFF)
+        d['lock_type'] = {0: 'standard', 2: 'narrow&deep', 3: 'lengthway', 4: 'sideway'}.get(w7 & 0xFF, w7 & 0xFF)
     if cat == 'extension':
         d['kind?'] = u16(r, 7)
         if u16(r, 11) >= 100: d['weapon_row'] = u16(r, 11)        # 110-115: rows of the file 10 table
-        else: d.update({'boost_power': u16(r, 8), 'charge_drain': u16(r, 9)})
+        else:
+            d.update({'boost_power': u16(r, 8), 'charge_drain': u16(r, 9)})
+            if u16(r, 13): d['reload'] = u16(r, 13)   # AA only (BEX-BB210 108)
         if u16(r, 7) == 3: d['range'] = u16(r, 14)   # anti-missile
     if cat == 'head':
         w13, w14 = u16(r, 13), u16(r, 14)
@@ -77,6 +82,7 @@ def decode(cat, r):
         w11 = u16(r, 11)
         d['leg_type'] = w11 & 0xFF           # 0 humanoid, 1 reverse joint, 4 hover (others: see doc)
         d['jump'] = w11 >> 8                 # 0 = no jump function
+        d['turning_speed'] = u16(r, 22) * 4  # AA shop; AA raises w22 on some legs
     return d
 
 def info(b):

@@ -247,3 +247,14 @@ Checked against the user's AC2 shop recordings (2026-11-27). Word numbers are u1
 - **Radiator:** w7 cooling, w8 forced cooling — confirmed (RPS-MER/SA, RBG-CM6, RRX-COT-GK10).
 - **Extension:** dive/boost extensions (w7 0x62xx) w8 boost power, w9 charge drain — confirmed (BEX-BD150 16000/4920). Anti-missile (w7 3): w14 = range (BEX-BAMS-287 250). w12/w13 are unknown (w13 does not equal the ammo count).
 - **Optional parts:** w7 = slots required — confirmed for all 7 recorded.
+
+### Another Age shop check (session 7, Gen 2)
+AA's shop shows stats AC2 hides, which names more fields. Records are otherwise byte-identical between the games for most parts (heads, FCS, generators, most legs).
+- **Core:** w14 OB power, w15 OB energy drain, **w21 OB limit**, **w27 VS-MG response, w28 VS-MG range** (only MG cores, e.g. ECM-XR00 60/100), **w30 discharge heat (AA only; 0 in AC2)**. AA changes w12, w16 and w21 on every core (ZCX-F/ROOK OB limit 3000 -> 1500, ZCH-GR/1 4200 -> 2100). w12/w16 are still unnamed.
+- **Legs:** **turning speed = w22 x 4** (all 8 recorded legs). AA raises w22 on some legs (ZLF-TR05/INTS 121 -> 133, ELF-XX33 113 -> 121) and moving speed w13 on some (ZLN-2A/GR 146 -> 151). Hover ELC-HTT0808 w19 11800 -> 15500 (unnamed, probably hover boost).
+- **Arms:** w12 energy supply, w14 recoil control, w15 accuracy (EAN-S0 80/256/7, EAN-CEX 100/279/6).
+- **FCS:** lock type 3 = lengthway (VERTEX-750/W). Lock speed and sight range/ability are still not decoded: the records are identical in both games and the shop shows the same values, so they're computed from the record by a formula not yet found.
+- **Booster:** boost efficiency = 3,840,000 / charge drain (rounded); fits EBT-GE 883, ZBT-H4/T 835, ZBT-Z1/ARTERE 549. AA lowers ZBT-Z1/ARTERE boost power 21000 -> 19300.
+- **Extension:** AA back booster BEX-BB210 adds w13 reload (108) and w11 (39); charge drain 5700 -> 6200.
+- **Radiator:** AA lowers RRX-COT-GK10 energy drain 580 -> 442.
+- **Weapons:** the AA shop shows ZWC-LNT/250 reload 143, the same as AC2, so the x5/6 reload scaling in AA code is applied at run time, not in the displayed number.
