@@ -2,6 +2,34 @@
 
 Changes big enough to need a way back. Newest first.
 
+## 2026-11-28: hit size and lunge per legs, no air-slash waves, debris chips
+
+**Why.** Follow-up to the blade pass below (user, 2026-11-28): go with ACG1PLUS's hit size and
+per-legs lunge, drop Human PLUS waves from air slashes, keep MoA's wave arming (boost held from
+before the swing still sends the wave) and MoA's air slash x 3; add debris chips.
+
+**Old behaviour.** Every AC a 75 x 212 cylinder; one measured lunge for every body; air slashes
+could send Human PLUS waves; hits cut no chips.
+
+**New behaviour.**
+- Hit cylinder (shots, blade lunge contact, air-slash aim point, bodies): two legs 100 x 225, four
+  legs and caterpillars 112 x 150 (ACG1PLUS mapping/blade.md 6).
+- Ground lunge: the first three ticks come from the body's own swing animation (56) root motion to
+  frame 7 (default 375, light legs 390 with the hop, reverse joints 187, four legs / caterpillars
+  281); the push after it is shared. No track: the measured table.
+- Air slashes send no Human PLUS wave (LS-1000W's wave, the whole attack, stays).
+- Debris chips: hits cut the weapon's chip count off the AC (debris word from the disc: guns 4-8,
+  missiles 10, bombs 16, AW-XC65 31; blade hits 10, waves 20), tumbling triangles in the AC's
+  paint that fall and fade. Grey for an unpainted player 1. Needs a **re-import** for the guns'
+  counts (blade and wave chips work without one).
+
+**Files.** `src/gen1/acr_gen1_battle.{c,h}`; `src/platform/sdl3/fx.{c,h}`, `demo_data.c`, `main.c`;
+`tools/acr_import/acr_parts_moa.c`; `src/net/acr_replay.h` (rules 10 -> 11); `tests/test_gen1_battle.c`,
+`tests/test_replay.c`.
+
+**How to switch back.** `git revert` the PR's merge commit (rules back to 10: `0x7F1ABFAB`,
+`0xFD43D177`). Hit size alone: `ac_radius` / `ac_height` in `acr_gen1_battle.c` to 75 / 212.
+
 ## 2026-11-28: blade and projectile pass from ACG1PLUS's Phantasma mapping
 
 **Why.** ACG1PLUS mapped the blade (`docs/research/mapping/blade.md`, branch `mapping/blade`) and the
@@ -30,8 +58,7 @@ flash word only; timed shells looked like any model shot; no light in flight.
 **Not done (decide / test first).** Phantasma-only: air slash attack x 4 (MoA x 3, kept), no Human
 PLUS wave from an air slash, wave disarmed by boost held before the hit window. Both discs but
 risky without a live test: two line tests a tick in the air slash (up to 4 hits), hit cylinder
-radius 100 instead of ACR's 75, per-body lunge from animation 56's root track, splash damage of the
-explosion models (radius unclear), debris chips cut from the target's mesh, mines / HG770 split /
+splash damage of the explosion models (radius unclear), mines / HG770 split /
 dispenser falling bombs.
 
 **Files.** `src/gen1/acr_gen1_battle.{c,h}`, `acr_gen1_sim.{c,h}`; `src/platform/sdl3/fx.{c,h}`,

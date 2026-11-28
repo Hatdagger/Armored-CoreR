@@ -333,6 +333,22 @@ int main(void) {
         }
         EXPECT(me->ac.z / 64 >= 680 && me->ac.z / 64 <= 760);
         if (me->ac.z / 64 < 680 || me->ac.z / 64 > 760) printf("  forward lunge: %d\n", me->ac.z / 64);
+        /* Reverse-joint legs (animation 56's root: 187 to frame 7) lunge
+         * shorter: 187 + the same bleeding push (141) = 328. */
+        {
+            static const acr_gen1_root_key rj[] = { { 5, 0, 0, -374 }, { 7, 0, 0, -749 }, { 8, 0, 0, -1124 },
+                                                    { 10, 0, 0, -1499 }, { 26, 0, 0, -1595 } };
+            static const acr_gen1_root_track rjt = { 26, 5, rj };
+            const acr_gen1_root_track *was = def.anim[ACR_GEN1_SHOW_SWING];
+            def.anim[ACR_GEN1_SHOW_SWING] = &rjt;
+            acr_gen1_ac_spawn(&me->ac, &def, 0, 0, 0);
+            me->ac.energy = 28000;
+            acr_gen1_battle_step(&bb, none, swing);
+            for (int k = 0; k < 40; ++k) acr_gen1_battle_step(&bb, none, idle);
+            EXPECT(me->ac.z / 64 >= 318 && me->ac.z / 64 <= 338);
+            if (me->ac.z / 64 < 318 || me->ac.z / 64 > 338) printf("  reverse-joint lunge: %d\n", me->ac.z / 64);
+            def.anim[ACR_GEN1_SHOW_SWING] = was;
+        }
         /* A target far above (more than 45 degrees up) is not sought. */
         acr_gen1_ac_spawn(&me->ac, &def, 0, 0, 0);
         me->ac.energy = 28000;

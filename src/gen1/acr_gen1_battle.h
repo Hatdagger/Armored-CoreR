@@ -415,10 +415,12 @@ typedef struct acr_gen1_actions {
  * the lock box keep the game's world numbers and the models are scaled down. */
 #define ACR_GEN1_MODEL_SCALE 0.25f
 
-/* An AC's hit cylinder (AC object +0x72 / +0x74): radius 75, 212 tall,
- * standing on its feet. */
-#define ACR_GEN1_HIT_RADIUS 75
-#define ACR_GEN1_HIT_HEIGHT 212
+/* An AC's hit cylinder (AC object +0x28 / +0x2A; ACG1PLUS mapping/blade.md
+ * 6), standing on its feet: two legs 100 x 225 (these), four legs and
+ * caterpillars 112 x 150 (the battle's ac_radius / ac_height). Was 75 x 212
+ * before 2026-11-28. */
+#define ACR_GEN1_HIT_RADIUS 100   /* two legs; per legs: ac_radius / ac_height in the battle */
+#define ACR_GEN1_HIT_HEIGHT 225
 
 /* FCS lock boxes are angles (4096 a turn) either side of the facing and
  * above / below the view tilt, measured from the weapon (VS sight sweep

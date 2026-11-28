@@ -302,6 +302,15 @@ static void refresh_model(int who, const char *dir, const int parts[SLOT_COUNT],
                                           : who >= 2 ? k_colours_ai : who ? k_colours_p2 : NULL, &g_model[who]);
     memcpy(g_model_parts[who], parts, sizeof g_model_parts[who]);
     g_model_set[who] = set;
+    {   /* the debris chips come off in the AC's paint (0..63 a channel) */
+        const uint8_t (*c)[3] = hangar_paint ? (const uint8_t (*)[3])g_hangar.paint[0]
+                              : g_paint_on[who] ? (const uint8_t (*)[3])g_paint[who]
+                              : who >= 2 ? k_colours_ai : who ? k_colours_p2 : NULL;
+        uint8_t rgb[4][3];
+        for (int i = 0; c && i < 4; ++i)
+            for (int k = 0; k < 3; ++k) rgb[i][k] = (uint8_t)(c[i][k] > 63 ? 255 : c[i][k] * 4);
+        fx_set_chip_colours(who, (const uint8_t (*)[3])rgb, c ? 4 : 0);
+    }
 }
 
 /* Which animation to show and how far into it. The sim runs the walking
