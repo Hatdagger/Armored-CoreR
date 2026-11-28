@@ -167,6 +167,12 @@ static int enemies(const acr_gen1_battle *b, int i, int j) {
     return i != j && team_of(b, i) != team_of(b, j);
 }
 
+/* An AC's hit cylinder (AC +0x28 / +0x2A, ACG1PLUS mapping/blade.md 6 and
+ * pa-archives.md 4): two legs 100 across x 225 tall, four legs and
+ * caterpillars 112 x 150. Shots, blade lunges and bodies all use it. */
+static int32_t ac_radius(const acr_gen1_fighter *f) { return f->legs == ACR_GEN1_LEGS_TWO ? 100 : 112; }
+static int32_t ac_height(const acr_gen1_fighter *f) { return f->legs == ACR_GEN1_LEGS_TWO ? 225 : 150; }
+
 /* A target as the sights see it: feet and the tick before (1/64 units), how
  * far up its middle is (1/64), alive. */
 typedef struct tview { int32_t x, y, z, px, py, pz, up; int alive; uint8_t jammer; } tview;
@@ -459,10 +465,44 @@ static void stagger_hit(acr_gen1_battle *b, int target, uint8_t impact, int64_t 
 
 /* Blade lunge distance per Gen 1 tick from ACR_GEN1_BLADE_LUNGE_MS (measured: 516 in all). */
 const int16_t acr_gen1_blade_lunge[ACR_GEN1_BLADE_STEPS] = { 125, 125, 125, 50, 44, 24, 23 };
-/* The same with forward held: the push (facing x 4,096, 64 a tick) is kept
- * for five ticks instead of bleeding out (PP 0x80014DC0 skipped; ACG1PLUS
- * mapping/blade.md 4b: about 695 in all). */
-static const int16_t k_lunge_fwd[ACR_GEN1_BLADE_STEPS + 1] = { 125, 125, 125, 64, 64, 64, 64, 64 };
+/* With forward held the push (facing x 4,096, 64 a tick) is kept for five
+ * ticks instead of bleeding out (PP 0x80014DC0 skipped; ACG1PLUS
+ * mapping/blade.md 4b: about 695 in all): lunge_table. */
+
+/* The lunge for this AC's legs (ACG1PLUS mapping/blade.md 4b): the root
+ * motion of its swing animation (56) up to frame 7 replaces the measured
+ * table's first three ticks (default legs 125 x 3 = 375; light legs 390
+ * with a hop, reverse joints 187, four legs / caterpillars 281), spread
+ * over the frames as the track has it; the push after it (table 3 on) is
+ * the same for every body. Frames before 4 (the light legs' hop) land on
+ * the first tick. Without the track: the measured table. */
+static int32_t root_fwd(const acr_gen1_root_track *t, unsigned frame) {
+    int32_t prev_f = 0, prev_z = 0;
+    for (unsigned k = 0; k < t->count; ++k) {
+        const acr_gen1_root_key *key = &t->keys[k];
+        if (key->frame >= frame) {
+            const int32_t span = (int32_t)key->frame - prev_f;
+            const int32_t z = span > 0 ? prev_z + (key->z - prev_z) * ((int32_t)frame - prev_f) / span : key->z;
+            return -z / 4;                        /* 1/4 units, -z forward */
+        }
+        prev_f = key->frame; prev_z = key->z;
+    }
+    return -prev_z / 4;
+}
+static void lunge_table(const acr_gen1_fighter *f, int fwd, int16_t out[ACR_GEN1_BLADE_STEPS + 1]) {
+    static const int16_t k_fwd[ACR_GEN1_BLADE_STEPS + 1] = { 125, 125, 125, 64, 64, 64, 64, 64 };
+    for (int k = 0; k <= ACR_GEN1_BLADE_STEPS; ++k)
+        out[k] = fwd ? k_fwd[k] : k < ACR_GEN1_BLADE_STEPS ? acr_gen1_blade_lunge[k] : 0;
+    const acr_gen1_root_track *t = f->def ? f->def->anim[ACR_GEN1_SHOW_SWING] : NULL;
+    if (!t || !t->count || !t->keys) return;
+    const int32_t total = root_fwd(t, 7);
+    if (total <= 0 || total > 1000) return;       /* not a forward lunge: keep the table */
+    int32_t a = root_fwd(t, 4), b5 = root_fwd(t, 5), b6 = root_fwd(t, 6);
+    out[0] = (int16_t)a + (int16_t)(b5 - a);      /* frames 0-5: the hop and frame 4 */
+    out[1] = (int16_t)(b6 - b5);
+    out[2] = (int16_t)(total - b6);
+    if (out[0] < 0) out[0] = 0;
+}
 
 /* Target offset seen from facing `yaw`: how far ahead and to the side. */
 static void offset(uint16_t yaw, int64_t dx, int64_t dz, int64_t *ahead, int64_t *side) {
@@ -482,7 +522,8 @@ static void lunge_move(acr_gen1_battle *b, int i, int from, int to) {
     acr_gen1_ac *me = &f->ac;
     const int fwd = f->used.swing_fwd;           /* forward held keeps the push */
     const int steps = fwd ? ACR_GEN1_BLADE_STEPS + 1 : ACR_GEN1_BLADE_STEPS;
-    const int16_t *table = fwd ? k_lunge_fwd : acr_gen1_blade_lunge;
+    int16_t table[ACR_GEN1_BLADE_STEPS + 1];
+    lunge_table(f, fwd, table);
     const int lunge_end = ACR_GEN1_BLADE_LUNGE_MS + tick_ms(steps);
     if (f->lunge_done || to <= ACR_GEN1_BLADE_LUNGE_MS || from >= lunge_end) return;
     /* Along the facing as it is now: the swing keeps turning toward its
@@ -501,8 +542,8 @@ static void lunge_move(acr_gen1_battle *b, int i, int from, int to) {
         const acr_gen1_ac *it = &b->f[j].ac;
         int64_t ahead, side;
         offset(me->yaw, (it->x - me->x) / 64, (it->z - me->z) / 64, &ahead, &side);
-        const int64_t gap = ahead - 2 * ACR_GEN1_HIT_RADIUS;
-        if ((side < 0 ? -side : side) < 2 * ACR_GEN1_HIT_RADIUS && ahead > 0 && d / 64 >= gap) {
+        const int64_t rr = ac_radius(f) + ac_radius(&b->f[j]), gap = ahead - rr;
+        if ((side < 0 ? -side : side) < rr && ahead > 0 && d / 64 >= gap) {
             d = gap > 0 ? gap * 64 : 0;
             f->lunge_done = 1;
         }
@@ -512,7 +553,7 @@ static void lunge_move(acr_gen1_battle *b, int i, int from, int to) {
         if (!un->active || un->down) continue;
         int64_t ahead, side;
         offset(me->yaw, (un->x - me->x) / 64, (un->z - me->z) / 64, &ahead, &side);
-        const int64_t reach = (int64_t)un->half + ACR_GEN1_HIT_RADIUS, gap = ahead - reach;
+        const int64_t reach = (int64_t)un->half + ac_radius(f), gap = ahead - reach;
         if ((side < 0 ? -side : side) < reach && ahead > 0 && d / 64 >= gap) {
             d = gap > 0 ? gap * 64 : 0;
             f->lunge_done = 1;
@@ -576,6 +617,10 @@ static void blade_wave(acr_gen1_battle *b, int i, int blade) {
     const int type = wave_type(w);
     if (type < 0 || !f->wave_armed) return;
     if (type != 4 && (!f->human_plus || !f->boost_held)) return;
+    /* Human PLUS waves come from ground slashes only (PP's air slash has no
+     * wave call: ACG1PLUS mapping/blade.md 5; user, 2026-11-28). The wave
+     * still arms with boost held from before the swing, as in MoA. */
+    if (type != 4 && f->air_swing) return;
     f->wave_armed = 0;
     const uint16_t yaw = f->ac.yaw;
     switch (type) {
@@ -619,7 +664,8 @@ static void air_slash_tick(acr_gen1_battle *b, int i) {
         acr_gen1_ac_set_yaw(me, (uint16_t)(turn_toward(me->yaw, angle_of(dx / 64, dz / 64), rate) & 4095));
         /* Aim short of the point by both hit radii x 1.25. */
         const int64_t len = isqrt64((uint64_t)(dx * dx + dz * dz));
-        const int64_t off = (int64_t)2 * ACR_GEN1_HIT_RADIUS * 64 * 5 / 4;
+        const int64_t off = (int64_t)(ac_radius(f) + (is_unit(f->swing_target) ? b->unit[f->swing_target - ACR_GEN1_MAX_FIGHTERS].half
+                                                                             : ac_radius(&b->f[f->swing_target]))) * 64 * 5 / 4;
         int64_t gx = dx, gz = dz;
         if (len) { gx = dx - dx * off / len; gz = dz - dz * off / len; }
         const int64_t top = m->air_max;
@@ -1305,7 +1351,7 @@ static void fighter_step(acr_gen1_battle *b, int i, acr_gen1_actions a, int tick
 /* Does the segment p0 -> p1 pass through the AC's cylinder (feet at fy)?
  * World units; y + is down. */
 static int segment_hits_ac(int64_t x0, int64_t y0, int64_t z0, int64_t x1, int64_t y1, int64_t z1,
-                           int64_t fx, int64_t fy, int64_t fz) {
+                           int64_t fx, int64_t fy, int64_t fz, int64_t radius, int64_t height) {
     const int64_t dx = x1 - x0, dz = z1 - z0, dy = y1 - y0;
     const int64_t len2 = dx * dx + dz * dz;
     int64_t t = 1024;
@@ -1315,8 +1361,8 @@ static int segment_hits_ac(int64_t x0, int64_t y0, int64_t z0, int64_t x1, int64
         if (t > 1024) t = 1024;
     }
     const int64_t px = x0 + dx * t / 1024 - fx, pz = z0 + dz * t / 1024 - fz, py = y0 + dy * t / 1024;
-    if (px * px + pz * pz > (int64_t)ACR_GEN1_HIT_RADIUS * ACR_GEN1_HIT_RADIUS) return 0;
-    return py <= fy && py >= fy - ACR_GEN1_HIT_HEIGHT;
+    if (px * px + pz * pz > radius * radius) return 0;
+    return py <= fy && py >= fy - height;
 }
 
 /* The same for a unit's box: `half` either side of (fx, fz) on the world
@@ -1371,7 +1417,8 @@ static void shots_step(acr_gen1_battle *b, int ticks) {
         for (int j = 0; j < n; ++j) {
             if (j == s->owner || b->f[j].ap <= 0) continue;
             const acr_gen1_ac *t = &b->f[j].ac;
-            if (!segment_hits_ac(x0 / 64, y0 / 64, z0 / 64, s->x / 64, s->y / 64, s->z / 64, t->x / 64, t->y / 64, t->z / 64))
+            if (!segment_hits_ac(x0 / 64, y0 / 64, z0 / 64, s->x / 64, s->y / 64, s->z / 64, t->x / 64, t->y / 64, t->z / 64,
+                                 ac_radius(&b->f[j]), ac_height(&b->f[j])))
                 continue;
             const int64_t tt = slen2 ? ((int64_t)(t->x / 64 - x0 / 64) * sdx + (int64_t)(t->z / 64 - z0 / 64) * sdz) * 1024 / slen2 : 0;
             if (target < 0 || tt < target_t) { target = j; target_t = tt; }
@@ -2100,13 +2147,13 @@ static void units_step(acr_gen1_battle *b, int ticks) {
  * evenly. Ours: the game's own AC body test is still to be read. */
 static void ac_bodies_step(acr_gen1_battle *b, int64_t was[][2]) {
     const int n = acr_gen1_battle_fighters(b);
-    const int64_t R = 2 * ACR_GEN1_HIT_RADIUS;          /* centre to centre, world units */
     for (int i = 0; i < n && i < ACR_GEN1_MAX_FIGHTERS; ++i)
         for (int j = i + 1; j < n && j < ACR_GEN1_MAX_FIGHTERS; ++j) {
             acr_gen1_ac *a = &b->f[i].ac, *c = &b->f[j].ac;
             if (!b->f[i].def || !b->f[j].def) continue;
-            /* y is down: each spans [y - 212, y] */
-            if (a->y / 64 - ACR_GEN1_HIT_HEIGHT >= c->y / 64 || c->y / 64 - ACR_GEN1_HIT_HEIGHT >= a->y / 64) continue;
+            const int64_t R = ac_radius(&b->f[i]) + ac_radius(&b->f[j]);   /* centre to centre, world units */
+            /* y is down: each spans [y - height, y] */
+            if (a->y / 64 - ac_height(&b->f[i]) >= c->y / 64 || c->y / 64 - ac_height(&b->f[j]) >= a->y / 64) continue;
             /* j as seen from i, before and after the step (world units) */
             const int64_t sx = (was[j][0] - was[i][0]) / 64, sz = (was[j][1] - was[i][1]) / 64;
             const int64_t ex = (c->x - a->x) / 64, ez = (c->z - a->z) / 64;
@@ -2162,10 +2209,10 @@ static void bodies_step(acr_gen1_battle *b) {
             acr_gen1_ac *ac = &b->f[i].ac;
             if (!b->f[i].def) continue;
             /* y is down: the AC spans [y - 212, y], the unit [uy - height, uy] */
-            if (ac->y / 64 - ACR_GEN1_HIT_HEIGHT >= un->y / 64 || un->y / 64 - un->height >= ac->y / 64) continue;
+            if (ac->y / 64 - ac_height(&b->f[i]) >= un->y / 64 || un->y / 64 - un->height >= ac->y / 64) continue;
             int64_t ahead, side;
             offset(un->yaw, (ac->x - un->x) / 64, (ac->z - un->z) / 64, &ahead, &side);
-            const int64_t h = un->half, r = ACR_GEN1_HIT_RADIUS;
+            const int64_t h = un->half, r = ac_radius(&b->f[i]);
             const int64_t ca = ahead < -h ? -h : ahead > h ? h : ahead;   /* nearest point of the square */
             const int64_t cs = side < -h ? -h : side > h ? h : side;
             int64_t pa = 0, ps = 0;                                      /* push, square's frame */

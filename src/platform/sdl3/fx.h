@@ -54,7 +54,12 @@ typedef struct fx_look {
     uint8_t  blast;
     uint16_t flare;
     uint8_t  timed;
+    uint32_t debris;          /* debris word (0x8008C164): chips cut off an AC it hits; 0 none */
 } fx_look;
+
+/* The colours a fighter's chips come off in (its paint: up to 4 RGB,
+ * 0..255); n = 0 a neutral grey. */
+void fx_set_chip_colours(int fighter, const uint8_t rgb[][3], int n);
 
 /* The looks of a fighter's weapons, in the fight's order (kept by pointer;
  * call again when a build changes). NULL: by type only. */

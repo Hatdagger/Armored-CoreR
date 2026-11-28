@@ -234,7 +234,32 @@ static struct {
     float tick_speed;          /* world units a Gen 1 tick (streak length = trail x this) */
     float dir[3];              /* the way it flies */
     float glow_ms;             /* B shots: time since the last trailing glow */
+    uint8_t wave;              /* a blade wave (20 chips on a hit) */
 } g_seen[ACR_GEN1_MAX_SHOTS];
+
+/* Debris chips (PP 0x80083BE0 -> spawner 0x80083874; ACG1PLUS
+ * mapping/weapon-effects.md 7): a hit cuts `count` small triangles off
+ * the AC it hits, in its own paint; each starts at the hit point (within
+ * the word's spread), flies off with a random push (sideways +-25, up
+ * 15-35 a tick) and spin, and lives `life` to 1.25 x `life` ticks. The
+ * game takes a random triangle of the target's model; here a random
+ * triangle 12-30 across in one of its paint colours. The fall (3 a tick
+ * more each tick) is a guess. */
+#define FX_CHIPS 256
+static struct {
+    uint8_t on, rgb[3];
+    float p[3], v[3], tri[3][3], axis[3], ang, spin, age, life;
+} g_chip[FX_CHIPS];
+static int g_chip_next;
+static uint8_t g_chip_rgb[ACR_GEN1_MAX_FIGHTERS][4][3];
+static int g_chip_n[ACR_GEN1_MAX_FIGHTERS];
+
+void fx_set_chip_colours(int fighter, const uint8_t rgb[][3], int n) {
+    if (fighter < 0 || fighter >= ACR_GEN1_MAX_FIGHTERS) return;
+    if (n > 4) n = 4;
+    g_chip_n[fighter] = n < 0 ? 0 : n;
+    for (int i = 0; i < g_chip_n[fighter]; ++i) memcpy(g_chip_rgb[fighter][i], rgb[i], 3);
+}
 
 /* A streak whose shot has ended: its head stays where it stopped and the
  * tail catches up (A update 0x80088674, the life < 2 branch: the tail keeps
@@ -292,6 +317,7 @@ static struct { int lit, out, have, at; float lat; } g_slash[ACR_GEN1_MAX_FIGHTE
 void fx_reset(void) {
     for (int k = 0; k < ACR_GEN1_MAX_FIGHTERS; ++k) { g_slash[k].lit = g_slash[k].out = -1; g_slash[k].have = 0; }
     memset(g_part, 0, sizeof g_part);
+    memset(g_chip, 0, sizeof g_chip);
     memset(g_boosting, 0, sizeof g_boosting);
     memset(g_trail, 0, sizeof g_trail);
     memset(g_rig_ok, 0, sizeof g_rig_ok);
@@ -418,6 +444,41 @@ static void blade_sparks(const float p[3]) {
         s->atlas_count = 2;
         s->spin = rnd() * 6.283f;
         s->age = -(float)(n / 2) * FX_TICK_MS * 0.5f;
+    }
+}
+
+static void chips(int target, const float p[3], uint32_t word) {
+    const int count = (int)((word >> 18) & 31);
+    const float life = (float)((word >> 10) & 255), spread = (float)(word & 1023);
+    for (int n = 0; n < count; ++n) {
+        int i = -1;
+        for (int t = 0; t < FX_CHIPS; ++t) {
+            const int j = (g_chip_next + t) % FX_CHIPS;
+            if (!g_chip[j].on) { i = j; break; }
+        }
+        if (i < 0) i = g_chip_next;                  /* full: the oldest goes */
+        g_chip_next = (i + 1) % FX_CHIPS;
+        g_chip[i].on = 1;
+        for (int c = 0; c < 3; ++c) g_chip[i].p[c] = p[c] + (rnd() - 0.5f) * spread;
+        g_chip[i].v[0] = (rnd() - 0.5f) * 50.0f / FX_TICK_MS;
+        g_chip[i].v[2] = (rnd() - 0.5f) * 50.0f / FX_TICK_MS;
+        g_chip[i].v[1] = (15.0f + rnd() * 20.0f) / FX_TICK_MS;
+        const float size = 12.0f + rnd() * 18.0f;
+        for (int v = 0; v < 3; ++v) {
+            const float a = (float)v * 2.094f + (rnd() - 0.5f) * 1.2f, r = size * (0.4f + rnd() * 0.6f);
+            g_chip[i].tri[v][0] = cosf(a) * r; g_chip[i].tri[v][1] = sinf(a) * r; g_chip[i].tri[v][2] = (rnd() - 0.5f) * size * 0.3f;
+        }
+        float ax[3] = { rnd() - 0.5f, rnd() - 0.5f, rnd() - 0.5f };
+        const float l = sqrtf(ax[0] * ax[0] + ax[1] * ax[1] + ax[2] * ax[2]);
+        for (int c = 0; c < 3; ++c) g_chip[i].axis[c] = l > 1e-4f ? ax[c] / l : (c == 1);
+        g_chip[i].ang = rnd() * 6.283f;
+        g_chip[i].spin = (0.3f + rnd() * 0.5f) / FX_TICK_MS * (rnd() < 0.5f ? -1.0f : 1.0f);
+        g_chip[i].age = 0;
+        g_chip[i].life = (life + rnd() * life * 0.25f) * FX_TICK_MS;
+        const int pn = target >= 0 && target < ACR_GEN1_MAX_FIGHTERS ? g_chip_n[target] : 0;
+        static const uint8_t grey[3] = { 150, 150, 145 };
+        const uint8_t *c = pn ? g_chip_rgb[target][(int)(rnd() * pn) % pn] : grey;
+        memcpy(g_chip[i].rgb, c, 3);
     }
 }
 
@@ -609,6 +670,8 @@ static void shot_ended(const acr_gen1_battle *b, int k) {
             if (l > 60.0f) { q[0] = c[0] + hx * 60.0f / l; q[2] = c[2] + hz * 60.0f / l; }
             ghost_add(k, q);
             model_blast(k, q);
+            if (g_seen[k].wave) chips(t, q, 0x00505014u);          /* waves: 20 chips (0x800858EC) */
+            else if (g_seen[k].fl && g_seen[k].fl->debris) chips(t, q, g_seen[k].fl->debris);
             if (disc_hit(k, q)) return;
             if (g_seen[k].missile || (g_seen[k].look && g_seen[k].look->look == LOOK_ROCKET)) explosion(q, 1.0f, 0);
             else hit_ac(q, g_seen[k].energy);
@@ -682,6 +745,7 @@ void fx_update(const acr_gen1_battle *b, uint64_t now_ns) {
             g_seen[k].look = look_of(s->owner, s->weapon, g_seen[k].energy);
             g_seen[k].range = w ? w->range : 0;
             g_seen[k].fl = s->wave ? NULL : disc_look(s->owner, s->weapon);
+            g_seen[k].wave = s->wave;
             g_seen[k].tick_speed = (float)(w && w->speed > 0 ? w->speed : ACR_GEN1_UNIT_SHOT);
             g_seen[k].glow_ms = 0;
             g_seen[k].speed = (int32_t)sqrtf(st[0] * st[0] + st[1] * st[1] + st[2] * st[2]);
@@ -737,6 +801,7 @@ void fx_update(const acr_gen1_battle *b, uint64_t now_ns) {
             ac_feet(b, k, mid);
             mid[1] += 106.0f;                               /* half the hit cylinder (212) */
             blade_sparks(mid);
+            chips(k, mid, 10u << 18 | 20u << 10 | 20u);     /* the line test's 10 chips (0x80076738) */
         }
         g_bhit[k] = b->f[k].blade_hit_seq;
         g_ap[k] = b->f[k].ap;
@@ -809,6 +874,14 @@ void fx_update(const acr_gen1_battle *b, uint64_t now_ns) {
     }
     g_ap_ok = 1;
 
+    for (int i = 0; i < FX_CHIPS; ++i) {
+        if (!g_chip[i].on) continue;
+        g_chip[i].age += dt;
+        if (g_chip[i].age >= g_chip[i].life) { g_chip[i].on = 0; continue; }
+        g_chip[i].v[1] -= 3.0f / (FX_TICK_MS * FX_TICK_MS) * dt;
+        for (int c = 0; c < 3; ++c) g_chip[i].p[c] += g_chip[i].v[c] * dt;
+        g_chip[i].ang += g_chip[i].spin * dt;
+    }
     for (int i = 0; i < FX_PARTS; ++i) {
         part *q = &g_part[i];
         if (!q->on) continue;
@@ -1039,6 +1112,37 @@ void fx_draw(const acr_gen1_battle *b, const float eye[3], const float fwd[3]) {
     cross(right, f, up);
     norm(up);
     g_n = 0;
+
+    /* Debris chips: solid triangles, lit from above by their facing (one
+     * plain texel of the glow sheet's middle). */
+    {
+        const float tu = 0.5f, tv = 0.5f;
+        for (int i = 0; i < FX_CHIPS; ++i) {
+            if (!g_chip[i].on) continue;
+            const float *ax = g_chip[i].axis, cs = cosf(g_chip[i].ang), sn = sinf(g_chip[i].ang);
+            float w[3][3];
+            for (int v = 0; v < 3; ++v) {            /* Rodrigues: turn the corner about the axis */
+                const float *o = g_chip[i].tri[v];
+                const float d = ax[0] * o[0] + ax[1] * o[1] + ax[2] * o[2];
+                float cr[3];
+                cross(ax, o, cr);
+                for (int c = 0; c < 3; ++c) w[v][c] = g_chip[i].p[c] + o[c] * cs + cr[c] * sn + ax[c] * d * (1.0f - cs);
+            }
+            const float e1[3] = { w[1][0] - w[0][0], w[1][1] - w[0][1], w[1][2] - w[0][2] };
+            const float e2[3] = { w[2][0] - w[0][0], w[2][1] - w[0][1], w[2][2] - w[0][2] };
+            float nrm[3];
+            cross(e1, e2, nrm);
+            norm(nrm);
+            const float shade = 0.45f + 0.55f * fabsf(nrm[1]);
+            const float left = 1.0f - g_chip[i].age / g_chip[i].life;
+            const uint8_t a = (uint8_t)(255 * (left < 0.25f ? left * 4.0f : 1.0f));
+            const float c4[4][3] = { { w[0][0], w[0][1], w[0][2] }, { w[1][0], w[1][1], w[1][2] },
+                                     { w[2][0], w[2][1], w[2][2] }, { w[2][0], w[2][1], w[2][2] } };
+            quad(c4, tu, tv, tu, tv, (uint8_t)(g_chip[i].rgb[0] * shade), (uint8_t)(g_chip[i].rgb[1] * shade),
+                 (uint8_t)(g_chip[i].rgb[2] * shade), a);
+        }
+        flush(SH_GLOW, B_SEMI);
+    }
 
     /* Smoke first (see-through, drawn over by the glows), then the glows. */
     for (int s = 0; s < SH_COUNT; ++s) draw_parts(s, B_SEMI, right, up);

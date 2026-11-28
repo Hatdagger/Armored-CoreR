@@ -200,6 +200,7 @@ static void write_shot_b(FILE *f, uint32_t a) {
     }
     if (vs_u8(a + 12) == 1 && vs_u32(a + 32, &w)) field(f, "hit_flash", w, "impact flash word (0x8008B60C)");
     else field(f, "hit_sparks", 1, "spark burst (0x8008B7B8) instead of a flash word");
+    if (vs_u32(a + 36, &w)) field(f, "hit_debris", w, "debris word: bits 0-9 spread, 10-17 life, 18-22 chips (0x8008C164)");
 }
 static void write_shot_d(FILE *f, uint32_t a, unsigned id) {
     uint16_t v;
@@ -212,6 +213,7 @@ static void write_shot_d(FILE *f, uint32_t a, unsigned id) {
     field(f, "shot_trail", 3, "tail holds 3 steps (spawner 0x8008D8CC sets +0x28 = 2; update moves it below 0)");
     field(f, "shot_tint", vs_u8(a + 12) << 16 | vs_u8(a + 13) << 8 | vs_u8(a + 14), "RGB, 128 = 1.0");
     if (vs_u32(a + 16, &w)) field(f, "hit_flash", w, "impact flash word (0x8008B60C)");
+    if (vs_u32(a + 20, &w)) field(f, "hit_debris", w, "debris word: bits 0-9 spread, 10-17 life, 18-22 chips (0x8008C164)");
 }
 static void write_shot_c(FILE *f, uint32_t a) {
     uint16_t v;
@@ -221,6 +223,7 @@ static void write_shot_c(FILE *f, uint32_t a) {
     if (vs_u16(a + 6, &v)) field(f, "shot_model", v, "the shot's 3D model (not drawn yet: a sprite stands in)");
     if (vs_u16(a + 2, &v)) field(f, "shot_width", v, "model scale");
     if (vs_u32(a + 28, &w)) field(f, "hit_flash", w, "impact flash word (0x8008B60C)");
+    if (vs_u32(a + 32, &w)) field(f, "hit_debris", w, "debris word: bits 0-9 spread, 10-17 life, 18-22 chips (0x8008C164)");
     /* ACG1PLUS docs/research/mapping/weapon-effects.md 2 (the C records
      * are byte-identical on both discs). */
     if (vs_u32(a + 12, &w) && w) {
@@ -244,6 +247,7 @@ static void write_shot_look(FILE *f, const uint8_t *w) {
         if (vs_u16(a + 14, &v)) field(f, "shot_trail", v, "steps the tail waits at the muzzle (+0x2A)");
         field(f, "shot_tint", vs_u8(a + 24) << 16 | vs_u8(a + 25) << 8 | vs_u8(a + 26), "RGB, 128 = 1.0");
         if (vs_u32(a, &x)) field(f, "hit_flash", x, "impact flash word (0x8008B60C)");
+        if (vs_u32(a + 4, &x)) field(f, "hit_debris", x, "debris word: bits 0-9 spread, 10-17 life, 18-22 chips (0x8008C164)");
     } else if (kind == 0 && id < 40) write_shot_b(f, 0x80092980u + 40 * (id - 20));
     else if (kind == 0 && id < 60) write_shot_c(f, 0x80092C20u + 36 * (id - 40));
     else if (kind == 0 && id < 70) write_shot_d(f, 0x80092824u + 24 * (id - 60), id);
@@ -252,6 +256,7 @@ static void write_shot_look(FILE *f, const uint8_t *w) {
         field(f, "shot_family", 4, "E dispenser (behaviour not modelled yet: fires like a gun)");
         field(f, "dispenser_pellets", vs_u8(a + 8), "bombs a trigger in the game (not used yet)");
         if (vs_u32(a + 20, &x)) field(f, "hit_flash", x, "impact flash word (0x8008B60C)");
+        if (vs_u32(a + 24, &x)) field(f, "hit_debris", x, "debris word: bits 0-9 spread, 10-17 life, 18-22 chips (0x8008C164)");
     } else if (kind == 0) field(f, "shot_family", 5, "F mine (not modelled)");
     else if (kind == 2) {
         /* Cannons, 0x80081F70: model 0 an A-style streak with constants in
@@ -264,6 +269,7 @@ static void write_shot_look(FILE *f, const uint8_t *w) {
             field(f, "shot_trail", 3, NULL);
             field(f, "shot_tint", vs_u8(0x800918E0u) << 16 | vs_u8(0x800918E1u) << 8 | vs_u8(0x800918E2u), "RGB, 128 = 1.0");
             if (vs_u32(0x800918E4u, &x)) field(f, "hit_flash", x, "impact flash word (0x8008B60C)");
+            if (vs_u32(0x800918E8u, &x)) field(f, "hit_debris", x, "debris word: bits 0-9 spread, 10-17 life, 18-22 chips (0x8008C164)");
         } else if (id == 1 || id == 2 || id == 4) write_shot_b(f, 0x80092980u + 40 * (id == 1 ? 6 : id == 2 ? 7 : 5));
         else if (id == 5) write_shot_d(f, 0x80092824u + 24, 61);
         else if (id == 6) write_shot_c(f, 0x80092C20u + 36 * 3);
@@ -281,6 +287,7 @@ static void write_shot_look(FILE *f, const uint8_t *w) {
     } else if (kind == 1) {
         const uint32_t lt = 0x800912B0u + 8u * id;
         if (vs_u32(0x80093114u + 40u * vs_u8(lt) + 0x20, &x)) field(f, "hit_flash", x, "impact flash word (flight +0x20)");
+        if (vs_u32(0x80093114u + 40u * vs_u8(lt) + 0x24, &x)) field(f, "hit_debris", x, "debris word: bits 0-9 spread, 10-17 life, 18-22 chips (0x8008C164)");
     }
 }
 
