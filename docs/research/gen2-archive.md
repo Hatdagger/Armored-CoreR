@@ -108,6 +108,31 @@ The public CodeBreaker cheats are encrypted and only touch "owned" flags, so the
 - SLUS_200.14 holds the internal model codes in catalogue order (h01-h12; cn01 cn02 cl01 cl02 ch01 ch02; b01-b07; an/al/ah/awb/awa/awe/awm arms; l2n/l2l/l2h/lr/l4/lt/la legs; wrr/wrm/wrh/wrb/wrsh/wre/wrsp; wlb/wls; wbm/wbr/wbc/wbo/wbd*; exb/exa/exm) as paths `/a2/ac2/model/ac/parts/<kind>/<code>/tp2/<code>` at file offset 0x2ecda0. Counts match the F and B blocks, so the k-th code = k-th F entry = k-th B model of that category.
 - Scripts: `tools/gen2/join.py`, `tools/gen2/stats.py`.
 
+## Parts record stat fields (NAMED 2026-11-27, session 5)
+u16 words from +114 (w0 = +114, w7 = +128, w14 = +142). Checked against published stats for heads ZHD-MO/EGRET, EHD-GN-92, EHD-DOME, ZHD-06/RW, ZHD-8008/S, core ZCH-GR/1, legs ZLB-3322/OP and ZLR-ZIO/MATRIX, and arms ZAW-XP/T9. Every checked value matches unless marked. `tools/gen2/stats.py` writes them as named fields.
+
+| Word | All frame parts | Head | Core | Legs |
+|---|---|---|---|---|
+| w0 | weight | | | |
+| w1 | energy drain | | | |
+| w4 | (always 0x4120-ish: float 10.0 with w3, meaning unknown) | | | |
+| w7 (+128) | armor points | | | |
+| w8 | def shell | | | |
+| w9 | def energy | | | |
+| w10 | cooling | | | |
+| w11 | | system recovery | max weight | low byte leg type (0 humanoid, 1 reverse joint, 2 four-legged, 3 caterpillar, 4 hover; matches every name prefix N/B/F/C/R); high byte jump (0 = no jump function) |
+| w12 | | auto balancer | ? (710 on GR/1) | max weight |
+| w13 | | low nibble computer type (0 rough, 1 standard, 2 detailed); next nibble voice (1 male, 0 female); high byte map type (0 no memory, 1 area memory, 3 area & place name; 2 on EHD-DOME, which the wiki lists as "no memory") | low byte optional slots | moving speed |
+| w14 (+142) | | low byte hacking function; high byte flags: 0x01 radar, 0x02 noise canceler, 0x04 bio sensor | OB power | braking |
+| w15-w16 | | float: radar range (398 EGRET, 270 RW, 475 8008/S) | w15 OB energy drain; w16 ? (4800 on GR/1, wiki's OB limit is 4200) | w15 landing stability, w16 defensive stability |
+| w17-w18 | | WACS: float 240 (second radar value?) | w17 7, w18 ? | w17 ? (relates to turning speed: 1320 → 520, 2555 → 472); w18 stationary drain |
+| w19-w20 | | | | hover only: 20000, 5350 (hover boost?) |
+
+- **Derived on the wiki, not stored:** defensive points (shell + energy), and probably computer ability, EDPS, moving ability, turning speed and Over Boost.
+- **Not found in this record:** head sensor interval and scanning interval. They may be in the package's settings section (kind 2).
+- **Arms:** w7 AP and w10 cooling match ZAW-XP/T9. Weapon-arm firing stats come from the weapon table (file 10), as guns do.
+- **Still open:** boosters, FCS, generators, radiators, inside parts, extensions and optional parts.
+
 ## Weapon stats (DECODED 2026-11-27, session 3)
 - Table in **file 10** (AC2: offset 0x280b0 in `00010.bin`), 0x80 bytes per row. The row number is the u16 at +132 of the part's catalogue record (right-arm guns 32-56, back weapons 64-87, extensions 110-115; rows 0-31 and others are enemy weapons).
 - Row fields (u16 index): w0 high byte = projectile id; w2 = number of ammo; w3 = ammo price (solid) or energy per shot (energy); w8 = reload; w12 = 0x17 solid / 0x27 energy; **w13 = attack power**; w14 = ammo heat; w15 = stun (probably).
@@ -145,7 +170,7 @@ The public CodeBreaker cheats are encrypted and only touch "owned" flags, so the
 - **Base game:** AC2 stays the base. AA is a superset (same formats, +23 parts, rebalanced numbers), so AA can be layered on later as an option.
 
 ## Open questions
-- Name the remaining stat fields in the parts record (+128..+142).
+- Parts record: head, core and legs fields named (see above). Still open: core w12/w16, legs turning (w17), head sensor/scan intervals, and the internal categories (booster, FCS, generator, radiator, inside, extension, optional).
 - Weapon → range record link; velocity; meaning of w8 for back cannons; AA reload discrepancy.
 - Hierarchy confirmation (game code) and rotation order; animation data (not found yet).
 - Arms' extra shared texture (TEX0 …9fd0); boosters/back units/extensions in the glTF build.
