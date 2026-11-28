@@ -3891,6 +3891,11 @@ int main(int argc, char **argv) {
                 const int wticks = battle.step_rate && battle.gen1_rate
                     ? (int)((battle.tick_phase + battle.gen1_rate) / battle.step_rate) : 1;
                 acr_gen1_battle_step(&battle, in2, act);
+                /* Effects watch every step, not only every frame: a fast shot
+                 * (WG-RF/E, 2,700 a tick) can be born and hit between two
+                 * frames. Presentation only. (Online, rollback steps the
+                 * fight; there the effects still look once a frame.) */
+                fx_update(&battle, SDL_GetTicksNS());
                 {   /* testing aid: say when a breakable breaks and which doors it reached */
                     static int16_t broken_seen_[ACR_GEN1_MAX_BREAKABLES];
                     for (int i_ = 0; i_ < battle.gim.breakables; ++i_) {
