@@ -145,19 +145,128 @@ static uint8_t *g_vs;          /* VS engine (FDAT 209): shot speeds */
 static size_t g_vs_size;
 
 /* Shot speed (world units per Gen 1 step) for a gun's model id (detail
- * byte +1): VS engine 0x80080E38 picks one of five tables by id range. */
+ * byte +1): VS engine 0x80080E38 picks the shot table by id range
+ * (ACG1PLUS docs/research/weapon-map.md section 2): 0-19 A bullet streak,
+ * 20-39 B billboard, 40-59 C model, 60-69 D energy streak, 70-89 E
+ * dispenser (0x80092910, 28 bytes, speed +0), 90+ F mine. Before
+ * 2026-11-28 ids 70-89 were read from the D table (past its end), which
+ * gave the dispensers wrong speeds (WM-X5-AA 100 for 70, WM-X15-EX 30752
+ * for 120). */
 static int vs_u16(uint32_t addr, uint16_t *out) {
     const uint32_t off = addr - 0x80050DD8u;
     if (!g_vs || off + 2 > g_vs_size) return 0;
     *out = (uint16_t)(g_vs[off] | g_vs[off + 1] << 8);
     return 1;
 }
+static int vs_u32(uint32_t addr, uint32_t *out) {
+    uint16_t lo, hi;
+    if (!vs_u16(addr, &lo) || !vs_u16(addr + 2, &hi)) return 0;
+    *out = (uint32_t)lo | (uint32_t)hi << 16;
+    return 1;
+}
+static unsigned vs_u8(uint32_t addr) {
+    const uint32_t off = addr - 0x80050DD8u;
+    return g_vs && off < g_vs_size ? g_vs[off] : 0;
+}
 static int gun_speed(unsigned id, uint16_t *out) {
-    if (id < 0x14) return vs_u16(0x80091198u + 28 * id + 8, out);
-    if (id < 0x28) return vs_u16(0x80092980u + 40 * (id - 0x14), out);
-    if (id < 0x3C) return vs_u16(0x80092C20u + 36 * (id - 0x28), out);
-    if (id < 0x5A) return vs_u16(0x80092824u + 24 * (id - 0x3C), out);
-    return vs_u16(0x800928E4u + 22 * (id - 0x5A), out);
+    if (id < 20) return vs_u16(0x80091198u + 28 * id + 8, out);
+    if (id < 40) return vs_u16(0x80092980u + 40 * (id - 20), out);
+    if (id < 60) return vs_u16(0x80092C20u + 36 * (id - 40), out);
+    if (id < 70) return vs_u16(0x80092824u + 24 * (id - 60), out);
+    if (id < 90) return vs_u16(0x80092910u + 28 * (id - 70), out);
+    return vs_u16(0x800928E4u + 22 * (id - 90), out);
+}
+
+/* How a shot looks and what it does per trigger, from the same shot
+ * tables (ACG1PLUS weapon-map.md section 2; docs/feel/projectiles.md):
+ * family, pellets, spread mask, picture (effect atlas 0x80091A28 index or
+ * a model id), tint, width, trail steps and the impact flash word. */
+static void write_shot_b(FILE *f, uint32_t a) {
+    uint16_t v;
+    uint32_t w;
+    field(f, "shot_family", 1, "B billboard shot");
+    field(f, "pellets", vs_u8(a + 14) ? vs_u8(a + 14) : 1, "shots out of one trigger pull (B +14)");
+    if (vs_u16(a + 2, &v)) field(f, "shot_spread", v, "random mask added to each axis of the 4096 direction");
+    if (vs_u16(a + 6, &v)) field(f, "shot_sprite", v, "effect atlas sprite");
+    if (vs_u16(a + 4, &v)) field(f, "shot_width", v, "billboard size");
+    if (vs_u32(a + 12, &w) && (w >> 24) & 3) {     /* trailing glow, 0x8008A700 */
+        const uint32_t g = 0x80092C00u + 4u * (w >> 26);
+        uint16_t gs, gz;
+        if (vs_u16(g, &gs) && vs_u16(g + 2, &gz)) {
+            field(f, "shot_glow", gs, "trailing glow sprite (0x80092C00)");
+            field(f, "shot_glow_size", gz, NULL);
+            field(f, "shot_glow_tint", vs_u8(a + 28) << 16 | vs_u8(a + 29) << 8 | vs_u8(a + 30), "RGB, 128 = 1.0");
+        }
+    }
+    if (vs_u8(a + 12) == 1 && vs_u32(a + 32, &w)) field(f, "hit_flash", w, "impact flash word (0x8008B60C)");
+    else field(f, "hit_sparks", 1, "spark burst (0x8008B7B8) instead of a flash word");
+}
+static void write_shot_d(FILE *f, uint32_t a, unsigned id) {
+    uint16_t v;
+    uint32_t w;
+    field(f, "shot_family", 3, "D energy streak");
+    field(f, "pellets", id == 66 ? 2 : 1, "WG-XW11 (id 66): a second shot from the other side");
+    if (vs_u16(a + 2, &v)) field(f, "shot_spread", v, "random mask added to each axis of the 4096 direction");
+    if (vs_u16(a + 6, &v)) field(f, "shot_sprite", v, "effect atlas sprite");
+    if (vs_u16(a + 4, &v)) field(f, "shot_width", v, "streak half-width at depth 40");
+    field(f, "shot_trail", 3, "tail holds 3 steps (spawner 0x8008D8CC sets +0x28 = 2; update moves it below 0)");
+    field(f, "shot_tint", vs_u8(a + 12) << 16 | vs_u8(a + 13) << 8 | vs_u8(a + 14), "RGB, 128 = 1.0");
+    if (vs_u32(a + 16, &w)) field(f, "hit_flash", w, "impact flash word (0x8008B60C)");
+}
+static void write_shot_c(FILE *f, uint32_t a) {
+    uint16_t v;
+    uint32_t w;
+    field(f, "shot_family", 2, "C model shot");
+    field(f, "pellets", 1, NULL);
+    if (vs_u16(a + 6, &v)) field(f, "shot_model", v, "the shot's 3D model (not drawn yet: a sprite stands in)");
+    if (vs_u16(a + 2, &v)) field(f, "shot_width", v, "model scale");
+    if (vs_u32(a + 28, &w)) field(f, "hit_flash", w, "impact flash word (0x8008B60C)");
+}
+static void write_shot_look(FILE *f, const uint8_t *w) {
+    const unsigned kind = w[0], id = w[1];
+    uint16_t v;
+    uint32_t x;
+    if (kind == 0 && id < 20) {
+        const uint32_t a = 0x80091198u + 28 * id;
+        field(f, "shot_family", 0, "A bullet streak");
+        field(f, "pellets", id == 8 ? 5 : 1, "WA-Finger (id 8): 5 bullets, 5 rounds a trigger (spawner 0x8008AC30)");
+        if (vs_u16(a + 10, &v)) field(f, "shot_spread", v, "random mask added to each axis of the 4096 direction");
+        if (vs_u16(a + 16, &v)) field(f, "shot_sprite", v, "effect atlas sprite");
+        if (vs_u16(a + 12, &v)) field(f, "shot_width", v, "streak half-width at depth 40");
+        if (vs_u16(a + 14, &v)) field(f, "shot_trail", v, "steps the tail waits at the muzzle (+0x2A)");
+        field(f, "shot_tint", vs_u8(a + 24) << 16 | vs_u8(a + 25) << 8 | vs_u8(a + 26), "RGB, 128 = 1.0");
+        if (vs_u32(a, &x)) field(f, "hit_flash", x, "impact flash word (0x8008B60C)");
+    } else if (kind == 0 && id < 40) write_shot_b(f, 0x80092980u + 40 * (id - 20));
+    else if (kind == 0 && id < 60) write_shot_c(f, 0x80092C20u + 36 * (id - 40));
+    else if (kind == 0 && id < 70) write_shot_d(f, 0x80092824u + 24 * (id - 60), id);
+    else if (kind == 0 && id < 90) {
+        const uint32_t a = 0x80092910u + 28 * (id - 70);
+        field(f, "shot_family", 4, "E dispenser (behaviour not modelled yet: fires like a gun)");
+        field(f, "dispenser_pellets", vs_u8(a + 8), "bombs a trigger in the game (not used yet)");
+        if (vs_u32(a + 20, &x)) field(f, "hit_flash", x, "impact flash word (0x8008B60C)");
+    } else if (kind == 0) field(f, "shot_family", 5, "F mine (not modelled)");
+    else if (kind == 2) {
+        /* Cannons, 0x80081F70: model 0 an A-style streak with constants in
+         * code; 1, 2, 4 B #6, #7, #5; 5 D #1; 6 C #3; 3 and 7 timed shells. */
+        if (id == 0) {
+            field(f, "shot_family", 0, "A-style streak (cannon 0, 0x80081FA0)");
+            field(f, "pellets", 1, NULL);
+            field(f, "shot_sprite", 7, "effect atlas sprite");
+            field(f, "shot_width", 20, NULL);
+            field(f, "shot_trail", 3, NULL);
+            field(f, "shot_tint", vs_u8(0x800918E0u) << 16 | vs_u8(0x800918E1u) << 8 | vs_u8(0x800918E2u), "RGB, 128 = 1.0");
+            if (vs_u32(0x800918E4u, &x)) field(f, "hit_flash", x, "impact flash word (0x8008B60C)");
+        } else if (id == 1 || id == 2 || id == 4) write_shot_b(f, 0x80092980u + 40 * (id == 1 ? 6 : id == 2 ? 7 : 5));
+        else if (id == 5) write_shot_d(f, 0x80092824u + 24, 61);
+        else if (id == 6) write_shot_c(f, 0x80092C20u + 36 * 3);
+        else {
+            field(f, "shot_family", 2, "timed shell (0x8008B1C0): drawn as a model shot");
+            field(f, "shot_model", id == 3 ? 49 : 56, NULL);
+        }
+    } else if (kind == 1) {
+        const uint32_t lt = 0x800912B0u + 8u * id;
+        if (vs_u32(0x80093114u + 40u * vs_u8(lt) + 0x20, &x)) field(f, "hit_flash", x, "impact flash word (flight +0x20)");
+    }
 }
 
 static void write_weapon(FILE *f, const char *c, uint32_t index) {
@@ -195,8 +304,10 @@ static void write_weapon(FILE *f, const char *c, uint32_t index) {
     if (w[0] == 2)
         field(f, "stance", 1, "cannon: bipeds crouch, four legs on the ground only, caterpillars free");
     uint16_t v, a;
+    if (w[0] != 0) write_shot_look(f, w);
     if (w[0] == 0 && gun_speed(w[1], &v))
         field(f, "shot_speed", v, "world units per Gen 1 step");
+    write_shot_look(f, w);
     /* Cannons: VS engine 0x80081B18, table 0x80091310 (6 bytes per model). */
     if (w[0] == 2 && vs_u16(0x80091310u + 6 * w[1], &v))
         field(f, "shot_speed", v, "world units per Gen 1 step (read from code, not traced)");

@@ -76,8 +76,15 @@ static int write_layer(const char *path, const uint8_t *px, unsigned w, unsigned
  * one PNG per picture and palette row, in the order they sit in the entry
  * (docs/research/gen1-effects.md). Colour 0 (0x0000) is see-through, as
  * the PS1 draws it. */
+/* Where each exported picture sits in VRAM, for the effect atlas below. */
+typedef struct fx_pic { unsigned index, vx, vy, words, h, bpp, cx, cy, rows; } fx_pic;
+#define FX_PICS 96
+static fx_pic g_pics[FX_PICS];
+static unsigned g_npics;
+
 static int export_fx(const uint8_t *d, size_t n, const char *out_dir) {
     char path[1200];
+    g_npics = 0;
     size_t o = 0;
     unsigned index = 0;
     int ok = 1;
@@ -107,6 +114,12 @@ static int export_fx(const uint8_t *d, size_t n, const char *out_dir) {
         if (vx >= 832 || !clut || bpp > 1) continue;            /* the HUD and text sheets */
         const unsigned w = bpp == 0 ? words * 4u : words * 2u, colours = bpp == 0 ? 16u : 256u;
         if (cw < colours || (size_t)words * 2 * h > len - 12) continue;
+        if (g_npics < FX_PICS) {
+            const uint8_t *ch_ = d + o - len;   /* this picture's header */
+            fx_pic *pc = &g_pics[g_npics++];
+            pc->index = this_index; pc->vx = vx; pc->vy = u16(ch_ + 6); pc->words = words; pc->h = h; pc->bpp = bpp;
+            pc->cx = u16(clut - 12 + 4); pc->cy = u16(clut - 12 + 6); pc->rows = ch;
+        }
         uint8_t *pixels = malloc((size_t)w * h);
         if (!pixels) return 0;
         for (unsigned y = 0; y < h; ++y)
@@ -134,14 +147,64 @@ static int export_fx(const uint8_t *d, size_t n, const char *out_dir) {
     return ok;
 }
 
+/* The VS engine's effect atlas (FDAT 209, 0x80091A28: 297 x 12 bytes:
+ * clut, tpage, u, v, w - 1, h - 1, r, g, b), written as fx/sprites.txt:
+ * for each sprite the picture file it lies in, its rectangle there in
+ * texels and its colour (128 = 1.0). docs/feel/projectiles.md. */
+static int export_atlas(const char *unpacked_dir, const char *out_dir) {
+    char path[1200];
+    snprintf(path, sizeof path, "%s/GG/COM/FDAT/209.bin", unpacked_dir);
+    size_t n = 0;
+    uint8_t *vs = read_all(path, &n);
+    if (!vs) return 1;
+    const size_t at = 0x80091A28u - 0x80050DD8u;
+    int ok = 1;
+    if (at + 297 * 12 <= n) {
+        snprintf(path, sizeof path, "%s/sprites.txt", out_dir);
+        FILE *f = fopen(path, "wb");
+        ok = f != NULL;
+        if (f) {
+            fprintf(f, "# Effect atlas (VS 0x80091A28), from your disc by acr-import.\n"
+                       "# sprite picture-file u v w h r g b  (texels in that picture; colour 128 = 1.0)\n");
+            for (unsigned i = 0; i < 297; ++i) {
+                const uint8_t *e = vs + at + 12 * i;
+                const unsigned clut = u16(e), tp = u16(e + 2);
+                const unsigned tx = (tp & 15) * 64, ty = ((tp >> 4) & 1) * 256, mode = (tp >> 7) & 3;
+                const unsigned per = mode == 0 ? 4 : 2;           /* texels per VRAM word */
+                const unsigned cx = (clut & 63) * 16, cy = clut >> 6;
+                const unsigned u = e[4], v = e[5], w = e[6] + 1u, h = e[7] + 1u;
+                for (unsigned k = 0; k < g_npics; ++k) {
+                    const fx_pic *pc = &g_pics[k];
+                    const unsigned ppw = pc->bpp == 0 ? 4 : 2;
+                    if (ppw != per) continue;
+                    const unsigned wx = tx + u / per, wy = ty + v;
+                    if (wx < pc->vx || wx >= pc->vx + pc->words || wy < pc->vy || wy >= pc->vy + pc->h) continue;
+                    unsigned row = 0;
+                    if (cx == pc->cx && cy >= pc->cy && cy < pc->cy + pc->rows) row = cy - pc->cy;
+                    char file[32];
+                    if (row) snprintf(file, sizeof file, "fx-%02u-%u.png", pc->index, row);
+                    else snprintf(file, sizeof file, "fx-%02u.png", pc->index);
+                    fprintf(f, "%u %s %u %u %u %u %u %u %u\n", i, file, (tx - pc->vx) * per + u, ty + v - pc->vy, w, h,
+                            e[8], e[9], e[10]);
+                    break;
+                }
+            }
+            ok = fclose(f) == 0;
+        }
+    }
+    free(vs);
+    return ok;
+}
+
 int acr_export_moa_fx(const char *unpacked_dir, const char *out_dir, char *err, size_t err_size) {
     char path[1200];
     snprintf(path, sizeof path, "%s/GG/COM/RTIM/061.bin", unpacked_dir);
     size_t n = 0;
     uint8_t *d = read_all(path, &n);
     if (!d) return 1;     /* not there: the engine draws plain stand-ins */
-    const int ok = export_fx(d, n, out_dir);
+    int ok = export_fx(d, n, out_dir);
     free(d);
+    if (ok) ok = export_atlas(unpacked_dir, out_dir);
     if (!ok && err) snprintf(err, err_size, "could not write the effect pictures in %s", out_dir);
     return ok;
 }
