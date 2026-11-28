@@ -306,11 +306,31 @@ whose use is not traced: probably a body or camera height.
   tried on the Xbox's x87.
 - The gait (walk speeds, squat and landing lengths) is an input: it comes from the AC's
   motion set, so `acr-import` should write it next to the Gen 2 AC.
-- Not wired into the game yet. The Gen 2 opponent in AC TEST (PR #64) still moves on
-  its Gen 1 build. Doing that means running a 60-a-second AC beside Gen 1's
-  22-a-second one in the same match, giving it the stage's ground and walls, and
-  converting between the two games' units and axes (1 unit = 20.875 Gen 1 world units
-  at equal height).
+- **Wired into AC TEST** (`src/gen2/acr_gen2_link.c`, branch `gen2-movement-wire`):
+  with the Gen 2 test AC on (F10 / BACK+L3) the opponent moves by these rules. Its
+  pilot's Gen 1 controls (the AI's or player 2's) become AC2 buttons (move, strafe, the
+  two turns, booster; F12 = overboost, as Gen 1 has no button for it); the Gen 1 rules
+  get no movement input for it, and after each Gen 1 step the link runs that step's
+  share of 60 AC2 frames a second (so 22 or 60 steps a second give the same path) and
+  writes the body back as the Gen 1 AC's position and facing. Hits, AP, lock-on, the
+  AI and the HUD stay Gen 1's and follow the body. Gen 1 energy is not drained for it;
+  the AC2 energy is shown on the AC TEST help line.
+- Units and axes: 1 AC2 unit = 20.875 Gen 1 world units = 1,336 Gen 1 sim units. Both
+  have y down; AC2 faces -z at yaw 0 with +x on its left, Gen 1 faces (sin, cos), so
+  Gen 1 x, z = -(AC2 x, z) and the two yaws are the same angle (both grow turning right).
+- Stage: the floor under the body is Gen 1's floor probe (the game's 75-wide box; the
+  drawn polygons' floor if a stage has no game collision), dropping up to 50 world units
+  is walked down, walls are the Gen 1 stage move with the box raised by the 75 step-up
+  (lower ledges are climbed), ceilings stop a rise. Open floor: the arena square. These
+  are Gen 1's rules lent to a Gen 2 AC: AC2's own stage collision is not read yet.
+- The drawing follows the AC2 state (stand 47, walk start / loop 1-16 by direction, turn
+  33 / 34, ground boost 17-24, slide 25-32, squat 35, air 37, landing 38, hard landing
+  51, overboost 63-65) instead of guessing from the position.
+- Gait: taken from the imported `ac.glb` clip lengths (walk loop 30 units, back 15,
+  start 1.5; squat, landing and hard landing lengths), with the walk table's B 453
+  numbers when there is no import. `acr-import` writing the gait itself is still to do.
+- Tested by `tests/test_gen2_link.c` (axes, 101 km/h walk, 22 vs 60 steps, jump, arena
+  edge, re-sync). **Not yet played in the running game.**
 
 ## Unconfirmed
 
