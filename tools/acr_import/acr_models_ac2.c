@@ -911,6 +911,27 @@ static const anim_target k_biped[] = {
 
 /* Adds every clip of the set as a glTF animation. pn: part nodes for slots 0 legs, 1 core, 2 arms.
  * Returns the number of animations written. */
+/* Rest offset (PS2 axes) of one node in the set's motion 0, e.g. node 12 = the head mount on the
+ * waist. Parts don't store where the head sits (the head file's own pivot is wrong), the set does. */
+static int set_rest(ac2_src *a, int set, int node, float out[3]) {
+    size_t total = 0, sz[4];
+    uint8_t *f[4];
+    for (int i = 0; i < 4; ++i) { f[i] = src_read(a, (uint32_t)(set + i), &sz[i]); total += f[i] ? sz[i] : 0; }
+    uint8_t *b = malloc(total ? total : 1);
+    size_t at = 0;
+    for (int i = 0; i < 4; ++i) { if (f[i] && b) memcpy(b + at, f[i], sz[i]); at += f[i] ? sz[i] : 0; free(f[i]); }
+    int ok = 0;
+    if (b && total >= 0x8030) {
+        const size_t st = 0x8000, o = st + le32(b + st + 0x10 + 16 + 4);   /* row 1 = motion 0 */
+        ac2_key k[2];
+        if (le32(b + st) >= 2 && o + 0x10 <= total && clip_keys(b, total, o, node, k, 2)) {
+            memcpy(out, k[0].pos, 12); ok = 1;
+        }
+    }
+    free(b);
+    return ok;
+}
+
 static int g_motions(glb *g, ac2_src *a, int set, const part_nodes *pn) {
     size_t total = 0, sz[4];
     uint8_t *f[4];
@@ -1110,6 +1131,11 @@ static int export_all(ac2_src *a, const char *out_dir, uint32_t *parts, char *er
             g_part(g, &p[NT - 1], hnode >= 0 ? hnode : ac, dir, k_test[NT - 1].name, NULL, NULL);
             int lg = -1;
             const int set = motion_set(p[1].f, p[3].f, p[0].f, &lg);
+            float hm[3];   /* head on the set's head mount (node 12), not the head file's pivot */
+            if (set && pn[2].n && pn[1].n && set_rest(a, set, 12, hm)) {
+                float *t = g->nodes[pn[2].node[0]].t;
+                t[0] = pn[1].pos[0][0] + hm[0]; t[1] = -(pn[1].pos[0][1] + hm[1]); t[2] = -(pn[1].pos[0][2] + hm[2]);
+            }
             if (set && lg <= 2) {
                 const part_nodes slots[3] = { pn[0], pn[1], pn[3] };
                 anims = g_motions(g, a, set, slots);
