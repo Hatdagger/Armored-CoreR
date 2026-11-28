@@ -316,8 +316,13 @@ static void map12_tick(acr_gen1_battle *b) {
  *   the start; the AC comes on area 24's gimmick (a switch). Here: everything
  *   in the fight down -> 4-11 join; those down -> the AC joins; the AC down
  *   -> 300 ticks (radio 69, 70) -> accomplished, as the game's.
- * - map 18: the areas' gimmicks are taken as the player inside the area's
- *   box, grown by 750 for the small switch (area 68).
+ * - map 18: the switch (area 68, a door piece) out of state 0 brings the
+ *   ACs, as the game; without the doors read, the player at its box (grown
+ *   by 750). The core (area 96) is a lift (12-byte kind): the game wins on
+ *   its state 1; here still the player inside its box.
+ * - map 16: the switch (area 24) brings the AC (record 30) as the game;
+ *   without the doors, after records 4-11 are down.
+ * - map 9: record 4 down unlocks the container (area 169, a locked door).
  * - "Once the radio is done": the radio's own length isn't read; RADIO_TICKS
  *   (3 s) as for map 12. */
 #define RADIO_TICKS MAP12_RADIO_TICKS
@@ -462,7 +467,8 @@ static void moa_tick(acr_gen1_battle *b, int map) {
         else if (m->phase == 2 && player_in(b, &k_map8_exit, 0)) finish(m, 0, 0);
         break;
     case 9:
-        if (m->phase == 0 && rec_down(b, 4)) m->phase = 1;
+        /* Record 4 down: the container (area 169, a locked door) opens. */
+        if (m->phase == 0 && rec_down(b, 4)) { m->phase = 1; acr_gen1_door_unlock(&b->gim, acr_gen1_door_find(&b->gim, 169)); }
         else if (m->phase == 1 && player_near(b, k_map9_container, 1000)) { m->phase = 2; finish(m, 200, 0); }
         break;
     case 10:
@@ -477,11 +483,17 @@ static void moa_tick(acr_gen1_battle *b, int map) {
     case 14:
         if (rec_down(b, 4)) { m->phase = -1; finish(m, 0, 0); }
         break;
-    case 16:
+    case 16: {
+        /* The game (0x800A3C1C): area 24's switch (a door piece) out of
+         * state 0 brings the AC (record 30). Without the doors (an import
+         * from before them): after records 4-11, as before. */
+        const int sw = acr_gen1_door_find(&b->gim, 24);
         if (m->phase == 0 && fight_clear(b)) { join_records(b, 4, 11); m->phase = 1; }
-        else if (m->phase == 1 && fight_clear(b)) { join_records(b, 30, 30); m->phase = 2; }
+        else if (m->phase == 1 && sw < 0 && fight_clear(b)) { join_records(b, 30, 30); m->phase = 2; }
+        if (m->phase < 2 && sw >= 0 && b->gim.door[sw].state) { join_records(b, 30, 30); m->phase = 2; }
         else if (m->phase == 2 && rec_down(b, 30)) finish(m, 300, 0);
         break;
+    }
     case 17: {
         static const uint8_t pair[3][2] = { { 4, 5 }, { 6, 7 }, { 8, 9 } };
         if (m->step < 3) {
@@ -493,8 +505,17 @@ static void moa_tick(acr_gen1_battle *b, int map) {
         break;
     }
     case 18:
-        if (m->phase == 0 && player_in(b, &k_map18_switch, 750)) { join_records(b, 4, 5); m->phase = 1; }
-        else if (m->phase == 1 && all_down(b, 4, 5)) { m->phase = 2; m->timer2 = RADIO_TICKS; }
+        {   /* The game (0x800A27F4): area 68's switch (a door piece, bumped)
+             * out of state 0 brings the two ACs. Without the doors: the
+             * player at its box. */
+            const int sw = acr_gen1_door_find(&b->gim, 68);
+            if (m->phase == 0 && (sw >= 0 ? b->gim.door[sw].state != 0 : player_in(b, &k_map18_switch, 750))) {
+                join_records(b, 4, 5);
+                m->phase = 1;
+                break;
+            }
+        }
+        if (m->phase == 1 && all_down(b, 4, 5)) { m->phase = 2; m->timer2 = RADIO_TICKS; }
         else if (m->phase == 2 && player_in(b, &k_map18_core, 0)) finish(m, 64, 0);
         /* The game (0x800A28B8): both ACs down -> radio 114; once it is
          * done, message 0x8201 to areas 92 and 93 (unlock, open for good). */

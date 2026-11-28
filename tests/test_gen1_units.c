@@ -595,6 +595,38 @@ int main(void) {
         EXPECT(b.gim.door[1].radio == 0 && b.gim.door[1].state >= 4);
         AT(0, -2500, 22375); TICKS(1);
         EXPECT(b.mission.end_ticks == 164);
+        /* Map 18 with the doors read: the switch (area 68) bumped brings them. */
+        cur_map = 18; SOLO(18);
+        ADD(4, 1); ADD(5, 1);
+        acr_gen1_mission_start(&b, 18);
+        acr_gen1_gimmicks_parse("door 68 68 0 -5437 -2812 18375 375 313 10 312 0 4 73 68 1 0 0\n", &b.gim);
+        b.gim.stage = 19;
+        AT(-5437, -2900, 18375); TICKS(2);
+        EXPECT(!b.unit[0].active && b.mission.phase == 0);   /* the box alone no longer does it */
+        acr_gen1_door_set_state(&b.gim, 0, 1); TICKS(1);
+        EXPECT(b.unit[0].active && b.unit[1].active && b.mission.phase == 1);
+        /* Map 16: switch 24 brings the AC (record 30) whenever it is bumped. */
+        cur_map = 16; SOLO(16);
+        ADD(4, 1); ADD(30, 1);
+        acr_gen1_mission_start(&b, 16);
+        acr_gen1_gimmicks_parse("door 24 24 0 1939 -3750 -2874 312 625 12 312 0 3 0 0 0 0 1 25\n", &b.gim);
+        b.gim.stage = 17;
+        TICKS(2);
+        EXPECT(!b.unit[1].active);
+        acr_gen1_door_set_state(&b.gim, 0, 1); TICKS(1);
+        EXPECT(b.unit[1].active && b.mission.phase == 2);
+        KILL(30); TICKS(1);
+        EXPECT(b.mission.end_ticks == 400);   /* 300 + the 100 before the report */
+        /* Map 9: record 4 down opens the container (door 169, locked). */
+        cur_map = 9; SOLO(9);
+        ADD(4, 0);
+        acr_gen1_mission_start(&b, 9);
+        acr_gen1_gimmicks_parse("door 168 169 0 -5406 28416 -2293 400 350 10 350 159 4 73 68 1 0 0\n", &b.gim);
+        b.gim.stage = 10;
+        TICKS(1);
+        EXPECT(b.gim.door[0].radio == 159);
+        KILL(4); TICKS(1);
+        EXPECT(b.gim.door[0].radio == 0 && b.gim.door[0].state == 4);
 #undef SOLO
 #undef ADD
 #undef KILL
