@@ -211,9 +211,23 @@ AC2 plays **keyframe clips per node**, like Gen 1. (An earlier note in this sess
 
 **Set choice (DONE):** set file = 421 + 24 x core group + 8 x arms group + legs group (`tools/gen2/motion_sets.py` has every part). Found by matching each part's skeleton block to the sets' skeletons; every part matched one group and scored 0 on all others. Core groups: 0 ZCH-GR/1, ECH-D4; 1 ZCX-F/ROOK, ECM-XR00; 2 ECL-ONE, ZCL-XA/2. Arms groups: 0 ZAN-707/E, EAN-MWZ, ZAN-004/B, ZAN-AX/VISE, EAN-MHKS, ZAW-2/SAMURAI; 1 ZAN-414/SLA, EAN-S0, EAN-CEX, ZAN-616/AUR, EAN-2112 and the weapon arms EAW-MG-03, EAW-BZD, EAW-DC10, ZAW-XP/T9, ZAW-SPLASH, ZAW-LC/NPM, EAW-H801, EAW-S604 (S604 a weaker match); 2 ZAN-202/TEM, EAN-02-BG, ZAN-303/S, EAN-1111. Legs groups: 0 ZLN-2A/GR, ELN-STVM, ZLN-9001/A; 1 ZLN-XX0/TP, ZLN-XA1/FA, ELN-2002AT, ELN-02A, ZLN-XA2/FF; 2 ZLN-EK1/SRRT, ELN-701, ZLN-WA02/SS; 3 ZLB-7744/VAT, ELB-XXE-LAPIN; 4 ELB-A1001, ZLB-3322/OP, ELB-5005B; 5 four-legged; 6 caterpillar; 7 hover. The game loads file 420 + [AC parts record +0x20] (loader 0x1b20c8).
 
-**Bank (DONE, `tools/gen2/motion_bank.py`):** each set's bank starts 0x8000 into its file and runs into the next files: u32 count 77, then 16-byte entries (u32 index, u32 clip offset from bank start); entry 0 is empty, so motion number m = clip at entry m. Set 421: 1 rest pose; 2-17 eight pairs of 20-frame start + 64/76-frame loop (the state code's motion table lists 2, 4 … 16, so almost certainly 8-direction walking); 18-25 and 62-75 single poses; 26-33 20-frame clips; 36/39 28/24 frames; 48-60 long clips (400, 230, 32, 52, 60, 48, 40 frames); 61 a 9000-frame clip with 2 joints moving (idle sway?).
+**Bank (DONE, `tools/gen2/motion_bank.py`):** each set's bank starts 0x8000 into its file and runs into the next files: u32 count 77, then 16-byte entries (u32 motion number, u32 clip offset from bank start); row 0 is empty and row r holds motion r - 1, so a set has motions 0-75.
 
-**Next:** name motions from the AC state code (which state plays which number); match node indices to part meshes; export glTF animations.
+**Motion names** (from the AC state code; numbers are the game's):
+| Motion | What | Source |
+|---|---|---|
+| 0 | rest pose | |
+| 1-16 | walk start (odd, 20 frames) + loop (even, 64/76 frames) for directions 0-7 | walk table 0x3c8340 = 2, 4 … 16; direction map 0x3c7d58 pairs (1,2) … (15,16) |
+| 17, 19-22, 18, 23, 24 | boost start lean pose, directions 0-7 (1 frame, blended over `dash_start`) | table 0x3c7d30, code 0x13ba80 |
+| 37 | jump, neutral (pose) | table 0x3c7e90 index 8, jump code 0x13c0d0 |
+| 39-46 | jump lean pose, directions 0-7 | table 0x3c7e90 |
+| 38 | land (24 frames) | 0x13d2e8, reads the land blend times |
+| 51 | damaged landing (52 frames) | 0x13d3a0, reads `dmgland` |
+| 25-32 | 8 x 20-frame clips, probably boost stop by direction (dash-brake code 0x13bce0 picks its motion at run time) | not confirmed |
+| 33, 35, 47, 48, 75 | played directly by other AC states (0x13b9f0/0x144d48, 0x13bed8, 0x13bfb0, 0x13d910, 0x13d528) | not named yet |
+Ground and air hit reactions (0x13de58, 0x13ded8) pick their motion at run time.
+
+**Next:** name the rest (25-36, 47-75); match node indices to part meshes; export glTF animations.
 
 ## Animation search (2026-11-27, session 6)
 No stored keyframe animation has been found for ACs. Checked:

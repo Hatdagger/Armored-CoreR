@@ -1,7 +1,7 @@
 """Read a Gen 2 motion bank (AC2 B 421-492) in game order: motion number = index.
 Bank (as the game loads it, loader 0x126d28): u32 count (77 for AC sets), 12 bytes, then count x 16-byte
-entries (u32 index, u32 clip offset from the bank start, 8 bytes 0); entry 0 is empty, so motion number
-m is the clip at entry m's offset. Clips follow the table (see motion.py for the clip format). The bank starts 0x8000
+entries (u32 motion number, u32 clip offset from the bank start, 8 bytes 0). Row 0 is empty and row r
+holds motion r - 1, so an AC set has motions 0-75. Clips follow the table (see motion.py for the clip format). The bank starts 0x8000
 into its split file and runs on into the following files, so pass the B folder.
 Usage: python3 motion_bank.py B_FOLDER SET_FILE_NUMBER
 """
@@ -16,10 +16,9 @@ def stream(folder, first, count=4):
 def bank(b, start=0x8000):
     n = struct.unpack_from('<I', b, start)[0]
     out = []
-    for m in range(n):
-        rel = struct.unpack_from('<I', b, start + 0x10 + m * 16 + 4)[0]
-        if not rel:
-            out.append(dict(number=m, offset=None, nodes=0, frames=0, parents=[], types=[], tracks=[])); continue
+    for row in range(1, n):
+        m, rel = struct.unpack_from('<II', b, start + 0x10 + row * 16)
+        if not rel: continue
         o = start + rel
         nodes, fr = struct.unpack_from('<H', b, o + 8)[0], struct.unpack_from('<H', b, o + 0xc)[0]
         recs = [b[o + 0x10 + k * 0x30: o + 0x40 + k * 0x30] for k in range(nodes)]
@@ -34,8 +33,19 @@ def bank(b, start=0x8000):
                         types=[r[0] for r in recs], tracks=tracks))
     return out
 
+# Names from the AC state code in SLUS_200.14 (see docs/research/gen2-archive.md, Motion).
+DIRS = 8   # direction index 0-7 from table 0x3c7d58 (current motion -> direction); 8 = neutral
+NAMES = {0: 'rest', 38: 'land', 51: 'land_damaged', 37: 'jump'}
+for d in range(DIRS):
+    NAMES[1 + 2 * d] = 'walk_start_dir%d' % d
+    NAMES[2 + 2 * d] = 'walk_loop_dir%d' % d
+for d, m in enumerate([17, 19, 20, 21, 22, 18, 23, 24]):   # table 0x3c7d30 (dash start, by direction)
+    NAMES[m] = 'boost_start_dir%d' % d
+for d, m in enumerate([39, 40, 41, 42, 43, 44, 45, 46]):   # table 0x3c7e90 (used by the jump code)
+    NAMES[m] = 'jump_dir%d' % d
+
 if __name__ == '__main__':
     folder, s = sys.argv[1], int(sys.argv[2])
     for c in bank(stream(folder, s)):
         moving = sum(1 for t in c['tracks'] if len(t) > 1 and len({k[2] for k in t}) > 1)
-        print('%2d  nodes %2d  frames %3d  moving joints %2d' % (c['number'], c['nodes'], c['frames'], moving))
+        print('%2d  %-18s nodes %2d  frames %4d  moving joints %2d' % (c['number'], NAMES.get(c['number'], ''), c['nodes'], c['frames'], moving))
