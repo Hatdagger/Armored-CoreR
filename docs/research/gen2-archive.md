@@ -209,7 +209,11 @@ AC2 plays **keyframe clips per node**, like Gen 1. (An earlier note in this sess
 
 **Tuning table** (ELF, labels 0x439100-0x4397f0, entries at 0x429130-0x42ab40): movement constants (std_dash_acc 0.047, std_brake 0.06, prog_move_stdmaxspd 0.8, gravity etc. at run time), heat and cooling rates, camera, and per-joint aim limits/speeds (shoulder "Kata", upper arm "2Ude", arm, hand, core; degrees). The aim-limit block 0x429858-0x4298c4 is never read by game code (debug defaults only).
 
-**Next:** map the 72 files to core/arms/legs; name clips by motion number; match node indices to part meshes; export glTF animations.
+**Set choice (DONE):** set file = 421 + 24 x core group + 8 x arms group + legs group (`tools/gen2/motion_sets.py` has every part). Found by matching each part's skeleton block to the sets' skeletons; every part matched one group and scored 0 on all others. Core groups: 0 ZCH-GR/1, ECH-D4; 1 ZCX-F/ROOK, ECM-XR00; 2 ECL-ONE, ZCL-XA/2. Arms groups: 0 ZAN-707/E, EAN-MWZ, ZAN-004/B, ZAN-AX/VISE, EAN-MHKS, ZAW-2/SAMURAI; 1 ZAN-414/SLA, EAN-S0, EAN-CEX, ZAN-616/AUR, EAN-2112 and the weapon arms EAW-MG-03, EAW-BZD, EAW-DC10, ZAW-XP/T9, ZAW-SPLASH, ZAW-LC/NPM, EAW-H801, EAW-S604 (S604 a weaker match); 2 ZAN-202/TEM, EAN-02-BG, ZAN-303/S, EAN-1111. Legs groups: 0 ZLN-2A/GR, ELN-STVM, ZLN-9001/A; 1 ZLN-XX0/TP, ZLN-XA1/FA, ELN-2002AT, ELN-02A, ZLN-XA2/FF; 2 ZLN-EK1/SRRT, ELN-701, ZLN-WA02/SS; 3 ZLB-7744/VAT, ELB-XXE-LAPIN; 4 ELB-A1001, ZLB-3322/OP, ELB-5005B; 5 four-legged; 6 caterpillar; 7 hover. The game loads file 420 + [AC parts record +0x20] (loader 0x1b20c8).
+
+**Bank (DONE, `tools/gen2/motion_bank.py`):** each set's bank starts 0x8000 into its file and runs into the next files: u32 count 77, then 16-byte entries (u32 index, u32 clip offset from bank start); entry 0 is empty, so motion number m = clip at entry m. Set 421: 1 rest pose; 2-17 eight pairs of 20-frame start + 64/76-frame loop (the state code's motion table lists 2, 4 … 16, so almost certainly 8-direction walking); 18-25 and 62-75 single poses; 26-33 20-frame clips; 36/39 28/24 frames; 48-60 long clips (400, 230, 32, 52, 60, 48, 40 frames); 61 a 9000-frame clip with 2 joints moving (idle sway?).
+
+**Next:** name motions from the AC state code (which state plays which number); match node indices to part meshes; export glTF animations.
 
 ## Animation search (2026-11-27, session 6)
 No stored keyframe animation has been found for ACs. Checked:
