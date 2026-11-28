@@ -3,9 +3,11 @@
 #define _POSIX_C_SOURCE 200809L
 #endif
 #include "acr_import.h"
+#include "acr_models_ac2.h"
 
 #include <stdio.h>
 #include <string.h>
+#include <sys/stat.h>
 #ifdef _WIN32
 #define WIN32_LEAN_AND_MEAN
 #include <windows.h>
@@ -38,6 +40,7 @@ int main(int argc, char **argv) {
      * Enter so the window stays readable. */
     if (argc != 2 && argc != 3) {
         fprintf(stderr, "usage: acr-import <disc.cue|disc.bin|disc.iso> [output folder]\n"
+                        "       acr-import <split folder> [output folder]   (Armored Core 2: tools/gen2/split_bin.py's output)\n"
                         "Or drop your disc's .cue or .bin onto acr-import.\n");
         return 2;
     }
@@ -54,7 +57,18 @@ int main(int argc, char **argv) {
     acr_import_stats stats;
     char err[512] = "";
     int rc = 0;
-    if (!acr_import_disc(argv[1], out_dir, &stats, err, sizeof err)) {
+    struct stat st;
+    if (stat(argv[1], &st) == 0 && (st.st_mode & S_IFMT) == S_IFDIR) {
+        /* Gen 2: an Armored Core 2 archive already split into NNNNN.bin files */
+        uint32_t parts = 0;
+        if (!acr_export_ac2_models_split(argv[1], out_dir, &parts, err, sizeof err)) {
+            fprintf(stderr, "acr-import: %s\n", err);
+            rc = 1;
+        } else {
+            printf("Armored Core 2 (split files): %u part models and the test AC are in %s/gen2/ac2.\n",
+                   (unsigned)parts, out_dir);
+        }
+    } else if (!acr_import_disc(argv[1], out_dir, &stats, err, sizeof err)) {
         fprintf(stderr, "acr-import: %s\n", err);
         rc = 1;
     } else {

@@ -4,9 +4,33 @@
 #include <math.h>
 
 #include "acr_render.h"
+#include "../../model/acr_png.h"
 
 #define GEN2_MAX_TRIS 8192
 static acr_vtx g_out[GEN2_MAX_TRIS * 3], g_batch[GEN2_MAX_TRIS * 3];
+
+/* The material's map_Kd (beside ac.mtl), as a renderer texture; 0 if none. */
+static uint32_t load_texture(const char *dir, const char *name) {
+    char path[1400];
+    SDL_snprintf(path, sizeof path, "%s/%s", dir, name);
+    size_t size = 0;
+    uint8_t *data = SDL_LoadFile(path, &size);
+    if (!data) return 0;
+    acr_image img;
+    const int ok = acr_png_decode(data, size, &img);
+    SDL_free(data);
+    if (!ok) return 0;
+    uint32_t tex = 0;
+    uint8_t *rgba = SDL_malloc((size_t)img.w * img.h * 4);
+    if (rgba) {
+        for (int i = 0; i < img.w * img.h; ++i)
+            SDL_memcpy(rgba + 4 * i, img.indexed ? img.palette[img.pixels[i]] : img.pixels + 4 * i, 4);
+        tex = acr_render_texture(rgba, img.w, img.h, 0);
+        SDL_free(rgba);
+    }
+    acr_image_free(&img);
+    return tex;
+}
 
 int gen2_ac_load(const char *import_dir, gen2_ac *g) {
     if (g->ok || g->tried) return g->ok;
@@ -21,6 +45,11 @@ int gen2_ac_load(const char *import_dir, gen2_ac *g) {
     t = SDL_LoadFile(path, NULL);
     g->ok = t && acr_obj_parse(t, &g->mtl, &g->mesh) && g->mesh.tri_count > 0;
     SDL_free(t);
+    SDL_snprintf(path, sizeof path, "%s/gen2/ac2/test-ac", import_dir);
+    int textures = 0;
+    for (int i = 0; g->ok && i < g->mtl.count; ++i)
+        if (g->mtl.m[i].textured && (g->tex[i] = load_texture(path, g->mtl.m[i].texture)) != 0) ++textures;
+    SDL_Log("gen 2: %d textures", textures);
     SDL_Log("gen 2: test AC %s (%d triangles)", g->ok ? "loaded" : "did not load", g->ok ? g->mesh.tri_count : 0);
     return g->ok;
 }
@@ -54,10 +83,11 @@ void gen2_ac_draw(const gen2_ac *g, float x, float y, float z, float yaw, float 
             o->u = v->uv[0]; o->v = 1.0f - v->uv[1];
         }
     }
-    for (int mi = 0; mi < g->mtl.count; ++mi) {   /* a batch per material (flat colours, no textures yet) */
+    for (int mi = 0; mi < g->mtl.count; ++mi) {   /* a batch per material: its texture tinted, or flat */
         int count = 0;
         for (int t = 0; t < n; ++t)
             if (g->mesh.material[t] == mi) SDL_memcpy(&g_batch[3 * count++], &g_out[t * 3], 3 * sizeof(acr_vtx));
-        if (count) acr_render_mesh(g_batch, count * 3, 0, 0);
+        /* PS2 modulate: vertex colour 128 = the texel as is, so x2 as the PS1 path */
+        if (count) acr_render_mesh(g_batch, count * 3, g->tex[mi], g->tex[mi] ? ACR_MESH_PS1_TEXEL : 0);
     }
 }

@@ -3,7 +3,9 @@
  * ac.mtl; tools/acr_import/acr_models_ac2.h), drawn in AC TEST in place of
  * the opponent's Gen 1 model. The opponent still runs on its Gen 1 build
  * (stats, AI, hits): only the look is Gen 2. One rigid model, no
- * animation and no textures yet. Notes: docs/research/gen2-models.md. */
+ * animation yet. Textures: the part's own (greyscale in AC2: the game
+ * tints them with the paint), tinted by the material colour.
+ * Notes: docs/research/gen2-models.md. */
 #ifndef GEN2_AC_H
 #define GEN2_AC_H
 
@@ -14,6 +16,7 @@ typedef struct gen2_ac {
     int ok, tried;
     acr_mtl mtl;
     acr_mesh mesh;
+    uint32_t tex[ACR_MTL_MAX];   /* per material, 0 = flat colour */
 } gen2_ac;
 
 /* 1 if the import has the test AC (tries once; free resets). */
