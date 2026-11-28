@@ -223,11 +223,25 @@ AC2 plays **keyframe clips per node**, like Gen 1. (An earlier note in this sess
 | 39-46 | jump lean pose, directions 0-7 | table 0x3c7e90 |
 | 38 | land (24 frames) | 0x13d2e8, reads the land blend times |
 | 51 | damaged landing (52 frames) | 0x13d3a0, reads `dmgland` |
-| 25-32 | 8 x 20-frame clips, probably boost stop by direction (dash-brake code 0x13bce0 picks its motion at run time) | not confirmed |
-| 33, 35, 47, 48, 75 | played directly by other AC states (0x13b9f0/0x144d48, 0x13bed8, 0x13bfb0, 0x13d910, 0x13d528) | not named yet |
+| 25-32 | boost stop (dash brake), 8 variants, 20 frames | CONFIRMED: chooser 0x13be60 maps a direction byte (0x11-0x20, jump table 0x433b60) to 25-32; exact direction order not read yet |
+| 33 / 34 | state 4, 1-frame poses picked by an input mask (+0x734), blend 120: probably turn in place left/right | probable |
+| 35 | state 7, 28 frames, entered when no direction input is held: probably walk stop | probable |
+| 36 | jump take-off, played by the jump code (0x13c220) when flag +0xd00 is set, blended over `jump` | confirmed use, pose |
+| 47 | state 2, 400 frames, 5 joints, looped; same state plays the "idling" sounds: idle loop | confirmed |
+| 48 | state 19 entry (0x13d910), 230 frames, blend 180 (600 when already kneeling): AC destroyed | probable |
+| 49 then 66 | state 11 (ground), entered by an action that spends energy (tuning +0xb64): probably overboost charge then boost | guess |
+| 50 then 67 | state 13, the same action from the air (jump state's handler 0x13c290) | guess |
+| 52-55 | ground hit knock-back by hit quadrant 0-3 (52, 55, 53, 54), 60 frames, state 17 | CONFIRMED (0x140480) |
+| 39, 42, 43, 44 | reused as air hit reactions by quadrant (44, 42, 39, 43), state 18 | CONFIRMED (0x1403e8) |
+| 56→57, 58→59, 75→76 | state 14 plays 75 (48 frames); state 15 (0x13d5e0) checks the current motion and plays its follow-up (40 frames). Entered by a weapon button (0x149690). Fits AC2's kneel to fire back cannons: kneel, then rise | probable |
+| 63-65 | state 16, 10-frame poses picked from table 0x3c7ed0 (index 0-8 -> 63,64,65,64,65,63,64,65,63), costs energy (+0xb58). Probably laser blade swings | guess |
+| 60 | 9000 frames, 2 joints: not played by AC state code (garage/demo?) | unknown |
+| 61, 62, 68-74 | 1-frame poses, never played by the AC state code found so far | unknown |
+
+**AC states (session 8, Gen 2).** Three state tables, one per leg family, 0x28 bytes per state (u32 flag, then handlers: per-frame, ..., event slots). Biped table 0x3c8368: 0 stand (motion 0), 1 walk, 2 idle, 3 ?, 4 turn, 5 boost start, 6 boost stop, 7 walk stop, 8 jump, 9 land, 10 damaged land, 11 ground OB?, 12 OB end (motion 0, blend 500), 13 air OB?, 14 kneel, 15 kneel hold/rise, 16 blade?, 17 ground hit, 18 air hit, 19 destroyed. State setter 0x13f960 (a1 = state). Second and third tables at 0x3c8020 and 0x3c86d8 share most handlers.
 Ground and air hit reactions (0x13de58, 0x13ded8) pick their motion at run time.
 
-**Next:** name the rest (25-36, 47-75); match node indices to part meshes; export glTF animations.
+**Next:** confirm the guesses above in-game if possible; match node indices to part meshes; export glTF animations.
 
 ## Animation search (2026-11-27, session 6)
 No stored keyframe animation has been found for ACs. Checked:
