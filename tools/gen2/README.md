@@ -19,6 +19,9 @@ Needs numpy and Pillow, plus matplotlib for `render.py`. `weapons.py` also needs
 | `textured.py OUT.png CAT N` | Loads an in-game part with its per-strip textures and renders it (CAT = core, head, arms, legs, booster, rweapon, lweapon, back) |
 | `gltf.py OUT.glb [cat=N ...]` | Exports an assembled, textured AC as binary glTF (default = PR #64 test AC) |
 | `effects.py SLUS_200.14 [SLUS_202.49] [--weapons W.json --parts P.json]` | Weapon-effect tuning values from the ELF (impact/stagger, heat, cooling, recoil, damage rates) and per-weapon/per-part results |
+| `movement.py SLUS_200.14 [SLUS_202.49] [--parts P.json --build ...] / --walk B_FOLDER` | Movement tuning values from the ELF (AA side by side), one build's compiled speeds / turning / energy with km/h, the walk table for the 72 motion sets, and the C test vectors (`--vectors`). Notes: `docs/research/gen2-movement.md` |
+| `emu_compile.py SLUS_200.14 P.json` | Runs the game's own AC compile code in a MIPS emulator (needs `unicorn`) on real part records and checks `movement.py` against it bit for bit |
+| `emu_move.py SLUS_200.14 HARNESS` | Random cases through the game's own turn / brake / speed-limit / fall / rise / direction / energy routines (emulated) and the C port's (`emu_move_harness.c`), compared bit for bit |
 | `catalogue.py F_FOLDER OUT.json` | Reads every JOIN package from one stitched stream (needed for Another Age, whose file IDs drift) |
 | `cls.py`, `fp.py`, `scan.py`, `hd.py` | First-pass fingerprinting and a hex dump |
 
