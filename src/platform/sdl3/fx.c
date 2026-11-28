@@ -386,6 +386,41 @@ static int spark_burst(const float p[3]) {
     q->spin = rnd() * 6.283f;
     return 1;
 }
+/* A model shot's or timed shell's end (ACG1PLUS mapping/weapon-effects.md
+ * 2b, 3): explosion model 0 (15 ticks, the big one: WG-PB26, AW-DC/2, the
+ * timed shells) or 5 (10 ticks: WG-B2180, WR-L24, AW-XC5500, WC-01QL) as
+ * a growing fireball; a timed shell bursts into three of them three ticks
+ * apart; without a model, the white flare. Sizes matched to the records'
+ * growth by eye. */
+static void model_blast(int k, const float p[3]) {
+    const fx_look *l = g_seen[k].fl;
+    if (!l || l->family != FX_FAM_MODEL) return;
+    if (l->timed) {
+        for (int n = 0; n < 3; ++n) explosion(p, 1.9f, n * 3 * FX_TICK_MS);
+        return;
+    }
+    if (l->blast == 0) explosion(p, 1.9f, 0);
+    else if (l->blast != 255) explosion(p, l->blast == 5 ? 1.4f : 1.2f, 0);
+    else if (l->flare) spawn(SH_FLARE, 1, B_ADD, p, 4 * FX_TICK_MS, (float)l->flare * 0.25f, (float)l->flare * 0.4f, 255, 255, 255, 230);
+}
+
+/* A blade hit (PP 0x80083234 from the line test 0x80076738; ACG1PLUS
+ * mapping/blade.md 6): a spark burst of 1 + 6 spark-spray flashes, size
+ * 300, scattered around the hit point, with no light. The scatter (+-500
+ * in the game's numbers) is drawn at a quarter of that: a guess. */
+static void blade_sparks(const float p[3]) {
+    if (!g_atlas_ok || !g_atlas[32].ok) { hit_ac(p, 1); return; }
+    for (int n = 0; n < 7; ++n) {
+        float q[3] = { p[0], p[1], p[2] };
+        if (n) for (int c = 0; c < 3; ++c) q[c] += (rnd() - 0.5f) * 250.0f;
+        part *s = spawn(SH_COUNT, 2, B_ADD, q, 2 * FX_TICK_MS, n ? 180 : 300, n ? 220 : 340, 255, 255, 255, 255);
+        s->atlas_first = 32;
+        s->atlas_count = 2;
+        s->spin = rnd() * 6.283f;
+        s->age = -(float)(n / 2) * FX_TICK_MS * 0.5f;
+    }
+}
+
 static int disc_hit(int k, const float p[3]) {
     const fx_look *l = g_seen[k].fl;
     if (!l) return 0;
@@ -498,6 +533,16 @@ static float blade_glow_from(int ms, int lit, int out) {
 }
 static float blade_glow_k(int k, int ms) { return blade_glow_from(ms, g_slash[k].lit, g_slash[k].out); }
 
+/* The beam is an arms-model mesh the game shows and hides every tick while
+ * the swing runs (PP 0x800764C0: ground ticks 0-20, air slash 0-10; ACG1PLUS
+ * mapping/blade.md 4a, 8), so it strobes at half the tick rate. Drawn on
+ * the even ticks of the lit window; past it, off. */
+static float beam_strobe(const acr_gen1_fighter *f) {
+    const int tick = f->swing > 0 ? (f->swing - 1) * 22 / 1000 : 0;
+    if (tick > (f->air_swing ? 10 : 20)) return 0.0f;
+    return (tick & 1) ? 0.0f : 1.0f;
+}
+
 /* The beam's reach as drawn, from the blade's reach in the fight. */
 static float blade_len(const acr_gen1_fighter *f) {
     float r = 205.0f;
@@ -563,6 +608,7 @@ static void shot_ended(const acr_gen1_battle *b, int k) {
             const float l = sqrtf(hx * hx + hz * hz);
             if (l > 60.0f) { q[0] = c[0] + hx * 60.0f / l; q[2] = c[2] + hz * 60.0f / l; }
             ghost_add(k, q);
+            model_blast(k, q);
             if (disc_hit(k, q)) return;
             if (g_seen[k].missile || (g_seen[k].look && g_seen[k].look->look == LOOK_ROCKET)) explosion(q, 1.0f, 0);
             else hit_ac(q, g_seen[k].energy);
@@ -574,7 +620,9 @@ static void shot_ended(const acr_gen1_battle *b, int k) {
     float q[3];
     for (int i = 0; i < 3; ++i) q[i] = p[i] + st[i] * 0.5f;
     ghost_add(k, out ? p : q);
+    if (g_seen[k].fl && g_seen[k].fl->timed && out) { model_blast(k, p); return; }   /* the fuse ran out */
     if (g_seen[k].fl && g_seen[k].fl->family >= 0 && out) return;     /* out of range: just gone */
+    model_blast(k, blast ? p : q);
     if (disc_hit(k, blast ? p : q)) return;                           /* a wall, the floor, shot down */
     if (blast) { explosion(p, 0.8f, 0); return; }
     if (out) return;
@@ -683,14 +731,12 @@ void fx_update(const acr_gen1_battle *b, uint64_t now_ns) {
             ac_feet(b, k, feet);
             ac_blast(feet);
         }
-        /* A blade hit: the hit dispatcher's flash (VS 0x8008821C ->
-         * 0x8008C164) at the AC's middle. Blades are energy hits (flags
-         * 0x20), so the energy look; the exact sprite is not mapped yet. */
+        /* A blade hit: the spark burst at the AC's middle (blade_sparks). */
         if (g_ap_ok && b->f[k].blade_hit_seq != g_bhit[k] && b->f[k].ap > 0) {
             float mid[3];
             ac_feet(b, k, mid);
             mid[1] += 106.0f;                               /* half the hit cylinder (212) */
-            hit_ac(mid, 1);
+            blade_sparks(mid);
         }
         g_bhit[k] = b->f[k].blade_hit_seq;
         g_ap[k] = b->f[k].ap;
@@ -1130,13 +1176,27 @@ void fx_draw(const acr_gen1_battle *b, const float eye[3], const float fwd[3]) {
         for (int n = 0; n < r.nozzles; ++n)
             billboard(r.nozzle[n], 34.0f * flick, 0, right, up, SH_GLOW, all, w[0], w[1], w[2], 220);
     }
+    /* Lit shots (model shots with a light, timed shells): the light they
+     * cast in flight, as a soft glow round them (C +0x0C / +0x10). */
+    {
+        const rect all = { 0, 0, (float)g_tex_w[SH_GLOW], (float)g_tex_h[SH_GLOW] };
+        for (int k = 0; k < ACR_GEN1_MAX_SHOTS; ++k) {
+            const fx_look *fl = g_seen[k].on && b->shot[k].active ? g_seen[k].fl : NULL;
+            if (!fl || !fl->light) continue;
+            float p[3];
+            shot_pos(&b->shot[k], p);
+            const float sz = (float)fl->light * 0.18f * flick;
+            billboard(p, sz, 0, right, up, SH_GLOW, all, ps1(fl->light_tint[0]), ps1(fl->light_tint[1]),
+                      ps1(fl->light_tint[2]), 110);
+        }
+    }
     flush(SH_GLOW, B_ADD);
 
     /* The blade: a light beam out of the hand along the forearm, its core
      * white, with a fading sheet over the last ~0.1 s of the slash. */
     for (int k = 0; k < acr_gen1_battle_fighters(b); ++k) {
         const acr_gen1_fighter *f = &b->f[k];
-        const float g = f->ap > 0 && has_blade(f) ? blade_glow_k(k, f->swing) : 0.0f;
+        const float g = f->ap > 0 && has_blade(f) ? blade_glow_k(k, f->swing) * beam_strobe(f) : 0.0f;
         if (g <= 0.0f) continue;
         fx_rig r;
         rig_of(b, k, &r);
@@ -1168,7 +1228,7 @@ void fx_draw(const acr_gen1_battle *b, const float eye[3], const float fwd[3]) {
     flush(SH_SHOTS, B_ADD);
     for (int k = 0; k < acr_gen1_battle_fighters(b); ++k) {
         const acr_gen1_fighter *f = &b->f[k];
-        const float g = f->ap > 0 && has_blade(f) ? blade_glow_k(k, f->swing) : 0.0f;
+        const float g = f->ap > 0 && has_blade(f) ? blade_glow_k(k, f->swing) * beam_strobe(f) : 0.0f;
         if (g <= 0.0f) continue;
         fx_rig r;
         rig_of(b, k, &r);

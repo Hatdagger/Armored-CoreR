@@ -459,6 +459,10 @@ static void stagger_hit(acr_gen1_battle *b, int target, uint8_t impact, int64_t 
 
 /* Blade lunge distance per Gen 1 tick from ACR_GEN1_BLADE_LUNGE_MS (measured: 516 in all). */
 const int16_t acr_gen1_blade_lunge[ACR_GEN1_BLADE_STEPS] = { 125, 125, 125, 50, 44, 24, 23 };
+/* The same with forward held: the push (facing x 4,096, 64 a tick) is kept
+ * for five ticks instead of bleeding out (PP 0x80014DC0 skipped; ACG1PLUS
+ * mapping/blade.md 4b: about 695 in all). */
+static const int16_t k_lunge_fwd[ACR_GEN1_BLADE_STEPS + 1] = { 125, 125, 125, 64, 64, 64, 64, 64 };
 
 /* Target offset seen from facing `yaw`: how far ahead and to the side. */
 static void offset(uint16_t yaw, int64_t dx, int64_t dz, int64_t *ahead, int64_t *side) {
@@ -476,14 +480,19 @@ static int kneel_need_ms(const acr_gen1_fighter *f);
 static void lunge_move(acr_gen1_battle *b, int i, int from, int to) {
     acr_gen1_fighter *f = &b->f[i];
     acr_gen1_ac *me = &f->ac;
-    const int lunge_end = ACR_GEN1_BLADE_LUNGE_MS + tick_ms(ACR_GEN1_BLADE_STEPS);
+    const int fwd = f->used.swing_fwd;           /* forward held keeps the push */
+    const int steps = fwd ? ACR_GEN1_BLADE_STEPS + 1 : ACR_GEN1_BLADE_STEPS;
+    const int16_t *table = fwd ? k_lunge_fwd : acr_gen1_blade_lunge;
+    const int lunge_end = ACR_GEN1_BLADE_LUNGE_MS + tick_ms(steps);
     if (f->lunge_done || to <= ACR_GEN1_BLADE_LUNGE_MS || from >= lunge_end) return;
-    if (!f->lunge_x && !f->lunge_z) fwd_vec(me->yaw, &f->lunge_x, &f->lunge_z);
+    /* Along the facing as it is now: the swing keeps turning toward its
+     * target (root motion and the push follow the facing). */
+    fwd_vec(me->yaw, &f->lunge_x, &f->lunge_z);
     int64_t d = 0;
     for (int ms = from < ACR_GEN1_BLADE_LUNGE_MS ? ACR_GEN1_BLADE_LUNGE_MS : from; ms < to; ++ms) {
         const int k = (ms - ACR_GEN1_BLADE_LUNGE_MS) * 22 / 1000;
-        if (k >= ACR_GEN1_BLADE_STEPS) break;
-        d += acr_gen1_blade_lunge[k];
+        if (k >= steps) break;
+        d += table[k];
     }
     d = d * 64 * 22 / 1000;                                         /* 1/64 units */
     const int n = acr_gen1_battle_fighters(b);
@@ -509,8 +518,8 @@ static void lunge_move(acr_gen1_battle *b, int i, int from, int to) {
             f->lunge_done = 1;
         }
     }
-    /* On top of the AC's own velocity, which the swing handler keeps or
-     * slows (in.swing): an air slash carries on. */
+    /* The AC's own velocity is dropped for a ground swing (sim, in.swing):
+     * this is all of its movement. */
     acr_gen1_ac_shift(me, (int32_t)(f->lunge_x * d / 4096), (int32_t)(f->lunge_z * d / 4096));
 }
 
@@ -650,15 +659,28 @@ static void blade_step(acr_gen1_battle *b, int i, int blade, int pressed) {
         f->lunge_done = 0;
         f->lunge_x = f->lunge_z = 0;
         f->air_swing = (uint8_t)(me->state == ACR_GEN1_AIR);   /* +0x46 = 0xC0: state 0x21 */
-        /* 0x80078230: an AC up to 3,000 ahead within +-45 degrees (enemies
-         * only; the nearest). */
+        /* The press wipes every gun and missile lock, on both discs (PP
+         * 0x80077E28, MoA 0x8008332C; ACG1PLUS mapping/blade.md 3). */
+        drop_locks(f);
+        /* 0x80078230: an AC up to 3,000 ahead within +-45 degrees sideways
+         * and +-45 up or down around the view tilt, from the AC's middle
+         * (PP 0x80070524; enemies only; the nearest). */
         f->swing_target = -1;
         int64_t best = INT64_MAX;
+        tview me_v;
+        view_of(b, i, &me_v);
         for (int j = 0; j < ACR_GEN1_UNIT(b->units); ++j) {      /* ACs, then the units */
             if (j >= n && j < ACR_GEN1_MAX_FIGHTERS) continue;
             if (!enemies(b, i, j)) continue;
             int64_t ahead, side, dist;
             if (!blade_gap(b, me, j, &ahead, &side, &dist)) continue;
+            tview tv;
+            if (ahead > 0 && view_of(b, j, &tv)) {               /* up / down: within 45 of the view tilt */
+                const int64_t dy = ((int64_t)tv.y - tv.up - ((int64_t)me->y - me_v.up)) / 64;   /* + = below */
+                const int32_t climb = (int32_t)wrap(angle_of(-dy, ahead));
+                const int32_t off = climb - view_pitch(f);
+                if ((off < 0 ? -off : off) > ACR_GEN1_BLADE_SEEK_ANGLE) continue;
+            }
             if (ahead > 0 && dist <= ACR_GEN1_BLADE_SEEK && (side < 0 ? -side : side) <= ahead && dist < best) {
                 best = dist;
                 f->swing_target = (int8_t)j;
@@ -667,10 +689,11 @@ static void blade_step(acr_gen1_battle *b, int i, int blade, int pressed) {
     }
     if (!f->swing) return;
     const int t0 = f->swing - 1, t1 = t0 + step_ms;                 /* this step's ms window */
-    /* Turn toward the target at the AC's top turn rate until the lunge. */
+    /* Turn toward the target at the AC's top turn rate on every tick of the
+     * swing, through the hit window and the wind-down (PP 0x80076A54:
+     * no tick limit; ACG1PLUS mapping/blade.md 4a). */
     tview sv;
-    if (!f->air_swing && f->swing_target >= 0 && view_of(b, f->swing_target, &sv) && sv.alive &&
-        t1 <= tick_ms(ACR_GEN1_BLADE_STEER_TICKS)) {
+    if (!f->air_swing && f->swing_target >= 0 && view_of(b, f->swing_target, &sv) && sv.alive) {
         const int64_t dx = (sv.x - me->x) / 64, dz = (sv.z - me->z) / 64;
         int32_t rate = (int32_t)((int64_t)f->def->motion.turn_max * rate_n(b) / rate_d(b));
         if (f->modern) rate = (int32_t)(rate * (int32_t)MT(b, steer_pct, STEER_PCT) / 100);
@@ -742,8 +765,9 @@ static void blade_step(acr_gen1_battle *b, int i, int blade, int pressed) {
         f->swing = 0;
         f->air_swing = 0;
         /* Master of Arena drops every lock when the swing ends and the
-         * busy bit clears (VS 0x8007EFDC -> 0x80080084); Project Phantasma
-         * keeps them (ACG1PLUS feel-diff.md 4.1 row 7). */
+         * busy bit clears (VS 0x8007EFDC -> 0x80080084), as well as at the
+         * press; Phantasma's air slash does too (its ground swing's end is
+         * still open: ACG1PLUS mapping/blade.md 9, test 44). */
         drop_locks(f);
         if (f->modern)         /* standing still after the swing: short on a hit, long on a miss */
             f->recover_ms = (uint16_t)(f->swing_hits ? MT(b, recover_hit_ms, RECOVER_HIT_MS)
@@ -1588,6 +1612,7 @@ void acr_gen1_battle_step(acr_gen1_battle *b, const acr_gen1_input in[], const a
             use.swing = (uint8_t)(k > 250 ? 251 : k + 1);
             use.swing_fwd = (uint8_t)(use.move > 0);
             use.swing_air = f->air_swing;
+            use.swing_boost = (uint8_t)(f->air_swing && in[i].boost);
             if (f->air_swing && f->ac.state == ACR_GEN1_AIR)
                 for (int t = 0; t < ticks; ++t) air_slash_tick(b, i);
             use.move = use.strafe = use.boost = use.boost_tapped = 0;

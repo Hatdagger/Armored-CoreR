@@ -43,6 +43,17 @@ typedef struct fx_look {
     uint8_t  glow_tint[3];
     uint32_t hit_flash;       /* impact flash word (0x8008B60C); 0 = by type */
     uint8_t  hit_sparks;      /* B: a spark burst instead of the flash */
+    /* C model shots and timed shells (ACG1PLUS mapping/weapon-effects.md
+     * 2, 3): the light they cast in flight (C +0x0C strength, +0x10 RGB;
+     * drawn as a glow, there is no per-area light here), the explosion
+     * model on impact (C +0x17: 0 the big one, 5 the medium one, 255 none)
+     * or, without one, a white flare (C +0x18 x 64; 0 none), and whether
+     * it is a timed shell (burst: three fireballs, three ticks apart). */
+    uint16_t light;
+    uint8_t  light_tint[3];
+    uint8_t  blast;
+    uint16_t flare;
+    uint8_t  timed;
 } fx_look;
 
 /* The looks of a fighter's weapons, in the fight's order (kept by pointer;

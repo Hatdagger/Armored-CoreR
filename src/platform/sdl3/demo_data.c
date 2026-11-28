@@ -318,6 +318,14 @@ int demo_load(const char *import_dir, const int parts[SLOT_COUNT], demo_ac *out,
                 lk->glow_size = (uint16_t)get_int(t, e, "shot_glow_size", 0);
                 lk->hit_flash = get_u32(t, e, "hit_flash", 0);
                 lk->hit_sparks = (uint8_t)get_int(t, e, "hit_sparks", 0);
+                {
+                    const long li = get_int(t, e, "shot_light", 0), lt = get_int(t, e, "shot_light_tint", 0);
+                    lk->light = (uint16_t)(li < 0 ? 0 : li > 65535 ? 65535 : li);
+                    lk->light_tint[0] = (uint8_t)(lt >> 16); lk->light_tint[1] = (uint8_t)(lt >> 8); lk->light_tint[2] = (uint8_t)lt;
+                    lk->blast = (uint8_t)get_int(t, e, "shot_blast", 255);
+                    lk->flare = (uint16_t)get_int(t, e, "shot_flare", 0);
+                    lk->timed = (uint8_t)get_int(t, e, "shot_timed", 0);
+                }
             }
             w->attack = (uint16_t)get_int(t, e, "attack", 0);
             {   /* knockback: detail +0x16 (blade +0x32) */

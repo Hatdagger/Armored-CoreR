@@ -2,6 +2,46 @@
 
 Changes big enough to need a way back. Newest first.
 
+## 2026-11-28: blade and projectile pass from ACG1PLUS's Phantasma mapping
+
+**Why.** ACG1PLUS mapped the blade (`docs/research/mapping/blade.md`, branch `mapping/blade`) and the
+weapon effects (`docs/research/mapping/weapon-effects.md`, branch `mapping/weapon-effects`) on
+Phantasma and listed where ACR differs. Only rules that hold on **both** discs were taken (fight rules
+stay MoA's); the Phantasma-only blade differences are listed below as not done.
+
+**Old behaviour.** A ground swing kept and moved by the AC's own speed (boosting into a slash slid on);
+forward held did not lengthen the lunge; the swing stopped turning after 7 ticks; locks were only
+dropped when the swing ended; the seek cone had no up/down limit; an air slash cost no energy with
+boost held. Blade hits drew the energy-shot flash; the beam glowed smoothly. Model shots ended in the
+flash word only; timed shells looked like any model shot; no light in flight.
+
+**New behaviour.**
+- Blade (sim): a ground swing drops the AC's own velocity (stops dead, stands after); forward held keeps
+  the push for five ticks (about 695 in all, 516 without); the AC turns toward its target all through
+  the swing; the press wipes every lock (and the end still does); the seek cone is +-45 degrees up /
+  down around the view tilt as well as sideways; an air slash with boost held drains as a rise.
+- Looks: blade hits are a 7-flash spark burst; the beam strobes on and off every tick (ground ticks
+  0-20, air 0-10) inside the existing lit window and keeps the per-part colours; model shots with an
+  explosion model end in a large (record 0) or medium (record 5) fireball, others in their white
+  flare; timed shells (WC-GN230, WC-IR24) burst into three fireballs three ticks apart, also when the
+  fuse runs out; lit shots (rockets, bazookas, WC-01QL / AW-XC5500, timed shells) glow in flight.
+  The new looks need a **re-import** of the disc; older imports draw as before.
+
+**Not done (decide / test first).** Phantasma-only: air slash attack x 4 (MoA x 3, kept), no Human
+PLUS wave from an air slash, wave disarmed by boost held before the hit window. Both discs but
+risky without a live test: two line tests a tick in the air slash (up to 4 hits), hit cylinder
+radius 100 instead of ACR's 75, per-body lunge from animation 56's root track, splash damage of the
+explosion models (radius unclear), debris chips cut from the target's mesh, mines / HG770 split /
+dispenser falling bombs.
+
+**Files.** `src/gen1/acr_gen1_battle.{c,h}`, `acr_gen1_sim.{c,h}`; `src/platform/sdl3/fx.{c,h}`,
+`demo_data.c`; `tools/acr_import/acr_parts_moa.c`; `src/net/acr_replay.h` (rules 9 -> 10);
+`tests/test_gen1_battle.c`, `tests/test_replay.c`; this file.
+
+**How to switch back.** `git revert` the PR's merge commit. The fight's part alone: revert the
+`acr_gen1_battle.c` / `acr_gen1_sim.*` hunks and set `ACR_REPLAY_RULES` and the test's `GOLDEN_*`
+back to rules 9 (`0x7EC43318`, `0x5A4D00D4`).
+
 ## 2026-11-28: projectiles from the disc's shot tables, Phantasma generators
 
 **Why.** Shots didn't look like the original (one look per weapon type, by eye) and some numbers

@@ -442,11 +442,14 @@ typedef struct acr_gen1_actions {
 #define ACR_GEN1_SIGHT_DEPTH 16384
 #define ACR_GEN1_SIGHT_CORNER 512
 
-/* Blade swing (VS 0x80083224 / 0x8007EB48, plus measurements). A press
- * needs energy above the charge drain and takes it. The swing looks for an
- * AC up to SEEK ahead within +-45 degrees and turns toward it at the AC's
- * top turn rate until the lunge, then lunges along its facing (measured
- * profile, acr_gen1_blade_lunge). The game tests the blade line twice a tick
+/* Blade swing (VS 0x80083224 / 0x8007EB48, plus measurements; checked
+ * against Phantasma in ACG1PLUS docs/research/mapping/blade.md, 2026-11-28).
+ * A press needs energy above the charge drain and takes it, and wipes every
+ * lock. The swing looks for an AC up to SEEK ahead within +-45 degrees
+ * sideways and up / down, and turns toward it at the AC's top turn rate on
+ * every tick of the swing. A ground swing drops the AC's own velocity
+ * (boosting into it stops dead) and lunges along its facing (measured
+ * profile, acr_gen1_blade_lunge; forward held keeps the push for ~695). The game tests the blade line twice a tick
  * over ticks 7-11 with no "already hit" guard, so a close target can be hit
  * twice (492 on the default AC, 246 each). Here the arc crosses the front
  * twice, HIT_TICK and HIT_TICK + 1 lunge ticks in: the first crossing hits
@@ -456,7 +459,6 @@ typedef struct acr_gen1_actions {
  * stop the lunge at contact (two hit radii). */
 #define ACR_GEN1_BLADE_SEEK       3000
 #define ACR_GEN1_BLADE_SEEK_ANGLE 512     /* 45 degrees */
-#define ACR_GEN1_BLADE_STEER_TICKS 7
 #define ACR_GEN1_BLADE_LUNGE_MS   330
 #define ACR_GEN1_BLADE_STEPS      7
 #define ACR_GEN1_BLADE_HIT_TICK   2

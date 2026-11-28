@@ -304,12 +304,46 @@ int main(void) {
         acr_gen1_battle_step(&bb, none, swing);
         EXPECT(me->swing == 0);
         /* Steering: a target 30 degrees right turns the AC toward it at its
-         * top turn rate (38 a tick) until the lunge. */
+         * top turn rate (38 a tick) all through the swing (PP 0x80076A54),
+         * so it ends up facing it (30 degrees = 341). */
         acr_gen1_ac_spawn(&me->ac, &def, 0, 0, 0);
         acr_gen1_ac_spawn(&bb.f[1].ac, &def, 1000 * 64, 1732 * 64, 2048);
         acr_gen1_battle_step(&bb, none, swing);
         for (int k = 0; k < 40; ++k) acr_gen1_battle_step(&bb, none, idle);
-        EXPECT(me->ac.yaw == def.motion.turn_max * ACR_GEN1_BLADE_STEER_TICKS && me->ac.x > 0);
+        EXPECT(me->ac.yaw >= 338 && me->ac.yaw <= 344 && me->ac.x > 0);
+        if (me->ac.yaw < 338 || me->ac.yaw > 344) printf("  steer: yaw %u\n", me->ac.yaw);
+        /* Boosting into a slash: the AC's own speed is dropped (PP
+         * 0x8007CAF8), so the swing moves it only the lunge's 516 ahead. */
+        bb.f[1].ac.x = 1000000 * 64;               /* out of the way */
+        acr_gen1_ac_spawn(&me->ac, &def, 0, 0, 0);
+        me->ac.energy = 28000;
+        me->ac.vz = -40 * 64;                      /* sliding backwards */
+        acr_gen1_battle_step(&bb, none, swing);
+        for (int k = 0; k < 40; ++k) acr_gen1_battle_step(&bb, none, idle);
+        EXPECT(me->ac.z / 64 >= 470 && me->ac.z / 64 <= 522);   /* less the press step's slide */
+        if (me->ac.z / 64 < 470 || me->ac.z / 64 > 522) printf("  boost-in lunge: %d\n", me->ac.z / 64);
+        /* Forward held keeps the push: about 695. */
+        acr_gen1_ac_spawn(&me->ac, &def, 0, 0, 0);
+        me->ac.energy = 28000;
+        {
+            acr_gen1_input fwd[2] = { { 0 }, { 0 } };
+            fwd[0].move = 1;
+            acr_gen1_battle_step(&bb, fwd, swing);
+            for (int k = 0; k < 40; ++k) acr_gen1_battle_step(&bb, fwd, idle);
+        }
+        EXPECT(me->ac.z / 64 >= 680 && me->ac.z / 64 <= 760);
+        if (me->ac.z / 64 < 680 || me->ac.z / 64 > 760) printf("  forward lunge: %d\n", me->ac.z / 64);
+        /* A target far above (more than 45 degrees up) is not sought. */
+        acr_gen1_ac_spawn(&me->ac, &def, 0, 0, 0);
+        me->ac.energy = 28000;
+        acr_gen1_ac_spawn(&bb.f[1].ac, &def, 0, 500 * 64, 2048);
+        bb.f[1].ac.y = -1500 * 64;
+        acr_gen1_battle_step(&bb, none, swing);
+        EXPECT(me->swing && me->swing_target < 0);
+        for (int k = 0; k < 40; ++k) acr_gen1_battle_step(&bb, none, idle);
+        bb.f[1].ac.y = 0;
+        acr_gen1_ac_spawn(&bb.f[1].ac, &def, 1000 * 64, 1732 * 64, 2048);
+        me->ac.energy = 28000;
         /* Far to the side (70 degrees): no turn. */
         acr_gen1_ac_spawn(&me->ac, &def, 0, 0, 0);
         acr_gen1_ac_spawn(&bb.f[1].ac, &def, 2750 * 64, 1000 * 64, 2048);

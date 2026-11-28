@@ -433,21 +433,22 @@ void acr_gen1_ac_tick(acr_gen1_ac *ac, const acr_gen1_ac_def *def, acr_gen1_inpu
         goto moved;
     }
     if (in.swing && in.swing_air && ac->state == ACR_GEN1_AIR) {
+        /* Air slash: mode 0xC0, so boost held drains as a normal rise
+         * (VS 0x8007AA7C; ACG1PLUS mapping/blade.md 3). */
+        if (in.swing_boost && !ac->drained && ac->energy > 0) drain = 1;
         mx = ac->vx;
         mz = ac->vz;
         goto moved;
     }
     if (in.swing && (ac->state == ACR_GEN1_GROUND || ac->state == ACR_GEN1_AIR)) {
-        const int k = in.swing - 1;
-        if (k >= 12) {
-            ac->vx = ac->vy = ac->vz = 0;
-        } else if (k >= 7 && !in.swing_fwd) {
-            limit_length(&ac->vx, &ac->vz, ACR_GEN1_SWING_CAP);
-            slow_down(&ac->vx, &ac->vz, ACR_GEN1_SWING_SLOW);
-        }
-        if (ac->state == ACR_GEN1_GROUND) ac->vy = 0;
-        mx = ac->vx;
-        mz = ac->vz;
+        /* Ground swing (state 0x20, ACG1PLUS mapping/blade.md 4a / 4c): the
+         * AC's own velocity is not used on ticks 0-6 (root motion only) and
+         * is replaced on tick 7, so a boosting AC stops dead when it slashes
+         * and stands after the swing. The whole lunge, forward push
+         * included, is the battle's (lunge_move); here the AC's velocity is
+         * dropped. */
+        ac->vx = ac->vy = ac->vz = 0;    /* off a ledge mid-swing: no gravity until it ends (0x8007E764) */
+        mx = mz = 0;
         goto moved;
     }
 
