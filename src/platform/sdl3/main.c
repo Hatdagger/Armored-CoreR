@@ -498,13 +498,13 @@ static void draw_aimed(int who, const demo_model *m, acr_pose *pose, Uint64 now,
 
 /* Gen 2 proof of concept (gen2_ac.h): the opponent drawn as the Armored
  * Core 2 test AC. --gen2 or F10 / BACK+L3 in AC TEST. */
-static gen2_ac g_gen2;
+static gen2_ac *g_gen2;
 static const char *g_import_dir;   /* (set below) */
 static int g_gen2_on;
 
 static void draw_ac(int who, const acr_gen1_ac *ac, float x, float y, float z, float yaw, float crouch) {
-    if (who == 1 && g_gen2_on && gen2_ac_load(g_import_dir, &g_gen2)) {
-        gen2_ac_draw(&g_gen2, x, y, z, yaw, ACR_GEN1_MODEL_SCALE, 0, &g_light);
+    if (who == 1 && g_gen2_on && (g_gen2 = gen2_ac_load(g_import_dir)) != NULL) {
+        gen2_ac_draw(g_gen2, x, y, z, yaw, ACR_GEN1_MODEL_SCALE, 0, &g_light);
         return;
     }
     float tick;
@@ -2149,7 +2149,7 @@ int main(int argc, char **argv) {
                 }
                 if (e.type == SDL_EVENT_KEY_DOWN) {
                     const SDL_Scancode k = e.key.scancode;
-                    const int test_key = (k >= SDL_SCANCODE_F2 && k <= SDL_SCANCODE_F8 && k != SDL_SCANCODE_F5) || k == SDL_SCANCODE_F10 ||
+                    const int test_key = (k >= SDL_SCANCODE_F2 && k <= SDL_SCANCODE_F8 && k != SDL_SCANCODE_F5) || k == SDL_SCANCODE_F10 || k == SDL_SCANCODE_F11 ||
                                          (k >= SDL_SCANCODE_2 && k <= SDL_SCANCODE_8 && k != SDL_SCANCODE_5) ||
                                          k == SDL_SCANCODE_R || k == SDL_SCANCODE_B || k == SDL_SCANCODE_G || k == SDL_SCANCODE_C ||
                                          k == SDL_SCANCODE_L || k == SDL_SCANCODE_H || k == SDL_SCANCODE_T;
@@ -2303,6 +2303,8 @@ int main(int argc, char **argv) {
                 g_gen2_on = !g_gen2_on;   /* Gen 2 opponent look (draw_ac) */
                 if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) back_combo = 1;
             }
+            if (g_gen2_on && e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_F11)
+                gen2_ac_cycle_clip(g_gen2);   /* Gen 2: step through the AC2 motions (keyboard only: pad combos are full) */
             int cycle_ai = 0, toggle_autopilot = 0;
             if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_F4) cycle_ai = 1;
             if (e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_F6) toggle_autopilot = 1;
@@ -4479,8 +4481,15 @@ int main(int argc, char **argv) {
             TEXT(20, 100, "BACK+LB (F2): TWO PLAYERS  BACK+R3 (F3): LANDING PAUSE GUESS/ANIMATION");
             TEXT(20, 112, "BACK+UP (F4): OPPONENT STILL / AI PRESETS  BACK+DOWN (F6): AI VS AI (WATCH)");
             TEXT(20, 148, !g_gen2_on ? "BACK+L3 (F10): OPPONENT AS GEN 2 (ARMORED CORE 2) TEST AC"
-                          : g_gen2.ok ? "BACK+L3 (F10): GEN 2 TEST AC ON (LOOK ONLY: STILL A GEN 1 BUILD)"
-                                      : "BACK+L3 (F10): NO GEN 2 TEST AC (IMPORT AN ARMORED CORE 2 DISC)");
+                          : g_gen2 ? "BACK+L3 (F10): GEN 2 TEST AC ON (LOOK ONLY: STILL A GEN 1 BUILD)"
+                                   : "BACK+L3 (F10): NO GEN 2 TEST AC (RE-IMPORT AN ARMORED CORE 2 DISC)");
+            if (g_gen2_on && g_gen2) {
+                char line[96];
+                SDL_snprintf(line, sizeof line, "(F11): GEN 2 MOTION %s %s", gen2_ac_forced(g_gen2) ? "LOCKED" : "AUTO",
+                             gen2_ac_clip_name(g_gen2));
+                for (char *q = line; *q; ++q) if (*q >= 'a' && *q <= 'z') *q = (char)(*q - 32);
+                TEXT(20, 160, line);
+            }
             if (g_stage.ok) TEXT(20, 136, g_test_boundary ? "BACK+RIGHT (F8): TEST BOUNDARY ON (1,500 PAST THE STARTS)"
                                           : g_stage.own_bounds ? "BACK+RIGHT (F8): TEST BOUNDARY OFF (THE STAGE'S OWN AREA)"
                                                                : "BACK+RIGHT (F8): TEST BOUNDARY OFF (NO OUT OF AREA HERE)");
