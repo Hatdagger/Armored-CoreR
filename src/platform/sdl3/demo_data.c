@@ -330,6 +330,14 @@ int demo_load(const char *import_dir, const int parts[SLOT_COUNT], demo_ac *out,
                 w->aim_table = (uint8_t)(aim < 0 || aim > 254 ? 255 : aim);
                 w->aim_y = (uint8_t)((pattern & 8) != 0 || kind == 2);
                 w->speed = (int32_t)get_int(t, e, "shot_speed", 700);
+                /* Pellets and spread (docs/feel/projectiles.md); older imports
+                 * lack them: one shot, no spread, as before. */
+                if (kind != 1) {
+                    const long pel = get_int(t, e, "pellets", 1), spr = get_int(t, e, "shot_spread", 0);
+                    w->pellets = (uint8_t)(pel < 1 ? 1 : pel > 16 ? 16 : pel);
+                    w->pellet_ammo = (uint8_t)(get_int(t, e, "shot_family", -1) == 0 && w->pellets > 1);
+                    w->spread = (uint16_t)(spr < 0 || spr > 1023 ? 0 : spr);
+                }
                 w->stance = (uint8_t)get_int(t, e, "stance", 0);
                 /* Cannon kick: base recoil (detail +2) and the cannon table's
                  * +2 for the model (32 for most; imports before the weapons

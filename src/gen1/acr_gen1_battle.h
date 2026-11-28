@@ -56,6 +56,12 @@ typedef struct acr_gen1_weapon {
     uint16_t kick_table;    /* cannons: the cannon table's +2 for the model (0x80091310) */
     /* Guns */
     uint8_t  shots;         /* per trigger: 1, 2 or 4 (detail +2 bits 0-1) */
+    uint8_t  pellets;       /* shots per spawn (0 = 1): B table +14 (WG-HG235 / HG1 3, slug guns 7),
+                             * WA-Finger 5 (A id 8), WG-XW11 2 (D id 66, the other side) */
+    uint8_t  pellet_ammo;   /* 1: every pellet costs a round (WA-Finger: 5 a trigger); 0: one a spawn */
+    uint16_t spread;        /* shot table spread mask: each axis of the 4096-long direction gets
+                             * (rnd & mask) - mask / 2 (spawners 0x8008AC30, 0x8008DEC0, 0x8008D8CC).
+                             * MGs 127, hand guns 383, slugs 255, pulse 63 */
     uint8_t  straight;      /* sight bit 2 (rockets, dispensers): no aiming, straight ahead */
     uint8_t  hold;          /* post-shot hold in ticks: the firing animation, 7 + detail +4
                              * (255: none). VS 0x80054DE4: the layer-2 frame count runs to the
