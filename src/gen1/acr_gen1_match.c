@@ -142,6 +142,11 @@ uint32_t acr_gen1_match_hash(const acr_gen1_match *m) {
         H(ai->rng); H(ai->think_ms); H(ai->move); H(ai->strafe); H(ai->strafe_ms); H(ai->boost);
         H(ai->boost_ms); H(ai->hop); H(ai->fire); H(ai->want_locks); H(ai->want_weapon); H(ai->switch_ms);
         H(ai->blade_ms); H(ai->plant_ms); H(ai->aim_error); H(ai->last_ap); H(ai->hurt_ms); H(ai->prev_boost);
+        /* the original brain (acr_gen1_ai_orig.c) */
+        H(ai->brain); H(ai->o.style); H(ai->o.frame); H(ai->o.at); H(ai->o.cur); H(ai->o.cur_start); H(ai->o.lost);
+        H(ai->o.wpick); H(ai->o.side); H(ai->o.fire_q); H(ai->o.tick_acc); H(ai->o.boost_frames); H(ai->o.dodge_frames);
+        for (int q = 0; q < ACR_GEN1_AI_ORIG_TUNES; ++q) H(ai->o.learned[q]);
+        for (int q = 0; q < 3; ++q) H(ai->o.desire[q]);
     }
     for (int k = 0; k < ACR_GEN1_MAX_SHOTS; ++k) {
         const acr_gen1_shot *s = &b->shot[k];

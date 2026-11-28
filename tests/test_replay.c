@@ -20,9 +20,9 @@ static int failures;
  * wrongly) and put the three numbers the failing test prints in here. If it
  * was not on purpose, the change broke replays and online play between
  * builds: fix the change instead. */
-#define GOLDEN_RULES   7
-#define GOLDEN_HASH    0xA5E54DE8u
-#define GOLDEN_STREAM  0x95E74528u
+#define GOLDEN_RULES   8
+#define GOLDEN_HASH    0x7EC43318u
+#define GOLDEN_STREAM  0x5A4D00D4u
 #define GOLDEN_BYTES   11690u
 
 /* ---------------- the fight (as tests/test_rollback.c sets it up) ---------------- */

@@ -5,12 +5,13 @@
 #include <string.h>
 
 #include "../../render/acr_render.h"
+#include "../../gen1/acr_gen1_ai.h"
 
 #define WHITE 220, 230, 235
 #define DIM 120, 135, 145
 #define HILITE 255, 220, 120
 
-game_settings g_settings = { 0, 1, 0, 1, 7, 7 };
+game_settings g_settings = { 0, 1, 0, 1, 7, 7, 0, 0 };
 
 static const int k_sizes[SETTINGS_WINDOW_SIZES][2] = {
     { 960, 540 }, { 1280, 720 }, { 1600, 900 }, { 1920, 1080 }, { 2560, 1440 },
@@ -23,7 +24,7 @@ void settings_window_size(int index, int *w, int *h) {
 }
 
 void settings_defaults(void) {
-    const game_settings d = { 0, 1, 0, 1, 7, 7 };
+    const game_settings d = { 0, 1, 0, 1, 7, 7, 0, 0 };
     g_settings = d;
 }
 
@@ -64,6 +65,8 @@ void settings_load(void) {
     s->smooth_anim = file_value(t, "smooth_animation", s->smooth_anim, 0, 1);
     s->fx_volume = file_value(t, "fight_volume", s->fx_volume, 0, 10);
     s->menu_volume = file_value(t, "menu_volume", s->menu_volume, 0, 10);
+    s->ai_utility = file_value(t, "ai_utility", s->ai_utility, 0, 1);
+    s->ai_style = file_value(t, "ai_style", s->ai_style, 0, 2);
     SDL_free(t);
 }
 
@@ -79,9 +82,11 @@ int settings_save(void) {
         "hud_wide         = %d   # fight HUD: 0 4:3, 1 wide\n"
         "smooth_animation = %d   # 1 smooth, 0 stepped\n"
         "fight_volume     = %d   # 0..10\n"
-        "menu_volume      = %d   # 0..10\n",
+        "menu_volume      = %d   # 0..10\n"
+        "ai_utility       = %d   # 0 original arena AI, 1 ACR utility brain (hard) everywhere\n"
+        "ai_style         = %d   # original AI: 0 each opponent's own disc, 1 Phantasma, 2 Master of Arena\n",
         g_settings.fullscreen, g_settings.window, w, h, g_settings.hud_wide, g_settings.smooth_anim,
-        g_settings.fx_volume, g_settings.menu_volume);
+        g_settings.fx_volume, g_settings.menu_volume, g_settings.ai_utility, g_settings.ai_style);
     return n > 0 && n < (int)sizeof text && SDL_SaveFile(path, text, (size_t)n);
 }
 
@@ -89,8 +94,11 @@ int settings_save(void) {
 
 enum { V_FULLSCREEN, V_WINDOW, V_HUD, V_ANIM, V_COUNT };
 enum { A_FIGHT, A_MENU, A_COUNT };
+enum { I_BRAIN, I_STYLE, I_COUNT };
 
-static int rows(const settings_ui *ui) { return (ui->page ? A_COUNT : V_COUNT) + 2; }   /* + STANDARD, BACK */
+static int rows(const settings_ui *ui) {
+    return (ui->page == SETTINGS_PAGE_AI ? I_COUNT : ui->page ? A_COUNT : V_COUNT) + 2;   /* + STANDARD, BACK */
+}   /* + STANDARD, BACK */
 
 void settings_open(settings_ui *ui, int page) {
     memset(ui, 0, sizeof *ui);
@@ -113,6 +121,9 @@ static void change(settings_ui *ui, int dir) {
         case V_ANIM: s->smooth_anim = !s->smooth_anim; break;
         default: return;
         }
+    } else if (ui->page == SETTINGS_PAGE_AI) {
+        if (ui->cur == I_BRAIN) s->ai_utility = !s->ai_utility;
+        else s->ai_style = (s->ai_style + dir + 3) % 3;
     } else {
         int *v = ui->cur == A_FIGHT ? &s->fx_volume : &s->menu_volume;
         *v = SDL_clamp(*v + dir, 0, 10);
@@ -134,8 +145,10 @@ int settings_input(settings_ui *ui, garage_action a) {
     }
     if (a != GA_OK) return 0;
     if (ui->cur == values) {   /* STANDARD: this page's defaults */
-        const game_settings d = { 0, 1, 0, 1, 7, 7 };
-        if (ui->page == 0) {
+        const game_settings d = { 0, 1, 0, 1, 7, 7, 0, 0 };
+        if (ui->page == SETTINGS_PAGE_AI) {
+            g_settings.ai_utility = d.ai_utility; g_settings.ai_style = d.ai_style;
+        } else if (ui->page == 0) {
             g_settings.fullscreen = d.fullscreen; g_settings.window = d.window;
             g_settings.hud_wide = d.hud_wide; g_settings.smooth_anim = d.smooth_anim;
         } else {
@@ -163,20 +176,28 @@ void settings_draw(settings_ui *ui, float hud_w, int elapsed_ms) {
     if (ui->message_ms > 0) ui->message_ms -= elapsed_ms;
     const float lx = 24, w = 460;
     const int n = rows(ui), values = n - 2;
-    acr_hud_text(lx, 16, ui->page ? "SETTINGS: AUDIO" : "SETTINGS: VIDEO", HILITE);
+    acr_hud_text(lx, 16, ui->page == SETTINGS_PAGE_AI ? "SETTINGS: AI PILOTS" : ui->page ? "SETTINGS: AUDIO" : "SETTINGS: VIDEO", HILITE);
     acr_hud_rect(lx, 40, w, 50 + n * 22.0f, 10, 14, 20, 210, 1);
     acr_hud_rect(lx, 40, w, 50 + n * 22.0f, 70, 90, 100, 255, 0);
     static const char *const k_video[V_COUNT] = { "DISPLAY", "WINDOW SIZE", "FIGHT HUD", "ANIMATION" };
     static const char *const k_audio[A_COUNT] = { "FIGHT SOUNDS", "MENU SOUNDS" };
+    static const char *const k_ai[I_COUNT] = { "AI BRAIN", "AI STYLE" };
     char line[64];
     for (int r = 0; r < n; ++r) {
         const float y = 56 + r * 22.0f;
         const int sel = r == ui->cur;
         if (sel) acr_hud_rect(lx + 8, y - 4, w - 16, 16, 60, 70, 40, 255, 1);
-        const char *label = r < values ? (ui->page ? k_audio[r] : k_video[r]) : r == values ? "STANDARD SETTINGS" : "BACK";
+        const char *label = r < values ? (ui->page == SETTINGS_PAGE_AI ? k_ai[r] : ui->page ? k_audio[r] : k_video[r])
+                                       : r == values ? "STANDARD SETTINGS" : "BACK";
         acr_hud_text(lx + 16, y, label, sel ? 255 : 220, sel ? 220 : 230, sel ? 120 : 235);
         if (r >= values) continue;
         const char *value = line;
+        if (ui->page == SETTINGS_PAGE_AI) {
+            if (r == I_BRAIN) SDL_snprintf(line, sizeof line, "< %s >", acr_gen1_ai_brain_name(g_settings.ai_utility ? ACR_GEN1_BRAIN_UTILITY : ACR_GEN1_BRAIN_ORIGINAL));
+            else SDL_snprintf(line, sizeof line, "< %s >", acr_gen1_ai_style_name(g_settings.ai_style));
+            acr_hud_text(lx + 160, y, line, sel ? 255 : 220, sel ? 220 : 230, sel ? 120 : 235);
+            continue;
+        }
         if (ui->page) {
             const int v = r == A_FIGHT ? g_settings.fx_volume : g_settings.menu_volume;
             bar(lx + 220, y - 1, v, sel);
@@ -199,6 +220,13 @@ void settings_draw(settings_ui *ui, float hud_w, int elapsed_ms) {
     }
     const float fy = 56 + n * 22.0f + 6;
     acr_hud_text(lx + 16, fy, "LEFT / RIGHT: CHANGE   ESC / B: BACK (SAVED)", DIM);
+    if (ui->page == SETTINGS_PAGE_AI) {
+        /* what the choice means, in two short lines */
+        if (g_settings.ai_utility)
+            acr_hud_text(lx + 16, fy + 16, "UTILITY: THIS PROJECT'S OWN BRAIN, MUCH HARDER.", DIM);
+        else
+            acr_hud_text(lx + 16, fy + 16, acr_gen1_ai_style_note(g_settings.ai_style), DIM);
+    }
     if (ui->page == 0 && g_settings.fullscreen)
         acr_hud_text(lx + 16, fy + 16, "WINDOW SIZE APPLIES WHEN IN A WINDOW.", DIM);
     if (ui->message_ms > 0 && ui->message[0]) acr_hud_text(lx + 16, fy + 32, ui->message, HILITE);

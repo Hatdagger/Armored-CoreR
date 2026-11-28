@@ -1,4 +1,16 @@
-/* Gen 1 computer pilot, first version (docs/AI.md).
+/* Gen 1 computer pilots (docs/AI.md). Two brains share this interface:
+ *
+ * - ORIGINAL: a port of the arena AI of Project Phantasma / Master of Arena
+ *   (ACG1PLUS docs/research/mapping/ai.md), run from each opponent's own AI
+ *   record, in Phantasma style or Master of Arena style (acr_gen1_ai_orig.c).
+ * - ACR UTILITY (HARD): the first, custom brain of this project, kept as it
+ *   was for later Rogue Arena bonus fights (the rest of this comment and
+ *   acr_gen1_ai.c).
+ *
+ * Which one flies is chosen per fight (acr_gen1_ai_profile.brain) or for
+ * everything at once (acr_gen1_ai_set_options, the SETTINGS > AI page).
+ *
+ * The utility brain, first version:
  *
  * The AI flies an AC exactly as a player does: every step it fills in the
  * same controller input (acr_gen1_input) and buttons (acr_gen1_actions) a
@@ -41,6 +53,38 @@ enum {
 
 #define ACR_GEN1_AI_RECORD_SIZE 36
 
+/* Brains and styles. */
+enum { ACR_GEN1_BRAIN_DEFAULT = 0, ACR_GEN1_BRAIN_ORIGINAL, ACR_GEN1_BRAIN_UTILITY, ACR_GEN1_BRAINS };
+enum { ACR_GEN1_STYLE_NATIVE = 0, ACR_GEN1_STYLE_PP, ACR_GEN1_STYLE_MOA, ACR_GEN1_STYLES };
+
+#define ACR_GEN1_AI_PP_RECORD_SIZE 60
+#define ACR_GEN1_AI_ORIG_TUNES 7    /* behaviours 4, 5, 6, 7, 12, 13, 14 */
+
+/* An opponent's AI record from the disc, in one shape for both games
+ * (ai.md section 3). Percent fields are 0..100 as on the disc. */
+typedef struct acr_gen1_ai_orig_record {
+    uint8_t  present;          /* 0: none (the original brain makes one from the sliders) */
+    uint8_t  disc;             /* ACR_GEN1_STYLE_PP or ACR_GEN1_STYLE_MOA: whose record it is */
+    uint8_t  human_plus;       /* +0x00 */
+    uint8_t  desire[3];        /* +0x01..03: A, B (ground), C (air) */
+    uint8_t  reroll;           /* +0x04: desires re-rolled with chance 1/(22 v) a frame, 0 never */
+    uint8_t  spread[3];        /* +0x05..07 */
+    uint8_t  unk8;             /* +0x08: used by behaviour 6's fit */
+    uint8_t  blade;            /* +0x09: blade lunge chance */
+    uint8_t  gate;             /* +0x0A: frame gate of the long-range blade rule */
+    uint8_t  tracking;         /* PP +0x10 / MoA +0x0B: 0 = never loses track */
+    uint8_t  delay;            /* PP +0x11 / MoA +0x0C: reaction delay, frames (0..30) */
+    uint8_t  tune[ACR_GEN1_AI_ORIG_TUNES][6];   /* base %, blend %, commit x22 frames, whim v, whim factor u16 % */
+    /* Master of Arena only */
+    uint8_t  fire;             /* +0x0D fire chance % (record value, "shoot" + 1) */
+    uint8_t  avoid;            /* +0x0E shot-dodge chance % */
+    uint8_t  desperate;        /* +0x0F desperation below this share of AP, % (0 = never) */
+    /* Who it belongs to: the opponent number (= starting rank - 1, ai.md 3a)
+     * and, for Master of Arena, whether it is in the main arena (fire hold). */
+    uint8_t  opponent;
+    uint8_t  main_arena;
+} acr_gen1_ai_orig_record;
+
 typedef struct acr_gen1_ai_profile {
     uint8_t preset;                        /* ACR_GEN1_AI_*; CUSTOM = own sliders */
     uint8_t slider[ACR_GEN1_AI_SLIDERS];   /* 0..100 */
@@ -48,7 +92,30 @@ typedef struct acr_gen1_ai_profile {
     /* How quick and accurate the pilot is, 0..100 (not in the game's
      * editor). It changes reaction time and aim, never the AC. */
     uint8_t skill;
+    /* Which brain flies (ACR_GEN1_BRAIN_*; DEFAULT = the AI setting) and
+     * the original brain's record (from the opponent's file). */
+    uint8_t brain;
+    acr_gen1_ai_orig_record rec;
 } acr_gen1_ai_profile;
+
+/* The original brain's records. Phantasma: 60 bytes, Master of Arena: 36
+ * (opponent = starting rank - 1; main_arena: Master of Arena's main
+ * ladder, where its top 11 hold their shots 10 frames and the rest 20). */
+void acr_gen1_ai_orig_from_pp(acr_gen1_ai_orig_record *r, const uint8_t rec[ACR_GEN1_AI_PP_RECORD_SIZE], int opponent);
+void acr_gen1_ai_orig_from_moa(acr_gen1_ai_orig_record *r, const uint8_t rec[ACR_GEN1_AI_RECORD_SIZE], int opponent,
+                               int main_arena);
+
+/* The AI setting (SETTINGS > AI). brain: DEFAULT/ORIGINAL = the original
+ * brain wherever a profile doesn't name one, UTILITY = the utility brain
+ * everywhere (the one switch back). style: NATIVE = each opponent's own
+ * disc, PP or MoA = that style for all. Read when a pilot starts (init);
+ * online, both machines must agree. */
+void acr_gen1_ai_set_options(int brain, int style);
+int  acr_gen1_ai_brain_option(void);
+int  acr_gen1_ai_style_option(void);
+const char *acr_gen1_ai_brain_name(int brain);   /* "ORIGINAL", "ACR UTILITY (HARD)" */
+const char *acr_gen1_ai_style_name(int style);   /* "OWN DISC", "PHANTASMA", "MASTER OF ARENA" */
+const char *acr_gen1_ai_style_note(int style);   /* one line: what differs */
 
 /* "BALANCED" ...; "CUSTOM" for 0 or anything unknown. */
 const char *acr_gen1_ai_preset_name(int preset);
@@ -106,6 +173,24 @@ typedef struct acr_gen1_ai_view {
      * offsets ahead and to the right of the facing toward the centre. */
     int32_t  arena_half;
     int32_t  centre_ahead, centre_side;
+    /* For the original brain: the target in the world (world units; its
+     * velocity in 1/64 units a tick), its facing, current weapon's reach
+     * and AP; our own guns' shot speed (world units a tick, 0 = none). */
+    int32_t  tx, ty, tz, tvx, tvy, tvz;
+    uint16_t tyaw;
+    int32_t  target_range, target_ap;
+    int32_t  shot_speed[ACR_GEN1_MAX_WEAPONS];
+    /* The nearest missile flying at us (missiles_in > 0): where it is,
+     * world units, and its heading. */
+    int32_t  missile_x, missile_z, missile_dist;
+    uint16_t missile_yaw;
+    /* Gun shots and rockets of an enemy heading at us within about 11
+     * degrees (Master of Arena's shot dodge), the nearest one's heading. */
+    uint8_t  shots_in;
+    uint16_t shot_yaw;
+    /* The battle's pace: steps a second and Gen 1 ticks a second (22);
+     * 0 = one tick a step. The original brain thinks once a tick. */
+    uint16_t step_rate, gen1_rate;
 } acr_gen1_ai_view;
 
 /* What fighter `me` sees of battle `b` in a square arena of half-width
@@ -132,6 +217,42 @@ typedef struct acr_gen1_ai {
     int32_t  last_ap;
     int32_t  hurt_ms;         /* since the latest hit taken */
     uint8_t  prev_boost;
+    /* The original brain (acr_gen1_ai_orig.c); unused by the utility one. */
+    uint8_t  brain;           /* resolved at init: ORIGINAL or UTILITY */
+    struct acr_gen1_ai_orig {
+        uint8_t  style;       /* resolved: PP or MoA */
+        uint32_t frame;
+        int32_t  hx[32], hy[32], hz[32];     /* player position history, newest at `at` */
+        uint8_t  at, filled;
+        int8_t   cur;                         /* behaviour slot (0..6), -1 none */
+        uint32_t cur_start;
+        uint16_t learned[ACR_GEN1_AI_ORIG_TUNES];
+        uint16_t desire[3];                   /* 0..4096 */
+        uint16_t blade;                       /* 0..4096 */
+        uint16_t fire, avoid;                 /* MoA, 0..4096 */
+        uint8_t  delay, tracking_on;
+        uint16_t track;                       /* record tracking -> v*4096/600 + 512 */
+        uint16_t lost;                        /* 0..3276 */
+        uint16_t wweight[ACR_GEN1_MAX_WEAPONS];
+        int8_t   wpick;
+        uint32_t wpick_frame;
+        int8_t   side, wmove, wstrafe;
+        int8_t   prev_turn;
+        int32_t  last_ap, last_tap;
+        uint16_t gate_count;
+        uint8_t  desperate_done;
+        uint32_t fire_q;                      /* MoA fire hold: one bit a frame */
+        uint8_t  hold;
+        uint8_t  dodge_frames;
+        int8_t   dodge_dir;
+        uint8_t  b7_side, b7_phase;
+        uint8_t  switch_wait;
+        uint8_t  boost_frames;
+        uint8_t  gate;                        /* frame gate of the long-range blade rule */
+        uint16_t tick_acc;                    /* toward the next Gen 1 tick (gen1_rate of step_rate) */
+        acr_gen1_input held_in;               /* held between ticks */
+        uint8_t  held_fire;
+    } o;
 } acr_gen1_ai;
 
 /* Ready to fly: a profile and a seed (the same seed replays the same match). */

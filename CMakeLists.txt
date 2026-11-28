@@ -38,7 +38,7 @@ add_library(acr_gen1 STATIC
     src/gen1/acr_gen1_missions.c
     src/gen1/acr_gen1_garage.c
     src/gen1/acr_gen1_perf.c
-    src/gen1/acr_gen1_ai.c
+    src/gen1/acr_gen1_ai.c src/gen1/acr_gen1_ai_orig.c
     src/gen1/acr_gen1_stage.c
     src/gen1/acr_gen1_rogue.c
     src/gen1/acr_gen1_coop.c
@@ -141,6 +141,9 @@ add_test(NAME gen1_garage COMMAND test_gen1_garage)
 add_executable(test_gen1_ai tests/test_gen1_ai.c)
 target_link_libraries(test_gen1_ai PRIVATE acr_gen1)
 add_test(NAME gen1_ai COMMAND test_gen1_ai)
+add_executable(test_gen1_ai_orig tests/test_gen1_ai_orig.c)
+target_link_libraries(test_gen1_ai_orig PRIVATE acr_gen1)
+add_test(NAME gen1_ai_orig COMMAND test_gen1_ai_orig ${CMAKE_CURRENT_BINARY_DIR}/ai-ladder-results.txt)
 add_executable(test_gen1_rogue tests/test_gen1_rogue.c)
 target_link_libraries(test_gen1_rogue PRIVATE acr_gen1)
 add_test(NAME gen1_rogue COMMAND test_gen1_rogue)

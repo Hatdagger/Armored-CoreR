@@ -117,7 +117,7 @@ static int write_opponent(const char *path, unsigned rank, const uint8_t *b, con
     fprintf(f, "prize_money = %u\n", (unsigned)money);
     fprintf(f, "prize_part = %d   # Armored-CoreR prize id (23-31 = Phantasma's 0-8), -1 none\n",
             prize == 0xFFFFu || prize > 8 ? -1 : (int)(ACR_ARENA_PP_PRIZE_BASE + prize));
-    fprintf(f, "# AI: the AI editor rows, read from Phantasma's arena AI record %u (rank - 1, a guess).\n", rank - 1);
+    fprintf(f, "# AI: the AI editor rows, read from Phantasma's arena AI record %u (= opponent number = starting rank - 1, ACG1PLUS ai.md 3a).\n", rank - 1);
     fprintf(f, "rebel = %d   # Human PLUS level\n", ai[0] > 9 ? 9 : ai[0]);
     fprintf(f, "shoot = 75\nblade_use = %d\nlock = %d\navoid = 50\nfly = %d\nrange = 50\n", blade, lock, fly);
     fprintf(f, "ai_record_pp = [");
