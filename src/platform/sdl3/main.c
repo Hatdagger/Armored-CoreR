@@ -3864,6 +3864,7 @@ int main(int argc, char **argv) {
                         wi_.energy_max = ac_data[k_].def.stats.energy_capacity;
                         wi_.red_zone = ac_data[k_].def.stats.red_zone;
                         wi_.drained = wf_->ac.drained;
+                        wi_.burning = wf_->burn_steps > 0;
                         wi_.out_of_area = acr_gen1_battle_out_of_area(&battle, k_) == 1;
                         wi_.edge = wi_.out_of_area ? area_edge(battle.stage, wf_->ac.x / 64, wf_->ac.y / 64, wf_->ac.z / 64) : -1;
                         const unsigned bp_ = battle_warn_tick(&g_warn[k_], &wi_);

@@ -68,7 +68,7 @@ unsigned battle_warn_tick(battle_warn *w, const battle_warn_in *in) {
     } else w->area_count = w->area_on = 0;
 
     /* Low AP (0x80056BE0): beep on frame % 8 == 0, box on 5 of 8 frames. */
-    if (battle_warn_ap_low(in->ap, in->ap_max)) {
+    if (battle_warn_ap_low(in->ap, in->ap_max) || in->burning) {
         if ((f & 7) == 0) beeps |= BATTLE_WARN_BEEP_AP_LOW;
         if ((f & 7) < 5) boxes |= BATTLE_WARN_BOX_ARMOR_LOW;
     }

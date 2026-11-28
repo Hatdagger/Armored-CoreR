@@ -39,6 +39,8 @@ typedef struct battle_warn_in {
     int drained;              /* over-drained: the booster is locked until the bar is full */
     int out_of_area;          /* in the warning zone (acr_gen1_battle_out_of_area == 1) */
     int edge;                 /* world units to the nearest edge of the zone it may not leave; < 0 unknown */
+    int burning;              /* [Gen 2] burning (acr_gen1_fighter burn_steps): Gen 1 has no heat
+                               * display, so it flashes ARMOR LOW with its beep, as low AP does */
 } battle_warn_in;
 
 typedef struct battle_warn {
