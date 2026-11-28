@@ -3887,7 +3887,9 @@ int main(int argc, char **argv) {
                         demo_stage_place_area(&g_stage, battle.gim.door[i_].area, battle.gim.door[i_].offset);
                     for (int i_ = 0; i_ < battle.gim.breakables; ++i_)
                         demo_stage_place_area(&g_stage, battle.gim.breakable[i_].area, battle.gim.breakable[i_].offset);
-                    if (battle.gim.doors == 0 && battle.gim.breakables == 0)
+                    for (int i_ = 0; i_ < battle.gim.lifts; ++i_)
+                        demo_stage_place_area(&g_stage, battle.gim.lift[i_].area, battle.gim.lift[i_].offset);
+                    if (battle.gim.doors == 0 && battle.gim.breakables == 0 && battle.gim.lifts == 0)
                         for (int i_ = 0; i_ < g_stage.drawn_moveds; ++i_) {
                             const int32_t z_[3] = { 0, 0, 0 };
                             demo_stage_place_area(&g_stage, g_stage.drawn_moved[i_].area, z_);

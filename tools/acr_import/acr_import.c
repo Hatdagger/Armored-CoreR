@@ -356,6 +356,19 @@ int acr_import_refresh(const char *out_dir) {
             } else fclose(f);
         }
     }
+    /* The mission maps' moving parts (2026-11-27: breakables, lifts and
+     * call buttons in gimmicks.txt): older imports get their stages again,
+     * then their units (which write into the stages). */
+    int stages_again = 0;
+    {
+        snprintf(probe, sizeof probe, "%s/stages/18/gimmicks.txt", out_dir);
+        char head[1024] = "";
+        if ((f = fopen(probe, "rb"))) { head[fread(head, 1, sizeof head - 1, f)] = 0; fclose(f); }
+        if (head[0] && !strstr(head, "# lift ")) {
+            snprintf(dir, sizeof dir, "%s/stages", out_dir);
+            if (acr_export_moa_stages(unpacked, dir, &n, err, sizeof err)) { stages_again = 1; done |= 64; }
+        }
+    }
     snprintf(probe, sizeof probe, "%s/units/U00/unit.toml", out_dir);
     char stages[ACR_PATH_MAX + 16];
     snprintf(dir, sizeof dir, "%s/units", out_dir);
@@ -370,6 +383,7 @@ int acr_import_refresh(const char *out_dir) {
         have = !head[0] || strstr(head, "box      = [") != NULL;
     }
     f = NULL;
+    if (stages_again) have = 0;
     if (!have && acr_export_moa_units(unpacked, NULL, dir, stages, &n, err, sizeof err) && n) done |= 4;
     /* Missions (2026-11-25): the list, briefings and the report pictures. */
     snprintf(probe, sizeof probe, "%s/missions/report-digits.png", out_dir);

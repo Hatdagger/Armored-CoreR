@@ -283,8 +283,10 @@ usual income and expense report follows (reward, ammunition, repair).
 - MOA-09 Recover material: after the tank-legged AC is down, get within
   1,000 of the container.
 - MOA-16: when everything's down the next group comes, then the AC.
-- MOA-18 Factory core: the switch and the core are reached by walking into
-  them.
+- MOA-18 Factory core: the switch is bumped by walking into it; the core
+  is a lift, and bumping it (or the blade) turns it, which wins, as the
+  game. Lifts on maps 1, 5, 7, 9, 16, 18 and 19 run, with their call
+  buttons; standing on one carries you.
 
 **Unlocks (user, 2026-11-27):** every mission stays unlocked in the
 MISSIONS menu until play-testing shows they all work; the proper unlock

@@ -154,7 +154,51 @@ static void test_stage_move(void) {
     acr_gen1_stage_free(&s);
 }
 
+/* Map 18's lift 58 (-7,875 to -2,250 at 25, starting at the top) with
+ * its call button 99, and the core 96 (game numbers as acr-import writes
+ * them). */
+static const char *k_lifts =
+    "lift 58 58 -5625 -7875 11875 1000 438 25 -7875 -2250 0 0 0 0 0 114 78 78\n"
+    "lift 95 96 0 -2250 22375 1000 438 20 -2250 0 0 0 0 0 0 114 78 78\n"
+    "button 98 99 -5963 -2562 12663 125 125 58 78\n";
+
+static void test_lift(void) {
+    acr_gen1_gimmicks g;
+    acr_gen1_gimmicks_parse(k_lifts, &g);
+    EXPECT(g.lifts == 2 && g.buttons == 1);
+    const int l = acr_gen1_lift_find(&g, 58);
+    EXPECT(l == 0 && acr_gen1_lift_find(&g, 96) == 1 && g.lift[0].way == 0);
+    int32_t move[ACR_GEN1_MAX_LIFTS][3];
+    const int32_t away[3] = { 20000, 0, 0 };
+    for (int t = 0; t < 30; ++t) acr_gen1_lifts_tick(&g, away, 100, 212, move);
+    EXPECT(g.lift[l].offset[1] == 0);             /* at its end: stays */
+    /* The call button: the lift comes down, speeding up to 25 a tick and
+     * slowing to a stop exactly at -2,250. */
+    const int32_t at_button[3] = { -5963, -2562, 12663 };
+    acr_gen1_lifts_tick(&g, at_button, 100, 212, move);
+    EXPECT(g.lift[l].way == 1);
+    int top = 0;
+    for (int t = 0; t < 600; ++t) {
+        acr_gen1_lifts_tick(&g, away, 100, 212, move);
+        if (move[l][1] > top) top = move[l][1];
+    }
+    EXPECT(top == 25);
+    EXPECT(g.lift[l].centre[1] + g.lift[l].offset[1] == -2250);
+    /* Standing on it: carried and bumped (it flips back up). */
+    const int32_t on[3] = { -5625, -2250 - 438, 11875 };
+    EXPECT(acr_gen1_lift_under(&g.lift[l], on, 100));
+    acr_gen1_lifts_tick(&g, on, 100, 212, move);
+    EXPECT(g.lift[l].way == 0);
+    for (int t = 0; t < 600; ++t) acr_gen1_lifts_tick(&g, on, 100, 212, move);
+    EXPECT(g.lift[l].centre[1] + g.lift[l].offset[1] == -7875);   /* no second flip while on it */
+    /* The core: bumped -> state 1 (map 18's win). */
+    const int32_t core[3] = { 0, -2250, 22375 - 600 };
+    acr_gen1_lifts_tick(&g, core, 100, 212, move);
+    EXPECT(g.lift[1].way == 1);
+}
+
 int main(void) {
+    test_lift();
     test_parse();
     test_auto_door();
     test_locked_pair();

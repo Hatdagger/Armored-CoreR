@@ -318,8 +318,8 @@ static void map12_tick(acr_gen1_battle *b) {
  *   -> 300 ticks (radio 69, 70) -> accomplished, as the game's.
  * - map 18: the switch (area 68, a door piece) out of state 0 brings the
  *   ACs, as the game; without the doors read, the player at its box (grown
- *   by 750). The core (area 96) is a lift (12-byte kind): the game wins on
- *   its state 1; here still the player inside its box.
+ *   by 750). The core (area 96) is a lift (12-byte kind): won on its
+ *   state 1, as the game; without the lifts read, the player inside its box.
  * - map 16: the switch (area 24) brings the AC (record 30) as the game;
  *   without the doors, after records 4-11 are down.
  * - map 9: record 4 down unlocks the container (area 169, a locked door).
@@ -516,7 +516,13 @@ static void moa_tick(acr_gen1_battle *b, int map) {
             }
         }
         if (m->phase == 1 && all_down(b, 4, 5)) { m->phase = 2; m->timer2 = RADIO_TICKS; }
-        else if (m->phase == 2 && player_in(b, &k_map18_core, 0)) finish(m, 64, 0);
+        else if (m->phase == 2) {
+            /* The game: the core (area 96, a lift) flipped to state 1 (the
+             * player bumps it, or the blade). Without the lifts read: the
+             * player inside its box. */
+            const int core = acr_gen1_lift_find(&b->gim, 96);
+            if (core >= 0 ? b->gim.lift[core].way == 1 : player_in(b, &k_map18_core, 0)) finish(m, 64, 0);
+        }
         /* The game (0x800A28B8): both ACs down -> radio 114; once it is
          * done, message 0x8201 to areas 92 and 93 (unlock, open for good). */
         if (m->phase == 2 && count_down(&m->timer2)) {
