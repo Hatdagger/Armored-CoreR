@@ -12,7 +12,7 @@
  * file in the user's data folder (ACR_SAVE=path picks another file).
  *
  *   armored-corer [import folder | disc.cue] [--legs N] [--booster N]
- *                 [--core N] [--arms N] [--gen N] [--back N] (Master of Arena
+ *                 [--core N] [--arms N] [--gen N] [--back N] [--hand N] (Master of Arena
  *                 indices: these skip the garage and go straight to the test)
  *                 [--test]     straight to the test with the starting AC
  *                 [--credits N] credits for a new save (default 0, as the game)
@@ -691,6 +691,7 @@ static int parse_args(int argc, char **argv, const char **dir, int parts[SLOT_CO
         else if (!strcmp(argv[i], "--arms")) slot = SLOT_ARMS;
         else if (!strcmp(argv[i], "--gen")) slot = SLOT_GEN;
         else if (!strcmp(argv[i], "--back")) slot = SLOT_BACK_L;
+        else if (!strcmp(argv[i], "--hand")) slot = SLOT_HAND;   /* testing: the reference shots in docs/feel */
         if (!strcmp(argv[i], "--tick") && i + 1 < argc) { g_tick_rate = atoi(argv[++i]); continue; }
         if (!strcmp(argv[i], "--credits") && i + 1 < argc) { g_new_credits = atol(argv[++i]); continue; }
         if (!strcmp(argv[i], "--test")) { g_direct_test = 1; continue; }
@@ -1856,6 +1857,9 @@ int main(int argc, char **argv) {
             f_->ammo[w_] = d_->weapon[w_].ammo;                                       \
         }                                                                             \
         f_->current = 0;                                                              \
+        if (i_ == 0 && SDL_getenv("ACR_WEAPON") &&    /* testing: start on weapon N */  \
+            SDL_atoi(SDL_getenv("ACR_WEAPON")) < f_->weapons)                           \
+            f_->current = (uint8_t)SDL_atoi(SDL_getenv("ACR_WEAPON"));                  \
         f_->legs = (uint8_t)(pp[i_][SLOT_LEGS] >= 27 ? ACR_GEN1_LEGS_TRACKS            \
                    : pp[i_][SLOT_LEGS] >= 21 ? ACR_GEN1_LEGS_FOUR : ACR_GEN1_LEGS_TWO); \
         f_->human_plus = (uint8_t)(i_ == 0 ? human_plus : lvl_ > 0); f_->kneeling = 0; \
@@ -4682,11 +4686,18 @@ int main(int argc, char **argv) {
                 for (int y = 0; y < sph; ++y)      /* GL rows run bottom up */
                     memcpy((uint8_t *)img->pixels + (size_t)y * (size_t)img->pitch,
                            buf + (size_t)(sph - 1 - y) * (size_t)spw * 4, (size_t)spw * 4);
-                SDL_SaveBMP(img, shot);
+                /* ACR_SHOT_SEQ=N with a %d in ACR_SHOT: N frames in a row
+                 * (the reference shots in docs/feel/projectiles.md). */
+                static int seq_i;
+                const int seq_n = SDL_getenv("ACR_SHOT_SEQ") ? SDL_atoi(SDL_getenv("ACR_SHOT_SEQ")) : 0;
+                char seq_path[1024];
+                if (seq_n > 0) SDL_snprintf(seq_path, sizeof seq_path, shot, seq_i);
+                SDL_SaveBMP(img, seq_n > 0 ? seq_path : shot);
+                if (seq_n > 0 && ++seq_i < seq_n) running = 2;
             }
             free(buf);
             if (img) SDL_DestroySurface(img);
-            running = 0;
+            if (running == 2) running = 1; else running = 0;
         }
         SDL_GL_SwapWindow(window);
         {   /* Testing aid: ACR_FPS=30 caps the frame rate (two copies on one
