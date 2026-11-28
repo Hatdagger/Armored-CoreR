@@ -45,12 +45,15 @@ typedef struct acr_gen1_door {
  * generator, area 285; map 2's 69 / 70). Set-up 0x800A2A14, handler
  * 0x800A2804: message 0x8000 (a hit) takes its damage off data +0; at 0
  * the area breaks and (kind 1, message n) goes to game area `target`
- * (0x80090934): n = 1 open (0x8200), 2 unlock and open for good (0x8201). */
-#define ACR_GEN1_MAX_BREAKABLES 8
+ * (0x80090934): n = 1 open (0x8200), 2 unlock and open for good (0x8201).
+ * Kind 0 tells nobody: it just breaks (map 1's submarine hull, 54-56,
+ * handler 0x800A51B8; the map's script watches it). */
+#define ACR_GEN1_MAX_BREAKABLES 64   /* map 2 has 53 */
 typedef struct acr_gen1_breakable {
     int16_t  area, game_area;
     int16_t  centre[3];
     int16_t  size_xz, size_y;
+    int16_t  top, bottom;         /* its box's y (y down); older imports: centre - size_y, centre */
     int32_t  hp;                  /* left; 0 = broken */
     uint8_t  message;
     int16_t  target;              /* game area */
@@ -94,6 +97,23 @@ typedef struct acr_gen1_button {
     uint8_t  was_near;
 } acr_gen1_button;
 
+/* A ship (the 28-byte kind: map 1 set-up 0x800A4F34, tick 0x800A499C;
+ * map 6 has one too): sails back and forth inside its range. Per axis the
+ * speed grows by `acc` a tick up to `top`; once the centre passes the
+ * range's end the speed-up turns round. Units standing on it at the start
+ * ride along (ours: the game's rider link isn't read). */
+#define ACR_GEN1_MAX_SHIPS 4
+typedef struct acr_gen1_ship {
+    int16_t  area, game_area;
+    int16_t  centre[3];
+    int16_t  size[3];             /* the area's box */
+    int16_t  lo[3], hi[3];        /* record +0 / +8: the range */
+    int16_t  top[3];              /* data +0.. (made positive) */
+    int16_t  acc[3];              /* data +6.. (turns round) */
+    int16_t  vel[3];              /* starts at data +0.. as written */
+    int32_t  offset[3];
+} acr_gen1_ship;
+
 /* Kept by value in the battle, so a rollback snapshot carries the doors;
  * the stage is put where they say by acr_gen1_stage_place_area. */
 typedef struct acr_gen1_gimmicks {
@@ -106,6 +126,10 @@ typedef struct acr_gen1_gimmicks {
     int16_t lifts, buttons;
     acr_gen1_lift lift[ACR_GEN1_MAX_LIFTS];
     acr_gen1_button button[ACR_GEN1_MAX_BUTTONS];
+    int16_t ships;
+    acr_gen1_ship ship[ACR_GEN1_MAX_SHIPS];
+    uint8_t riders_set;           /* the battle has put its units on the ships */
+    int8_t  rider[64];            /* unit u rides ship rider[u] - 1 (0: none; ACR_GEN1_MAX_UNITS) */
 } acr_gen1_gimmicks;
 
 /* What a tick asks of the caller besides moving areas. */
@@ -159,6 +183,15 @@ void acr_gen1_lift_flip(acr_gen1_lift *l);
  * 0x8100: it flips. For lift i, move[i] gets the step it moved. */
 void acr_gen1_lifts_tick(acr_gen1_gimmicks *g, const int32_t player[3], int32_t radius, int32_t height,
                          int32_t (*move)[3]);
+
+/* One Gen 1 tick for every ship; move[i] gets ship i's step. */
+void acr_gen1_ships_tick(acr_gen1_gimmicks *g, int32_t (*move)[3]);
+
+/* 1 if p (game axes) is over ship s's box across (x / z). */
+int  acr_gen1_ship_over(const acr_gen1_ship *s, const int32_t p[3], int32_t radius);
+
+/* Index of the breakable on game area `game_area`, or -1. */
+int  acr_gen1_breakable_find(const acr_gen1_gimmicks *g, int game_area);
 
 /* 1 if feet at p (radius r) stand on lift l's top. */
 int  acr_gen1_lift_under(const acr_gen1_lift *l, const int32_t p[3], int32_t radius);

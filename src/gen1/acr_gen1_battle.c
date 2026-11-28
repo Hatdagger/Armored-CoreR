@@ -1963,7 +1963,7 @@ static void unit_tick(acr_gen1_battle *b, int ui) {
 #define GIMMICK_BLADE_REACH 300   /* stand-in: the blade's reach isn't read for doors */
 static void gimmicks_tick(acr_gen1_battle *b) {
     acr_gen1_gimmicks *g = &b->gim;
-    if (g->doors <= 0 && g->breakables <= 0 && g->lifts <= 0) return;
+    if (g->doors <= 0 && g->breakables <= 0 && g->lifts <= 0 && g->ships <= 0) return;
     int32_t move[ACR_GEN1_MAX_DOORS][3];
     const int32_t p[3] = { -b->f[0].ac.x / 64, b->f[0].ac.y / 64, b->f[0].ac.z / 64 };
     /* The blade (A / blade button) against a door: the game's 0x8100 from
@@ -1978,6 +1978,46 @@ static void gimmicks_tick(acr_gen1_battle *b) {
         for (int i = 0; i < g->doors; ++i) acr_gen1_stage_place_area(b->moving, g->door[i].area, g->door[i].offset);
     if (b->moving)
         for (int i = 0; i < g->breakables; ++i) acr_gen1_stage_place_area(b->moving, g->breakable[i].area, g->breakable[i].offset);
+    if (g->ships > 0) {
+        /* Ships (map 1): units standing on one when the fight starts ride
+         * it (stand-in for the game's link: records 10-15 are on them);
+         * fighters on its deck are carried too. */
+        if (!g->riders_set) {
+            g->riders_set = 1;
+            for (int u = 0; u < b->units && u < ACR_GEN1_MAX_UNITS; ++u) {
+                const int32_t up[3] = { -b->unit[u].x / 64, b->unit[u].y / 64, b->unit[u].z / 64 };
+                for (int i = 0; i < g->ships; ++i)
+                    if (acr_gen1_ship_over(&g->ship[i], up, 0)) { g->rider[u] = (int8_t)(i + 1); break; }
+            }
+        }
+        int32_t smove[ACR_GEN1_MAX_SHIPS][3];
+        uint8_t on[ACR_GEN1_MAX_FIGHTERS][ACR_GEN1_MAX_SHIPS];
+        const int n = acr_gen1_battle_fighters(b);
+        for (int k = 0; k < n && k < ACR_GEN1_MAX_FIGHTERS; ++k) {
+            const int32_t fp[3] = { -b->f[k].ac.x / 64, b->f[k].ac.y / 64, b->f[k].ac.z / 64 };
+            for (int i = 0; i < g->ships; ++i) {
+                const acr_gen1_ship *sh = &g->ship[i];
+                const int32_t cy = sh->centre[1] + sh->offset[1];
+                on[k][i] = (uint8_t)(acr_gen1_ship_over(sh, fp, 0) && fp[1] >= cy - sh->size[1] - 64 && fp[1] <= cy + 64);
+            }
+        }
+        acr_gen1_ships_tick(g, smove);
+        for (int i = 0; i < g->ships; ++i) {
+            if (b->moving) acr_gen1_stage_place_area(b->moving, g->ship[i].area, g->ship[i].offset);
+            for (int k = 0; k < n && k < ACR_GEN1_MAX_FIGHTERS; ++k)
+                if (on[k][i] && b->f[k].ap > 0) {
+                    b->f[k].ac.x -= smove[i][0] * 64;
+                    b->f[k].ac.y += smove[i][1] * 64;
+                    b->f[k].ac.z += smove[i][2] * 64;
+                }
+            for (int u = 0; u < b->units && u < ACR_GEN1_MAX_UNITS; ++u)
+                if (g->rider[u] == i + 1) {
+                    b->unit[u].x -= smove[i][0] * 64;
+                    b->unit[u].y += smove[i][1] * 64;
+                    b->unit[u].z += smove[i][2] * 64;
+                }
+        }
+    }
     if (g->lifts > 0) {
         /* Lifts: who stands on one is carried with it (the game's move
          * 0x800785E8 takes what rides on the area along; ours: a fighter's

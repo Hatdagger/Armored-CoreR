@@ -22,7 +22,7 @@ void acr_gen1_gimmicks_parse(const char *text, acr_gen1_gimmicks *out) {
             int ok = 1;
             const char *q = p + 10;
             for (int k = 0; k < 11 && ok; ++k) q = num(q, e, &v[k], &ok);
-            if (ok && v[8] == 1 && out->breakables < ACR_GEN1_MAX_BREAKABLES) {
+            if (ok && (v[8] == 0 || v[8] == 1) && out->breakables < ACR_GEN1_MAX_BREAKABLES) {
                 acr_gen1_breakable *k = &out->breakable[out->breakables++];
                 memset(k, 0, sizeof *k);
                 k->area = (int16_t)v[0];
@@ -31,8 +31,14 @@ void acr_gen1_gimmicks_parse(const char *text, acr_gen1_gimmicks *out) {
                 k->size_xz = (int16_t)v[5];
                 k->size_y = (int16_t)v[6];
                 k->hp = v[7] > 0 ? (int32_t)v[7] : 1;
-                k->message = (uint8_t)v[9];
+                k->message = (uint8_t)(v[8] ? v[9] : 0);
                 k->target = (int16_t)v[10];
+                long t = 0, bo = 0;
+                int ok2 = 1;
+                q = num(q, e, &t, &ok2);
+                if (ok2) q = num(q, e, &bo, &ok2);
+                k->top = (int16_t)(ok2 ? t : k->centre[1] - k->size_y);
+                k->bottom = (int16_t)(ok2 ? bo : k->centre[1]);
             }
         } else if (e - p > 5 && !strncmp(p, "lift ", 5)) {
             long v[18];
@@ -58,6 +64,26 @@ void acr_gen1_gimmicks_parse(const char *text, acr_gen1_gimmicks *out) {
                 l->sound_move = (uint8_t)v[15];
                 l->sound_stop = (uint8_t)v[16];
                 l->sound_flip = (uint8_t)v[17];
+            }
+        } else if (e - p > 5 && !strncmp(p, "ship ", 5)) {
+            long v[20];
+            int ok = 1;
+            const char *q = p + 5;
+            for (int k = 0; k < 20 && ok; ++k) q = num(q, e, &v[k], &ok);
+            if (ok && out->ships < ACR_GEN1_MAX_SHIPS) {
+                acr_gen1_ship *sh = &out->ship[out->ships++];
+                memset(sh, 0, sizeof *sh);
+                sh->area = (int16_t)v[0];
+                sh->game_area = (int16_t)v[1];
+                for (int j = 0; j < 3; ++j) {
+                    sh->centre[j] = (int16_t)v[2 + j];
+                    sh->size[j] = (int16_t)v[5 + j];
+                    sh->lo[j] = (int16_t)v[8 + j];
+                    sh->hi[j] = (int16_t)v[11 + j];
+                    sh->vel[j] = (int16_t)v[14 + j];                       /* 0x800A4F6C: as written */
+                    sh->top[j] = (int16_t)(v[14 + j] < 0 ? -v[14 + j] : v[14 + j]);
+                    sh->acc[j] = (int16_t)v[17 + j];
+                }
             }
         } else if (e - p > 7 && !strncmp(p, "button ", 7)) {
             long v[9];
@@ -172,9 +198,9 @@ int acr_gen1_gimmicks_hit(acr_gen1_gimmicks *g, const int32_t p[3], int32_t reac
         if (k->hp <= 0) continue;
         const int32_t r = k->size_xz / 2 + reach;
         const int32_t dx = p[0] - k->centre[0], dz = p[2] - k->centre[2];
-        /* The box: centre at its foot (y down), size_y up. */
+        /* The box: its record's top and bottom (y down). */
         if (dx < -r || dx > r || dz < -r || dz > r) continue;
-        if (p[1] > k->centre[1] + reach || p[1] < k->centre[1] - k->size_y - reach) continue;
+        if (p[1] > k->bottom + reach || p[1] < k->top - reach) continue;
         any = 1;
         k->hp -= damage > 0 ? damage : 1;
         if (k->hp > 0) continue;
@@ -381,4 +407,36 @@ void acr_gen1_lifts_tick(acr_gen1_gimmicks *g, const int32_t player[3], int32_t 
         l->was_near = (uint8_t)near;
         lift_move(l, move[i]);
     }
+}
+
+/* ---- ships ---- */
+
+void acr_gen1_ships_tick(acr_gen1_gimmicks *g, int32_t (*move)[3]) {
+    for (int i = 0; i < g->ships; ++i) {
+        acr_gen1_ship *sh = &g->ship[i];
+        for (int k = 0; k < 3; ++k) {
+            /* 0x800A49BC: speed up, held within the top speed. */
+            int32_t v = (int16_t)(sh->vel[k] + sh->acc[k]);
+            if (sh->acc[k] > 0) { if (sh->top[k] < v) v = sh->top[k]; }
+            else if (v < -sh->top[k]) v = -sh->top[k];
+            sh->vel[k] = (int16_t)v;
+            move[i][k] = v;
+            sh->offset[k] += v;
+            /* 0x800A4B68: past the range's end, the speed-up turns round. */
+            const int32_t c = sh->centre[k] + sh->offset[k];
+            if (sh->acc[k] > 0 ? sh->hi[k] < c : c < sh->lo[k]) sh->acc[k] = (int16_t)-sh->acc[k];
+        }
+    }
+}
+
+int acr_gen1_ship_over(const acr_gen1_ship *sh, const int32_t p[3], int32_t radius) {
+    const int32_t dx = p[0] - (sh->centre[0] + sh->offset[0]), dz = p[2] - (sh->centre[2] + sh->offset[2]);
+    const int32_t rx = sh->size[0] / 2 + radius, rz = sh->size[2] / 2 + radius;
+    return dx >= -rx && dx <= rx && dz >= -rz && dz <= rz;
+}
+
+int acr_gen1_breakable_find(const acr_gen1_gimmicks *g, int game_area) {
+    for (int i = 0; i < g->breakables; ++i)
+        if (g->breakable[i].game_area == game_area) return i;
+    return -1;
 }

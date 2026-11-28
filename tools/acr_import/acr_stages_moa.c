@@ -916,9 +916,12 @@ static int write_gimmicks(const char *dir, const chunk *c8, const uint8_t *code,
                "#      <locked radio> <axis> <open sound> <close sound> <stays open> <opens near>\n"
                "#      <partners> <partner areas...>  (game axes, y down)\n"
                "# breakable <area> <game area> <cx> <cy> <cz> <size xz> <size y> <hp> <kind> <message> <target game area>\n"
+               "#      <box top y> <box bottom y>\n"
                "# lift <area> <game area> <cx> <cy> <cz> <size xz> <size y> <speed> <y a> <y b> <way> <x a> <z a>\n"
                "#      <x b> <z b> <move sound> <stop sound> <flip sound>\n"
-               "# button <area> <game area> <cx> <cy> <cz> <size xz> <size y> <lift game area> <sound>\n");
+               "# button <area> <game area> <cx> <cy> <cz> <size xz> <size y> <lift game area> <sound>\n"
+               "# ship <area> <game area> <cx> <cy> <cz> <size x> <size y> <size z> <lo x y z> <hi x y z>\n"
+               "#      <top speed x y z> <speed up x y z>\n");
     if (c8->n < AREAS * AREA_SIZE || !code || code_n < 128) { fclose(f); return 1; }
     int16_t compact[AREAS];
     for (unsigned i = 0, n = 0; i < AREAS; ++i) {
@@ -967,10 +970,12 @@ static int write_gimmicks(const char *dir, const chunk *c8, const uint8_t *code,
                     int sends = 0;
                     for (unsigned k = 0; k < 0x200; k += 4)
                         if (u32(code + (hfn - 0x800A0DD0u) + k) == 0x0C02424Du) sends = 1;
-                    /* Only those that tell another area something (kind 1). */
-                    if (sends && words >= 5 && g[6] == 1 && u16(g + 8) < AREAS)
-                        fprintf(f, "breakable %d %u %d %d %d %d %d %u %u %u %u\n", compact[i], i, s16(r + 0x10),
-                                s16(r + 0x12), s16(r + 0x14), sz0 > sx0 ? sz0 : sx0, sy0, u16(g), g[6], g[7], u16(g + 8));
+                    /* Kind 1 tells another area something; kind 0 just
+                     * breaks (map 1's submarine hull, 54-56). 0xFFFF: can't. */
+                    if (sends && words >= 5 && g[6] <= 1 && u16(g) != 0xFFFFu && (g[6] == 0 || u16(g + 8) < AREAS))
+                        fprintf(f, "breakable %d %u %d %d %d %d %d %u %u %u %u %d %d\n", compact[i], i, s16(r + 0x10),
+                                s16(r + 0x12), s16(r + 0x14), sz0 > sx0 ? sz0 : sx0, sy0, u16(g), g[6], g[7],
+                                g[6] ? u16(g + 8) : 0u, s16(r + 0x1A), s16(r + 0x22));
                 }
             }
             continue;
@@ -987,6 +992,21 @@ static int write_gimmicks(const char *dir, const chunk *c8, const uint8_t *code,
                 fprintf(f, "lift %d %u %d %d %d %d %d %u %d %d %u %d %d %d %d %u %u %u\n", compact[i], i, s16(r + 0x10),
                         s16(r + 0x12), s16(r + 0x14), sz0 > sx0 ? sz0 : sx0, sy0, u16(g), s16(g + 2), s16(g + 4), g[7],
                         s16(g + 12), s16(g + 14), s16(g + 16), s16(g + 18), g[8], g[9], g[10]);
+            continue;
+        }
+        /* li a0, 28 with the abs() of data +0: a ship (map 1 set-up
+         * 0x800A4F34, tick 0x800A499C; map 6 too). Per axis: speed += data
+         * +6.. (speed up), held within data +0.. (top speed), moved by it;
+         * the speed-up turns round once the centre passes the record's
+         * +0 / +8 box (low / high). */
+        if (u32(code + (fn - 0x800A0DD0u) + 20) == 0x2404001Cu && fn - 0x800A0DD0u + 0x50 <= code_n &&
+            u32(code + (fn - 0x800A0DD0u) + 0x4C) == 0x04610002u) {
+            if (words >= 6) {
+                fprintf(f, "ship %d %u %d %d %d %d %d %d %d %d %d %d %d %d", compact[i], i, s16(r + 0x10), s16(r + 0x12),
+                        s16(r + 0x14), sx0, sy0, sz0, s16(r), s16(r + 2), s16(r + 4), s16(r + 8), s16(r + 10), s16(r + 12));
+                for (int k = 0; k < 6; ++k) fprintf(f, " %d", s16(g + 2 * k));
+                fputc('\n', f);
+            }
             continue;
         }
         if (words < 6 || u32(code + (fn - 0x800A0DD0u) + 20) != 0x2404001Au) continue;   /* li a0, 26: a door */
