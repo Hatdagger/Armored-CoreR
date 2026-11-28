@@ -83,7 +83,27 @@ typedef struct acr_gen1_weapon {
     acr_gen1_flight flight, split;   /* split: the four a kind-3 missile breaks into */
     /* Blade */
     uint16_t charge_drain;  /* energy a swing takes (blade +0x2C) */
+    /* Fire (see ACR_GEN1_BURN_* below) */
+    uint8_t  burn;          /* detail +0x12 bit 0x80 (WG-FGI-00): a hit sets the target burning */
+    uint16_t gen2_heat;     /* [Gen 2] AC2 ammo heat (0 = a Gen 1 weapon): heats a Gen 1 AC */
 } acr_gen1_weapon;
+
+/* Burn, Gen 1's rule (VS 0x8007D038; weapon-map.md section 5, bit 0x80):
+ * a hit sets 100 steps of burning at damage x 4 >> 4 AP quarters a step
+ * (no defence), 6.25 x the hit's damage in all. A new hit restarts it. */
+#define ACR_GEN1_BURN_STEPS 100
+int32_t acr_gen1_burn_quarters(int32_t hit_damage);
+
+/* [Gen 2] heat on a Gen 1 AC (docs/research/gen2-archive.md "Heat across
+ * generations"). Gen 1 ACs have no radiators, so they get a standard Gen 2
+ * gauge: a hit adds AC2 heat x 0.24 x 2.6 (VS) temperature, it cools 0.36 a
+ * frame (= 0.98 a Gen 1 step), and past 600 the AC overheats: the gauge drops
+ * to 0 and Gen 1's burn starts from that hit's damage. Temperatures here are
+ * in hundredths. First guess, to tune (inferred cooling from energy defence,
+ * spare generator output, core / legs comes later). */
+#define ACR_GEN1_HEAT_LIMIT      60000
+#define ACR_GEN1_HEAT_COOL_STEP  98
+int32_t acr_gen1_gen2_heat_gain(uint16_t gen2_heat);
 
 /* Legs, for the cannon stance rule: two legs (humanoid, reverse joint) must
  * crouch to fire a cannon, four legs only fire them on the ground,
@@ -216,6 +236,11 @@ typedef struct acr_gen1_fighter {
      * away, and the push still to come (1/64 units a tick, halving). */
     uint8_t  stagger;
     int32_t  knock_x, knock_z;
+    /* Burn (ACR_GEN1_BURN_*): steps left, AP quarters a step, quarters
+     * carried; [Gen 2] heat gauge in hundredths (ACR_GEN1_HEAT_*). */
+    uint8_t  burn_steps;
+    int32_t  burn_q, burn_carry;
+    int32_t  heat;
     /* Presentation (the sim never reads them): each stunning hit adds one
      * to hit_seq and sets hit_side (acr_gen1_hit_side: 0 front, 1 back,
      * 2 left, 3 right) and hit_air (taken in the air), so the drawing can

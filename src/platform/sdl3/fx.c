@@ -501,6 +501,31 @@ void fx_update(const acr_gen1_battle *b, uint64_t now_ns) {
         }
         g_bhit[k] = b->f[k].blade_hit_seq;
         g_ap[k] = b->f[k].ap;
+        {   /* Burning (Gen 1 burn, VS 0x8007D038 spawns flames and chips on the
+             * AC every step it burns): short flames over the body, a few
+             * sparks, the odd wisp of smoke. Matched by eye. */
+            static float burn_ms[ACR_GEN1_MAX_FIGHTERS];
+            if (b->f[k].burn_steps && b->f[k].ap > 0 && !b->over) {
+                burn_ms[k] += dt;
+                while (burn_ms[k] >= 45.0f) {              /* about one Gen 1 step */
+                    burn_ms[k] -= 45.0f;
+                    float feet[3];
+                    ac_feet(b, k, feet);
+                    const float a = rnd() * 6.283f, r = 20 + rnd() * 50;
+                    const float q[3] = { feet[0] + cosf(a) * r, feet[1] + 20 + rnd() * 190, feet[2] + sinf(a) * r };
+                    part *f = spawn(SH_FIRE, 4, B_ADD, q, 360, 70 + rnd() * 40, 40, 255, 220, 170, 255);
+                    f->loop_ms = 70; f->rise = 0.12f;
+                    if (rnd() < 0.35f) {
+                        part *c = spawn(SH_SPARKS, 2, B_ADD, q, 160, 40, 60, 255, 200, 120, 255);
+                        c->spin = rnd() * 6.283f;
+                    }
+                    if (rnd() < 0.15f) {
+                        part *m = spawn(SH_SMOKE, 1, B_SEMI, q, 800, 40, 130, 90, 85, 80, 90);
+                        m->spin = rnd() * 6.283f; m->rise = 0.08f;
+                    }
+                }
+            } else burn_ms[k] = 0.0f;
+        }
         {   /* the booster lighting */
             const int on = boosting(&b->f[k]);
             if (on && !g_boosting[k] && g_ap_ok) {
