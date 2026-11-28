@@ -274,3 +274,72 @@ AA's shop shows stats AC2 hides, which names more fields. Records are otherwise 
 - **Extension:** AA back booster BEX-BB210 adds w13 reload (108) and w11 (39); charge drain 5700 -> 6200.
 - **Radiator:** AA lowers RRX-COT-GK10 energy drain 580 -> 442.
 - **Weapons:** the AA shop shows ZWC-LNT/250 reload 143, the same as AC2, so the x5/6 reload scaling in AA code is applied at run time, not in the displayed number.
+
+## Weapon effects (DECODED 2026-11-28, session 7)
+Static read of SLUS_200.14 (AC2 USA), checked against SLUS_202.49 (AA). Script: `tools/gen2/effects.py`.
+gp = 0x445470. The game's tuning values sit in a debug-menu table (label, variable, step, min, max; e.g.
+0x429404..) with the variables at 0x429190.. (`effects.py` reads them by label). "Frame" = one game update;
+counters drop by 1 per update and AC2 runs at 60 fps (not measured live).
+
+### The hit record = weapon row bytes 0x18-0x1F
+The slot builder `0x1473E0` (AC spec +0x180 + 0x80 x slot = AC +0x8B0..) copies row bytes 0x18-0x1F with one
+8-byte move to slot +0x2C: **w12 flags, w13 attack, w14 heat, w15 impact (low byte)**. Every hit reads it
+(hit `0x13FDC8`). w12: 0x10 solid, 0x20 energy, **0x40 jammer** (only ZWR-R/OCTOPUS, w12 0x57), 0x80 burn (no AC2
+shop weapon). Other slot fields: +0xB reload = row byte 0x10 (w8 low), +0x28 recoil (from row byte 0x11, below).
+
+### What a hit does (`0x13FDC8`, in order)
+1. **Shield check** `0x140028`: a left-arm shield facing the shot (AC +0x19 = 1, angle limits +0x87C/+0x880)
+   switches to the shield's defence set (AC +0x810), multiplies heat by the shield factor (AC +0xBD4) and skips
+   the stagger. Otherwise the AC's own set (AC +0x80C): bytes solid factor, energy factor, **stability**.
+2. **Heat** `0x13ECB0`: AC +0xDA4 (incoming heat) += w14 x AC +0xBD8 (0.5 when AC spec byte +0x71 >= 3,
+   else 1; byte not identified) x cooling_heatrate 0.24 *if already overheated* x **p1_heatrate 1.0 / vs_heatrate 2.6**.
+3. **Damage** `0x13FD00` (same shape as Gen 1): `attack x factor >> 6 x 2 / 3`, then x **vs_damagerate 3.6** in VS,
+   x p1_damagerate 2.0 for the player, x 1.71 (0x4293A8) for others. Factor (`0x146C98`/`0x146D40`) =
+   45 - (sum of head+core+arms+legs defence - 1066) / 50, clamped 1-45.
+4. **Jammer** (flag 0x40): AC +0xC8C = attack x 0.8 frames (ECM rocket: 168 = 2.8 s), halved by AC +0x7AA bit 2
+   (noise canceler?), max 1200.
+5. **Burn** (flag 0x80): AC +0xC90 = damage x flare_damagerate (0.25; AA 0.03) per frame for flaretime 100 frames;
+   each burn frame also adds flareheat 20 (AA 18) heat (`0x13A088`). Same rule as Gen 1's WG-FGI-00.
+6. **Reaction** `0x140170` -> `0x140290`: AP -= damage; then the stagger below.
+No energy drain on the target was found in this path.
+
+### Impact vs stability (stagger)
+- **Frames = impact x dmgreact2frame 0.64 x 64 / stability**, clamped 0-60 (`0x1404F8`). 0 = no reaction at all.
+- **Stability** (AC +0xC42, `0x146DE8`) = 64 x A x B x C, clamped 32-255 (standard AC = 64):
+  A = legs **defensive stability (w16)** / 1791, clamped 0.5-4 (plus an optional-part bonus at gp-0x40FC);
+  B = 1 + 0.3 x (head auto balancer w12 / 310 - 1), clamped 0.8-1.0; C = 1 + 0.8 x (total weight / 7357 - 1),
+  clamped 0.5-2. Landing stability (w15) is not used here.
+- With frames > 0: hit animation by side (ground 0x27/0x2A/0x2B/0x2C, air 0x34-0x37) for that many frames, and a
+  push (`0x140550`): direction = target - hit point plus shot direction / 16 (as Gen 1), speed = impact x
+  reactspdstep 1.9 x 0.8 (half of it horizontally), capped by react_maxxzspd 2.0 x AC size.
+- **Gen 1 comparison**: Gen 1 level = impact x 256 / (stat x 25 / 4) = **impact x 40.96 / stat**; Gen 2 =
+  impact x 0.64 x 64 / stab = **impact x 40.96 / stab**. Same formula, same 32-255 stability byte. Differences: Gen 1
+  caps at 5 and counts 22 steps/s (max ~0.23 s busy), Gen 2 caps at 60 and counts 60 frames/s (max 1 s). So w15
+  really is Gen 1 impact; small impacts stun less in Gen 2 (RF/37: 0 frames on a standard AC), big ones longer.
+
+### Heat (`0x139F20`, every frame)
+- Incoming heat H (AC +0xDA4) turns into temperature T (AC +0xA0): add = min(H x heat2temperature 0.24,
+  temperature_maxadd 90); H -= add / 0.24; T += add - cooling. So **a hit adds w14 x 0.24 temperature** (x 2.6 in VS):
+  RF/37 21.8 (VS 56.8), bazooka S55 109 (VS 283).
+- Cooling per frame (`0x146260`): normal (AC +0xBCC) = 0.37 x R - 0.01 x G; overheated (AC +0xBD0) =
+  1.2 x Q - 0.01 x G (both >= 0). R = 1 + 1.1 x (radiator cooling w7 / 7909 - 1), 0.75-1.25; Q = 1 + 1.1 x
+  (radiator forced cooling w8 / 7771 - 1), 0.5-1.5; G = generator calorific value w10 / 3617, 0.5-1.5. A frame
+  parts' cooling factor (w10 sum / 1496) is computed and then thrown away (unused in AC2).
+- **Limit** = AC +0x814 = core w12 (500-780; probably the heat capacity). Above 80 %: warning flag (AC +0x12 bit
+  0x10). Above the limit: **overheat** (AC +0x10 bit 0x8000): **AP -2 every frame** (overheat_damage, no defence, =
+  120 AP/s), quick cooling, hits add only 24 % heat; ends when T reaches 0.
+- Example, standard parts: RF/37 every 33 frames adds 21.8, cooling removes 0.36 x 33 = 11.9, net +9.9 a shot ->
+  ~58 hits to overheat a 580 core in story, ~13 in VS. Overheat then lasts ~580 / 1.19 = 490 frames (~980 AP).
+
+### Reload, recoil, Another Age
+- **Reload**: slot +0xB = w8 low byte, copied to the weapon's countdown (+0x12) on every shot (`0x149BF0`) and
+  dropped by 1 per frame (`0x14A49C`). So it is **frames**. Energy weapons scale it by an optional-part factor
+  (gp-0x40EC). AA's code is the same (copy `0x14DBDC`, shop shows the raw byte), so the wiki's AA reloads
+  (raw x 5/6) are not from the game code: probably another version or a converted figure.
+- **Recoil** (w8 high byte, back cannons only, slot type 2): slot +0x28 = recoil x (1791 / legs def. stab) x
+  (310 / head balancer) x (7357 / weight), clamped 1-64 (`0x146F10`). On firing (`0x149B54`) the AC is pushed back
+  along its facing at recoil x canoreactspdstep 0.035 (AA **0.02**), capped at canoreact_maxxzspd 1.6, unless AC
+  +0x7A1 is set (kneeling / tank?). Gen 1's cannon kick is the same idea (slot recoil x table scale, taken off
+  velocity); Gen 2 adds the stability/weight scaling.
+- AA tuning differs only in canoreactspdstep, flareheat and flare_damagerate (all others equal).
+- w7 (missiles 10-18, cannons 26-160): not traced yet (charge time?).
