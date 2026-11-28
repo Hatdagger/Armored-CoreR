@@ -3882,6 +3882,19 @@ int main(int argc, char **argv) {
                 const int wticks = battle.step_rate && battle.gen1_rate
                     ? (int)((battle.tick_phase + battle.gen1_rate) / battle.step_rate) : 1;
                 acr_gen1_battle_step(&battle, in2, act);
+                {   /* testing aid: say when a breakable breaks and which doors it reached */
+                    static int16_t broken_seen_[ACR_GEN1_MAX_BREAKABLES];
+                    for (int i_ = 0; i_ < battle.gim.breakables; ++i_) {
+                        const acr_gen1_breakable *k_ = &battle.gim.breakable[i_];
+                        if (k_->hp <= 0 && broken_seen_[i_] != battle.gim.stage) {
+                            broken_seen_[i_] = battle.gim.stage;
+                            const int d_ = acr_gen1_door_find(&battle.gim, k_->target);
+                            SDL_Log("stage %d: area %d broken; message %d to area %d (door %s, state %d)", battle.gim.stage - 1,
+                                    k_->game_area, k_->message, k_->target, d_ >= 0 ? "found" : "missing",
+                                    d_ >= 0 ? battle.gim.door[d_].state : -1);
+                        }
+                    }
+                }
                 if (g_stage_on && battle.gim.stage == g_stage.id + 1) {
                     for (int i_ = 0; i_ < battle.gim.doors; ++i_)
                         demo_stage_place_area(&g_stage, battle.gim.door[i_].area, battle.gim.door[i_].offset);
