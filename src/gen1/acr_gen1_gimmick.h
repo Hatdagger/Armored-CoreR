@@ -41,6 +41,22 @@ typedef struct acr_gen1_door {
     uint8_t  was_near;            /* the player near last tick (for the locked radio line) */
 } acr_gen1_door;
 
+/* A breakable area that tells a door something when it breaks (map 0's
+ * generator, area 285; map 2's 69 / 70). Set-up 0x800A2A14, handler
+ * 0x800A2804: message 0x8000 (a hit) takes its damage off data +0; at 0
+ * the area breaks and (kind 1, message n) goes to game area `target`
+ * (0x80090934): n = 1 open (0x8200), 2 unlock and open for good (0x8201). */
+#define ACR_GEN1_MAX_BREAKABLES 8
+typedef struct acr_gen1_breakable {
+    int16_t  area, game_area;
+    int16_t  centre[3];
+    int16_t  size_xz, size_y;
+    int32_t  hp;                  /* left; 0 = broken */
+    uint8_t  message;
+    int16_t  target;              /* game area */
+    int32_t  offset[3];           /* where its area is put (moved away once broken) */
+} acr_gen1_breakable;
+
 /* Kept by value in the battle, so a rollback snapshot carries the doors;
  * the stage is put where they say by acr_gen1_stage_place_area. */
 typedef struct acr_gen1_gimmicks {
@@ -48,6 +64,8 @@ typedef struct acr_gen1_gimmicks {
     int16_t stage;                /* 1 + the stage they were read for, 0 = none read */
     uint8_t swinging;             /* the player's blade was out last tick */
     acr_gen1_door door[ACR_GEN1_MAX_DOORS];
+    int16_t breakables;
+    acr_gen1_breakable breakable[ACR_GEN1_MAX_BREAKABLES];
 } acr_gen1_gimmicks;
 
 /* What a tick asks of the caller besides moving areas. */
@@ -83,6 +101,10 @@ void acr_gen1_gimmicks_tick(acr_gen1_gimmicks *g, const int32_t player[3], int32
  * its radio line, otherwise it opens. Call once, the tick the swing starts. */
 void acr_gen1_gimmicks_blade(acr_gen1_gimmicks *g, const int32_t player[3], int32_t radius, int32_t height,
                              int32_t reach, acr_gen1_gimmick_events *ev);
+
+/* A hit of `damage` at point p (game axes): every unbroken breakable whose
+ * box, grown by `reach`, holds p takes it. Returns 1 if one was hit. */
+int  acr_gen1_gimmicks_hit(acr_gen1_gimmicks *g, const int32_t p[3], int32_t reach, int32_t damage);
 
 /* The near test 0x800A2130 (0x80012BAC): within the door's reach across
  * and its height. */
