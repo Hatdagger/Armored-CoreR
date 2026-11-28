@@ -63,7 +63,7 @@ typedef struct acr_gen1_stage_bound {
 } acr_gen1_stage_bound;
 
 #define ACR_GEN1_STAGE_BOUNDS 8
-#define ACR_GEN1_STAGE_MOVED  48    /* areas that can be moved (ACR_GEN1_MAX_DOORS) */
+#define ACR_GEN1_STAGE_MOVED  160   /* areas that can be moved: doors + breakables (map 2: 53) + lifts + ships */
 /* Box 0 is the whole level; boxes 1 and 2 overlap to make the arena floor.
  * Inside box 0 and outside one inner box: a warning. Inside box 0 and
  * outside both: that side loses (bits 0-2 exactly 1, the arena engine's
