@@ -90,6 +90,10 @@ typedef struct acr_gen1_weapon {
     acr_gen1_flight flight, split;   /* split: the four a kind-3 missile breaks into */
     /* Blade */
     uint16_t charge_drain;  /* energy a swing takes (blade +0x2C) */
+    /* Splash (model shots, timed shells): the explosion model the shot ends
+     * in (C +0x17: 0 big, 5 medium; 255 or 0 with blast_on clear: none)
+     * and whether it is a timed shell (full attack, bursts at its fuse). */
+    uint8_t  blast_on, blast, timed;
 } acr_gen1_weapon;
 
 /* Legs, for the cannon stance rule: two legs (humanoid, reverse joint) must
@@ -250,6 +254,24 @@ typedef struct acr_gen1_shot {
     int32_t  wave_speed, wave_range;
 } acr_gen1_shot;
 
+/* Splash damage (PP explosion update 0x80081E60 -> splash 0x8007FEC8;
+ * ACG1PLUS docs/research/mapping/weapon-effects.md 2c). The blast is a
+ * shell that grows each Gen 1 tick (scale += growth, growth += change);
+ * an AC or unit whose middle the shell passes (last tick's scale / 4 <=
+ * distance < this tick's scale / 4) takes one hit, at most one a blast,
+ * shooter included (user, 2026-11-28). Damage and impact x (1 - (d / 2) /
+ * (falloff / 4)): model shots attack / 8, impact / 4; timed shells their
+ * full record. Big (#0): 15 ticks to 1,262; medium (#5): 10 ticks to 575. */
+#define ACR_GEN1_MAX_BLASTS 16
+typedef struct acr_gen1_blast {
+    uint8_t  active, owner, life, energy, impact;
+    uint16_t attack;
+    int32_t  x, y, z;                          /* 1/64 world units */
+    int32_t  scale, growth, change, prev, falloff;
+    uint8_t  fmask;                            /* fighters already hit */
+    uint64_t umask;                            /* units already hit */
+} acr_gen1_blast;
+
 /* ---- Modern controls (the SP-MODERN option) ----
  * Twin sticks give free movement; the price is paid in aim, so a skilled
  * pilot on the original controls stays competitive. Everything else (the
@@ -380,6 +402,7 @@ typedef struct acr_gen1_battle {
     acr_gen1_unit unit[ACR_GEN1_MAX_UNITS];
     uint8_t targeted;                          /* targets picked at least once (set by retarget) */
     acr_gen1_shot shot[ACR_GEN1_MAX_SHOTS];
+    acr_gen1_blast blast[ACR_GEN1_MAX_BLASTS];
     uint16_t step_ms;                          /* length of a step, for times in ms */
     /* Shots fly at the original's speed per second whatever the step rate:
      * per step they move speed x gen1_rate / step_rate (0 / 0 = Gen 1). */

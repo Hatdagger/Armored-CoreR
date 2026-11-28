@@ -2,6 +2,25 @@
 
 Changes big enough to need a way back. Newest first.
 
+## 2026-11-28: splash damage
+
+**Why.** ACG1PLUS read the blast rule off the Phantasma disc (`docs/research/mapping/weapon-effects.md` 2c,
+PR #41 there); the owner asked for it here, and corrected that the shooter can be caught too.
+
+**Old behaviour.** Model shots and timed shells only hurt what they hit directly.
+
+**New behaviour.** WG-PB26, AW-DC/2, WC-GN230 and WC-IR24 end in the big blast (15 ticks, out to 1,262);
+WG-B2180, WR-L24, AW-XC5500 and WC-01QL in the medium one (10 ticks, out to 575), on an AC, a wall or the
+floor (a timed shell also when its fuse runs out). The blast grows as a shell; each AC or unit whose middle
+it passes takes one hit, the shooter included: attack / 8 and impact / 4 for model shots (the whole record
+for timed shells, still to be checked live), from 100 % at the centre to about 75 % at the edge. Blade waves
+have no blast. Needs the re-import from the earlier passes (the shots' explosion numbers).
+
+**Files.** `src/gen1/acr_gen1_battle.{c,h}`, `src/platform/sdl3/demo_data.c`, `src/net/acr_replay.h`
+(rules 11 -> 12), `tests/test_gen1_battle.c`, `tests/test_replay.c`.
+
+**How to switch back.** `git revert` the PR's merge commit, or clear `blast_on` in `demo_data.c`.
+
 ## 2026-11-28: hit size and lunge per legs, no air-slash waves, debris chips
 
 **Why.** Follow-up to the blade pass below (user, 2026-11-28): go with ACG1PLUS's hit size and
@@ -58,7 +77,7 @@ flash word only; timed shells looked like any model shot; no light in flight.
 **Not done (decide / test first).** Phantasma-only: air slash attack x 4 (MoA x 3, kept), no Human
 PLUS wave from an air slash, wave disarmed by boost held before the hit window. Both discs but
 risky without a live test: two line tests a tick in the air slash (up to 4 hits), hit cylinder
-splash damage of the explosion models (radius unclear), mines / HG770 split /
+mines / HG770 split /
 dispenser falling bombs.
 
 **Files.** `src/gen1/acr_gen1_battle.{c,h}`, `acr_gen1_sim.{c,h}`; `src/platform/sdl3/fx.{c,h}`,

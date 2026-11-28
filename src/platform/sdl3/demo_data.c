@@ -326,6 +326,9 @@ int demo_load(const char *import_dir, const int parts[SLOT_COUNT], demo_ac *out,
                     lk->flare = (uint16_t)get_int(t, e, "shot_flare", 0);
                     lk->timed = (uint8_t)get_int(t, e, "shot_timed", 0);
                     lk->debris = get_u32(t, e, "hit_debris", 0);
+                    w->blast = lk->blast;
+                    w->blast_on = (uint8_t)(lk->family == FX_FAM_MODEL && (lk->blast == 0 || lk->blast == 5));
+                    w->timed = lk->timed;
                 }
             }
             w->attack = (uint16_t)get_int(t, e, "attack", 0);
