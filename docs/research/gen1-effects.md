@@ -49,7 +49,10 @@ an AC (when its path passes the AC's cylinder), a wall hit, or nothing if
 it ran out of range; AP reaching zero is the AC's blast. Glows, fire and
 sparks are drawn additively (`ACR_MESH_ADD`), smoke half see-through.
 
-Timing, sizes and colours are matched by eye for now. The game picks each
+Since 2026-11-28 shots and hits follow the disc's shot tables and effect
+atlas when the import has them (`docs/feel/projectiles.md`); what follows is
+the older by-eye look, still used for older imports, model shots (C) and
+dispensers. Timing, sizes and colours are matched by eye for now. The game picks each
 weapon's shot from tables chosen by the part's `model_id`, not mapped yet;
 until then the look goes by weapon type (play-test 2026-11-19: rifles fire a
 purple-ish blob, round in front with a narrower tail; machine guns a

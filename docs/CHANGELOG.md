@@ -2,6 +2,30 @@
 
 Changes big enough to need a way back. Newest first.
 
+## 2026-11-28: projectiles from the disc's shot tables, Phantasma generators
+
+**Why.** Shots didn't look like the original (one look per weapon type, by eye) and some numbers
+around them were off. Details, sources and the full comparison: `docs/feel/projectiles.md`.
+
+**Old behaviour.** Shots drawn by HUD type (rifles a purple blob, MGs a short capsule streak, every
+energy shot the same blue); one shot a trigger, no spread; dispensers and five cannons at wrong
+speeds; the starting generator at MoA's 6,000 output (refill 210 standing / 127 moving).
+
+**New behaviour.** Each weapon's own picture, tint, width, streak length (trail x speed) and trailing
+glow, and its impact flash; pellets (hand guns 3, slugs 7, WA-Finger 5, WG-XW11 2) and the tables'
+spread masks in the fight; dispenser and redirected-cannon speeds from their own rows; GPS-VVA /
+GPS-V6 / GRD-RX5 / RX6 / RX7 at Phantasma's output (refill 129 / 46). Needs a **re-import** of the
+disc for the new looks and speeds; older imports draw and play as before (except the generators).
+
+**Files.** See the changelog table in `docs/feel/projectiles.md` (one commit per change):
+`tools/acr_import/acr_parts_moa.c`, `acr_hud_moa.c`; `src/gen1/acr_gen1_battle.{c,h}`;
+`src/platform/sdl3/fx.{c,h}`, `demo_data.{c,h}`, `main.c`; `src/net/acr_replay.h` (rules 8 -> 9);
+`tests/test_gen1_battle.c`, `tests/test_replay.c`; docs.
+
+**How to switch back.** Revert the one commit you want gone (`git revert <commit>`), or the PR's
+merge commit for all of it (`git revert -m 1 <merge>`). Reverting anything that changes fights
+(pellets/spread, generators, importer speeds) should raise `ACR_REPLAY_RULES` again.
+
 ## 2026-11-28: the original Gen 1 arena AI
 
 **Why.** Arena opponents were far too aggressive and accurate; bottom ranks beat players easily. The
