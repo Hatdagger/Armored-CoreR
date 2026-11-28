@@ -398,9 +398,22 @@ drawing; the engine draws everything).
 Map 0: 16 door pieces. 13 rise 750 at 8 a tick (93 ticks) when the player
 comes near, area 290's ending the mission (the game's win: its gimmick
 starting to open); 153 / 154 are a pair that slide apart 500 each, locked
-with radio line 159; nothing on the disc unlocks them (read 2026-11-27:
-map 0's module never sends 0x8201, and its only cutscene `1009` is area
-290's), so they stay shut; 155 / 156 never move (speed 0, line 161).
+with radio line 159 until **the generator** (area 285) is destroyed; 155
+/ 156 never move (speed 0, line 161).
+
+**Generators** (read 2026-11-27): map 0's set-up `0x800A2A14` (no
+controller, `li a0, 0` before 0x80077D28) gives area 285 the handler
+`0x800A2804`: message 0x8000 (a hit; the damage at its +2) comes off data
++0 (3,000); at 0 the area breaks (`0x800A2708`, effects) and
+`0x80090934(+6, +7, +8, +10)` sends (kind 1, message 2) to game area 153:
+message n is 0x8200 + n - 1, so 2 = unlock and open for good (153 and its
+partner 154). Map 2 has two of the same kind: 69 (2,000) opens door 141
+and 70 (2,000) opens door 72 with message 1 (0x8200, open; that skips the
+lock). acr-import writes them as `breakable` lines (kind 1 only; many
+other areas use the same handler with no message: the sub's hull, map 4's
+blocks..., left out). The engine (`acr_gen1_gimmicks_hit`): shots that
+meet the stage within 100 of the box and blade swings within reach ahead
+hit it; broken, its area is put 30,000 below (stand-in for its removal).
 
 Message 0x8100's sender is the player (object type & 7 == 2) touching
 the area; in play that is the blade: map 1's hatch (area 57, on the

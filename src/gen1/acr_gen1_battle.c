@@ -714,6 +714,13 @@ static void blade_step(acr_gen1_battle *b, int i, int blade, int pressed) {
             stagger_hit(b, j, w->impact, kx, kz);
             acr_gen1_ac_shift(it, kx * ACR_GEN1_BLADE_KNOCK * 64 / 4096, kz * ACR_GEN1_BLADE_KNOCK * 64 / 4096);
         }
+        {   /* A breakable area within the blade's reach ahead (map 0's generator). */
+            int32_t fx, fz;
+            fwd_vec(me->yaw, &fx, &fz);
+            const int32_t hp[3] = { (int32_t)(-(me->x / 64 + (int64_t)fx * r / 2 / 4096)), me->y / 64 - 100,
+                                    (int32_t)(me->z / 64 + (int64_t)fz * r / 2 / 4096) };
+            if (acr_gen1_gimmicks_hit(&b->gim, hp, r / 2, attack)) { ++f->swing_hits; f->lunge_done = 1; }
+        }
         for (int u = 0; u < b->units; ++u) {         /* units in the arc: hit, not knocked back */
             const int t = ACR_GEN1_UNIT(u);
             int64_t ahead, side, dist;
@@ -1365,6 +1372,13 @@ static void shots_step(acr_gen1_battle *b, int ticks) {
             stagger_hit(b, target, impact, s->vx, s->vz);
             s->active = 0;
         } else if (hits_wall) {
+            /* A breakable area (map 0's generator) takes the hit where the
+             * shot meets the wall (game axes: x mirrored). */
+            const int64_t ex = x0 / 64 + (int64_t)(s->x / 64 - x0 / 64) * wall_t / 1024,
+                          ey = y0 / 64 + (int64_t)(s->y / 64 - y0 / 64) * wall_t / 1024,
+                          ez = z0 / 64 + (int64_t)(s->z / 64 - z0 / 64) * wall_t / 1024;
+            const int32_t hp[3] = { (int32_t)-ex, (int32_t)ey, (int32_t)ez };
+            acr_gen1_gimmicks_hit(&b->gim, hp, 100, attack);
             s->active = 0;                              /* into the arena */
         } else if ((!s->missile && s->travelled > (w ? w->range : s->wave ? s->wave_range : ACR_GEN1_UNIT_RANGE)) || (!b->stage && s->y > 0)) {
             s->active = 0;                              /* out of range or into the floor */
@@ -1949,7 +1963,7 @@ static void unit_tick(acr_gen1_battle *b, int ui) {
 #define GIMMICK_BLADE_REACH 300   /* stand-in: the blade's reach isn't read for doors */
 static void gimmicks_tick(acr_gen1_battle *b) {
     acr_gen1_gimmicks *g = &b->gim;
-    if (g->doors <= 0) return;
+    if (g->doors <= 0 && g->breakables <= 0) return;
     int32_t move[ACR_GEN1_MAX_DOORS][3];
     const int32_t p[3] = { -b->f[0].ac.x / 64, b->f[0].ac.y / 64, b->f[0].ac.z / 64 };
     /* The blade (A / blade button) against a door: the game's 0x8100 from
@@ -1962,6 +1976,8 @@ static void gimmicks_tick(acr_gen1_battle *b) {
     acr_gen1_gimmicks_tick(g, p, ACR_GEN1_STAGE_BOX_HALF, ACR_GEN1_STAGE_BOX_HEIGHT, move, NULL);
     if (b->moving)
         for (int i = 0; i < g->doors; ++i) acr_gen1_stage_place_area(b->moving, g->door[i].area, g->door[i].offset);
+    if (b->moving)
+        for (int i = 0; i < g->breakables; ++i) acr_gen1_stage_place_area(b->moving, g->breakable[i].area, g->breakable[i].offset);
 }
 
 static void units_step(acr_gen1_battle *b, int ticks) {

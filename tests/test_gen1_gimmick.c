@@ -103,6 +103,31 @@ static void test_blade_hatch(void) {
     EXPECT(ev.radio == 159 && g.door[1].state == 0);
 }
 
+/* Map 0's generator (area 285, 3,000 HP): destroyed, it unlocks and opens
+ * the locked pair 153 / 154 for good. */
+static void test_generator(void) {
+    char text[1024];
+    snprintf(text, sizeof text, "%sbreakable 285 285 -2496 0 17478 450 1213 3000 1 2 153\n", k_doors);
+    acr_gen1_gimmicks g;
+    acr_gen1_gimmicks_parse(text, &g);
+    EXPECT(g.breakables == 1 && g.breakable[0].hp == 3000);
+    const int32_t miss[3] = { 0, -500, 0 }, at[3] = { -2496, -500, 17478 };
+    EXPECT(!acr_gen1_gimmicks_hit(&g, miss, 100, 1000));
+    EXPECT(acr_gen1_gimmicks_hit(&g, at, 100, 1000));
+    acr_gen1_gimmicks_hit(&g, at, 100, 1000);
+    EXPECT(g.breakable[0].hp == 1000 && g.door[1].radio == 159);
+    acr_gen1_gimmicks_hit(&g, at, 100, 1000);
+    EXPECT(g.breakable[0].hp == 0 && g.breakable[0].offset[1] != 0);
+    EXPECT(g.door[1].radio == 0 && g.door[1].state == 4 && g.door[2].state == 4);
+    EXPECT(!acr_gen1_gimmicks_hit(&g, at, 100, 1000));   /* gone */
+    /* Map 2's kind: message 1 just opens (0x8200), lock or not. */
+    acr_gen1_gimmicks_parse("door 72 72 0 0 2125 -1375 1000 625 12 500 159 4 74 68 0 0 0\n"
+                            "breakable 70 70 5256 2125 -6375 375 300 2000 1 1 72\n", &g);
+    const int32_t at2[3] = { 5256, 2000, -6375 };
+    acr_gen1_gimmicks_hit(&g, at2, 100, 5000);
+    EXPECT(g.door[0].state == 1);
+}
+
 static void test_stage_move(void) {
     acr_gen1_stage s;
     memset(&s, 0, sizeof s);
@@ -129,6 +154,7 @@ int main(void) {
     test_auto_door();
     test_locked_pair();
     test_blade_hatch();
+    test_generator();
     test_stage_move();
     if (failures) { printf("%d failed\n", failures); return 1; }
     printf("gimmick tests passed\n");

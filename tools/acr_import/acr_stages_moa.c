@@ -914,7 +914,8 @@ static int write_gimmicks(const char *dir, const chunk *c8, const uint8_t *code,
     fprintf(f, "# Moving map parts (FDAT 5s+4 chunk 8 and its tail; the map code's set-up table).\n"
                "# door <area> <game area> <quarter> <cx> <cy> <cz> <size xz> <size y> <speed> <distance>\n"
                "#      <locked radio> <axis> <open sound> <close sound> <stays open> <opens near>\n"
-               "#      <partners> <partner areas...>  (game axes, y down)\n");
+               "#      <partners> <partner areas...>  (game axes, y down)\n"
+               "# breakable <area> <game area> <cx> <cy> <cz> <size xz> <size y> <hp> <kind> <message> <target game area>\n");
     if (c8->n < AREAS * AREA_SIZE || !code || code_n < 128) { fclose(f); return 1; }
     int16_t compact[AREAS];
     for (unsigned i = 0, n = 0; i < AREAS; ++i) {
@@ -937,6 +938,30 @@ static int write_gimmicks(const char *dir, const chunk *c8, const uint8_t *code,
         if (h == 255 || compact[i] < 0 || words < 6) continue;
         const uint32_t fn = u32(code + 96 + 4 * (h & 7));
         if (fn < 0x800A0DD0u || fn - 0x800A0DD0u + 24 > code_n) continue;
+        const int sx0 = s16(r + 0x20) - s16(r + 0x18), sy0 = s16(r + 0x22) - s16(r + 0x1A),
+                  sz0 = s16(r + 0x24) - s16(r + 0x1C);
+        if (u32(code + (fn - 0x800A0DD0u) + 20) == 0x00002021u && u32(code + (fn - 0x800A0DD0u) + 16) == 0x0C01DF4Au &&
+            fn - 0x800A0DD0u + 32 <= code_n) {
+            /* No controller (li a0, 0): map 0's generator kind (set-up
+             * 0x800A2A14, handler 0x800A2804). Its handler takes message
+             * 0x8000 (damage), counts data +0 down and, at 0, breaks the
+             * area and sends (+6, +7) to game area +8 (0x80090934). */
+            const uint32_t hi = u32(code + (fn - 0x800A0DD0u) + 24), lo = u32(code + (fn - 0x800A0DD0u) + 28);
+            if ((hi >> 16) == 0x3C03u && (lo >> 16) == 0x2463u) {
+                const uint32_t hfn = ((hi & 0xFFFFu) << 16) + (uint32_t)(int32_t)(int16_t)(lo & 0xFFFFu);
+                if (hfn >= 0x800A0DD0u && hfn - 0x800A0DD0u + 0x200 <= code_n &&
+                    u32(code + (hfn - 0x800A0DD0u) + 20) == 0x34028000u) {
+                    int sends = 0;
+                    for (unsigned k = 0; k < 0x200; k += 4)
+                        if (u32(code + (hfn - 0x800A0DD0u) + k) == 0x0C02424Du) sends = 1;
+                    /* Only those that tell another area something (kind 1). */
+                    if (sends && g[6] == 1 && u16(g + 8) < AREAS)
+                        fprintf(f, "breakable %d %u %d %d %d %d %d %u %u %u %u\n", compact[i], i, s16(r + 0x10),
+                                s16(r + 0x12), s16(r + 0x14), sz0 > sx0 ? sz0 : sx0, sy0, u16(g), g[6], g[7], u16(g + 8));
+                }
+            }
+            continue;
+        }
         if (u32(code + (fn - 0x800A0DD0u) + 20) != 0x2404001Au) continue;   /* li a0, 26: a door */
         const int sx = s16(r + 0x20) - s16(r + 0x18), sy = s16(r + 0x22) - s16(r + 0x1A),
                   sz = s16(r + 0x24) - s16(r + 0x1C);

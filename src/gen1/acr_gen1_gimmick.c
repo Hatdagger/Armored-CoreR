@@ -17,7 +17,24 @@ void acr_gen1_gimmicks_parse(const char *text, acr_gen1_gimmicks *out) {
     for (const char *p = text; p && *p; ) {
         const char *e = p;
         while (*e && *e != '\n') ++e;
-        if (e - p > 5 && !strncmp(p, "door ", 5)) {
+        if (e - p > 10 && !strncmp(p, "breakable ", 10)) {
+            long v[11];
+            int ok = 1;
+            const char *q = p + 10;
+            for (int k = 0; k < 11 && ok; ++k) q = num(q, e, &v[k], &ok);
+            if (ok && v[8] == 1 && out->breakables < ACR_GEN1_MAX_BREAKABLES) {
+                acr_gen1_breakable *k = &out->breakable[out->breakables++];
+                memset(k, 0, sizeof *k);
+                k->area = (int16_t)v[0];
+                k->game_area = (int16_t)v[1];
+                for (int j = 0; j < 3; ++j) k->centre[j] = (int16_t)v[2 + j];
+                k->size_xz = (int16_t)v[5];
+                k->size_y = (int16_t)v[6];
+                k->hp = v[7] > 0 ? (int32_t)v[7] : 1;
+                k->message = (uint8_t)v[9];
+                k->target = (int16_t)v[10];
+            }
+        } else if (e - p > 5 && !strncmp(p, "door ", 5)) {
             long v[17];
             int ok = 1;
             const char *q = p + 5;
@@ -102,6 +119,31 @@ int acr_gen1_door_near(const acr_gen1_door *d, const int32_t p[3], int32_t radiu
     if (cy < py) { if (cy < py - height) return 0; }
     else if (py < cy - d->size_y) return 0;
     return (int64_t)dx * dx + (int64_t)dz * dz <= (int64_t)r * r;
+}
+
+int acr_gen1_gimmicks_hit(acr_gen1_gimmicks *g, const int32_t p[3], int32_t reach, int32_t damage) {
+    int any = 0;
+    for (int i = 0; i < g->breakables; ++i) {
+        acr_gen1_breakable *k = &g->breakable[i];
+        if (k->hp <= 0) continue;
+        const int32_t r = k->size_xz / 2 + reach;
+        const int32_t dx = p[0] - k->centre[0], dz = p[2] - k->centre[2];
+        /* The box: centre at its foot (y down), size_y up. */
+        if (dx < -r || dx > r || dz < -r || dz > r) continue;
+        if (p[1] > k->centre[1] + reach || p[1] < k->centre[1] - k->size_y - reach) continue;
+        any = 1;
+        k->hp -= damage > 0 ? damage : 1;
+        if (k->hp > 0) continue;
+        k->hp = 0;
+        /* Broken (0x800A2708): the area goes; stand-in: put far below. */
+        k->offset[1] = 30000;
+        const int d = acr_gen1_door_find(g, k->target);
+        if (d >= 0) {
+            if (k->message == 2) acr_gen1_door_unlock(g, d);
+            else if (k->message == 1) acr_gen1_door_set_state(g, d, 1);
+        }
+    }
+    return any;
 }
 
 void acr_gen1_gimmicks_blade(acr_gen1_gimmicks *g, const int32_t player[3], int32_t radius, int32_t height,
