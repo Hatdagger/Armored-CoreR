@@ -392,6 +392,45 @@ int32_t acr_gen1_unit_damage(uint16_t attack, int energy, int8_t n) {
 
 static void unit_hit_turn(acr_gen1_unit *u);
 
+int32_t acr_gen1_burn_quarters(int32_t hit_damage) {
+    return hit_damage > 0 ? hit_damage * 4 >> 4 : 0;
+}
+
+int32_t acr_gen1_gen2_heat_gain(uint16_t gen2_heat) {
+    return (int32_t)gen2_heat * 624 / 10;               /* x 0.24 x 2.6, in hundredths */
+}
+
+static void damage_by(acr_gen1_battle *b, int target, int attacker, uint16_t attack, int energy);
+
+/* A shot or blade hit with its fire effects: Gen 1 burn, [Gen 2] heat. */
+static void weapon_hit(acr_gen1_battle *b, int target, int attacker, const acr_gen1_weapon *w,
+                       uint16_t attack, int energy) {
+    acr_gen1_fighter *t = is_unit(target) || b->over ? NULL : &b->f[target];
+    const int32_t before = t ? t->ap : 0;
+    damage_by(b, target, attacker, attack, energy);
+    if (!t || !w || t->ap <= 0) return;
+    int ignite = w->burn;
+    if (w->gen2_heat) {
+        t->heat += acr_gen1_gen2_heat_gain(w->gen2_heat);
+        if (t->heat > ACR_GEN1_HEAT_LIMIT) { t->heat = 0; ignite = 1; }
+    }
+    if (ignite) {
+        t->burn_steps = ACR_GEN1_BURN_STEPS;
+        t->burn_q = acr_gen1_burn_quarters(before - t->ap);
+    }
+}
+
+/* One step of burning and cooling. */
+static void fire_tick(acr_gen1_battle *b, acr_gen1_fighter *f) {
+    if (f->heat) f->heat = f->heat > ACR_GEN1_HEAT_COOL_STEP ? f->heat - ACR_GEN1_HEAT_COOL_STEP : 0;
+    if (!f->burn_steps || b->over || f->ap <= 0) return;
+    --f->burn_steps;
+    f->burn_carry += f->burn_q;
+    f->ap -= f->burn_carry >> 2;
+    f->burn_carry &= 3;
+    if (f->ap < 0) f->ap = 0;
+}
+
 static void damage_by(acr_gen1_battle *b, int target, int attacker, uint16_t attack, int energy) {
     if (b->over) return;                                /* the round is decided: hits no longer count */
     if (is_unit(target)) {
@@ -1349,12 +1388,12 @@ static void shots_step(acr_gen1_battle *b, int ticks) {
         if (hits_ac && hits_wall) {
             /* How far along the way the AC's middle is, against the wall. */
             if (target_t <= wall_t) {
-                damage_by(b, target, s->owner, attack, energy);
+                weapon_hit(b, target, s->owner, w, attack, energy);
                 stagger_hit(b, target, impact, s->vx, s->vz);
             }
             s->active = 0;
         } else if (hits_ac) {
-            damage_by(b, target, s->owner, attack, energy);
+            weapon_hit(b, target, s->owner, w, attack, energy);
             stagger_hit(b, target, impact, s->vx, s->vz);
             s->active = 0;
         } else if (hits_wall) {
@@ -1562,8 +1601,10 @@ void acr_gen1_battle_step(acr_gen1_battle *b, const acr_gen1_input in[], const a
         }
         f->used = use;
         acr_gen1_ac_advance(&f->ac, f->def, use, ticks, num, den);
-        for (int t = 0; t < ticks; ++t)        /* the push is in the velocity (stagger_hit) */
+        for (int t = 0; t < ticks; ++t) {      /* the push is in the velocity (stagger_hit) */
             if (f->stagger) --f->stagger;
+            fire_tick(b, f);
+        }
     }
     acr_gen1_battle_retarget_acts(b, act);
     for (int i = 0; i < n; ++i) fighter_step(b, i, act[i], ticks);

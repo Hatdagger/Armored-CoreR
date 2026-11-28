@@ -300,6 +300,11 @@ int demo_load(const char *import_dir, const int parts[SLOT_COUNT], demo_ac *out,
                 w->ammo = (uint16_t)get_int(t, e, "ammo", 0);
                 w->ammo_price = (uint16_t)get_int(t, e, "ammo_price", 0);
                 w->solid = (uint8_t)((get_int(t, e, "ammo_flags", 0) & 0x10) != 0);
+                w->burn = (uint8_t)((get_int(t, e, "ammo_flags", 0) & 0x80) != 0);
+                {   /* [Gen 2] AC2 ammo heat ([gen2] gen2_ammo_heat): heats Gen 1 ACs */
+                    const long heat = get_int(t, e, "gen2_ammo_heat", 0);
+                    w->gen2_heat = (uint16_t)(heat < 0 ? 0 : heat > 65535 ? 65535 : heat);
+                }
                 w->range = (int32_t)get_int(t, e, "range", 6000);
                 w->energy = (uint8_t)get_int(t, e, "energy_damage", 0);
                 w->lock_ms = (uint16_t)(cls < 4 ? 1 : 0);

@@ -1060,6 +1060,37 @@ int main(void) {
         acr_gen1_battle_step(&c, none, idle);
         EXPECT((c.f[1].ac.z - c.f[0].ac.z) / 64 >= 2 * ACR_GEN1_HIT_RADIUS);
     }
+    {   /* Burn (WG-FGI-00, bit 0x80): 100 steps, 6.25 x the hit's damage in all. */
+        EXPECT(acr_gen1_burn_quarters(56) == 14);
+        EXPECT(acr_gen1_gen2_heat_gain(91) == 5678);    /* ZWG-RF/37: 56.8 temperature (VS) */
+        static acr_gen1_battle c;
+        for (int gen2 = 0; gen2 < 2; ++gen2) {
+            setup(&c, 3000);
+            for (int i = 0; i < 2; ++i) { c.f[i].weapons = 1; c.f[i].weapon[0] = rifle(); c.f[i].ammo[0] = 200; }
+            if (gen2) { c.f[0].weapon[0].gen2_heat = 91; c.f[1].heat = ACR_GEN1_HEAT_LIMIT - 100; }
+            else c.f[0].weapon[0].burn = 1;
+            int k = 0;
+            while (c.f[1].ap == c.f[1].ap_max && k++ < 400) acr_gen1_battle_step(&c, none, fire);
+            const int32_t hit = c.f[1].ap_max - c.f[1].ap;
+            EXPECT(hit == 60);                           /* attack 218 on factor 27 */
+            EXPECT(c.f[1].burn_steps > 0);
+            if (gen2) EXPECT(c.f[1].heat == 0);          /* overheated: the gauge empties */
+            c.f[0].ammo[0] = 0;                          /* no more hits: watch the burn */
+            for (int t = 0; t < 150; ++t) acr_gen1_battle_step(&c, none, idle);
+            EXPECT(c.f[1].burn_steps == 0);
+            EXPECT(c.f[1].ap_max - c.f[1].ap == hit + 100 * 60 / 16);   /* 60 + 375 */
+        }
+        /* Below the limit a Gen 2 hit only warms the AC, and it cools. */
+        setup(&c, 3000);
+        for (int i = 0; i < 2; ++i) { c.f[i].weapons = 1; c.f[i].weapon[0] = rifle(); c.f[i].ammo[0] = 200; }
+        c.f[0].weapon[0].gen2_heat = 91;
+        int k = 0;
+        while (c.f[1].ap == c.f[1].ap_max && k++ < 400) acr_gen1_battle_step(&c, none, fire);
+        EXPECT(c.f[1].burn_steps == 0 && c.f[1].heat > 0 && c.f[1].heat <= 5678);
+        c.f[0].ammo[0] = 0;
+        for (int t = 0; t < 80; ++t) acr_gen1_battle_step(&c, none, idle);
+        EXPECT(c.f[1].heat == 0);
+    }
     if (failures) { printf("%d failure(s)\n", failures); return 1; }
     printf("gen1 battle: all passed (first hit after %d steps)\n", steps);
     return 0;
