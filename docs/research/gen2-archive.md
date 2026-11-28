@@ -188,6 +188,16 @@ u16 words from +114 (w0 = +114, w7 = +128, w14 = +142). Checked against publishe
 ## Open questions
 - Parts record: head, core and legs fields named (see above). Still open: core w12/w16, legs turning (w17), head sensor/scan intervals, FCS lock speed/sight/reticle, and confirming the booster fields.
 - Confirm back-cannon recoil (need more published values); missile w7; +0x30 guidance.
-- Hierarchy confirmation (game code) and rotation order; animation data (not found yet).
+- Hierarchy confirmation (game code) and rotation order; animation (see Animation search: probably procedural).
 - Arms' extra shared texture (TEX0 …9fd0); boosters/back units/extensions in the glTF build.
 - The 421-492 block.
+
+## Animation search (2026-11-27, session 6)
+No stored keyframe animation has been found for ACs. Checked:
+- Leg/arm/core packages (B 301-411) end exactly at their model size; nothing follows the meshes.
+- B 421-492 (65 MB, 9 sets of 8 files) is VIF draw packets (UNPACK 0x6c.., GIF tags, colour 128.0): geometry, not motion.
+- A 1-5 and 150-190, D 2080-2095 and the 2200s: images, height maps, settings, geometry.
+- A scan of A, C and D for long runs of smooth radian tracks at any joint stride (1-20 joints) found none.
+- The ELF has no motion file paths (only `ac2/parts/data/%s%03d.bin`, map and arena paths). Its `motion_type` strings belong to the MPEG decoder.
+
+Evidence for procedural motion: a developer tuning table in the ELF (labels at 0x439100-0x4397f0; entries `label ptr, variable ptr, step, max` at 0x429fb0-0x42a1a0) with `walk_waist / walk_center / walk_core`, `land_*`, `dash_start / dash_brake`, `jump`, `weapon_react`, `react speedstep`, shoulder/core aim limits (`Kata minX/maxX/minY`, `Core minX/maxX/maxY`; kata = shoulder) and aim speeds (`hand / arm / 2Ude / Kata / core spd`; ude = arm). The variables live in RAM at 0x01d27fd8+ (filled at run time). Leading theory: AC2 poses legs and body in code from these parameters plus leg stats, instead of playing clips as Gen 1 does. Not yet confirmed in code.
