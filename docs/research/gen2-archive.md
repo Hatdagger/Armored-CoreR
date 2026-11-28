@@ -193,6 +193,24 @@ u16 words from +114 (w0 = +114, w7 = +128, w14 = +142). Checked against publishe
 - Arms' extra shared texture (TEX0 …9fd0); boosters/back units/extensions in the glTF build.
 - The 421-492 block.
 
+## Motion (FOUND 2026-11-27, session 6)
+AC2 plays **keyframe clips per node**, like Gen 1. (An earlier note in this session guessed procedural motion; that was wrong.)
+
+**Where:** B 421-492, the 72 "unknown (large)" files. They hold geometry *and* about 47-68 clips each. 72 files is the same count as Gen 1's 72 animation sets (picked from core, arms and legs), so each file is probably one set. Files come in a repeating pattern of 8 (node counts 33, 32, 32, 34, 32, 36, 30, 36 for 421-428), 9 times. Stage files (126, 127, 134, 136, 190) carry enemy clips in the same format. Not mapped to part combinations yet.
+
+**Clip format** (`tools/gen2/motion.py`):
+- Header 16 bytes: u32 size (not reliable for walking: clips overlap), u16 0x100, u16 ?, u16 node count, u16 ?, u16 frame count, u16 ?.
+- Per node 0x30 bytes: u8 type (2 joint, 3 probably pivot), u8 0, u8 parent (0xff root), u8 index, u32 key-data offset from the clip start, then links and constants.
+- Keys, 0x80 bytes each: u16 frame, u16 next key's frame (0xffff = last), vec4 position, 2 vec4, **vec4 rotation in radians (xyz)**, 2 vec4, vec4 scale (1,1,1,1).
+- Most clips are 1-frame poses; moving clips are 14-26, 52, 120 or 240 frames. Angles are clean authored values (25°, 50°, 90°).
+- Each part's JOIN "settings block" (F block, section kind 2) is the same format: a 1-frame clip holding that part's **skeleton** (parents, rest rotations, positions). So the hierarchy is stored after all, and the "inferred rule" in Joints can be replaced with real parents.
+
+**Code** (SLUS_200.14): play motion `0x127c10` (wrappers `0x128148` etc.: player, motion number, blend frames, loop); add motion to bank `0x126680`. Motion player: +4 node count, +0xa0 node states (0x100 each: +0xb9 motion, +0xba layer mask, +0xbc frame, +0xbe length, +0xc0/+0xc4 blend counter/time, +0xbb loop), +0xa4 bank (pointer per motion number, count byte at +0x2f0). AC state code calls motions by number from a table at 0x3c8340 (2, 4, 6 … 16, then state handlers). The tuning values `walk_core / walk_center / walk_waist`, `land_*`, `jump`, `dmgland`, `gnddamage`, `airdamage` are 16-bit **blend times per body region**, read from `[gp-0x4d44]+0x7c0` (offsets 0-24 in that order) and written into the core, centre and waist nodes' blend slots (code at 0x1439e4).
+
+**Tuning table** (ELF, labels 0x439100-0x4397f0, entries at 0x429130-0x42ab40): movement constants (std_dash_acc 0.047, std_brake 0.06, prog_move_stdmaxspd 0.8, gravity etc. at run time), heat and cooling rates, camera, and per-joint aim limits/speeds (shoulder "Kata", upper arm "2Ude", arm, hand, core; degrees). The aim-limit block 0x429858-0x4298c4 is never read by game code (debug defaults only).
+
+**Next:** map the 72 files to core/arms/legs; name clips by motion number; match node indices to part meshes; export glTF animations.
+
 ## Animation search (2026-11-27, session 6)
 No stored keyframe animation has been found for ACs. Checked:
 - Leg/arm/core packages (B 301-411) end exactly at their model size; nothing follows the meshes.
@@ -201,4 +219,4 @@ No stored keyframe animation has been found for ACs. Checked:
 - A scan of A, C and D for long runs of smooth radian tracks at any joint stride (1-20 joints) found none.
 - The ELF has no motion file paths (only `ac2/parts/data/%s%03d.bin`, map and arena paths). Its `motion_type` strings belong to the MPEG decoder.
 
-Evidence for procedural motion: a developer tuning table in the ELF (labels at 0x439100-0x4397f0; entries `label ptr, variable ptr, step, max` at 0x429fb0-0x42a1a0) with `walk_waist / walk_center / walk_core`, `land_*`, `dash_start / dash_brake`, `jump`, `weapon_react`, `react speedstep`, shoulder/core aim limits (`Kata minX/maxX/minY`, `Core minX/maxX/maxY`; kata = shoulder) and aim speeds (`hand / arm / 2Ude / Kata / core spd`; ude = arm). The variables live in RAM at 0x01d27fd8+ (filled at run time). Leading theory: AC2 poses legs and body in code from these parameters plus leg stats, instead of playing clips as Gen 1 does. Not yet confirmed in code.
+Evidence for procedural motion: a developer tuning table in the ELF (labels at 0x439100-0x4397f0; entries `label ptr, variable ptr, step, max` at 0x429fb0-0x42a1a0) with `walk_waist / walk_center / walk_core`, `land_*`, `dash_start / dash_brake`, `jump`, `weapon_react`, `react speedstep`, shoulder/core aim limits (`Kata minX/maxX/minY`, `Core minX/maxX/maxY`; kata = shoulder) and aim speeds (`hand / arm / 2Ude / Kata / core spd`; ude = arm). The variables live in RAM at 0x01d27fd8+ (filled at run time). Superseded: see Motion above (clips were found in B 421-492).
