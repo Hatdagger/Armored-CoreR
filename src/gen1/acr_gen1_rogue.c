@@ -393,6 +393,7 @@ int acr_gen1_rogue_rung(const acr_gen1_rogue *r, const acr_gen1_rogue_world *w, 
     if (src) { out->ai = src->ai; out->arena = src->arena; out->entries = src->entries; }
     else acr_gen1_ai_preset(&out->ai, ACR_GEN1_AI_BALANCED);
     out->ai.rebel = g->plus ? 9 : 0;
+    if (out->ai.rec.present) out->ai.rec.human_plus = out->ai.rebel;   /* the original brain's copy */
     out->rank = (uint8_t)(SLOTS - (p - r->slot));
     memcpy(out->parts, g->parts, sizeof out->parts);
     out->options = g->options;

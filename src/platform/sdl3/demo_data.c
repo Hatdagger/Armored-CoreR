@@ -652,6 +652,23 @@ static void roster_file(roster_walk *w, const char *path) {
         }
         const long rebel = get_int(t, e, "rebel", 0);
         p->rebel = (uint8_t)(rebel < 0 ? 0 : rebel > 9 ? 9 : rebel);
+        /* The disc's own AI record, for the original brain (docs/AI.md):
+         * Phantasma's 60 bytes or Master of Arena's 36. Record n belongs to
+         * opponent n = starting rank - 1 (ACG1PLUS ai.md 3a). */
+        {
+            uint8_t rec[ACR_GEN1_AI_PP_RECORD_SIZE];
+            const int pp = find_key(t, e, "ai_record_pp") != NULL;
+            const int n = pp ? ACR_GEN1_AI_PP_RECORD_SIZE : ACR_GEN1_AI_RECORD_SIZE;
+            int ok = pp || find_key(t, e, "ai_record") != NULL;
+            for (int k = 0; ok && k < n; ++k) {
+                const long b = list_at(t, e, pp ? "ai_record_pp" : "ai_record", k, -1);
+                if (b < 0 || b > 255) ok = 0;
+                else rec[k] = (uint8_t)b;
+            }
+            const int opp = f->rank ? f->rank - 1 : 0;
+            if (ok && pp) acr_gen1_ai_orig_from_pp(&p->rec, rec, opp);
+            else if (ok) acr_gen1_ai_orig_from_moa(&p->rec, rec, opp, f->arena == 0);
+        }
         const uint8_t hand = f->parts[SLOT_HAND];
         f->karasawa = (uint8_t)(w->names && hand < ACR_GEN1_PART_MAX && SDL_strstr(w->names[ACR_GEN1_CAT_HAND][hand], "KARASAWA") != NULL);
         if (f->rank && f->entries && f->parts[SLOT_CORE] != ACR_GEN1_NO_PART) ++w->n;

@@ -24,13 +24,15 @@ enum {
     M_ASSEMBLY, M_OPTIONS, M_PERFORMANCE, M_COLOR, M_TEST, M_SAVE, M_LOAD, M_NEWGAME, M_SETTINGS, M_CONTROLS, M_VIDEO, M_AUDIO, M_UPDATES, M_REIMPORT, M_QUIT, M_BACK, M_EXIT_RUN,
     /* the hangar menu's own entries */
     M_EMBLEM, M_SPLIT, M_LAN, M_ONLINE, M_AR_PP, M_AR_MOA, M_AR_MOA_SUB, M_AR_EX, M_MAIL,
+    M_AI,   /* SETTINGS > AI PILOTS (the arena AI's brain and style) */
     M_COUNT
 };
 static const char *const k_menu[M_COUNT] = {
     "GARAGE", "PARTS SHOP", "ARENA", "MISSION SELECT", "NETWORK", "ROGUE ARENA", "SYSTEM",
     "ASSEMBLE", "OPTIONAL PARTS", "PERFORMANCE", "PAINT", "AC TEST", "SAVE", "LOAD", "NEW GAME", "SETTINGS", "CONTROLS", "DISPLAY", "SOUND", "UPDATES", "RE-IMPORT DISC", "EXIT GAME", "BACK",
     "BACK TO THE ARENA",
-    "EMBLEM", "SPLIT SCREEN", "LAN", "ONLINE", "PHANTASMA ARENA", "MoA ARENA", "MoA SUB-ARENA", "EX ARENA", "MAIL"
+    "EMBLEM", "SPLIT SCREEN", "LAN", "ONLINE", "PHANTASMA ARENA", "MoA ARENA", "MoA SUB-ARENA", "EX ARENA", "MAIL",
+    "AI PILOTS"
 };
 /* The hangar menu's details box: two lines for each entry. */
 static const char *const k_menu_info[M_COUNT][2] = {
@@ -47,6 +49,7 @@ static const char *const k_menu_info[M_COUNT][2] = {
     [M_CONTROLS] = { "CONTROLLER AND KEY LAYOUTS.", "" },
     [M_VIDEO] = { "RESOLUTION AND FILTERS.", "" },
     [M_AUDIO] = { "MUSIC, FIGHT AND MENU VOLUME.", "" },
+    [M_AI] = { "HOW COMPUTER PILOTS FIGHT:", "ORIGINAL AI OR ACR UTILITY." },
     [M_UPDATES] = { "LOOK FOR A NEWER VERSION.", "" },
     [M_REIMPORT] = { "IMPORT A DISC AGAIN.", "SAVES ARE KEPT." },
     [M_QUIT] = { "CLOSE THE GAME.", "" },
@@ -80,9 +83,9 @@ static int item_available(int id) {
 
 static const int k_col_items[X_COLS][X_ROWS_MAX + 1] = {   /* -1 ends a column */
 #ifdef SDL_PLATFORM_ANDROID
-    { M_CONTROLS, M_AUDIO, M_VIDEO, M_UPDATES, M_REIMPORT, M_QUIT, -1 },
+    { M_CONTROLS, M_AUDIO, M_VIDEO, M_AI, M_UPDATES, M_REIMPORT, M_QUIT, -1 },
 #else
-    { M_CONTROLS, M_AUDIO, M_VIDEO, M_REIMPORT, M_QUIT, -1 },
+    { M_CONTROLS, M_AUDIO, M_VIDEO, M_AI, M_REIMPORT, M_QUIT, -1 },
 #endif
     { M_SAVE, M_LOAD, M_NEWGAME, -1 },
     { M_SPLIT, M_LAN, M_ONLINE, -1 },
@@ -106,9 +109,9 @@ static const int k_page_system[] = { M_SAVE, M_LOAD, M_NEWGAME, M_SETTINGS, M_QU
 /* RE-IMPORT DISC: import a disc again over the old import (saves kept).
  * UPDATES only in the Android app (update.h); the PC gets new builds from GitHub. */
 #ifdef SDL_PLATFORM_ANDROID
-static const int k_page_settings[] = { M_CONTROLS, M_VIDEO, M_AUDIO, M_UPDATES, M_REIMPORT, M_BACK };
+static const int k_page_settings[] = { M_CONTROLS, M_VIDEO, M_AUDIO, M_AI, M_UPDATES, M_REIMPORT, M_BACK };
 #else
-static const int k_page_settings[] = { M_CONTROLS, M_VIDEO, M_AUDIO, M_REIMPORT, M_BACK };
+static const int k_page_settings[] = { M_CONTROLS, M_VIDEO, M_AUDIO, M_AI, M_REIMPORT, M_BACK };
 #endif
 static const int k_page_rogue[] = { M_ASSEMBLY, M_EXIT_RUN };
 static const char *const k_page_title[GARAGE_PAGES] = { "MAIN MENU", "GARAGE", "SYSTEM", "SETTINGS" };
@@ -393,6 +396,7 @@ static garage_command choose(garage_ui *ui, garage_data *d, int id, int *err) {
         case M_CONTROLS: return GC_CONTROLS;
         case M_VIDEO: return GC_VIDEO;
         case M_AUDIO: return GC_AUDIO;
+        case M_AI: return GC_AI;
         case M_UPDATES: return GC_UPDATES;
         case M_REIMPORT: return GC_REIMPORT;
         case M_SAVE: return GC_SAVE;

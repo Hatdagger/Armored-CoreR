@@ -31,6 +31,7 @@ typedef enum garage_command {
     GC_CONTROLS,    /* SYSTEM > SETTINGS > CONTROLS: the controller mapping page */
     GC_VIDEO,       /* SYSTEM > SETTINGS > VIDEO */
     GC_AUDIO,       /* SYSTEM > SETTINGS > AUDIO */
+    GC_AI,          /* SYSTEM > SETTINGS > AI PILOTS */
     GC_UPDATES,     /* SYSTEM > SETTINGS > UPDATES (Android: a newer APK from GitHub) */
     GC_REIMPORT,    /* SYSTEM > SETTINGS > RE-IMPORT DISC: pick a disc, import it over the old one */
     GC_SAVE,        /* SYSTEM > SAVE */

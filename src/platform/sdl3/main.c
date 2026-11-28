@@ -1552,6 +1552,7 @@ int main(int argc, char **argv) {
     /* SETTINGS > VIDEO picks the window's size and fullscreen; ACR_WINDOW=WxH
      * wins over it (screenshots at other shapes). */
     settings_load();
+    acr_gen1_ai_set_options(g_settings.ai_utility ? ACR_GEN1_BRAIN_UTILITY : ACR_GEN1_BRAIN_ORIGINAL, g_settings.ai_style);
     int win_w = 1280, win_h = 720;
     settings_window_size(g_settings.window, &win_w, &win_h);
     if (!g_hud_frame_arg) g_hud_frame = g_settings.hud_wide ? BATTLE_HUD_FRAME_WIDE : BATTLE_HUD_FRAME_43;
@@ -3008,6 +3009,7 @@ int main(int argc, char **argv) {
                         SDL_SetWindowSize(window, ww, wh);
                     }
                 }
+                acr_gen1_ai_set_options(g_settings.ai_utility ? ACR_GEN1_BRAIN_UTILITY : ACR_GEN1_BRAIN_ORIGINAL, g_settings.ai_style);
                 g_hud_frame = g_settings.hud_wide ? BATTLE_HUD_FRAME_WIDE : BATTLE_HUD_FRAME_43;
                 g_smooth_anim = g_settings.smooth_anim;
                 sfx_set_volume((float)g_settings.fx_volume / 10.0f, (float)g_settings.menu_volume / 10.0f);
@@ -3336,7 +3338,10 @@ int main(int argc, char **argv) {
             }
             if (gcmd == GC_MISSIONS) { missions_open(); mode = MODE_MISSIONS; }
             if (gcmd == GC_CONTROLS) { controls_open(&cui); mode = MODE_CONTROLS; }
-            if (gcmd == GC_VIDEO || gcmd == GC_AUDIO) { settings_open(&sui, gcmd == GC_AUDIO); mode = MODE_SETTINGS; }
+            if (gcmd == GC_VIDEO || gcmd == GC_AUDIO || gcmd == GC_AI) {
+                settings_open(&sui, gcmd == GC_AI ? SETTINGS_PAGE_AI : gcmd == GC_AUDIO);
+                mode = MODE_SETTINGS;
+            }
             if (gcmd == GC_UPDATES && update_supported()) { update_open(&uui); mode = MODE_UPDATE; }
             if (gcmd == GC_REIMPORT) { disc_pick_open(window); g_reimport_picking = 1; }
             if (gcmd == GC_QUIT) running = 0;

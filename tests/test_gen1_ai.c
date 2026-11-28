@@ -188,7 +188,13 @@ int main(void) {
 
     static acr_gen1_battle b, b2;
     acr_gen1_ai_profile prof[ACR_GEN1_AI_PRESETS];
-    for (int k = 1; k < ACR_GEN1_AI_PRESETS; ++k) acr_gen1_ai_preset(&prof[k], k);
+    /* These matches test the utility brain ("ACR UTILITY (HARD)"), which
+     * the presets flew before the original brain came in; the original
+     * brain has its own tests (test_gen1_ai_orig.c). */
+    for (int k = 1; k < ACR_GEN1_AI_PRESETS; ++k) {
+        acr_gen1_ai_preset(&prof[k], k);
+        prof[k].brain = ACR_GEN1_BRAIN_UTILITY;
+    }
 
     /* Every preset finds and beats an AC that just stands there. */
     for (int k = 1; k < ACR_GEN1_AI_PRESETS; ++k) {

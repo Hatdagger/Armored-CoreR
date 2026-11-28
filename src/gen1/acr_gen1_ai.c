@@ -259,6 +259,46 @@ void acr_gen1_ai_look(const acr_gen1_battle *b, int me, int32_t arena_half, acr_
         if (s->active && s->missile && s->owner != me && acr_gen1_battle_team(b, s->owner) != my_team &&
             (!b->count || s->target == me) && v->missiles_in < 255) ++v->missiles_in;
     }
+    /* For the original brain. */
+    v->step_rate = b->step_rate; v->gen1_rate = b->gen1_rate;
+    v->tx = o->x / 64; v->ty = o->y / 64; v->tz = o->z / 64;
+    v->tvx = o->vx; v->tvy = o->vy; v->tvz = o->vz;
+    v->tyaw = o->yaw;
+    v->target_ap = t->ap;
+    v->target_range = 4000;                       /* ai.md 5 +0x236: 4000 with none */
+    if (ti >= 0 && t->weapons && t->current < t->weapons) {
+        const acr_gen1_weapon *w = &t->weapon[t->current];
+        if (w->range > 0) v->target_range = w->range;
+    }
+    for (int k = 0; k < f->weapons && k < ACR_GEN1_MAX_WEAPONS; ++k)
+        v->shot_speed[k] = f->weapon[k].kind == ACR_GEN1_GUN ? f->weapon[k].speed : 0;
+    {
+        int64_t best = -1;
+        for (int k = 0; k < ACR_GEN1_MAX_SHOTS; ++k) {
+            const acr_gen1_shot *s = &b->shot[k];
+            if (!s->active || s->owner == me) continue;
+            if (s->owner < ACR_GEN1_MAX_FIGHTERS && acr_gen1_battle_team(b, s->owner) == my_team) continue;
+            const int64_t sx = s->x / 64 - v->x, sz = s->z / 64 - v->z;
+            const int64_t d2 = sx * sx + sz * sz;
+            if (s->missile) {
+                if (b->count && s->target != me) continue;
+                if (best < 0 || d2 < best) {
+                    best = d2;
+                    v->missile_x = (int32_t)(s->x / 64); v->missile_z = (int32_t)(s->z / 64);
+                    v->missile_dist = (int32_t)isqrt64((uint64_t)d2);
+                    v->missile_yaw = s->yaw;
+                }
+            } else if (!s->wave && (s->vx || s->vz)) {
+                /* heading at us within about 11 degrees (128 units) */
+                const int32_t to_me = (int32_t)angle_of(-sx, -sz);
+                const int32_t head = (int32_t)angle_of(s->vx, s->vz);
+                if (iabs(wrap(to_me - head)) < 128 && d2 < (int64_t)6000 * 6000 && v->shots_in < 255) {
+                    if (!v->shots_in) v->shot_yaw = (uint16_t)head;
+                    ++v->shots_in;
+                }
+            }
+        }
+    }
     v->arena_half = arena_half;
     if (arena_half) {
         const int32_t fx = acr_gen1_sin(a->yaw), fz = acr_gen1_cos(a->yaw);
@@ -276,6 +316,35 @@ static int rnd(acr_gen1_ai *ai, int below) {            /* 0 .. below - 1 */
 }
 static int chance(acr_gen1_ai *ai, int percent) { return rnd(ai, 100) < percent; }
 
+/* ---- the AI setting ---------------------------------------------------- */
+
+static int g_brain_option = ACR_GEN1_BRAIN_ORIGINAL, g_style_option = ACR_GEN1_STYLE_NATIVE;
+
+void acr_gen1_ai_set_options(int brain, int style) {
+    g_brain_option = brain == ACR_GEN1_BRAIN_UTILITY ? ACR_GEN1_BRAIN_UTILITY : ACR_GEN1_BRAIN_ORIGINAL;
+    g_style_option = style > 0 && style < ACR_GEN1_STYLES ? style : ACR_GEN1_STYLE_NATIVE;
+}
+int acr_gen1_ai_brain_option(void) { return g_brain_option; }
+int acr_gen1_ai_style_option(void) { return g_style_option; }
+
+const char *acr_gen1_ai_brain_name(int brain) {
+    return brain == ACR_GEN1_BRAIN_UTILITY ? "ACR UTILITY (HARD)" : "ORIGINAL";
+}
+const char *acr_gen1_ai_style_name(int style) {
+    return style == ACR_GEN1_STYLE_PP ? "PHANTASMA" : style == ACR_GEN1_STYLE_MOA ? "MASTER OF ARENA" : "OWN DISC";
+}
+const char *acr_gen1_ai_style_note(int style) {
+    switch (style) {
+    case ACR_GEN1_STYLE_PP:  return "FIRES WHENEVER LINED UP, AIMS AT YOU, DODGES MISSILES ONLY.";
+    case ACR_GEN1_STYLE_MOA: return "DICE TO FIRE, SLOW START, AIMS AHEAD, DODGES SHOTS, LAST STAND.";
+    default:                 return "PHANTASMA FOES FIGHT LIKE PHANTASMA, MoA FOES LIKE MoA.";
+    }
+}
+
+/* acr_gen1_ai_orig.c */
+void acr_gen1_ai_orig_init(acr_gen1_ai *ai);
+void acr_gen1_ai_orig_think(acr_gen1_ai *ai, const acr_gen1_ai_view *v, acr_gen1_input *in, acr_gen1_actions *act);
+
 void acr_gen1_ai_init(acr_gen1_ai *ai, const acr_gen1_ai_profile *p, uint32_t seed) {
     memset(ai, 0, sizeof *ai);
     ai->prof = *p;
@@ -283,6 +352,9 @@ void acr_gen1_ai_init(acr_gen1_ai *ai, const acr_gen1_ai_profile *p, uint32_t se
     ai->want_weapon = -1;
     ai->last_ap = -1;
     ai->strafe = (int8_t)(rnd(ai, 2) ? 1 : -1);
+    ai->brain = (uint8_t)(p->brain == ACR_GEN1_BRAIN_ORIGINAL || p->brain == ACR_GEN1_BRAIN_UTILITY
+                          ? p->brain : g_brain_option);
+    if (ai->brain == ACR_GEN1_BRAIN_ORIGINAL) acr_gen1_ai_orig_init(ai);
 }
 
 /* How far the pilot likes to fight, world units: the RANGE slider from
@@ -392,6 +464,7 @@ static void decide(acr_gen1_ai *ai, const acr_gen1_ai_view *v) {
 
 void acr_gen1_ai_think(acr_gen1_ai *ai, const acr_gen1_ai_view *v, int step_ms,
                        acr_gen1_input *in, acr_gen1_actions *act) {
+    if (ai->brain == ACR_GEN1_BRAIN_ORIGINAL) { acr_gen1_ai_orig_think(ai, v, in, act); return; }
     memset(in, 0, sizeof *in);
     memset(act, 0, sizeof *act);
     if (step_ms <= 0) step_ms = 45;

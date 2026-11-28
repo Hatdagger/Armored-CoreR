@@ -25,9 +25,12 @@ and later parts, stages and missions come from Phantasma; the fight rules stay M
 - **Data** (ACG1PLUS `docs/research/mapping/content-data.md` 4, `ai.md` 3): builds, names, emblems, prize
   money and the nine prize parts from `MENU_TIM.T` 282-483. Back weapons 17 and up are one higher in
   Master of Arena's numbering (checked by name against the disc). Prize ids 23-31 = Phantasma's 0-8.
-- **AI:** Phantasma keeps 49 AI records of 60 bytes in its arena engine; record = rank - 1 is a guess.
-  Read into our editor rows: fly (desire C), blade (lunge chance), lock (from the reaction delay). It has
-  no fire-chance, dodge or range fields: those get 75 / 50 / 50.
+- **AI:** Phantasma keeps 49 AI records of 60 bytes in its arena engine. **Record n belongs to opponent
+  number n = its starting rank − 1** (confirmed, ACG1PLUS `ai.md` §3a: the menu stores the opponent's
+  list number as the AI record number; the record follows the opponent, not the rank it holds now).
+  The whole record goes into the opponent's file (`ai_record_pp`) and drives the original brain
+  (docs/AI.md). The editor rows read from it (fly = desire C, blade = lunge chance, lock = from the
+  reaction delay; no fire-chance, dodge or range fields: 75 / 50 / 50) only matter to the utility brain.
 - **Names:** four "Panzern" pilots carry a symbol from Phantasma's font (bytes 0xA2-0xA5); written as
   Panzern I-IV (a guess at which is which).
 - **Unlocks (ours):** Phantasma's arena from the start, one list (no sub arena); MASTER OF ARENA once

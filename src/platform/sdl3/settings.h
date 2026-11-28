@@ -1,7 +1,10 @@
 /* SYSTEM > SETTINGS > VIDEO and AUDIO, kept in settings.toml beside the
  * save. VIDEO: fullscreen or a window, the window's size, the fight HUD's
  * frame (4:3 or wide; F9 in a fight) and smooth or stepped animation (F5).
- * AUDIO: fight sounds and menu sounds, 0..10 each. Changes apply at once;
+ * AUDIO: fight sounds and menu sounds, 0..10 each. AI PILOTS: the
+ * computer pilots' brain (ORIGINAL or ACR UTILITY (HARD)) and the original
+ * brain's style (each opponent's own disc, Phantasma or Master of Arena);
+ * docs/AI.md. Changes apply at once;
  * main.c reads the values and puts them into effect (settings_ui.apply). */
 #ifndef SETTINGS_H
 #define SETTINGS_H
@@ -17,7 +20,11 @@ typedef struct game_settings {
     int smooth_anim;   /* 1 smooth, 0 stepped */
     int fx_volume;     /* 0..10 */
     int menu_volume;   /* 0..10 */
+    int ai_utility;    /* 0 the original arena AI, 1 the ACR utility brain everywhere */
+    int ai_style;      /* ACR_GEN1_STYLE_*: 0 own disc, 1 Phantasma, 2 Master of Arena */
 } game_settings;
+
+#define SETTINGS_PAGE_AI 2
 
 extern game_settings g_settings;
 
@@ -27,7 +34,7 @@ int  settings_save(void);
 void settings_window_size(int index, int *w, int *h);
 
 typedef struct settings_ui {
-    int page;          /* 0 VIDEO, 1 AUDIO */
+    int page;          /* 0 VIDEO, 1 AUDIO, 2 AI PILOTS */
     int cur;
     int apply;         /* set when a value changed: main.c applies g_settings and clears it */
     char message[80];
