@@ -276,9 +276,11 @@ usual income and expense report follows (reward, ammunition, repair).
 **Stand-ins (tell me if any feels wrong):**
 - MOA-00 Eliminate Fugitive: won when the Armored Car is destroyed (the game
   ends on a door near it; "permission to take him out" in the briefing).
-- MOA-01 Defend Submarine: falling into the sea fails it, as in the game;
-  the submarine itself can't be sunk yet (the engine has no breakable
-  structures), and the ships don't move.
+- MOA-01 Defend Submarine: as the game: falling into the sea fails it, and
+  so does the submarine's stern (area 56, 30,000 HP; the other two pieces
+  break too) going down, 41 ticks after it breaks (no sinking cutscene).
+  Any shot that meets the hull counts, the enemies' too. The two ships sail
+  back and forth (20 a tick) and their guns ride on them.
 - MOA-03 Destroy Cannon: the jet and the AC come once four drones are down.
 - MOA-09 Recover material: after the tank-legged AC is down, get within
   1,000 of the container.

@@ -451,7 +451,20 @@ standing on a lift's top is carried with it. Stand-ins: the player's
 by the blade); nothing blocks a lift, so the 66-tick flip-back never
 happens; no sounds. Map 18 is won on the core's (96) state 1. Older
 imports re-export their stages on start (the gimmicks.txt header has no
-`# lift` line).
+`# ship` line).
+
+**Map 1's submarine and ships** (read 2026-11-27). The hull pieces 54-56
+(30,000 each, handler `0x800A51B8`: like the generator's, but kind 0, no
+message) are watched by the script (`0x800A6160`, the table 56 / 55 / 54 at
+`0x800AC0B8`): a piece's data +0 at 0xFFFF starts 41 ticks of explosions;
+56 done -> cutscene 769 and failed (`0x800A6764`). acr-import now writes
+kind-0 breakables too (with the box's real top / bottom y), so map 2's,
+4's, 7's and 12's other breakable blocks break as well. The ships (59, 64:
+set-up `0x800A4F34`, tick `0x800A499C`, the 28-byte kind; map 6's 151 too)
+move per axis: speed += data +6.. up to data +0.. (abs), turning the
+speed-up round once the centre passes the record's +0 / +8 box; written
+as `ship` lines. Units over a ship at the start ride it (records 10-15;
+stand-in for the game's link).
 
 Other set-up kinds, not read: a 12-byte controller (data with 18,246 /
 20,082 at +8: maps 1, 5, 7, 9, 16, 18, 19; map 18's switch 68 and core 96,

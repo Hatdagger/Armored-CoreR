@@ -197,7 +197,33 @@ static void test_lift(void) {
     EXPECT(g.lift[1].way == 1);
 }
 
+/* Map 1: a hull piece (kind 0, its box -250..25) and ship 59. */
+static void test_ship_and_hull(void) {
+    acr_gen1_gimmicks g;
+    acr_gen1_gimmicks_parse(
+        "breakable 56 56 5000 -250 0 2500 1100 30000 0 0 0 -750 350\n"
+        "ship 59 59 -18922 0 -7500 7500 1375 1000 -22672 -7500 -11250 17760 0 -3750 20 0 0 5 0 0\n", &g);
+    EXPECT(g.breakables == 1 && g.ships == 1 && acr_gen1_breakable_find(&g, 56) == 0);
+    const int32_t side[3] = { 5000, 200, -1250 };     /* the hull's side, below the deck */
+    EXPECT(acr_gen1_gimmicks_hit(&g, side, 100, 30000));
+    EXPECT(g.breakable[0].hp == 0);
+    int32_t move[ACR_GEN1_MAX_SHIPS][3];
+    acr_gen1_ships_tick(&g, move);
+    EXPECT(move[0][0] == 20 && move[0][1] == 0 && move[0][2] == 0);
+    /* Sails to x 17,760, turns, comes back past -22,672 and turns again. */
+    int turned = 0, back = 0;
+    for (int t = 0; t < 6000; ++t) {
+        acr_gen1_ships_tick(&g, move);
+        if (move[0][0] < 0) turned = 1;
+        if (turned && move[0][0] > 0) back = 1;
+    }
+    EXPECT(turned && back);
+    const int32_t x = g.ship[0].centre[0] + g.ship[0].offset[0];
+    EXPECT(x > -22672 - 2000 && x < 17760 + 2000);
+}
+
 int main(void) {
+    test_ship_and_hull();
     test_lift();
     test_parse();
     test_auto_door();

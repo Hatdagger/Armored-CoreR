@@ -302,8 +302,9 @@ static void map12_tick(acr_gen1_battle *b) {
  * record's controller, +0x2C, its state +16) or object code not read yet:
  * - map 0: the game ends on area 290's gimmick (a door by the botanical
  *   zone); here the Armored Car (record 4, AP 1) down ends it.
- * - map 1: the submarine's hull (areas 54-56, breakable) sinking fails it in
- *   the game; the engine has no breakable areas, so only the sea fails it.
+ * - map 1: the submarine's hull (areas 54-56, 30,000 each) breaks as the
+ *   game's; area 56 broken -> 41 ticks -> failed (the sinking cutscene left
+ *   out). The two ships (59, 64) sail as the game's, their units riding.
  * - map 3: record 5 is made by cutscene 1 (with record 4, the jet); what
  *   starts that step (a counter, 0x800AB868, reaching 4) is taken as four of
  *   the eight drones (records 8-15) down, or every unit in the fight down.
@@ -425,6 +426,15 @@ static void moa_tick(acr_gen1_battle *b, int map) {
         const int n = acr_gen1_battle_fighters(b);
         for (int i = 0; i < n; ++i)
             if (acr_gen1_battle_team(b, i) == 0 && b->f[i].ap > 0 && b->f[i].ac.y / 64 > 256) { finish(m, 0, 1); return; }
+        {   /* The game (0x800A6160 / 0x800A6764): the submarine's area 56
+             * broken (its data +0 at 0xFFFF) -> 41 ticks of explosions ->
+             * cutscene 769 (left out) and failed. */
+            const int hull = acr_gen1_breakable_find(&b->gim, 56);
+            if (hull >= 0 && b->gim.breakable[hull].hp <= 0) {
+                if (!m->timer2) m->timer2 = 41;
+                else if (count_down(&m->timer2)) { finish(m, 0, 1); return; }
+            }
+        }
         if (m->phase == 0 && all_down(b, 10, 12)) { m->phase = 1; m->timer = 660 + RADIO_TICKS; }
         else if (m->phase == 1 && count_down(&m->timer)) m->phase = 2;
         else if (m->phase == 2 && player_in(b, &k_map1_ship, 0)) {

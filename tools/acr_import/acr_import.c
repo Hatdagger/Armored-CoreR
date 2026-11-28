@@ -357,14 +357,14 @@ int acr_import_refresh(const char *out_dir) {
         }
     }
     /* The mission maps' moving parts (2026-11-27: breakables, lifts and
-     * call buttons in gimmicks.txt): older imports get their stages again,
+     * call buttons, ships in gimmicks.txt): older imports get their stages again,
      * then their units (which write into the stages). */
     int stages_again = 0;
     {
         snprintf(probe, sizeof probe, "%s/stages/18/gimmicks.txt", out_dir);
         char head[1024] = "";
         if ((f = fopen(probe, "rb"))) { head[fread(head, 1, sizeof head - 1, f)] = 0; fclose(f); }
-        if (head[0] && !strstr(head, "# lift ")) {
+        if (head[0] && !strstr(head, "# ship ")) {
             snprintf(dir, sizeof dir, "%s/stages", out_dir);
             if (acr_export_moa_stages(unpacked, dir, &n, err, sizeof err)) { stages_again = 1; done |= 64; }
         }
