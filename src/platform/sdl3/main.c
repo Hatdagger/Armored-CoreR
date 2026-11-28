@@ -4037,7 +4037,10 @@ int main(int argc, char **argv) {
         {   /* weapon effects: once a frame, watching the fight from outside */
             static int fx_tried;
             if (!fx_tried) { fx_tried = 1; fx_load(g_import_dir); }
-            for (int k = 0; k < nf; ++k) fx_set_weapons(k, (const char (*)[24])ac_data[k].weapon_type, ac_data[k].weapons);
+            for (int k = 0; k < nf; ++k) {
+                fx_set_weapons(k, (const char (*)[24])ac_data[k].weapon_type, ac_data[k].weapons);
+                fx_set_looks(k, ac_data[k].look, ac_data[k].weapons);
+            }
             fx_update(&battle, SDL_GetTicksNS());
         }
         {   /* fight sounds: the same, heard from your own AC (player 1 on a shared screen) */

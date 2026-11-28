@@ -6,6 +6,7 @@
 #include "../../gen1/acr_gen1_battle.h"
 #include "../../gen1/acr_gen1_garage.h"
 #include "../../gen1/acr_gen1_rogue.h"
+#include "fx.h"
 
 #define DEMO_MAX_KEYS 4096
 
@@ -25,6 +26,7 @@ typedef struct demo_ac {
     acr_gen1_weapon weapon[ACR_GEN1_MAX_WEAPONS];
     int weapons;
     char weapon_type[ACR_GEN1_MAX_WEAPONS][24];   /* the HUD's name for it: RIFLE, SMALL MISSILE, ... */
+    fx_look look[ACR_GEN1_MAX_WEAPONS];           /* how its shots are drawn (presentation only) */
     int32_t radar_range;   /* head or back radar unit's range; 0 = no radar */
     int plus_applied;      /* Human PLUS energy rules applied to def.stats */
 } demo_ac;

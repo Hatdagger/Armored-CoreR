@@ -85,6 +85,81 @@ static const look *look_of(int owner, int slot, int energy) {
     return &k_look_shell;
 }
 
+/* ---- the disc's own shot looks (fx_look, from acr-import) ---- */
+
+static const fx_look *g_looks[ACR_GEN1_MAX_FIGHTERS];
+static int g_look_count[ACR_GEN1_MAX_FIGHTERS];
+
+void fx_set_looks(int fighter, const fx_look *looks, int count) {
+    if (fighter < 0 || fighter >= ACR_GEN1_MAX_FIGHTERS) return;
+    g_looks[fighter] = looks;
+    g_look_count[fighter] = looks ? count : 0;
+}
+
+/* The weapon's look when the import has one (any family, or a hit flash
+ * word: missiles have only that), else NULL. */
+static const fx_look *disc_look(int owner, int slot) {
+    if (owner < 0 || owner >= ACR_GEN1_MAX_FIGHTERS || !g_looks[owner] || slot < 0 || slot >= g_look_count[owner]) return NULL;
+    const fx_look *l = &g_looks[owner][slot];
+    return l->family >= 0 || l->hit_flash ? l : NULL;
+}
+
+/* PS1 colours: 128 is 1.0, so a vertex colour is twice the byte, capped. */
+static uint8_t ps1(uint8_t c) { return (uint8_t)(c >= 128 ? 255 : c * 2); }
+
+/* The effect atlas (VS 0x80091A28), as acr-import wrote it to
+ * fx/sprites.txt: each sprite's picture, rectangle and colour. */
+#define FX_ATLAS 297
+#define FX_TEXC 24
+typedef struct { uint8_t ok, tex; float u, v, w, h; uint8_t r, g, b; } atlas_ent;
+static atlas_ent g_atlas[FX_ATLAS];
+static struct { char file[24]; uint32_t tex; int w, h; } g_tc[FX_TEXC];
+static int g_ntc;
+static int g_atlas_ok;
+
+static uint32_t load_png(const char *path, int *w, int *h);
+
+static int tex_slot(const char *dir, const char *file) {
+    for (int i = 0; i < g_ntc; ++i) if (!SDL_strcmp(g_tc[i].file, file)) return i;
+    if (g_ntc >= FX_TEXC) return -1;
+    char path[1024];
+    SDL_snprintf(path, sizeof path, "%s/fx/%s", dir, file);
+    /* smoke and debris keep every texel; the glows drop their dark halo */
+    g_trim_dark = !(SDL_strstr(file, "fx-12") || SDL_strstr(file, "fx-05") || SDL_strstr(file, "fx-29"));
+    int w = 1, h = 1;
+    const uint32_t t = load_png(path, &w, &h);
+    if (!t) return -1;
+    SDL_strlcpy(g_tc[g_ntc].file, file, sizeof g_tc[g_ntc].file);
+    g_tc[g_ntc].tex = t; g_tc[g_ntc].w = w; g_tc[g_ntc].h = h;
+    return g_ntc++;
+}
+
+static void atlas_load(const char *dir) {
+    char path[1024];
+    SDL_snprintf(path, sizeof path, "%s/fx/sprites.txt", dir);
+    size_t size = 0;
+    char *txt = SDL_LoadFile(path, &size);
+    if (!txt) return;
+    for (char *line = txt; line && *line;) {
+        char *next = SDL_strchr(line, '\n');
+        if (next) *next++ = 0;
+        unsigned i, u, v, w, h, r, g, b;
+        char file[24];
+        if (line[0] != '#' && SDL_sscanf(line, "%u %23s %u %u %u %u %u %u %u", &i, file, &u, &v, &w, &h, &r, &g, &b) == 9 && i < FX_ATLAS) {
+            const int t = tex_slot(dir, file);
+            if (t >= 0) {
+                atlas_ent *a = &g_atlas[i];
+                a->ok = 1; a->tex = (uint8_t)t;
+                a->u = (float)u; a->v = (float)v; a->w = (float)w; a->h = (float)h;
+                a->r = (uint8_t)r; a->g = (uint8_t)g; a->b = (uint8_t)b;
+                g_atlas_ok = 1;
+            }
+        }
+        line = next;
+    }
+    SDL_free(txt);
+}
+
 static uint32_t load_png(const char *path, int *w, int *h) {
     size_t size = 0;
     uint8_t *data = SDL_LoadFile(path, &size);
@@ -123,6 +198,7 @@ int fx_load(const char *import_dir) {
         g_tex[i] = load_png(path, &g_tex_w[i], &g_tex_h[i]);
         if (!g_tex[i]) { g_tex_w[i] = g_tex_h[i] = 1; found = 0; }
     }
+    if (!g_atlas_ok) atlas_load(import_dir);
     return found;
 }
 
@@ -139,6 +215,8 @@ typedef struct part {
     float loop_ms;        /* > 0: frames cycle this fast instead of playing once */
     float spin;           /* turn of the picture (smoke, fireballs) */
     float rise;           /* units a ms upward (smoke) */
+    uint16_t atlas_first; /* atlas parts (sheet SH_COUNT): their frames are */
+    uint8_t  atlas_count; /* atlas sprites first .. first + count - 1 */
 } part;
 
 #define FX_PARTS 1536   /* missiles' white trails are many small dots */
@@ -152,7 +230,21 @@ static struct {
     uint16_t age;
     float p[3], step[3];       /* where it is, and how far it goes a step */
     float trail[3];            /* where the missile's last smoke puff went */
+    const fx_look *fl;         /* the disc's look for it (NULL: by type) */
+    float tick_speed;          /* world units a Gen 1 tick (streak length = trail x this) */
+    float dir[3];              /* the way it flies */
+    float glow_ms;             /* B shots: time since the last trailing glow */
 } g_seen[ACR_GEN1_MAX_SHOTS];
+
+/* A streak whose shot has ended: its head stays where it stopped and the
+ * tail catches up (A update 0x80088674, the life < 2 branch: the tail keeps
+ * moving for the steps it waited). */
+#define FX_GHOSTS 64
+static struct {
+    uint8_t on, rgb[3];
+    uint16_t sprite;
+    float head[3], dir[3], len, shrink, width;   /* shrink: units a ms */
+} g_ghost[FX_GHOSTS];
 static int32_t g_ap[ACR_GEN1_MAX_FIGHTERS];
 static uint8_t g_bhit[ACR_GEN1_MAX_FIGHTERS];   /* last blade_hit_seq seen */
 static int g_ap_ok;
@@ -204,6 +296,7 @@ void fx_reset(void) {
     memset(g_trail, 0, sizeof g_trail);
     memset(g_rig_ok, 0, sizeof g_rig_ok);
     memset(g_seen, 0, sizeof g_seen);
+    memset(g_ghost, 0, sizeof g_ghost);
     memset(g_unit_down, 0, sizeof g_unit_down);
     g_ap_ok = 0;
 }
@@ -255,6 +348,70 @@ static void explosion(const float p[3], float scale, float delay) {
     q->age = -delay - 260; q->spin = rnd() * 6.283f; q->rise = 0.02f;
     q = spawn(SH_SMOKE, 1, B_SEMI, p, 1100, 80 * scale, 220 * scale, 120, 115, 110, 100);
     q->age = -delay - 200; q->spin = rnd() * 6.283f; q->rise = 0.05f;
+}
+
+/* The impact flash word (VS 0x8008B60C; ACG1PLUS weapon-map.md section 3):
+ * bits 0-2 the kind (7 none), 3-4 frames a tick, 17-26 the size. The kinds'
+ * sprites (table 0x800930DC): fireball 8-19, hot glow 20-31, spark spray
+ * 32-33, flames 42-49, blue / magenta / orange lens flare 37 / 38 / 36.
+ * The size is taken as the sprite's width in world units (a guess: the
+ * billboard draw's scale is not traced). The light colour (bits 10-12,
+ * the stage's per-area light) and the hit sound are not drawn here.
+ * 1 when a flash was made. */
+static const struct { uint16_t first; uint8_t count; } k_flash_kind[7] = {
+    { 8, 12 }, { 20, 12 }, { 32, 2 }, { 42, 8 }, { 37, 1 }, { 38, 1 }, { 36, 1 },
+};
+#define FX_TICK_MS (1000.0f / 22.0f)
+static int flash_word(const float p[3], uint32_t w) {
+    const unsigned kind = w & 7;
+    if (kind == 7 || !g_atlas_ok) return 0;
+    const unsigned step = ((w >> 3) & 3) ? ((w >> 3) & 3) : 1, size = (w >> 17) & 0x3FF;
+    const unsigned first = k_flash_kind[kind].first, count = k_flash_kind[kind].count;
+    if (!g_atlas[first].ok) return 0;
+    float ticks = (float)count / (float)step;
+    if (count == 1) { ticks = (float)((w >> 5) & 31); if (ticks < 4) ticks = 4; }   /* a flare: its length field */
+    part *q = spawn(SH_COUNT, (int)count, B_ADD, p, ticks * FX_TICK_MS, (float)size, (float)size, 255, 255, 255, 255);
+    q->atlas_first = (uint16_t)first;
+    q->atlas_count = (uint8_t)count;
+    q->spin = kind >= 4 ? 0.0f : rnd() * 6.283f;
+    return 1;
+}
+/* B shots' spark burst (0x8008B7B8, instead of a flash word): the spark
+ * spray, matched by eye. */
+static int spark_burst(const float p[3]) {
+    if (!g_atlas_ok || !g_atlas[32].ok) return 0;
+    part *q = spawn(SH_COUNT, 2, B_ADD, p, 2 * FX_TICK_MS, 150, 170, 255, 255, 255, 255);
+    q->atlas_first = 32;
+    q->atlas_count = 2;
+    q->spin = rnd() * 6.283f;
+    return 1;
+}
+static int disc_hit(int k, const float p[3]) {
+    const fx_look *l = g_seen[k].fl;
+    if (!l) return 0;
+    if (l->hit_sparks) return spark_burst(p);
+    return l->hit_flash ? flash_word(p, l->hit_flash) : 0;
+}
+
+/* A streak that ended: its tail catches up with where it stopped. */
+static void ghost_add(int k, const float head[3]) {
+    const fx_look *l = g_seen[k].fl;
+    if (!l || (l->family != FX_FAM_STREAK && l->family != FX_FAM_ENERGY)) return;
+    float len = (float)(l->trail ? l->trail : 1) * g_seen[k].tick_speed;
+    if ((float)g_seen[k].travelled < len) len = (float)g_seen[k].travelled;
+    if (len <= 1.0f) return;
+    for (int i = 0; i < FX_GHOSTS; ++i) {
+        if (g_ghost[i].on) continue;
+        g_ghost[i].on = 1;
+        memcpy(g_ghost[i].head, head, sizeof g_ghost[i].head);
+        memcpy(g_ghost[i].dir, g_seen[k].dir, sizeof g_ghost[i].dir);
+        g_ghost[i].len = len;
+        g_ghost[i].shrink = g_seen[k].tick_speed / FX_TICK_MS;
+        g_ghost[i].width = (float)l->width * 2.0f;
+        g_ghost[i].sprite = l->sprite;
+        for (int c = 0; c < 3; ++c) g_ghost[i].rgb[c] = ps1(l->tint[c]);
+        return;
+    }
 }
 
 /* An AC's AP reaching zero: a flare, a chain of blasts over its body, then
@@ -387,6 +544,13 @@ static void shot_ended(const acr_gen1_battle *b, int k) {
         const float c[3] = { feet[0], feet[1] + 106, feet[2] };
         float a[3], d[3];
         for (int i = 0; i < 3; ++i) { a[i] = p[i] - st[i] * 0.5f; d[i] = st[i] * 2.0f; }
+        /* A frame can be several steps long: look as far as the shot could
+         * have gone since it was last drawn (two and a half Gen 1 ticks). */
+        if (!g_seen[k].missile && g_seen[k].tick_speed > 0.0f) {
+            const float reach = g_seen[k].tick_speed * 2.5f;
+            if (reach * reach > d[0] * d[0] + d[1] * d[1] + d[2] * d[2])
+                for (int i = 0; i < 3; ++i) d[i] = g_seen[k].dir[i] * reach;
+        }
         const float dd = d[0] * d[0] + d[1] * d[1] + d[2] * d[2];
         float u = dd > 0 ? ((c[0] - a[0]) * d[0] + (c[1] - a[1]) * d[1] + (c[2] - a[2]) * d[2]) / dd : 0;
         if (u < 0) u = 0;
@@ -398,16 +562,22 @@ static void shot_ended(const acr_gen1_battle *b, int k) {
             /* on the AC's skin facing the shot, not inside it */
             const float l = sqrtf(hx * hx + hz * hz);
             if (l > 60.0f) { q[0] = c[0] + hx * 60.0f / l; q[2] = c[2] + hz * 60.0f / l; }
+            ghost_add(k, q);
+            if (disc_hit(k, q)) return;
             if (g_seen[k].missile || (g_seen[k].look && g_seen[k].look->look == LOOK_ROCKET)) explosion(q, 1.0f, 0);
             else hit_ac(q, g_seen[k].energy);
             return;
         }
     }
     const int blast = g_seen[k].missile || (g_seen[k].look && g_seen[k].look->look == LOOK_ROCKET);
-    if (blast) { explosion(p, 0.8f, 0); return; }     /* a wall, the floor, shot down */
-    if (g_seen[k].travelled + g_seen[k].speed >= g_seen[k].range) return;   /* out of range: just gone */
+    const int out = !g_seen[k].missile && g_seen[k].travelled + g_seen[k].speed >= g_seen[k].range;
     float q[3];
     for (int i = 0; i < 3; ++i) q[i] = p[i] + st[i] * 0.5f;
+    ghost_add(k, out ? p : q);
+    if (g_seen[k].fl && g_seen[k].fl->family >= 0 && out) return;     /* out of range: just gone */
+    if (disc_hit(k, blast ? p : q)) return;                           /* a wall, the floor, shot down */
+    if (blast) { explosion(p, 0.8f, 0); return; }
+    if (out) return;
     hit_wall(q, g_seen[k].energy);
 }
 
@@ -463,6 +633,9 @@ void fx_update(const acr_gen1_battle *b, uint64_t now_ns) {
             g_seen[k].owner = s->owner;
             g_seen[k].look = look_of(s->owner, s->weapon, g_seen[k].energy);
             g_seen[k].range = w ? w->range : 0;
+            g_seen[k].fl = s->wave ? NULL : disc_look(s->owner, s->weapon);
+            g_seen[k].tick_speed = (float)(w && w->speed > 0 ? w->speed : ACR_GEN1_UNIT_SHOT);
+            g_seen[k].glow_ms = 0;
             g_seen[k].speed = (int32_t)sqrtf(st[0] * st[0] + st[1] * st[1] + st[2] * st[2]);
             /* It has usually moved a step already: the flash goes where it left. */
             float m[3];
@@ -482,7 +655,27 @@ void fx_update(const acr_gen1_battle *b, uint64_t now_ns) {
             missile_trail(k, dt, 0);
         }
         memcpy(g_seen[k].step, st, sizeof g_seen[k].step);
+        {
+            const float l = sqrtf(st[0] * st[0] + st[1] * st[1] + st[2] * st[2]);
+            if (l > 1e-4f) for (int i = 0; i < 3; ++i) g_seen[k].dir[i] = st[i] / l;
+        }
+        /* B shots' trailing glow (u32 +12 bits 24-25, 0x8008A700: a glow
+         * left where the shot was, every tick; how long each lasts is not
+         * traced: 4 ticks here). */
+        const fx_look *fl = g_seen[k].fl;
+        if (fl && fl->family == FX_FAM_BILLBOARD && fl->glow && fl->glow < FX_ATLAS && g_atlas[fl->glow].ok) {
+            g_seen[k].glow_ms += dt;
+            if (g_seen[k].glow_ms >= FX_TICK_MS) {
+                g_seen[k].glow_ms = 0;
+                part *q = spawn(SH_COUNT, 1, B_ADD, p, 4 * FX_TICK_MS, (float)fl->glow_size, (float)fl->glow_size * 0.5f,
+                                ps1(fl->glow_tint[0]), ps1(fl->glow_tint[1]), ps1(fl->glow_tint[2]), 255);
+                q->atlas_first = fl->glow;
+                q->atlas_count = 1;
+            }
+        }
     }
+    for (int i = 0; i < FX_GHOSTS; ++i)
+        if (g_ghost[i].on && (g_ghost[i].len -= g_ghost[i].shrink * dt) <= 0) g_ghost[i].on = 0;
 
     for (int k = 0; k < acr_gen1_battle_fighters(b); ++k) {
         if (g_ap_ok && g_ap[k] > 0 && b->f[k].ap <= 0) {
@@ -656,6 +849,85 @@ static void streak(const float tail[3], const float head[3], float width, const 
     quad(c, r.u / tw, r.v / th, (r.u + r.w) / tw, (r.v + r.h) / th, cr, cg, cb, ca);
 }
 
+/* The same two with an atlas sprite (its own picture); 0 when the sprite
+ * isn't in the import. Each drawn into the batch of its picture, which the
+ * caller flushes with flush_tex. */
+static int atlas_uv(int sprite, float uv[4], uint32_t *tex) {
+    if (sprite < 0 || sprite >= FX_ATLAS || !g_atlas[sprite].ok) return 0;
+    const atlas_ent *a = &g_atlas[sprite];
+    const float tw = (float)g_tc[a->tex].w, th = (float)g_tc[a->tex].h;
+    uv[0] = a->u / tw; uv[1] = a->v / th; uv[2] = (a->u + a->w) / tw; uv[3] = (a->v + a->h) / th;
+    *tex = g_tc[a->tex].tex;
+    return 1;
+}
+static void flush_tex(uint32_t tex, int blend) {
+    if (!g_n) return;
+    acr_render_mesh(g_v, g_n, tex, blend == B_ADD ? ACR_MESH_ADD : ACR_MESH_SEMI);
+    g_n = 0;
+}
+static void billboard_atlas(const float p[3], float size, float spin, const float right[3], const float up[3],
+                            int sprite, uint8_t cr, uint8_t cg, uint8_t cb, uint8_t ca) {
+    float uv[4];
+    uint32_t tex;
+    if (!atlas_uv(sprite, uv, &tex)) return;
+    const float h = size * 0.5f, cs = cosf(spin) * h, sn = sinf(spin) * h;
+    float ax[3], ay[3];
+    for (int i = 0; i < 3; ++i) { ax[i] = right[i] * cs + up[i] * sn; ay[i] = up[i] * cs - right[i] * sn; }
+    const float c[4][3] = {
+        { p[0] - ax[0] + ay[0], p[1] - ax[1] + ay[1], p[2] - ax[2] + ay[2] },
+        { p[0] + ax[0] + ay[0], p[1] + ax[1] + ay[1], p[2] + ax[2] + ay[2] },
+        { p[0] + ax[0] - ay[0], p[1] + ax[1] - ay[1], p[2] + ax[2] - ay[2] },
+        { p[0] - ax[0] - ay[0], p[1] - ax[1] - ay[1], p[2] - ax[2] - ay[2] },
+    };
+    quad(c, uv[0], uv[1], uv[2], uv[3], cr, cg, cb, ca);
+}
+static void streak_atlas(const float tail[3], const float head[3], float width, const float eye[3],
+                         int sprite, uint8_t cr, uint8_t cg, uint8_t cb, uint8_t ca) {
+    float uv[4];
+    uint32_t tex;
+    if (!atlas_uv(sprite, uv, &tex)) return;
+    float d[3] = { head[0] - tail[0], head[1] - tail[1], head[2] - tail[2] };
+    const float mid[3] = { (head[0] + tail[0]) * 0.5f, (head[1] + tail[1]) * 0.5f, (head[2] + tail[2]) * 0.5f };
+    float e[3] = { eye[0] - mid[0], eye[1] - mid[1], eye[2] - mid[2] }, sd[3];
+    norm(d);
+    norm(e);
+    cross(d, e, sd);
+    norm(sd);
+    const float h = width * 0.5f;
+    const float c[4][3] = {
+        { head[0] - sd[0] * h, head[1] - sd[1] * h, head[2] - sd[2] * h },
+        { head[0] + sd[0] * h, head[1] + sd[1] * h, head[2] + sd[2] * h },
+        { tail[0] + sd[0] * h, tail[1] + sd[1] * h, tail[2] + sd[2] * h },
+        { tail[0] - sd[0] * h, tail[1] - sd[1] * h, tail[2] - sd[2] * h },
+    };
+    quad(c, uv[0], uv[1], uv[2], uv[3], cr, cg, cb, ca);
+}
+static uint32_t atlas_tex(int sprite) {
+    return sprite >= 0 && sprite < FX_ATLAS && g_atlas[sprite].ok ? g_tc[g_atlas[sprite].tex].tex : 0;
+}
+
+/* Atlas parts (hit flashes, trailing glows), one picture at a time. */
+static void draw_atlas_parts(const float right[3], const float up[3]) {
+    for (int t = 0; t < g_ntc; ++t) {
+        for (int i = 0; i < FX_PARTS; ++i) {
+            const part *q = &g_part[i];
+            if (!q->on || q->sheet != SH_COUNT || q->age < 0) continue;
+            const float tt = q->age / q->life;
+            int frame = (int)(tt * q->atlas_count);
+            if (frame >= q->atlas_count) frame = q->atlas_count - 1;
+            const int sp = q->atlas_first + frame;
+            if (sp >= FX_ATLAS || !g_atlas[sp].ok || g_atlas[sp].tex != t) continue;
+            /* the atlas colour (128 = 1.0) times the part's own */
+            const atlas_ent *a = &g_atlas[sp];
+            const float k = q->atlas_count > 1 ? 1.0f : (tt > 0.6f ? (1.0f - tt) / 0.4f : 1.0f);
+            billboard_atlas(q->p, q->s0 + (q->s1 - q->s0) * tt, q->spin, right, up, sp,
+                            (uint8_t)(ps1(a->r) * q->r / 255), (uint8_t)(ps1(a->g) * q->g / 255),
+                            (uint8_t)(ps1(a->b) * q->b / 255), (uint8_t)(q->a * k));
+        }
+        flush_tex(g_tc[t].tex, B_ADD);
+    }
+}
+
 static void draw_parts(int sheet, int blend, const float right[3], const float up[3]) {
     for (int i = 0; i < FX_PARTS; ++i) {
         const part *q = &g_part[i];
@@ -725,6 +997,45 @@ void fx_draw(const acr_gen1_battle *b, const float eye[3], const float fwd[3]) {
     /* Smoke first (see-through, drawn over by the glows), then the glows. */
     for (int s = 0; s < SH_COUNT; ++s) draw_parts(s, B_SEMI, right, up);
     for (int s = 0; s < SH_COUNT; ++s) draw_parts(s, B_ADD, right, up);
+    draw_atlas_parts(right, up);
+
+    /* The disc's shot looks (fx_look): A bullet and D energy streaks from
+     * the head back to a tail that waits `trail` ticks at the muzzle, so
+     * they grow to trail x speed and then slide (A update 0x80088674, D
+     * 0x8008D584); drawn as a quad of constant screen width, half-width =
+     * width x 40 / (depth / 4) pixels at the VS projection (H = 160), which
+     * is `width` world units (streak draw 0x800645D8); colour = the table's
+     * tint (128 = 1.0), added. B shots: the atlas sprite as a billboard at
+     * the head, `width` either side (a guess, the billboard draw 0x80064C68
+     * is not traced). Ended streaks shrink into where they stopped. */
+    for (int t = 0; t < g_ntc; ++t) {
+        const uint32_t tex = g_tc[t].tex;
+        for (int k = 0; k < ACR_GEN1_MAX_SHOTS; ++k) {
+            const acr_gen1_shot *s = &b->shot[k];
+            const fx_look *l = s->active && !s->missile && g_seen[k].on ? g_seen[k].fl : NULL;
+            if (!l || l->family < 0 || atlas_tex(l->sprite) != tex) continue;
+            float p[3];
+            shot_pos(s, p);
+            const float *d = g_seen[k].dir;
+            if (l->family == FX_FAM_STREAK || l->family == FX_FAM_ENERGY) {
+                float len = (float)(l->trail ? l->trail : 1) * g_seen[k].tick_speed;
+                if ((float)s->travelled < len) len = (float)s->travelled;
+                if (len < 1.0f) len = 1.0f;
+                const float tail[3] = { p[0] - d[0] * len, p[1] - d[1] * len, p[2] - d[2] * len };
+                streak_atlas(tail, p, (float)l->width * 2.0f, eye, l->sprite, ps1(l->tint[0]), ps1(l->tint[1]), ps1(l->tint[2]), 255);
+            } else if (l->family == FX_FAM_BILLBOARD) {
+                const atlas_ent *a = &g_atlas[l->sprite];
+                billboard_atlas(p, (float)l->width * 2.0f, 0, right, up, l->sprite, ps1(a->r), ps1(a->g), ps1(a->b), 255);
+            }
+        }
+        for (int i = 0; i < FX_GHOSTS; ++i) {
+            if (!g_ghost[i].on || atlas_tex(g_ghost[i].sprite) != tex) continue;
+            const float *h = g_ghost[i].head, *d = g_ghost[i].dir, len = g_ghost[i].len;
+            const float tail[3] = { h[0] - d[0] * len, h[1] - d[1] * len, h[2] - d[2] * len };
+            streak_atlas(tail, h, g_ghost[i].width, eye, g_ghost[i].sprite, g_ghost[i].rgb[0], g_ghost[i].rgb[1], g_ghost[i].rgb[2], 255);
+        }
+        flush_tex(tex, B_ADD);
+    }
 
     /* The shots themselves. */
     const float flick = 0.85f + 0.15f * sinf(g_now_ms * 0.09f);
@@ -742,6 +1053,9 @@ void fx_draw(const acr_gen1_battle *b, const float eye[3], const float fwd[3]) {
             const float tail[3] = { p[0] - d[0] * len, p[1] - d[1] * len, p[2] - d[2] * len };
             streak(tail, p, 30.0f, eye, SH_SHOTS, k_plume, 255, 170, 90, 255);
         } else {
+            const fx_look *dl = g_seen[k].on ? g_seen[k].fl : NULL;
+            if (dl && (dl->family == FX_FAM_STREAK || dl->family == FX_FAM_ENERGY || dl->family == FX_FAM_BILLBOARD) &&
+                atlas_tex(dl->sprite)) continue;        /* drawn above, from the disc */
             const look *lk = g_seen[k].on && g_seen[k].look ? g_seen[k].look : &k_look_shell;
             if (lk->look == LOOK_BLOB || lk->look == LOOK_ROCKET) {
                 /* round front at the shot, tail narrowing behind it */
@@ -773,6 +1087,7 @@ void fx_draw(const acr_gen1_battle *b, const float eye[3], const float fwd[3]) {
     for (int k = 0; k < ACR_GEN1_MAX_SHOTS; ++k) {
         const acr_gen1_shot *s = &b->shot[k];
         if (!s->active || s->missile || !(g_seen[k].on && g_seen[k].energy)) continue;
+        if (g_seen[k].fl && g_seen[k].fl->family >= 0 && atlas_tex(g_seen[k].fl->sprite)) continue;   /* the disc's look has its own glow */
         float p[3];
         shot_pos(s, p);
         const rect all = { 0, 0, (float)g_tex_w[SH_GLOW], (float)g_tex_h[SH_GLOW] };
