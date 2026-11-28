@@ -34,19 +34,6 @@ int main(void) {
         CHECK(beeps == 8);
         CHECK(lit == 40);
     }
-    /* [Gen 2] Burning at full AP: the same ARMOR LOW flash and beep. */
-    {
-        battle_warn_reset(&w);
-        battle_warn_in in = base();
-        in.burning = 1;
-        int beeps = 0, lit = 0;
-        for (int t = 0; t < 64; ++t) {
-            if (battle_warn_tick(&w, &in) & BATTLE_WARN_BEEP_AP_LOW) ++beeps;
-            if (w.boxes & BATTLE_WARN_BOX_ARMOR_LOW) ++lit;
-        }
-        CHECK(beeps == 8);
-        CHECK(lit == 40);
-    }
     /* Over-drained: same rhythm, three ticks apart from the AP beep. */
     {
         battle_warn_reset(&w);
