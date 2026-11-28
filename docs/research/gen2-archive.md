@@ -85,7 +85,7 @@ B (301-828) holds the full-detail models, using the overlap layout above. C (900
 | IDs | What |
 |---|---|
 | 1-5 | System/common data (unknown) |
-| 10 | Game tables: weapon table at 0x280b0 (see Weapon stats), a 0x100-stride projectile table before it (range) |
+| 10 | Game tables: weapon table at 0x280b0 and ballistics table at 0x180b0 (range, velocity; same row index). See Weapon stats |
 | 101-113+ | Stages/maps (ELF path `map/m%03d`). Each has a sound bank (IECS) |
 | 1700-1707 | UI model + textures |
 | 1996-1999 | 1996 textures, 1998 help text (part stat glossary), 1999 mail titles |
@@ -150,8 +150,8 @@ u16 words from +114 (w0 = +114, w7 = +128, w14 = +142). Checked against publishe
 - Table in **file 10** (AC2: offset 0x280b0 in `00010.bin`), 0x80 bytes per row. The row number is the u16 at +132 of the part's catalogue record (right-arm guns 32-56, back weapons 64-87, extensions 110-115; rows 0-31 and others are enemy weapons).
 - Row fields (u16 index): w0 high byte = projectile id; w2 = number of ammo; w3 = ammo price (solid) or energy per shot (energy); w8 = reload; w12 = 0x17 solid / 0x27 energy; **w13 = attack power**; w14 = ammo heat; w15 = stun (probably).
 - Checked against published stats: ZWG-SRF/8 521 atk / 80 ammo / 90 price / 44 reload / 93 heat; EWG-SRF-9 608/60/100/52/132; ZWG-HC-IR/K99 2515 atk / 12 ammo / 92 reload / 82 heat. All match.
-- Back cannons have large w8 values (5180, 8312…), so w8 means something different for them (charge?). Not decoded.
-- **Range** is in a separate table just before it (0x100-byte records, range u16 e.g. 1000 at 0x24fca for SRF/8, 910 for SRF-9). How a weapon picks its record there is not decoded yet. Velocity was not found as a raw number.
+- **Reload:** w8 for arm guns, missiles and inside/extension weapons. Back cannons (w11 high byte 0x23) keep reload in **w7** (EWC-XP0808: w7 26 = published 26; w3 5100 = usage drain); their large w8 (5180, 8312…) is something else, not decoded. Missiles have small w7 values (10/18/24) that are not reload, probably lock time.
+- **Ballistics (range, velocity):** file 10 at 0x180b0 (AA 0x200f0), 0x100 bytes per record, indexed by the **same row number** as the weapon table. +0 u16 projectile kind (1 missile, 2 bullet, 4 spread); **+0x24 float velocity ÷ 100**; **+0x28 float range**. Checked: ZWG-SRF/8 1050/1000, EWG-SRF-9 1150/910, ZWG-HC-IR/K99 870/620, EWC-XP0808 range 600. For missiles +0x28 is 450-600 (lock range) and +0x24 is 1.0, so missile speed is elsewhere. The earlier "range at 0x24fca" was a coincidence: that offset is record 172 (an enemy projectile).
 - Script: `tools/gen2/weapons.py` (JSON of every shop weapon with its stats).
 
 ## Textures per strip (DECODED 2026-11-27, session 3)
@@ -178,13 +178,13 @@ u16 words from +114 (w0 = +114, w7 = +128, w14 = +142). Checked against publishe
 - **Extraction problem:** in the AA F block, each package's tail (the name/stats record) is cut off: the next package starts about 0x400-0x500 bytes before the current one ends, and the start drifts 0 / 32 KB / 64 KB into each file. Only 86 of 271 AA packages are readable. **AC25DATA.BIN needs re-extracting with corrected table offsets/sizes.** (Same root cause as AC2's 13 truncated last-of-group entries.) `tools/gen2/catalogue.py` reads packages from one stitched stream instead of by file ID.
 - **New parts (23, from the model codes in SLUS_202.49, `/a2/ac5/model/...`; none removed):** heads h13 h14; legs l2n06 l2l04 l2h04 la06; right-arm weapons wrr07 wre05 wre06 wrsp05; left-arm wlb06; back units wbm09-wbm12 (missiles), wbr05 wbr06 (rockets), wbc07-wbc09 (cannons), wbdo01; extensions exs01 exb03. Names read so far: ZHD-102/ROCK, EWG-XC213 (laser rifle), EWG-HM-04 (hand missile), EWM-NAP-02 (napalm), EWM-M03, ZWM-GT/00 (ground torpedo), EWR-M40, ZWC-CN/500, EWC-GN-81. (EHD-WACS, ZXR-S/STEALTH and ZES-99/MIRROR were listed here by mistake: they are AC2 parts that were truncated.) Full list: `gen2-aa-diff.md`.
 - **Weapon table:** same layout, AA file 10 at 0x380f0. New rows 57-60 (right arm), 89-97 (back), 123-125. About 30 existing weapons rebalanced, e.g. rifles +20 ammo, SRF/8 521→551 and SRF-9 608→628 attack, bazooka heat 374→574 / 453→673, laser/pulse/plasma rifle heat lowered (KARASAWA 68→42, K99 82→50), ZWX-E90/MAC 3850→4450 attack and 10→20 ammo, EWX-VLS241 1060→880 attack. `weapons.py --diff` lists them all.
-- The wiki says AA cut SRF/8 reload 44→36 and K99 92→76, but w8 is unchanged for those two (it does change for others). Either the wiki is wrong or AA scales reload elsewhere.
+- **AA reload:** raw reload values are unchanged in AA, but AA's published reloads are floor(raw × 5/6) for all 8 known pairs (SRF/8 44→36, K99 92→76, XP0808 26→21, S612 48→40, M444 57→47, INW-EM-RRD 45→37, ZAW-XP/T9 24→20, EAW-S604 41→34). So AA scales reload in code (a 50/60 time base), not in data. ACR uses AC2 values as-is.
 - Frame parts: of the 90 AA records read, only 2 changed (ZLR-K196/RJ stats, EWX-GCN77-4 weight 1756→1556). The full comparison needs the re-extraction.
 - **Base game:** AC2 stays the base. AA is a superset (same formats, +23 parts, rebalanced numbers), so AA can be layered on later as an option.
 
 ## Open questions
 - Parts record: head, core and legs fields named (see above). Still open: core w12/w16, legs turning (w17), head sensor/scan intervals, FCS lock speed/sight/reticle, and confirming the booster fields.
-- Weapon → range record link; velocity; meaning of w8 for back cannons; AA reload discrepancy.
+- Missile speed; meaning of w8 for back cannons and w7 for missiles.
 - Hierarchy confirmation (game code) and rotation order; animation data (not found yet).
 - Arms' extra shared texture (TEX0 …9fd0); boosters/back units/extensions in the glTF build.
 - The 421-492 block.

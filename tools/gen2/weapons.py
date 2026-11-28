@@ -10,13 +10,21 @@ Fields (u16 index into the row), checked against published AC2 stats
   w0 hi byte  projectile id
   w2          number of ammo
   w3          ammo price (solid) / energy used per shot (energy weapons)
-  w8          reload time (back cannons: a larger value, meaning not decoded)
+  w7          back cannons (w11 high byte 0x23): reload time (XP0808 26). Missiles: small value,
+              not reload (lock time?). Arm guns: 0 (machine guns 5)
+  w8          reload time for everything else (S612 48); back cannons: large value, not decoded
+  w11         high byte = weapon class (0x23 back cannon)
   w12         0x17 (23) = solid, 0x27 (39) = energy
   w13         attack power
   w14         ammo heat
   w15         stun (probably)
-Range is in a separate 0x100-stride table (e.g. 0x24fca holds 1000 for ZWG-SRF/8);
-how a weapon picks its row there is not decoded yet."""
+Ballistics table: file 10 at 0x180b0 (AA 0x200f0), 0x100 bytes per record, indexed by the
+SAME row number as the weapon table. +0 u16 projectile kind (1 missile, 2 bullet, 4 spread),
++0x24 float velocity/100, +0x28 float range. Checked: SRF/8 1050/1000, SRF-9 1150/910,
+K99 870/620, XP0808 -/600 (armoredcore.fandom.com). Missiles: +0x28 is lock range, not velocity.
+Another Age: raw reloads are unchanged, but AA's published reloads are floor(raw*5/6) for all 8
+known pairs (SRF/8 44->36, K99 92->76, XP0808 26->21, S612 48->40, M444 57->47, RRD 45->37,
+T9 24->20, S604 41->34), so AA scales reload in code, not data."""
 import sys, os, struct, json
 sys.path.insert(0, os.path.dirname(os.path.abspath(__file__)))
 DATA = os.environ.get('AC2_DATA', 'data/ac2')
@@ -24,7 +32,8 @@ os.environ.setdefault('AC2_F', DATA + '/AC2_F_3400-3801')
 from join import pkg, info
 
 BASE, STRIDE = 0x280b0, 0x80
-AA_BASE = 0x380f0  # same rows in Another Age's file 10 (AC25DATA.BIN)
+AA_BASE = 0x380f0
+BALL, BALL_STRIDE, AA_BALL = 0x180b0, 0x100, 0x200f0  # velocity/range table, same row index  # same rows in Another Age's file 10 (AC25DATA.BIN)
 FIELDS = {2: 'ammo', 3: 'ammo_price_or_energy', 8: 'reload', 13: 'attack', 14: 'ammo_heat', 15: 'stun'}
 
 def table():
@@ -33,8 +42,14 @@ def table():
 def row(b, i):
     w = struct.unpack_from('<18H', b, BASE + i * STRIDE)
     return dict(row=i, projectile=w[0] >> 8, ammo=w[2], ammo_price_or_energy=w[3],
-                reload=w[8], energy=bool(w[12] & 0x20), attack=w[13], ammo_heat=w[14],
-                stun=w[15], raw=list(w))
+                reload=w[7] if (w[11] >> 8) == 0x23 and w[7] else w[8], reload_w8=w[8], energy=bool(w[12] & 0x20), attack=w[13], ammo_heat=w[14],
+                stun=w[15], raw=list(w), **ballistics(b, i))
+
+def ballistics(b, i, base=BALL):
+    o = base + i * BALL_STRIDE
+    kind = struct.unpack_from('<H', b, o)[0]
+    vel, rng = struct.unpack_from('<2f', b, o + 0x24)
+    return dict(projectile_kind=kind, velocity=round(vel * 100), range=round(rng, 2))
 
 def weapon_parts():
     out = []
@@ -65,5 +80,5 @@ if __name__ == '__main__':
             res.append(dict(f_id=f_id, name=name, type=typ, **row(b, idx)))
     json.dump(res, open(sys.argv[1], 'w'), indent=1)
     for r in res:
-        print('%-15s %-17s atk %5d ammo %4d reload %3d heat %4d %s' % (
-            r['name'], r['type'], r['attack'], r['ammo'], r['reload'], r['ammo_heat'], 'EN' if r['energy'] else ''))
+        print('%-15s %-17s atk %5d ammo %4d reload %3d heat %4d vel %4d rng %6g %s' % (
+            r['name'], r['type'], r['attack'], r['ammo'], r['reload'], r['ammo_heat'], r['velocity'], r['range'], 'EN' if r['energy'] else ''))
