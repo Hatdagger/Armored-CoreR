@@ -41,6 +41,7 @@ choices (marked `[ours]`). See docs/AI.md.
   older replays are refused rather than played wrong); `tests/test_replay.c` golden numbers updated.
 - `tests/test_gen1_ai.c`: its matches now name the utility brain (they test that brain).
 - `tools/acr_import/acr_arena_pp.c`: comment only (record = rank − 1 is confirmed, not a guess).
+- `src/platform/xbox/Makefile`: the new source file.
 - `docs/AI.md`, `docs/ARENA.md`.
 
 **How to switch back.**
