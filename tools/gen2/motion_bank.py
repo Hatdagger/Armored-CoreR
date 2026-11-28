@@ -49,7 +49,7 @@ NAMES.update({   # session 8: from the state tables at 0x3c8020 / 0x3c8368 / 0x3
     33: 'turn_a?', 34: 'turn_b?', 35: 'walk_stop?', 36: 'jump_takeoff', 47: 'idle_loop',
     48: 'destroyed', 49: 'ob_ground_start?', 66: 'ob_ground_loop?', 50: 'ob_air_start?', 67: 'ob_air_loop?',
     52: 'hit_ground_q0', 55: 'hit_ground_q1', 53: 'hit_ground_q2', 54: 'hit_ground_q3',
-    56: 'kneel_a?', 57: 'kneel_a_rise?', 58: 'kneel_b?', 59: 'kneel_b_rise?', 75: 'kneel_c?',
+    56: 'kneel_a', 57: 'kneel_a_rise', 58: 'kneel_b', 59: 'kneel_b_rise', 75: 'kneel_c',
     63: 'blade_pose_a?', 64: 'blade_pose_b?', 65: 'blade_pose_c?'})
 
 if __name__ == '__main__':

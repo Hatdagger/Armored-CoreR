@@ -233,7 +233,7 @@ AC2 plays **keyframe clips per node**, like Gen 1. (An earlier note in this sess
 | 50 then 67 | state 13, the same action from the air (jump state's handler 0x13c290) | guess |
 | 52-55 | ground hit knock-back by hit quadrant 0-3 (52, 55, 53, 54), 60 frames, state 17 | CONFIRMED (0x140480) |
 | 39, 42, 43, 44 | reused as air hit reactions by quadrant (44, 42, 39, 43), state 18 | CONFIRMED (0x1403e8) |
-| 56→57, 58→59, 75→76 | state 14 plays 75 (48 frames); state 15 (0x13d5e0) checks the current motion and plays its follow-up (40 frames). Entered by a weapon button (0x149690). Fits AC2's kneel to fire back cannons: kneel, then rise | probable |
+| 56→57, 58→59, 75→76 | state 14 plays 75 (48 frames); state 15 (0x13d5e0) checks the current motion and plays its follow-up (40 frames). Entered by a weapon button (0x149690). Kneel to fire back cannons, then rise. User's AC2 recordings (2026-11-28, biped, chain gun on back unit L and on back unit R, test mode) show the AC dropping into a kneel as the cannon deploys; two separate kneel pairs fit left vs right, 75 probably both | CONFIRMED kneel; L/R split probable |
 | 63-65 | state 16, 10-frame poses picked from table 0x3c7ed0 (index 0-8 -> 63,64,65,64,65,63,64,65,63), costs energy (+0xb58). Probably laser blade swings | guess |
 | 60 | 9000 frames, 2 joints: not played by AC state code (garage/demo?) | unknown |
 | 61, 62, 68-74 | 1-frame poses, never played by the AC state code found so far | unknown |
