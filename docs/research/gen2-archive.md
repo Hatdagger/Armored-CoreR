@@ -233,7 +233,7 @@ AC2 plays **keyframe clips per node**, like Gen 1. (An earlier note in this sess
 | 50 then 67 | state 13, the same action from the air (jump state's handler 0x13c290) | guess |
 | 52-55 | ground hit knock-back by hit quadrant 0-3 (52, 55, 53, 54), 60 frames, state 17 | CONFIRMED (0x140480) |
 | 39, 42, 43, 44 | reused as air hit reactions by quadrant (44, 42, 39, 43), state 18 | CONFIRMED (0x1403e8) |
-| 56→57, 58→59, 75→76 | state 14 plays 75 (48 frames); state 15 (0x13d5e0) checks the current motion and plays its follow-up (40 frames). Entered by a weapon button (0x149690). Kneel to fire back cannons, then rise. User's AC2 recordings (2026-11-28, biped, chain gun on back unit L and on back unit R, test mode) show the AC dropping into a kneel as the cannon deploys; two separate kneel pairs fit left vs right, 75 probably both | CONFIRMED kneel; L/R split probable |
+| 56→57, 58→59, 75→76 (L / R / both) | state 14 plays 75 (48 frames); state 15 (0x13d5e0) checks the current motion and plays its follow-up (40 frames). Entered by a weapon button (0x149690). Kneel to fire back cannons, then rise. User's AC2 recordings (2026-11-28, biped, chain gun on back unit L and on back unit R, test mode) show the AC dropping into a kneel as the cannon deploys; 56/57 swing the left shoulder (node 13) about 120 deg, 58/59 the right (node 17), 75 neither: so 56 = kneel for back unit L, 58 = back unit R, 75 = centre/both | CONFIRMED |
 | 63-65 | state 16, 10-frame poses picked from table 0x3c7ed0 (index 0-8 -> 63,64,65,64,65,63,64,65,63), costs energy (+0xb58). Probably laser blade swings | guess |
 | 60 | 9000 frames, 2 joints: not played by AC state code (garage/demo?) | unknown |
 | 61, 62, 68-74 | 1-frame poses, never played by the AC state code found so far | unknown |
@@ -241,7 +241,9 @@ AC2 plays **keyframe clips per node**, like Gen 1. (An earlier note in this sess
 **AC states (session 8, Gen 2).** Three state tables, one per leg family, 0x28 bytes per state (u32 flag, then handlers: per-frame, ..., event slots). Biped table 0x3c8368: 0 stand (motion 0), 1 walk, 2 idle, 3 ?, 4 turn, 5 boost start, 6 boost stop, 7 walk stop, 8 jump, 9 land, 10 damaged land, 11 ground OB?, 12 OB end (motion 0, blend 500), 13 air OB?, 14 kneel, 15 kneel hold/rise, 16 blade?, 17 ground hit, 18 air hit, 19 destroyed. State setter 0x13f960 (a1 = state). Second and third tables at 0x3c8020 and 0x3c86d8 share most handlers.
 Ground and air hit reactions (0x13de58, 0x13ded8) pick their motion at run time.
 
-**Next:** confirm the guesses above in-game if possible; match node indices to part meshes; export glTF animations.
+**Biped node map (session 8, Gen 2, `tools/gen2/skeleton.py`).** 33 nodes in set 453 matched to the test AC's meshes by rest offsets (every arm and leg offset matches the mesh pivot differences exactly): 0 root motion, 1 centre (legs mesh 0), 3 waist/core 0, 4-7 core pieces, 8-9 booster, 10-11 back-unit mounts (pitched 60 deg), 12 head, 13-16 left arm (shoulder, upper, fore, hand), 17-20 right arm, 22 pelvis, 23-26 left leg (thigh, shin, foot, toe), 27-30 right leg, 31 leg back piece, 32 ground track; 2 and 21 unused. Clip byte 2 is not a parent (always index - 3); parents are inferred. +x is the AC's left. Rest offsets in the set differ from a part's own mesh pivots by up to 0.2 (e.g. hip y -7.0 vs -7.12), so the game probably overrides them with each part's skeleton block: use the part's offsets and the clip's rotations. Other leg types (sets with 30-36 nodes) still need mapping. Note: `textured.part('head', 0)` returns the same two pivots as the booster; check the head category start.
+
+**Next:** export glTF animations.
 
 ## Animation search (2026-11-27, session 6)
 No stored keyframe animation has been found for ACs. Checked:
