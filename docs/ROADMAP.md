@@ -435,3 +435,12 @@ for the garage and shop. Still to bring over:
   opponent AI records (36 bytes). No match timer in the Arena (user).
 - Missions later: `missions.md` (mission code and maps are FDAT 0-99).
 
+
+## Gen 2 proof of concept (2026-11-27)
+
+One complete Armored Core 2 AC in AC TEST: `acr-import` on an AC2 disc
+writes its part models and an assembled test AC (`<import>/gen2/ac2`);
+`--gen2` or F10 / BACK+L3 in AC TEST draws the opponent as that AC. The AI
+drives it as before (it is still a Gen 1 build underneath: look only).
+Notes and what is next (textures, animation, Gen 2 size, Gen 2 stats):
+[research/gen2-models.md](research/gen2-models.md).

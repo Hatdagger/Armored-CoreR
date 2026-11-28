@@ -10,6 +10,7 @@
 #include "acr_arena_moa.h"
 #include "acr_arena_pp.h"
 #include "acr_missions_moa.h"
+#include "acr_models_ac2.h"
 
 #include <ctype.h>
 #include <errno.h>
@@ -231,6 +232,12 @@ static int import_disc(const char *disc_path, const char *out_dir, acr_import_st
     acr_disc disc;
     memset(stats, 0, sizeof *stats);
     if (!acr_disc_open(&disc, disc_path, err, err_size)) return 0;
+    if (acr_disc_is_ac2(&disc)) {        /* Armored Core 2 (Gen 2): part models beside the Gen 1 import */
+        const int ok = make_dirs(out_dir, 1) && acr_export_ac2_models(&disc, out_dir, &stats->ac2_parts, err, err_size);
+        if (!ok && err && !err[0]) set_err(err, err_size, "cannot create", out_dir);
+        acr_disc_close(&disc);
+        return ok;
+    }
     probe_ctx probe_kind = { 0, 0 };
     acr_iso_walk(&disc, probe_visit, &probe_kind);
     if (probe_kind.phantasma && !probe_kind.moa) {

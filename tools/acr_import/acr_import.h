@@ -39,6 +39,7 @@ typedef struct acr_import_stats {
     uint32_t units;            /* mission units written to <out>/units */
     uint32_t opponents;        /* arena opponents written to <out>/arena */
     uint32_t missions;         /* missions written to <out>/missions */
+    uint32_t ac2_parts;        /* Armored Core 2: part models written to <out>/gen2/ac2 */
     uint8_t  phantasma;        /* the disc was Project Phantasma: <out>/pp, its arena in <out>/arena */
 } acr_import_stats;
 
