@@ -85,6 +85,7 @@ add_library(acr_import_lib STATIC
     tools/acr_import/acr_parts_moa.c
     tools/acr_import/acr_motion_moa.c
     tools/acr_import/acr_models_moa.c
+    tools/acr_import/acr_models_ac2.c
     tools/acr_import/acr_stages_moa.c
     tools/acr_import/acr_units_moa.c
     tools/acr_import/acr_hud_moa.c
@@ -215,6 +216,9 @@ add_test(NAME model COMMAND test_model ${CMAKE_CURRENT_BINARY_DIR}/test_model.pn
 add_executable(test_import tests/test_import.c)
 target_link_libraries(test_import PRIVATE acr_import_lib)
 add_test(NAME import COMMAND test_import ${CMAKE_CURRENT_BINARY_DIR}/test_import_work)
+add_executable(test_ac2_model tests/test_ac2_model.c)
+target_link_libraries(test_ac2_model PRIVATE acr_import_lib)
+add_test(NAME ac2_model COMMAND test_ac2_model)
 
 if(ACR_BUILD_GAME)
     include(FetchContent)
@@ -233,7 +237,7 @@ if(ACR_BUILD_GAME)
         GIT_SHALLOW TRUE)
     FetchContent_MakeAvailable(SDL3)
     set(ACR_GAME_SOURCES src/platform/sdl3/main.c src/platform/sdl3/demo_data.c src/platform/sdl3/demo_model.c
-                   src/platform/sdl3/demo_stage.c src/platform/sdl3/demo_units.c src/platform/sdl3/garage.c src/platform/sdl3/hangar_scene.c src/platform/sdl3/hangar3d.c src/platform/sdl3/rogue.c src/platform/sdl3/arena.c src/platform/sdl3/controls.c
+                   src/platform/sdl3/demo_stage.c src/platform/sdl3/demo_units.c src/platform/sdl3/gen2_ac.c src/platform/sdl3/garage.c src/platform/sdl3/hangar_scene.c src/platform/sdl3/hangar3d.c src/platform/sdl3/rogue.c src/platform/sdl3/arena.c src/platform/sdl3/controls.c
                    src/platform/sdl3/settings.c src/platform/sdl3/update.c
                    src/platform/sdl3/battle_hud.c src/platform/sdl3/battle_warn.c src/platform/sdl3/net_link.c
                    src/platform/sdl3/net_menu.c src/platform/sdl3/net_brief_ui.c src/platform/sdl3/split_menu.c src/platform/sdl3/partner_gate.c src/platform/sdl3/save_list.c
