@@ -838,6 +838,250 @@ static int export_part(const ac2_part *p, const char *out_dir, acr_ac2_tri *tri)
     return ok;
 }
 
+/* ---- Gen 2 hand weapons in the Gen 1 garage (2026-11-28, Gen 2 project) ----
+ * An AC2 right-arm weapon written as a Gen 1 hand part, so a Gen 1 AC can
+ * fit and fire it:
+ *   <out>/parts/hand/gen2/NNN-<name>.toml   stats, in the Gen 1 part format
+ *   <out>/models/hand/NN/                   the model on the hand (AC TEST, fights)
+ *   <out>/models/menu/hand/NN/              the same for the garage
+ * Rules (Gen 2 Research project, gen2-cross-gen-design.md): attack, ammo,
+ * prices, weight, drain and heat stay AC2's numbers (no cross-generation
+ * balancing); range, shot speed and refire time are converted so they keep
+ * AC2's real distances and rhythm. Firing look, sound, sight and lock come
+ * from the type ("RIFLE" = WG-RF35's behaviour) until Gen 2's own are mapped. */
+
+/* Game index in the Gen 1 hand table: past every Gen 1 / Phantasma hand part. */
+typedef struct gen2_hand { uint16_t b_id, f_id; uint8_t game_index; } gen2_hand;
+static const gen2_hand k_gen2_hand[] = {
+    { 501, 3700, 40 },   /* ZWG-RF/37, AC2's standard rifle */
+};
+
+#define AC2_WEAPON_ROWS  0x280b0u   /* file 10: 0x80 bytes per row (tools/gen2/weapons.py) */
+#define AC2_BALLISTICS   0x180b0u   /* file 10: 0x100 bytes per projectile */
+#define AC2_FPS          60.0       /* AC2 runs at 60 frames a second */
+#define GEN1_STEPS       22.003     /* Gen 1 steps a second (docs/research/gen1-timing.md) */
+#define AC2_TO_WORLD     (ACR_AC2_SCALE / 4.0)   /* AC2 unit -> Gen 1 world units (model / 4) */
+
+static uint16_t le16(const uint8_t *p) { return (uint16_t)(p[0] | p[1] << 8); }
+
+/* The name/stats record of a JOIN package (stats.py info()). */
+static const uint8_t *join_record(const uint8_t *pkg, size_t n) {
+    if (n < 0x54 || memcmp(pkg, "JOIN", 4) != 0) return NULL;
+    for (int s = 0; s < 8; ++s) {
+        const uint32_t o = le32(pkg + 0x34 + 4u * s);
+        if (o == 0xFFFFFFFFu || (size_t)o + 178 > n) continue;
+        int ok = 1;
+        for (int i = 0; i < 6; ++i) if (pkg[o + i] < 32 || pkg[o + i] > 126) ok = 0;
+        if (ok) return pkg + o;
+    }
+    return NULL;
+}
+
+static void rec_text(const uint8_t *p, size_t n, char *out) {
+    size_t k = 0;
+    for (; k < n && p[k] >= 32 && p[k] < 127; ++k) out[k] = (char)p[k];
+    while (k && out[k - 1] == ' ') --k;
+    out[k] = 0;
+}
+
+static void name_slug(const char *name, char *out, size_t size) {
+    size_t n = 0;
+    for (const char *q = name; *q && n + 1 < size; ++q)
+        out[n++] = (isalnum((unsigned char)*q) || *q == '-' || *q == '.') ? *q : '_';
+    while (n && out[n - 1] == '_') --n;
+    out[n] = 0;
+}
+
+/* The weapon's textures as one atlas (stacked), palettes folded to grey:
+ * part textures are greyscale anyway (the game tints them). */
+typedef struct atlas { unsigned w, h, y[AC2_MAX_TEX]; uint8_t *pix; } atlas;
+static int atlas_make(const ac2_part *p, atlas *a) {
+    memset(a, 0, sizeof *a);
+    for (int i = 0; i < p->ntex; ++i) {
+        a->y[i] = a->h;
+        a->h += p->tex[i].h;
+        if (p->tex[i].w > a->w) a->w = p->tex[i].w;
+    }
+    if (!a->w || !a->h || a->h > 4096) return 0;
+    a->pix = calloc((size_t)a->w * a->h, 1);
+    if (!a->pix) return 0;
+    for (int i = 0; i < p->ntex; ++i) {
+        const acr_ac2_tex *t = &p->tex[i];
+        for (unsigned y = 0; y < t->h; ++y)
+            for (unsigned x = 0; x < t->w; ++x) {
+                const uint8_t *c = t->rgb + 3 * t->pixels[(size_t)y * t->w + x];
+                a->pix[(size_t)(a->y[i] + y) * a->w + x] = (uint8_t)((c[0] * 77 + c[1] * 150 + c[2] * 29) >> 8);
+            }
+    }
+    return 1;
+}
+
+/* piece0.obj / object0.obj + part.mtl + texture.png in `dir`. Vertices in
+ * Gen 1 model space around the grip (AC2 keeps hand weapons at 0). */
+static int write_hand_model(const char *dir, const char *obj_name, const acr_ac2_tri *tri, uint32_t n,
+                            const ac2_part *p, const atlas *at) {
+    char path[AC2_PATH];
+    if (!make_dirs(dir)) return 0;
+    if (at->pix) {
+        uint8_t pal[256 * 3], alpha[256];
+        for (int i = 0; i < 256; ++i) { pal[3 * i] = pal[3 * i + 1] = pal[3 * i + 2] = (uint8_t)i; alpha[i] = 255; }
+        snprintf(path, sizeof path, "%s/texture.png", dir);
+        if (!acr_write_png8(path, at->w, at->h, at->pix, pal, alpha)) return 0;
+    }
+    snprintf(path, sizeof path, "%s/part.mtl", dir);
+    FILE *m = fopen(path, "w");
+    if (!m) return 0;
+    fprintf(m, "newmtl hand\nKd 1 1 1\n%s\nnewmtl rgb-555A5C\nKd 0.33 0.34 0.36\n",
+            at->pix ? "map_Kd texture.png" : "");
+    if (fclose(m) != 0) return 0;
+    snprintf(path, sizeof path, "%s/%s", dir, obj_name);
+    FILE *f = fopen(path, "w");
+    if (!f) return 0;
+    fprintf(f, "# Armored Core 2 file %u (shop package %u) as a Gen 1 hand weapon, x%.1f\nmtllib part.mtl\n",
+            (unsigned)p->id, (unsigned)p->f, (double)ACR_AC2_SCALE);
+    uint32_t nv = 0, nt = 0;
+    for (int pass = 0; pass < 2; ++pass) {   /* textured, then flat */
+        int first = 1;
+        for (uint32_t i = 0; i < n; ++i) {
+            if (tri[i].marker) continue;
+            const int ti = at->pix ? tex_index(p, tri[i].tex0) : -1;
+            if ((ti >= 0) != (pass == 0)) continue;
+            if (first) { fprintf(f, "usemtl %s\n", pass == 0 ? "hand" : "rgb-555A5C"); first = 0; }
+            for (int c = 0; c < 3; ++c) {
+                fprintf(f, "v %.3f %.3f %.3f\nvn %.4f %.4f %.4f\n", tri[i].p[c][0], tri[i].p[c][1], tri[i].p[c][2],
+                        tri[i].n[c][0], tri[i].n[c][1], tri[i].n[c][2]);
+                if (ti >= 0) {
+                    const acr_ac2_tex *t = &p->tex[ti];
+                    float u = tri[i].uv[c][0], v = tri[i].uv[c][1];
+                    u = u < 0 ? 0 : u > 1 ? 1 : u;
+                    v = v < 0 ? 0 : v > 1 ? 1 : v;
+                    fprintf(f, "vt %.5f %.5f\n", (double)u * t->w / at->w, 1.0 - (at->y[ti] + (double)v * t->h) / at->h);
+                }
+            }
+            if (ti >= 0)
+                fprintf(f, "f %u/%u/%u %u/%u/%u %u/%u/%u\n", nv + 1, nt + 1, nv + 1, nv + 2, nt + 2, nv + 2,
+                        nv + 3, nt + 3, nv + 3);
+            else
+                fprintf(f, "f %u//%u %u//%u %u//%u\n", nv + 1, nv + 1, nv + 2, nv + 2, nv + 3, nv + 3);
+            nv += 3;
+            if (ti >= 0) nt += 3;
+        }
+    }
+    if (fclose(f) != 0) return 0;
+    return 1;
+}
+
+/* One weapon: stats from its shop record and file 10, model from the B block. */
+static int export_hand_weapon(ac2_src *a, const gen2_hand *h, const uint8_t *f10, size_t f10_n, const char *out_dir,
+                              acr_ac2_tri *tri) {
+    size_t pn = 0;
+    uint8_t *pkg = src_read(a, h->f_id, &pn);
+    const uint8_t *r = pkg ? join_record(pkg, pn) : NULL;
+    if (!r) { free(pkg); return 1; }   /* not on this disc: skip */
+    char name[24], type[24], file_name[40];
+    rec_text(r, 18, name);
+    rec_text(r + 18, 18, type);
+    const uint32_t price = le32(r + 36);
+    const unsigned weight = le16(r + 114), drain = le16(r + 116), row = le16(r + 132);
+    free(pkg);
+    const size_t wo = AC2_WEAPON_ROWS + 0x80u * row;
+    if (!name[0] || row > 127 || wo + 0x80 > f10_n) return 1;
+    const uint8_t *w = f10 + wo;
+    const unsigned proj = le16(w) >> 8, ammo = le16(w + 4), ammo_price = le16(w + 6);
+    const unsigned reload = le16(w + 16) & 0xFF, energy = le16(w + 24) == 0x27, attack = le16(w + 26),
+                   heat = le16(w + 28);
+    const size_t bo = AC2_BALLISTICS + 0x100u * proj;
+    if (bo + 0x2C > f10_n) return 1;
+    const float vel = lef(f10 + bo + 0x24), range = lef(f10 + bo + 0x28);   /* AC2 units a frame; AC2 units */
+
+    /* Conversions (same real distance and time). */
+    const double per_step = AC2_FPS / GEN1_STEPS;                     /* AC2 frames in one Gen 1 step */
+    const long range_w = lround(range * AC2_TO_WORLD);
+    const long speed_w = lround(vel * AC2_TO_WORLD * per_step);
+    /* Gen 1 gun cadence: post-shot hold (7 + hold) + refire wait + 1 steps.
+     * Long refires keep WG-RF35's firing animation; short ones (machine
+     * guns) none, as Gen 1's machine guns. */
+    long cadence = lround(reload / per_step);
+    if (cadence < 1) cadence = 1;
+    const int hold = cadence >= 9 ? 0 : 255;
+    long wait = hold == 0 ? cadence - 8 : cadence - 1;
+    if (wait < 0) wait = 0;
+
+    char dir[AC2_PATH], path[AC2_PATH];
+    snprintf(dir, sizeof dir, "%s/parts/hand/gen2", out_dir);
+    if (!make_dirs(dir)) return 0;
+    name_slug(name, file_name, sizeof file_name);
+    snprintf(path, sizeof path, "%s/%03u-%s.toml", dir, (unsigned)h->game_index, file_name);
+    FILE *f = fopen(path, "wb");
+    if (!f) return 0;
+    fprintf(f, "# Armored Core 2 part as a Gen 1 hand weapon, imported from your disc by acr-import.\n"
+               "# AC2's own numbers (no cross-generation balancing); range, shot speed and refire\n"
+               "# converted to keep AC2's distances and timing. Gen 2 project.\n"
+               "name           = \"%s\"\ncategory       = \"hand\"\ntype           = \"%s\"\n"
+               "generation     = \"gen2\"\nsource         = \"Armored Core 2\"\ngame_index     = %u\n",
+            name, type, (unsigned)h->game_index);
+    fprintf(f, "price          = %u\nweight         = %u\nenergy_drain   = %u\n", (unsigned)price, weight, drain);
+    fprintf(f, "attack         = %u\nammo           = %u\n", attack, ammo);
+    fprintf(f, "range          = %ld   # AC2 %.0f x %.3f\n", range_w, (double)range, AC2_TO_WORLD);
+    fprintf(f, "lock_class     = 0   # as WG-RF35\nenergy_damage  = %u\n", energy);
+    fprintf(f, "energy_per_shot = %u\nammo_price     = %u\nsalvo          = 1\n", energy ? ammo_price : 0u,
+            energy ? 0u : ammo_price);
+    fprintf(f, "fire_interval  = %ld   # AC2 reload %u frames = %ld Gen 1 steps a shot\n", wait, reload, cadence);
+    fprintf(f, "ammo_flags     = %u\nimpact         = 3   # stand-in (WG-RF35): AC2 impact not mapped\n",
+            energy ? 0x27u : 0x17u);
+    fprintf(f, "type_id        = 6   # RIFLE\nkind           = 0\nmodel_id       = 0\nfire_pattern   = 0\n"
+               "firing_anim    = 0\npost_shot_hold = %d\nsight          = 1\n", hold);
+    fprintf(f, "shot_speed     = %ld   # AC2 velocity %.0f\n", speed_w, (double)vel * 100.0);
+    fprintf(f, "\n[gen2]   # AC2's raw numbers, kept for Gen 2 rules (heat, Gen 2 vs Gen 2)\n"
+               "gen2_ammo_heat = %u\ngen2_reload    = %u\ngen2_velocity  = %.0f\ngen2_range     = %.0f\n"
+               "gen2_weapon_row = %u\ngen2_shop_file = %u\ngen2_model_file = %u\n",
+            heat, reload, (double)vel * 100.0, (double)range, row, (unsigned)h->f_id, (unsigned)h->b_id);
+    if (fclose(f) != 0) return 0;
+
+    ac2_part p;
+    if (!part_load(a, h->b_id, "weapon-r", &p)) return 1;
+    uint32_t n = acr_ac2_model_tris(p.data, p.bytes, NULL, tri, AC2_MAX_TRIS, NULL, 0, NULL);
+    if (n > AC2_MAX_TRIS) n = AC2_MAX_TRIS;
+    atlas at;
+    if (!atlas_make(&p, &at)) at.pix = NULL;
+    int ok = n > 0;
+    if (ok) {
+        snprintf(dir, sizeof dir, "%s/models/hand/%02u", out_dir, (unsigned)h->game_index);
+        ok = write_hand_model(dir, "piece0.obj", tri, n, &p, &at);
+        if (ok) {
+            snprintf(path, sizeof path, "%s/part.toml", dir);
+            FILE *t = fopen(path, "wb");
+            ok = t != NULL;
+            if (ok) {
+                fprintf(t, "# Armored Core 2 %s as a Gen 1 hand model (Gen 2 project). The grip is at 0\n"
+                           "# (AC2 keeps hand weapons there): drawn at the hand node's own position.\n"
+                           "category   = \"hand\"\ngame_index = %u\ngeneration = \"gen2\"\npieces     = 1\n"
+                           "texture    = %s\n\n[[piece]]\nindex = 0\nfile  = \"piece0.obj\"\njoint = [0, 0, 0]\n",
+                        name, (unsigned)h->game_index, at.pix ? "\"texture.png\"" : "\"\"");
+                ok = fclose(t) == 0;
+            }
+        }
+        snprintf(dir, sizeof dir, "%s/models/menu/hand/%02u", out_dir, (unsigned)h->game_index);
+        if (ok) ok = write_hand_model(dir, "object0.obj", tri, n, &p, &at);
+    }
+    free(at.pix);
+    part_free(&p);
+    return ok || n == 0;
+}
+
+static int export_hand_weapons(ac2_src *a, const char *out_dir, acr_ac2_tri *tri, uint32_t *count) {
+    size_t n = 0;
+    uint8_t *f10 = src_read(a, 10, &n);
+    if (!f10) return 1;
+    int ok = 1;
+    for (size_t i = 0; ok && i < sizeof k_gen2_hand / sizeof k_gen2_hand[0]; ++i) {
+        ok = export_hand_weapon(a, &k_gen2_hand[i], f10, n, out_dir, tri);
+        if (ok && count) ++*count;
+    }
+    free(f10);
+    return ok;
+}
+
 /* ---- motion (Gen 2; docs/research/gen2-archive.md "Motion", tools/gen2/skeleton.py) ----
  * Set file = 421 + 24 x core group + 8 x arms group + legs group (groups by shop F id,
  * tools/gen2/motion_sets.py). The bank starts 0x8000 into the set file and runs into the
@@ -999,6 +1243,13 @@ static int export_all(ac2_src *a, const char *out_dir, uint32_t *parts, char *er
             part_free(&p[0]);
         }
     if (!ok) { free(tri); free(p); set_err(err, err_size, "cannot write", path); return 0; }
+
+    /* Gen 2 hand weapons for the Gen 1 garage (parts/hand/gen2, models/hand). */
+    if (!export_hand_weapons(a, out_dir, tri, NULL)) {
+        free(tri); free(p);
+        set_err(err, err_size, "cannot write the Gen 2 hand weapons in", out_dir);
+        return 0;
+    }
 
     /* The test AC: every part at its own place (AC2 stores them assembled),
      * the arm weapon on the right hand. */

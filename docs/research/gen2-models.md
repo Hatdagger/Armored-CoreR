@@ -125,3 +125,24 @@ unit in each, and the AC heights in metres follow. AC2's own body height
 
 ## Animations in ac.glb (session 8, Gen 2)
 `acr-import` now writes the test AC's motion set (B 453 for ZCX-F/ROOK + ZAN-414/SLA + ELN-STVM) into `test-ac/ac.glb` as 75 named glTF animations (`02_walk_loop_dir0`, `38_land`, `56_kneel_backL`, ...; 60 fps, linear). Node map from `tools/gen2/skeleton.py`: arms and legs get each joint's rotation, the core's first mesh (waist) gets node 3, the legs' first mesh gets the pelvis (22), both get the centre's (node 1) movement. Head, arms and booster now hang under the waist so they follow its twist. Only biped sets (33 nodes) are exported; other leg types are skipped. The game draw (`gen2_ac.c`, OBJ) is still static: AC TEST animating in-game needs the renderer to use these node transforms.
+
+## Gen 2 hand weapons in the Gen 1 garage (2026-11-28, Gen 2)
+`acr-import` on the AC2 disc also writes AC2 right-arm weapons as Gen 1 hand
+parts, so a Gen 1 AC can fit and fire them (table `k_gen2_hand` in
+`acr_models_ac2.c`; first one: **ZWG-RF/37**, B 501 / F 3700, hand index 40):
+
+- `parts/hand/gen2/040-ZWG-RF_37.toml`: Gen 1 part format, `generation = "gen2"`.
+  Price, weight, drain (shop record +36, +114, +116), attack, ammo, ammo price
+  (file 10 weapon row = record +132) are AC2's own numbers: no
+  cross-generation balancing. Raw AC2 values kept under `[gen2]` (`gen2_ammo_heat`...).
+- Converted to keep AC2's real distances and timing: range and shot speed by
+  AC2 unit = ACR_AC2_SCALE / 4 world units, 60 AC2 frames a second, 22.003 Gen 1
+  steps a second. RF/37: range 467 -> 9749, velocity 8.0/frame -> 455 a step,
+  reload 33 frames -> a shot every 12 steps (WG-RF35: 13).
+- Behaviour from the type until Gen 2's own is mapped: lock, sight, firing
+  animation, shot look and sound as WG-RF35 (RIFLE); impact 3 is a stand-in.
+- `models/hand/40` and `models/menu/hand/40`: one piece around the grip (AC2
+  keeps hand weapons at 0), joint [0,0,0] so it is drawn at the hand node.
+  Textures stacked into one greyscale atlas.
+- Not checked in game yet: the grip orientation against Gen 1's hand node.
+  Heat on Gen 1 targets (heat -> burn) is a later step.
