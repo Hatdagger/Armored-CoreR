@@ -309,8 +309,18 @@ static void write_weapon(FILE *f, const char *c, uint32_t index) {
         field(f, "shot_speed", v, "world units per Gen 1 step");
     write_shot_look(f, w);
     /* Cannons: VS engine 0x80081B18, table 0x80091310 (6 bytes per model). */
-    if (w[0] == 2 && vs_u16(0x80091310u + 6 * w[1], &v))
-        field(f, "shot_speed", v, "world units per Gen 1 step (read from code, not traced)");
+    /* Cannons 1, 2, 4, 5, 6 fire another family's shot (0x80081F70: B #6,
+     * #7, #5, D #1, C #3), at that row's speed (ACG1PLUS weapon-map.md:
+     * WC-ST120 700, WC-LN350 720, WC-XP4000 840, WC-XC8000 900, WC-01QL
+     * 544); 0, 3 and 7 use the cannon table's. Before 2026-11-28 all used
+     * the cannon table (500 for most). */
+    if (w[0] == 2) {
+        static const uint32_t k_redirect[8] = { 0, 0x80092980u + 40 * 6, 0x80092980u + 40 * 7, 0,
+                                                0x80092980u + 40 * 5, 0x80092824u + 24, 0x80092C20u + 36 * 3, 0 };
+        const uint32_t r = w[1] < 8 ? k_redirect[w[1]] : 0;
+        if (r ? vs_u16(r, &v) : vs_u16(0x80091310u + 6 * w[1], &v))
+            field(f, "shot_speed", v, "world units per Gen 1 step");
+    }
     /* Cannon kick (VS 0x80081E80): the table's +2, times the slot recoil from
      * fire_pattern, legs stability and weight (acr_gen1_cannon_kick). */
     if (w[0] == 2 && vs_u16(0x80091310u + 6 * w[1] + 2, &v))
