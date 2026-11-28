@@ -238,3 +238,12 @@ No stored keyframe animation has been found for ACs. Checked:
 - The ELF has no motion file paths (only `ac2/parts/data/%s%03d.bin`, map and arena paths). Its `motion_type` strings belong to the MPEG decoder.
 
 Evidence for procedural motion: a developer tuning table in the ELF (labels at 0x439100-0x4397f0; entries `label ptr, variable ptr, step, max` at 0x429fb0-0x42a1a0) with `walk_waist / walk_center / walk_core`, `land_*`, `dash_start / dash_brake`, `jump`, `weapon_react`, `react speedstep`, shoulder/core aim limits (`Kata minX/maxX/minY`, `Core minX/maxX/maxY`; kata = shoulder) and aim speeds (`hand / arm / 2Ude / Kata / core spd`; ude = arm). The variables live in RAM at 0x01d27fd8+ (filled at run time). Superseded: see Motion above (clips were found in B 421-492).
+
+### Shop-confirmed part fields (session 7, Gen 2)
+Checked against the user's AC2 shop recordings (2026-11-27). Word numbers are u16 from record +114.
+- **Head:** w19 scanning interval (radar heads only), w20 sensor interval (0 = none). ZHD-GE/OHR 60, EHD-GARD 18, ZHD-8008/S 24/42, ZHD-MO/EGRET 10/56, EHD-WACS 12/16, ZHD-06/RW 0/72 (cooling 577). w21 is still unknown (all of these show radar type "standard": values 1, 4, 5, 31).
+- **Booster:** w7 boost power, w8 charge drain — confirmed (EBT-GE 9800/4350, ZBT-H4/T 17200/4600, EBT-GR4300 8800/2500). w9 (86-98, rises by 2 per row) is unknown. Shop "boost efficiency" (883 / 835 / 1596) is not stored; it is computed, probably using the assembled AC's weight.
+- **FCS:** w8 = reticle mobility << 8 | max lock (DOX-105 65/5, DOX-125 52/2, LODD-BLAZER 30/12, VERTEX-124/EE 60/8). w7 bit 0x1000 = multi target; w7 low byte = lock type (0 standard, 2 narrow&deep, 4 sideway; 1 and 3 not yet seen in the shop). w7 bit 0x100 is unknown. Lock speed (40/29/40/26), sight range (360/338/481/720) and sight ability (210/224/214/182) are not plain words; the floats at w11-12, w15-16 and w23-24 and the small values in w17-20 do not match them directly. They may depend on the equipped head and arms.
+- **Radiator:** w7 cooling, w8 forced cooling — confirmed (RPS-MER/SA, RBG-CM6, RRX-COT-GK10).
+- **Extension:** dive/boost extensions (w7 0x62xx) w8 boost power, w9 charge drain — confirmed (BEX-BD150 16000/4920). Anti-missile (w7 3): w14 = range (BEX-BAMS-287 250). w12/w13 are unknown (w13 does not equal the ammo count).
+- **Optional parts:** w7 = slots required — confirmed for all 7 recorded.

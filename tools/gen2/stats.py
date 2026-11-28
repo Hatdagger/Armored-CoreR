@@ -32,7 +32,7 @@ NAMED = {
 INTERNAL = {
     'generator': {7: 'energy_output', 8: 'max_charge', 9: 'redzone', 10: 'calorific_value'},
     'radiator': {7: 'cooling', 8: 'forced_cooling'},
-    'booster': {7: 'boost_power?', 8: 'charge_drain?', 9: 'booster_heat?'},   # no AC2 source found yet
+    'booster': {7: 'boost_power', 8: 'charge_drain', 9: 'w9?'},   # confirmed in AC2 shop; efficiency is computed
     'fcs': {9: 'precision'},
     'optional': {7: 'slots_used'},
     'inside': {7: 'kind', 9: 'weapon_row'},   # kind 4; rows 116-122 follow the extensions' 110-115
@@ -51,10 +51,15 @@ def decode(cat, r):
         for k, n in INTERNAL.get(cat, {}).items(): d[n] = u16(r, k)
     if cat == 'fcs':
         d['max_lock'] = u16(r, 8) & 0xFF
+        d['reticle_mobility'] = u16(r, 8) >> 8
+        w7 = u16(r, 7)
+        d['target'] = 'multi' if w7 & 0x1000 else 'single'
+        d['lock_type'] = {0: 'standard', 2: 'narrow&deep', 4: 'sideway'}.get(w7 & 0xFF, w7 & 0xFF)
     if cat == 'extension':
         d['kind?'] = u16(r, 7)
         if u16(r, 11) >= 100: d['weapon_row'] = u16(r, 11)        # 110-115: rows of the file 10 table
-        else: d.update({'boost_power?': u16(r, 8), 'charge_drain?': u16(r, 9)})
+        else: d.update({'boost_power': u16(r, 8), 'charge_drain': u16(r, 9)})
+        if u16(r, 7) == 3: d['range'] = u16(r, 14)   # anti-missile
     if cat == 'head':
         w13, w14 = u16(r, 13), u16(r, 14)
         d['computer_type'] = ['rough', 'standard', 'detailed'][w13 & 0xF] if (w13 & 0xF) < 3 else w13 & 0xF
@@ -64,7 +69,8 @@ def decode(cat, r):
         d['radar'] = bool(w14 & 0x100)
         d['noise_canceler'] = bool(w14 & 0x200)
         d['bio_sensor'] = bool(w14 & 0x400)
-        if d['radar']: d['radar_range'] = round(f32(r, 15))
+        if d['radar']: d['radar_range'] = round(f32(r, 15)); d['scanning_interval'] = u16(r, 19)
+        d['sensor_interval'] = u16(r, 20)   # 0 = none
     if cat == 'core':
         d['optional_slots'] = u16(r, 13) & 0xFF
     if cat == 'legs':
