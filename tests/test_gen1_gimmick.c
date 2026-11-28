@@ -83,6 +83,26 @@ static void test_locked_pair(void) {
     EXPECT(g.door[1].offset[0] == 500 && g.door[2].offset[0] == -500);
 }
 
+/* Map 1's hatch (area 57): doesn't open on its own; the blade opens it,
+ * standing on it or beside it. */
+static void test_blade_hatch(void) {
+    acr_gen1_gimmicks g;
+    acr_gen1_gimmicks_parse("door 57 57 2 9625 -250 0 750 125 10 630 0 1 74 0 1 0 0\n", &g);
+    const int32_t on[3] = { 9625, -380, 0 }, far[3] = { 12000, -380, 0 };
+    acr_gen1_gimmicks_blade(&g, far, 100, 212, 300, NULL);
+    EXPECT(g.door[0].state == 0);
+    acr_gen1_gimmicks_blade(&g, on, 100, 212, 300, NULL);
+    EXPECT(g.door[0].state == 1);
+    run(&g, on, 70, NULL);
+    EXPECT(g.door[0].state == 3 && g.door[0].offset[0] != 0);   /* stays open */
+    /* A locked door only plays its line. */
+    acr_gen1_gimmicks_parse(k_doors, &g);
+    const int32_t at[3] = { 2500, 0, -15000 };
+    acr_gen1_gimmick_events ev = { 0 };
+    acr_gen1_gimmicks_blade(&g, at, 100, 212, 300, &ev);
+    EXPECT(ev.radio == 159 && g.door[1].state == 0);
+}
+
 static void test_stage_move(void) {
     acr_gen1_stage s;
     memset(&s, 0, sizeof s);
@@ -108,6 +128,7 @@ int main(void) {
     test_parse();
     test_auto_door();
     test_locked_pair();
+    test_blade_hatch();
     test_stage_move();
     if (failures) { printf("%d failed\n", failures); return 1; }
     printf("gimmick tests passed\n");
