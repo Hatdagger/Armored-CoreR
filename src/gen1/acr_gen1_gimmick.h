@@ -96,8 +96,9 @@ void acr_gen1_gimmicks_tick(acr_gen1_gimmicks *g, const int32_t player[3], int32
                             int32_t (*move)[3], acr_gen1_gimmick_events *ev);
 
 /* The player's blade swing: message 0x8100 to every shut door the swing
- * reaches (`reach` past the body, across and up / down), as the game's
- * doors that open when the player bumps or blades them: a locked one plays
+ * reaches (`reach` past the body, across and up / down), doors that open
+ * on their own included (map 0's door 61 to the generator opens to the
+ * blade in play, though its data says it opens on approach): a locked one plays
  * its radio line, otherwise it opens. Call once, the tick the swing starts. */
 void acr_gen1_gimmicks_blade(acr_gen1_gimmicks *g, const int32_t player[3], int32_t radius, int32_t height,
                              int32_t reach, acr_gen1_gimmick_events *ev);

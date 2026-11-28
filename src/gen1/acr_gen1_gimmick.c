@@ -151,7 +151,7 @@ void acr_gen1_gimmicks_blade(acr_gen1_gimmicks *g, const int32_t player[3], int3
     const int32_t p[3] = { player[0], player[1] + reach, player[2] };
     for (int i = 0; i < g->doors; ++i) {
         acr_gen1_door *d = &g->door[i];
-        if (!d->ticks || d->opens_near || d->state >= 4) continue;
+        if (!d->ticks || d->state >= 4) continue;
         if (!acr_gen1_door_near(d, p, radius + reach, height + 2 * reach)) continue;
         if (d->radio) { if (ev) ev->radio = d->radio; }
         else if (d->count < d->ticks && d->state != 1 && d->state != 3) acr_gen1_door_set_state(g, i, 1);
