@@ -29,7 +29,7 @@ jobs:
             libudev-dev libpulse-dev libasound2-dev
 
       - name: Configure
-        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release
+        run: cmake -S . -B build -DCMAKE_BUILD_TYPE=Release -DACR_BUILD_NUMBER=${{ github.run_number }}
 
       - name: Build
         run: cmake --build build --config Release --parallel
@@ -55,6 +55,57 @@ jobs:
         with:
           name: armored-corer-${{ matrix.name }}
           path: out/
+
+      # The archive the PC updater downloads (SYSTEM > SETTINGS > UPDATES,
+      # docs/UPDATES.md): files at the top level, unpacked with tar.
+      - name: Pack for the updater
+        shell: bash
+        run: |
+          mkdir -p pack
+          if [ "$RUNNER_OS" = "Windows" ]; then
+            (cd out && 7z a -tzip ../pack/armored-corer-${{ matrix.name }}.zip . >/dev/null)
+          else
+            tar -czf pack/armored-corer-${{ matrix.name }}.tar.gz -C out .
+          fi
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: update-${{ matrix.name }}
+          path: pack/
+
+  # The desktop-latest release the PC updater reads. version.txt is build
+  # number, commit, date, Windows zip size, Linux tar size; it goes up last
+  # so it never names an archive that isn't there.
+  desktop-release:
+    needs: build
+    if: github.event_name == 'push' && github.ref == 'refs/heads/main'
+    runs-on: ubuntu-24.04
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with:
+          pattern: update-*
+          path: pack
+          merge-multiple: true
+      - name: Publish the desktop-latest release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          win=pack/armored-corer-windows-x64.zip
+          lin=pack/armored-corer-linux-x64.tar.gz
+          printf '%s\n%s\n%s\n%s\n%s\n' "$GITHUB_RUN_NUMBER" "${GITHUB_SHA::7}" "$(date -u +%Y-%m-%d)" \
+            "$(stat -c %s $win)" "$(stat -c %s $lin)" > pack/version.txt
+          git tag -f desktop-latest "$GITHUB_SHA"
+          git push -f origin refs/tags/desktop-latest
+          if ! gh release view desktop-latest >/dev/null 2>&1; then
+            gh release create desktop-latest --prerelease --title "Desktop test build" \
+              --notes "Newest Windows / Linux build from main."
+          fi
+          gh release upload desktop-latest "$win" "$lin" --clobber
+          gh release upload desktop-latest pack/version.txt --clobber
+          gh release edit desktop-latest --notes "Build $GITHUB_RUN_NUMBER (${GITHUB_SHA::7}), $(date -u +%Y-%m-%d). The game updates itself from here: SYSTEM > SETTINGS > UPDATES. To install by hand, download the zip (Windows) or tar.gz (Linux) and unpack it over your copy."
 
   # Original Xbox: the engine core built with nxdk into a small test program
   # (default.xbe and an .iso for xemu or a softmodded console).
