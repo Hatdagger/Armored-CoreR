@@ -22,8 +22,13 @@ Fields (u16 index into the row), checked against published AC2 stats
   w13         attack power
   w14         ammo heat
   w15         stun (probably)
-Ballistics table: file 10 at 0x180b0 (AA 0x200f0), 0x100 bytes per record, indexed by the
-SAME row number as the weapon table. +0 u16 projectile kind (1 missile, 2 bullet, 4 spread),
+Ballistics table: file 10 at 0x180b0 (AA 0x200f0), 0x100 bytes per record (128 records), indexed by
+the PROJECTILE ID = high byte of weapon-row w0 (usually equal to the row, but not for ZWC-LQ/2552 <->
+ZWC-LNT/250, EWG-MGA2 <-> ZWG-AR/K, the EWX/ZWX specials 82-87 -> 96-101 and extensions 110-122 ->
+112-126; ZXR-S/STEALTH has none). +0 u16 projectile kind (1 missile, 2 bullet, 4 spread, 13 multi/
+vertical missile), +2 u16 effect/model id?, +4 u16 projectiles per shot (shotguns 6/8, HYDRA 3,
+LNT/250 16), +6 u16 hit-effect id?. Records 82-95 and 108-109 (kinds 23/11) are not weapon projectiles:
+23 = carrier whose +6 names a kind-11 child record.
 +0x24 float velocity/100, +0x28 float range. Checked: SRF/8 1050/1000, SRF-9 1150/910,
 K99 870/620, XP0808 -/600 (armoredcore.fandom.com). Missiles: +0x28 is lock range, not velocity.
 Another Age: raw reloads are unchanged, but AA's published reloads are floor(raw*5/6) for all 8
@@ -46,15 +51,16 @@ def table():
 def row(b, i):
     w = struct.unpack_from('<18H', b, BASE + i * STRIDE)
     return dict(row=i, projectile=w[0] >> 8, ammo=w[2], ammo_price_or_energy=w[3],
-                reload=w[7] if (w[11] >> 8) == 0x23 and w[7] else w[8], reload_w8=w[8], max_locks=w[5] & 0xFF, lock_time=w[5] >> 8, per_lock=w[6] & 0xFF, energy=bool(w[12] & 0x20), attack=w[13], ammo_heat=w[14],
-                stun=w[15], raw=list(w), **ballistics(b, i))
+                reload=w[7] if (w[11] >> 8) == 0x23 and w[7] else (w[8] & 0xFF if w[8] > 255 else w[8]), recoil_candidate=w[8] >> 8, reload_w8=w[8], projectile_id=w[0] >> 8, max_locks=w[5] & 0xFF, lock_time=w[5] >> 8, per_lock=w[6] & 0xFF, energy=bool(w[12] & 0x20), attack=w[13], ammo_heat=w[14],
+                stun=w[15], raw=list(w), **ballistics(b, w[0] >> 8))
 
 def ballistics(b, i, base=BALL):
     o = base + i * BALL_STRIDE
-    kind = struct.unpack_from('<H', b, o)[0]
+    if i == 0: return dict(projectile_kind=0, velocity=0, range=0, per_shot=0)
+    kind, _, per_shot = struct.unpack_from('<3H', b, o)
     vel, rng = struct.unpack_from('<2f', b, o + 0x24)
-    r = dict(projectile_kind=kind, velocity=round(vel * 100), range=round(rng, 2))
-    if kind == 1:   # homing missile: speeds per frame, turn rates in radians/frame
+    r = dict(projectile_kind=kind, per_shot=per_shot, velocity=round(vel * 100), range=round(rng, 2))
+    if kind in (1, 13):   # homing missile: speeds per frame, turn rates in radians/frame
         f = struct.unpack_from('<7f', b, o + 0x24)
         r.update(launch_speed=f[0], lock_range=f[1], accel=f[2], guidance=f[3], max_speed=f[4],
                  turn_rate_deg=round(f[5] * 57.2958, 2), turn_rate2_deg=round(f[6] * 57.2958, 2),
