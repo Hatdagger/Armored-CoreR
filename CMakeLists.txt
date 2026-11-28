@@ -45,6 +45,20 @@ add_library(acr_gen1 STATIC
     src/gen1/acr_gen1_match.c)
 target_include_directories(acr_gen1 PUBLIC src/gen1)
 
+# Gen 2 (Armored Core 2, Another Age) rules. Floats, as the game, with the
+# PS2's rounding done by hand (src/gen2/acr_gen2_fp.h), so every machine
+# computes the same bits.
+add_library(acr_gen2 STATIC
+    src/gen2/acr_gen2_compile.c
+    src/gen2/acr_gen2_move.c)
+target_include_directories(acr_gen2 PUBLIC src/gen2)
+if(MSVC)
+    target_compile_options(acr_gen2 PRIVATE /fp:precise)
+else()
+    target_compile_options(acr_gen2 PRIVATE -ffp-contract=off)
+    target_link_libraries(acr_gen2 PUBLIC m)
+endif()
+
 # Netplay: rollback over any packet link (no sockets in here, so it ports
 # to the Xbox's System Link later).
 add_library(acr_net STATIC src/net/acr_rollback.c src/net/acr_msg.c src/net/acr_brief.c src/net/acr_brief_words.c src/net/acr_upnp.c)
@@ -95,6 +109,9 @@ add_test(NAME battle_warn COMMAND test_battle_warn)
 add_executable(test_gen1 tests/test_gen1.c)
 target_link_libraries(test_gen1 PRIVATE acr_gen1)
 add_test(NAME gen1 COMMAND test_gen1)
+add_executable(test_gen2_move tests/test_gen2_move.c)
+target_link_libraries(test_gen2_move PRIVATE acr_gen2)
+add_test(NAME gen2_move COMMAND test_gen2_move)
 add_executable(test_gen1_fit tests/test_gen1_fit.c)
 target_link_libraries(test_gen1_fit PRIVATE acr_gen1)
 add_test(NAME gen1_fit COMMAND test_gen1_fit)

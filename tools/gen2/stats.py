@@ -23,10 +23,12 @@ CATS = [((3400, 3411), 'head'), ((3420, 3425), 'core'), ((3430, 3452), 'arms'), 
 COMMON = {0: 'weight', 1: 'energy_drain', 7: 'armor_points', 8: 'def_shell', 9: 'def_energy', 10: 'cooling'}
 NAMED = {
     'head': {11: 'system_recovery', 12: 'auto_balancer'},
-    'core': {11: 'max_weight', 14: 'ob_power', 15: 'ob_energy_drain', 21: 'ob_limit',
+    'core': {11: 'max_weight', 14: 'ob_power', 15: 'ob_energy_drain', 16: 'ob_drain_frame', 21: 'ob_limit',   # w15 x 0.033 at ignition, w16 x 0.033 a frame (gen2-movement.md)
              27: 'vs_mg_response', 28: 'vs_mg_range', 30: 'discharge_heat'},   # w30 AA only (0 in AC2)
     'legs': {12: 'max_weight', 13: 'moving_speed', 14: 'braking', 15: 'landing_stability',
-             16: 'defensive_stability', 18: 'stationary_drain'},   # turning speed = w22 * 4 (below)
+             16: 'defensive_stability', 18: 'stationary_drain',
+             19: 'leg_boost_power', 20: 'leg_boost_drain',        # caterpillar and hover legs' own booster
+             21: 'turn_accel', 23: 'cano_turn_accel'},            # turning speed = w22 * 4 (below)
     'arms': {},
 }
 # Internal parts (no AP/defence): w0 weight, w1 energy drain, then from w7.
