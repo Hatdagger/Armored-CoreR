@@ -7,7 +7,8 @@ Record (offset = first printable entry of the package's 2nd offset table, +0x34)
 name[18] type[18] u32 price, u8 maker, desc[73], then u16 words from +114 (w0..).
 Field names checked against published stats (armoredcore.fandom.com) for heads
 ZHD-MO/EGRET, EHD-GN-92, EHD-DOME, ZHD-06/RW, ZHD-8008/S; cores ZCH-GR/1;
-legs ZLB-3322/OP, ZLR-ZIO/MATRIX; arms ZAW-XP/T9. See docs/research/gen2-archive.md.
+legs ZLB-3322/OP, ZLR-ZIO/MATRIX; arms ZAW-XP/T9; generator GPS-VA; radiator
+RBG-CM6; FCS DOX-105; core ECM-XR00. Names ending in '?' are unconfirmed. See docs/research/gen2-archive.md.
 """
 import sys, os, struct, json, re
 
@@ -27,6 +28,15 @@ NAMED = {
              16: 'defensive_stability', 18: 'stationary_drain'},
     'arms': {},
 }
+# Internal parts (no AP/defence): w0 weight, w1 energy drain, then from w7.
+INTERNAL = {
+    'generator': {7: 'energy_output', 8: 'max_charge', 9: 'redzone', 10: 'calorific_value'},
+    'radiator': {7: 'cooling', 8: 'forced_cooling'},
+    'booster': {7: 'boost_power?', 8: 'charge_drain?', 9: 'booster_heat?'},   # no AC2 source found yet
+    'fcs': {9: 'precision'},
+    'optional': {7: 'slots_used'},
+    'inside': {7: 'kind', 9: 'weapon_row'},   # kind 4; rows 116-122 follow the extensions' 110-115
+}
 
 def u16(r, k): return struct.unpack_from('<H', r, 114 + 2 * k)[0]
 def f32(r, k): return struct.unpack_from('<f', r, 114 + 2 * k)[0]   # two words, low first
@@ -38,6 +48,13 @@ def decode(cat, r):
         for k, n in NAMED[cat].items(): d[n] = u16(r, k)
     else:
         d['weight'], d['energy_drain'] = u16(r, 0), u16(r, 1)
+        for k, n in INTERNAL.get(cat, {}).items(): d[n] = u16(r, k)
+    if cat == 'fcs':
+        d['max_lock'] = u16(r, 8) & 0xFF
+    if cat == 'extension':
+        d['kind?'] = u16(r, 7)
+        if u16(r, 11) >= 100: d['weapon_row'] = u16(r, 11)        # 110-115: rows of the file 10 table
+        else: d.update({'boost_power?': u16(r, 8), 'charge_drain?': u16(r, 9)})
     if cat == 'head':
         w13, w14 = u16(r, 13), u16(r, 14)
         d['computer_type'] = ['rough', 'standard', 'detailed'][w13 & 0xF] if (w13 & 0xF) < 3 else w13 & 0xF

@@ -128,10 +128,23 @@ u16 words from +114 (w0 = +114, w7 = +128, w14 = +142). Checked against publishe
 | w17-w18 | | WACS: float 240 (second radar value?) | w17 7, w18 ? | w17 ? (relates to turning speed: 1320 → 520, 2555 → 472); w18 stationary drain |
 | w19-w20 | | | | hover only: 20000, 5350 (hover boost?) |
 
+**Internal parts and the rest** (w0 weight, w1 energy drain as above; no AP or defences):
+
+| Category | Fields | Checked against |
+|---|---|---|
+| Generator | w7 energy output, w8 max charge, w9 redzone, w10 calorific value; energy drain is 0 | GPS-VA: 5782 / 5800 / 2420 match. The wiki says max charge 2800, but the record has 28000; all generators are 28000-53000, so the wiki has probably dropped a zero |
+| Radiator | w7 cooling, w8 forced cooling | RBG-CM6: 6672 / 5976 |
+| FCS | w8 low byte max lock, w9 precision. Lock speed, sight range/ability and reticle are not found as plain numbers (w12-w13 and w16 look like floats, w17-w21 are small values) | DOX-105: 5 locks, precision 8. The wiki says weight 15; the record has 16 |
+| Core (extra) | w13 low byte optional slots | ECM-XR00: 11 slots, OB power 2800, drain 18000, cooling 343. VS-MG response/angle (48/64) not found; w16 is 4800 on both XR00 and GR/1, but the wiki's OB limits are 2400 and 4200, so w16 is not OB limit |
+| Booster | w7 boost power?, w8 charge drain?, w9 booster heat? | No AC2 source yet. The names follow later games' booster stats and the values fit (boost power 8800-21000) |
+| Optional | w7 slots used | SP-S/SCR 2 and SP-E(NE)-SCR 1, the same as in Master of Arena |
+| Inside | w7 = 4 (kind), w9 weapon row in file 10 (116-122) | Rows follow on from the extensions' 110-115 |
+| Extension | w7 kind (2 or 3 = weapon, 0x62xx = booster). Weapons: w11 weapon row (110-115). Boosters: w8 boost power?, w9 charge drain? | |
+
 - **Derived on the wiki, not stored:** defensive points (shell + energy), and probably computer ability, EDPS, moving ability, turning speed and Over Boost.
 - **Not found in this record:** head sensor interval and scanning interval. They may be in the package's settings section (kind 2).
 - **Arms:** w7 AP and w10 cooling match ZAW-XP/T9. Weapon-arm firing stats come from the weapon table (file 10), as guns do.
-- **Still open:** boosters, FCS, generators, radiators, inside parts, extensions and optional parts.
+- **Still open:** FCS lock speed, sight and reticle; booster names (no published AC2 numbers found); head sensor/scan intervals; core w12/w16 and VS-MG.
 
 ## Weapon stats (DECODED 2026-11-27, session 3)
 - Table in **file 10** (AC2: offset 0x280b0 in `00010.bin`), 0x80 bytes per row. The row number is the u16 at +132 of the part's catalogue record (right-arm guns 32-56, back weapons 64-87, extensions 110-115; rows 0-31 and others are enemy weapons).
@@ -170,7 +183,7 @@ u16 words from +114 (w0 = +114, w7 = +128, w14 = +142). Checked against publishe
 - **Base game:** AC2 stays the base. AA is a superset (same formats, +23 parts, rebalanced numbers), so AA can be layered on later as an option.
 
 ## Open questions
-- Parts record: head, core and legs fields named (see above). Still open: core w12/w16, legs turning (w17), head sensor/scan intervals, and the internal categories (booster, FCS, generator, radiator, inside, extension, optional).
+- Parts record: head, core and legs fields named (see above). Still open: core w12/w16, legs turning (w17), head sensor/scan intervals, FCS lock speed/sight/reticle, and confirming the booster fields.
 - Weapon → range record link; velocity; meaning of w8 for back cannons; AA reload discrepancy.
 - Hierarchy confirmation (game code) and rotation order; animation data (not found yet).
 - Arms' extra shared texture (TEX0 …9fd0); boosters/back units/extensions in the glTF build.
