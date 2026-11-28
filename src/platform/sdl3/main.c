@@ -51,6 +51,7 @@
 #include "demo_stage.h"
 #include "demo_units.h"
 #include "gen2_ac.h"
+#include "acr_gen2_link.h"
 #include "../../model/acr_aim.h"
 #include "garage.h"
 #include "rogue.h"
@@ -501,9 +502,23 @@ static void draw_aimed(int who, const demo_model *m, acr_pose *pose, Uint64 now,
 static gen2_ac *g_gen2;
 static const char *g_import_dir;   /* (set below) */
 static int g_gen2_on;
+/* Gen 2 movement (acr_gen2_link.h): while the Gen 2 test AC is on, the
+ * opponent moves by Armored Core 2's rules, 60 frames a second, whatever
+ * the step rate; Gen 1 still runs its hits, AP and AI. */
+static acr_gen2_link g_gen2_link;
+static int g_gen2_link_ok, g_gen2_link_live, g_gen2_ob;
+
+static void gen2_link_ready(void) {
+    if (g_gen2_link_ok) return;
+    acr_gen2_gait gait = acr_gen2_test_gait;
+    if (g_gen2 || (g_gen2 = gen2_ac_load(g_import_dir)) != NULL) gen2_ac_gait(g_gen2, &gait);
+    acr_gen2_link_init(&g_gen2_link, &acr_gen2_tuning_ac2, &acr_gen2_test_build, &gait);
+    g_gen2_link_ok = 1;
+}
 
 static void draw_ac(int who, const acr_gen1_ac *ac, float x, float y, float z, float yaw, float crouch) {
     if (who == 1 && g_gen2_on && (g_gen2 = gen2_ac_load(g_import_dir)) != NULL) {
+        gen2_ac_follow(g_gen2, g_gen2_link_live ? &g_gen2_link.ac : NULL);
         gen2_ac_draw(g_gen2, x, y, z, yaw, ACR_GEN1_MODEL_SCALE, 0, &g_light);
         return;
     }
@@ -2153,7 +2168,7 @@ int main(int argc, char **argv) {
                 }
                 if (e.type == SDL_EVENT_KEY_DOWN) {
                     const SDL_Scancode k = e.key.scancode;
-                    const int test_key = (k >= SDL_SCANCODE_F2 && k <= SDL_SCANCODE_F8 && k != SDL_SCANCODE_F5) || k == SDL_SCANCODE_F10 || k == SDL_SCANCODE_F11 ||
+                    const int test_key = (k >= SDL_SCANCODE_F2 && k <= SDL_SCANCODE_F8 && k != SDL_SCANCODE_F5) || k == SDL_SCANCODE_F10 || k == SDL_SCANCODE_F11 || k == SDL_SCANCODE_F12 ||
                                          (k >= SDL_SCANCODE_2 && k <= SDL_SCANCODE_8 && k != SDL_SCANCODE_5) ||
                                          k == SDL_SCANCODE_R || k == SDL_SCANCODE_B || k == SDL_SCANCODE_G || k == SDL_SCANCODE_C ||
                                          k == SDL_SCANCODE_L || k == SDL_SCANCODE_H || k == SDL_SCANCODE_T;
@@ -2307,6 +2322,8 @@ int main(int argc, char **argv) {
                 g_gen2_on = !g_gen2_on;   /* Gen 2 opponent look (draw_ac) */
                 if (e.type == SDL_EVENT_GAMEPAD_BUTTON_DOWN) back_combo = 1;
             }
+            if (g_gen2_on && e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_F12)
+                g_gen2_ob = 1;   /* Gen 2 opponent: overboost (Gen 1 pilots have no button for it) */
             if (g_gen2_on && e.type == SDL_EVENT_KEY_DOWN && !e.key.repeat && e.key.scancode == SDL_SCANCODE_F11)
                 gen2_ac_cycle_clip(g_gen2);   /* Gen 2: step through the AC2 motions (keyboard only: pad combos are full) */
             int cycle_ai = 0, toggle_autopilot = 0;
@@ -3868,7 +3885,21 @@ int main(int argc, char **argv) {
             {   /* the game ticks this step runs (as acr_gen1_battle_step counts them) */
                 const int wticks = battle.step_rate && battle.gen1_rate
                     ? (int)((battle.tick_phase + battle.gen1_rate) / battle.step_rate) : 1;
+                /* Gen 2 opponent: its pilot's controls go to the AC2 body, and
+                 * the Gen 1 rules get none (nothing to move or drain). */
+                acr_gen2_input gen2_in;
+                g_gen2_link_live = g_gen2_on && !g_net && battle.f[1].ap > 0 && acr_gen1_battle_fighters(&battle) > 1;
+                if (g_gen2_link_live) {
+                    gen2_link_ready();
+                    gen2_in = acr_gen2_link_input(&in2[1], g_gen2_ob);
+                    g_gen2_ob = 0;
+                    in2[1].move = in2[1].turn = in2[1].strafe = 0;
+                    in2[1].boost = in2[1].boost_tapped = in2[1].cruise = 0;
+                } else g_gen2_link.synced = 0;   /* back on: start from where Gen 1 left it */
                 acr_gen1_battle_step(&battle, in2, act);
+                if (g_gen2_link_live)
+                    acr_gen2_link_step(&g_gen2_link, &battle.f[1].ac, &gen2_in, g_tick_rate > 0 ? g_tick_rate : 22,
+                                       battle.stage, g_stage_on ? g_stage.half : ARENA);
                 const int ear_ = g_net ? net_info.local : 0;
                 for (int t_ = 0; t_ < wticks; ++t_)
                     for (int k_ = 0; k_ < acr_gen1_battle_fighters(&battle) && k_ < ACR_GEN1_MAX_FIGHTERS; ++k_) {
@@ -4497,8 +4528,15 @@ int main(int argc, char **argv) {
             TEXT(20, 100, "BACK+LB (F2): TWO PLAYERS  BACK+R3 (F3): LANDING PAUSE GUESS/ANIMATION");
             TEXT(20, 112, "BACK+UP (F4): OPPONENT STILL / AI PRESETS  BACK+DOWN (F6): AI VS AI (WATCH)");
             TEXT(20, 148, !g_gen2_on ? "BACK+L3 (F10): OPPONENT AS GEN 2 (ARMORED CORE 2) TEST AC"
-                          : g_gen2 ? "BACK+L3 (F10): GEN 2 TEST AC ON (LOOK ONLY: STILL A GEN 1 BUILD)"
-                                   : "BACK+L3 (F10): NO GEN 2 TEST AC (RE-IMPORT AN ARMORED CORE 2 DISC)");
+                          : g_gen2 ? "BACK+L3 (F10): GEN 2 TEST AC ON (AC2 MOVEMENT; HITS AND AP STILL GEN 1)"
+                                   : "BACK+L3 (F10): NO GEN 2 TEST AC MODEL (RE-IMPORT AN ARMORED CORE 2 DISC)");
+            if (g_gen2_on && g_gen2_link_live) {
+                char line[96];
+                const acr_gen2_ac *ga = &g_gen2_link.ac;
+                SDL_snprintf(line, sizeof line, "GEN 2 MOVEMENT (AC2): STATE %d  %.1f KM/H  EN %d/%d  (F12): OVERBOOST",
+                             ga->state, (double)acr_gen2_link_kmh(&g_gen2_link), (int)ga->energy, (int)g_gen2_link.stats.boost_max);
+                TEXT(20, 172, line);
+            }
             if (g_gen2_on && g_gen2) {
                 char line[96];
                 SDL_snprintf(line, sizeof line, "(F11): GEN 2 MOTION %s %s", gen2_ac_forced(g_gen2) ? "LOCKED" : "AUTO",

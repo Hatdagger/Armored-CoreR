@@ -7,6 +7,7 @@
 #include "../../third_party/cgltf/cgltf.h"
 
 #include "acr_render.h"
+#include "acr_gen2_move.h"
 #include "../../model/acr_png.h"
 
 /* glb units -> Gen 1 model space (tools/acr_import/acr_models_ac2.h ACR_AC2_SCALE) */
@@ -50,6 +51,7 @@ struct gen2_ac {
     float lx, ly, lz, air_s;
     int have_last;
     int idle, walk, jump;
+    int driven;                    /* gen2_ac_follow picks the clip */
 };
 
 static acr_vtx g_out[GEN2_MAX_VERTS];
@@ -248,7 +250,7 @@ static void sample(const gen2_track *T, float t, float *out) {
 
 /* Which clip from how the AC moved since last frame (units: AC heights). */
 static void pick_clip(gen2_ac *g, float x, float y, float z, float scale, float dt) {
-    if (g->forced) return;
+    if (g->forced || g->driven) return;
     const float height = 9.5f * GEN2_UNIT * scale;
     int want = g->idle;
     if (g->have_last && dt > 0) {
@@ -325,4 +327,60 @@ void gen2_ac_draw(gen2_ac *g, float x, float y, float z, float yaw, float scale,
         const uint32_t tex = P->tex >= 0 ? g->tex[P->tex] : 0;
         acr_render_mesh(g_out, P->verts, tex, tex ? ACR_MESH_PS1_TEXEL : 0);
     }
+}
+
+static int clip_of_motion(const gen2_ac *g, int m) {
+    char p[8];
+    SDL_snprintf(p, sizeof p, "%02d_", m);
+    return find_clip(g, p);
+}
+
+/* AC2's motion number for a movement state (gen2-movement.md; the boost
+ * clips by direction as acr_models_ac2.c names them). */
+static int motion_of_state(const acr_gen2_ac *ac) {
+    static const int8_t boost[8] = { 17, 19, 20, 21, 22, 18, 23, 24 };
+    const int d = ac->move_dir < 8 ? ac->move_dir : 0;
+    switch (ac->state) {
+    case ACR_GEN2_ST_WALK_START: return 1 + 2 * d;
+    case ACR_GEN2_ST_WALK:       return 2 + 2 * d;
+    case ACR_GEN2_ST_TURN:       return ac->yaw_speed >= 0 ? 33 : 34;
+    case ACR_GEN2_ST_DASH:       return boost[d];
+    case ACR_GEN2_ST_BRAKE:      return 25 + d;
+    case ACR_GEN2_ST_CROUCH:     return 35;
+    case ACR_GEN2_ST_AIR:        return 37;
+    case ACR_GEN2_ST_LAND:       return 38;
+    case ACR_GEN2_ST_HARD_LAND:  return 51;
+    case ACR_GEN2_ST_OVERBOOST:  return d == ACR_GEN2_DIR_L ? 64 : d == ACR_GEN2_DIR_R ? 65 : 63;
+    default:                     return 47;
+    }
+}
+
+void gen2_ac_follow(gen2_ac *g, const acr_gen2_ac *ac) {
+    if (!g) return;
+    g->driven = ac != NULL;
+    if (!ac || g->forced) return;
+    const int c = clip_of_motion(g, motion_of_state(ac));
+    if (c >= 0 && c != g->cur) { g->cur = c; g->time = 0; }
+}
+
+static int clip_frames(const gen2_ac *g, int m) {
+    const int c = clip_of_motion(g, m);
+    return c < 0 ? 0 : (int)lroundf(g->clip[c].length * 60.0f);
+}
+
+int gen2_ac_gait(const gen2_ac *g, acr_gen2_gait *out) {
+    if (!g) return 0;
+    acr_gen2_gait t = *out;
+    for (int d = 0; d < 8; ++d) {
+        const int loop = clip_frames(g, 2 + 2 * d), start = clip_frames(g, 1 + 2 * d);
+        if (loop <= 0) return 0;
+        t.walk_speed[d] = (d >= 5 ? 15.0f : 30.0f) / (float)loop;
+        if (start > 0) { t.walk_start_frames[d] = (uint8_t)start; t.walk_start_dist[d] = d >= 5 ? 1.0f : 1.5f; }
+    }
+    int f;
+    if ((f = clip_frames(g, 35)) > 0) t.crouch_frames = (uint8_t)f;
+    if ((f = clip_frames(g, 38)) > 0) t.land_frames = (uint8_t)f;
+    if ((f = clip_frames(g, 51)) > 0) t.hard_land_frames = (uint8_t)f;
+    *out = t;
+    return 1;
 }
