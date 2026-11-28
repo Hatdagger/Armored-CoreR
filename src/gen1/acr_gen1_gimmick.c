@@ -104,6 +104,18 @@ int acr_gen1_door_near(const acr_gen1_door *d, const int32_t p[3], int32_t radiu
     return (int64_t)dx * dx + (int64_t)dz * dz <= (int64_t)r * r;
 }
 
+void acr_gen1_gimmicks_blade(acr_gen1_gimmicks *g, const int32_t player[3], int32_t radius, int32_t height,
+                             int32_t reach, acr_gen1_gimmick_events *ev) {
+    const int32_t p[3] = { player[0], player[1] + reach, player[2] };
+    for (int i = 0; i < g->doors; ++i) {
+        acr_gen1_door *d = &g->door[i];
+        if (!d->ticks || d->opens_near || d->state >= 4) continue;
+        if (!acr_gen1_door_near(d, p, radius + reach, height + 2 * reach)) continue;
+        if (d->radio) { if (ev) ev->radio = d->radio; }
+        else if (d->count < d->ticks && d->state != 1 && d->state != 3) acr_gen1_door_set_state(g, i, 1);
+    }
+}
+
 /* One step of the move (0x800A217C states 1-4 and 10): 1 while moving, 2
  * when it has just shut. */
 static int door_move(acr_gen1_door *d, int32_t out[3]) {

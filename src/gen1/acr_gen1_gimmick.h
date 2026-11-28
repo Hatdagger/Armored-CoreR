@@ -46,6 +46,7 @@ typedef struct acr_gen1_door {
 typedef struct acr_gen1_gimmicks {
     int16_t doors;
     int16_t stage;                /* 1 + the stage they were read for, 0 = none read */
+    uint8_t swinging;             /* the player's blade was out last tick */
     acr_gen1_door door[ACR_GEN1_MAX_DOORS];
 } acr_gen1_gimmicks;
 
@@ -75,6 +76,13 @@ void acr_gen1_door_unlock(acr_gen1_gimmicks *g, int i);
  * move[i] gets the step it moved this tick (add it to its area). */
 void acr_gen1_gimmicks_tick(acr_gen1_gimmicks *g, const int32_t player[3], int32_t radius, int32_t height,
                             int32_t (*move)[3], acr_gen1_gimmick_events *ev);
+
+/* The player's blade swing: message 0x8100 to every shut door the swing
+ * reaches (`reach` past the body, across and up / down), as the game's
+ * doors that open when the player bumps or blades them: a locked one plays
+ * its radio line, otherwise it opens. Call once, the tick the swing starts. */
+void acr_gen1_gimmicks_blade(acr_gen1_gimmicks *g, const int32_t player[3], int32_t radius, int32_t height,
+                             int32_t reach, acr_gen1_gimmick_events *ev);
 
 /* The near test 0x800A2130 (0x80012BAC): within the door's reach across
  * and its height. */

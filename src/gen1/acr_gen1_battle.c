@@ -1946,11 +1946,19 @@ static void unit_tick(acr_gen1_battle *b, int ui) {
 
 /* The doors (acr_gen1_gimmick.h): the game's per-area tick, near the
  * player (fighter 0: game x is the engine's mirrored; feet y down). */
+#define GIMMICK_BLADE_REACH 300   /* stand-in: the blade's reach isn't read for doors */
 static void gimmicks_tick(acr_gen1_battle *b) {
     acr_gen1_gimmicks *g = &b->gim;
     if (g->doors <= 0) return;
     int32_t move[ACR_GEN1_MAX_DOORS][3];
     const int32_t p[3] = { -b->f[0].ac.x / 64, b->f[0].ac.y / 64, b->f[0].ac.z / 64 };
+    /* The blade (A / blade button) against a door: the game's 0x8100 from
+     * the player, the way most doors that don't open on their own are
+     * opened (map 1's hatch, area 57). Reach: GIMMICK_BLADE_REACH. */
+    const int swinging = b->f[0].swing != 0 && b->f[0].ap > 0;
+    if (swinging && !g->swinging)
+        acr_gen1_gimmicks_blade(g, p, ACR_GEN1_STAGE_BOX_HALF, ACR_GEN1_STAGE_BOX_HEIGHT, GIMMICK_BLADE_REACH, NULL);
+    g->swinging = (uint8_t)swinging;
     acr_gen1_gimmicks_tick(g, p, ACR_GEN1_STAGE_BOX_HALF, ACR_GEN1_STAGE_BOX_HEIGHT, move, NULL);
     if (b->moving)
         for (int i = 0; i < g->doors; ++i) acr_gen1_stage_place_area(b->moving, g->door[i].area, g->door[i].offset);

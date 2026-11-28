@@ -402,6 +402,13 @@ with radio line 159; nothing on the disc unlocks them (read 2026-11-27:
 map 0's module never sends 0x8201, and its only cutscene `1009` is area
 290's), so they stay shut; 155 / 156 never move (speed 0, line 161).
 
+Message 0x8100's sender is the player (object type & 7 == 2) touching
+the area; in play that is the blade: map 1's hatch (area 57, on the
+ship's deck, 630 sideways, stays open, not +11) opens when bladed. The
+engine sends it on the tick a swing starts to every door within the body
++ 300 (stand-in reach) across and above / below
+(`acr_gen1_gimmicks_blade`), besides the walk-into test.
+
 Map 18 (`0x800A28B8`): objects +528 and +572 (records 4, 5) both state 3
 (down) -> radio 114; once the radio is done (`0x80058480`), message
 0x8201 to nodes 92 and 93 (`0x801CFAB0` + 5,888 / 5,952) through their
