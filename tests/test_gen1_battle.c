@@ -1060,6 +1060,114 @@ int main(void) {
         acr_gen1_battle_step(&c, none, idle);
         EXPECT((c.f[1].ac.z - c.f[0].ac.z) / 64 >= 2 * ACR_GEN1_HIT_RADIUS);
     }
+    /* Projectiles pass (docs/feel/projectiles.md), values from the ACG1PLUS
+     * mapping (weapon-map.md, battle-system.md) and the shot tables. */
+    {
+        static acr_gen1_battle pb;
+        /* Speed and life: WG-RF35 flies 700 a tick (pool +0x24 measured
+         * 701 with rounding), range 8,500: life = range / speed + 1 = 13
+         * ticks (0x8008A898; measured 13). No target on the line. */
+        setup(&pb, 3000);
+        pb.f[1].ac.x = 4000 * 64;
+        pb.f[0].weapons = 1; pb.f[0].weapon[0] = rifle(); pb.f[0].weapon[0].range = 8500; pb.f[0].weapon[0].lock_ms = 0;
+        pb.f[0].ammo[0] = 200;
+        acr_gen1_battle_step(&pb, none, fire);
+        int si = -1;
+        for (int k = 0; k < ACR_GEN1_MAX_SHOTS; ++k) if (pb.shot[k].active) si = k;
+        EXPECT(si >= 0);
+        if (si >= 0) {
+            const double v = sqrt((double)pb.shot[si].vx * pb.shot[si].vx + (double)pb.shot[si].vy * pb.shot[si].vy +
+                                  (double)pb.shot[si].vz * pb.shot[si].vz) / 64.0;
+            EXPECT(v > 698 && v < 702);
+            int life = 1;
+            while (pb.shot[si].active && life < 40) { acr_gen1_battle_step(&pb, none, idle); ++life; }
+            EXPECT(life == 8500 / 700 + 1);
+        }
+        /* Pellets: WG-HG235 (B table +14 = 3, spread mask 383): three shots
+         * a trigger for one round, each axis off by at most 383 / 2 of 4096. */
+        setup(&pb, 3000);
+        pb.f[1].ac.x = 4000 * 64;
+        acr_gen1_weapon hg = rifle();
+        hg.lock_ms = 0; hg.speed = 720; hg.range = 4800; hg.pellets = 3; hg.spread = 383;
+        pb.f[0].weapons = 1; pb.f[0].weapon[0] = hg; pb.f[0].ammo[0] = 50;
+        acr_gen1_battle_step(&pb, none, fire);
+        EXPECT(shots_alive(&pb) == 3 && pb.f[0].ammo[0] == 49);
+        {
+            int differ = 0, within = 1;
+            const acr_gen1_shot *s0 = NULL;
+            for (int k = 0; k < ACR_GEN1_MAX_SHOTS; ++k) {
+                const acr_gen1_shot *s = &pb.shot[k];
+                if (!s->active) continue;
+                /* facing +z: x and y are the spread alone (speed 720 x 64 / 4096 per unit) */
+                const int64_t lim = (int64_t)(383 / 2 + 1) * 720 * 64 / 4096 + 1;
+                if (s->vx > lim || s->vx < -lim || s->vy > lim + 2 * 720 * 64 / 4096 || s->vy < -lim - 2 * 720 * 64 / 4096) within = 0;
+                if (s0 && (s->vx != s0->vx || s->vy != s0->vy)) differ = 1;
+                if (!s0) s0 = s;
+            }
+            EXPECT(differ && within);
+        }
+        /* WA-Finger (A id 8): five bullets, five rounds a trigger. */
+        setup(&pb, 3000);
+        pb.f[1].ac.x = 4000 * 64;
+        acr_gen1_weapon fg = rifle();
+        fg.lock_ms = 0; fg.speed = 1000; fg.range = 3700; fg.pellets = 5; fg.pellet_ammo = 1; fg.spread = 511;
+        pb.f[0].weapons = 1; pb.f[0].weapon[0] = fg; pb.f[0].ammo[0] = 500;
+        acr_gen1_battle_step(&pb, none, fire);
+        EXPECT(shots_alive(&pb) == 5 && pb.f[0].ammo[0] == 495);
+        /* WG-XW11 (D id 66): two shots, one from each side, one round. */
+        setup(&pb, 3000);
+        pb.f[1].ac.x = 4000 * 64;
+        acr_gen1_weapon xw = rifle();
+        xw.lock_ms = 0; xw.speed = 900; xw.range = 10500; xw.pellets = 2; xw.energy = 1;
+        pb.f[0].weapons = 1; pb.f[0].weapon[0] = xw; pb.f[0].ammo[0] = 80;
+        acr_gen1_battle_step(&pb, none, fire);
+        {
+            int32_t xs[2] = { 0, 0 }, n = 0;
+            for (int k = 0; k < ACR_GEN1_MAX_SHOTS && n < 2; ++k) if (pb.shot[k].active) xs[n++] = pb.shot[k].x;
+            EXPECT(n == 2 && pb.f[0].ammo[0] == 79 && xs[0] != xs[1]);
+        }
+        /* No spread mask (rifles): every shot of a burst on the same line. */
+        setup(&pb, 3000);
+        pb.f[1].ac.x = 4000 * 64;
+        acr_gen1_weapon r2 = rifle();
+        r2.lock_ms = 0; r2.shots = 2;
+        pb.f[0].weapons = 1; pb.f[0].weapon[0] = r2; pb.f[0].ammo[0] = 50;
+        acr_gen1_battle_step(&pb, none, fire);
+        {
+            const acr_gen1_shot *a = NULL, *c = NULL;
+            for (int k = 0; k < ACR_GEN1_MAX_SHOTS; ++k) if (pb.shot[k].active) { if (!a) a = &pb.shot[k]; else c = &pb.shot[k]; }
+            EXPECT(a && c && a->vx == c->vx && a->vy == c->vy && a->vz == c->vz);
+        }
+        /* Missile turning (flight table 0x80093114, kind 0): the heading
+         * turns at most 110 a tick, and the speed never passes 350. */
+        setup(&pb, 3000);
+        pb.f[0].weapons = 1; pb.f[0].weapon[0] = small_missile(); pb.f[0].ammo[0] = 40;
+        while (pb.f[0].ammo[0] == 40) acr_gen1_battle_step(&pb, none, fire);
+        pb.f[1].ac.x = 3000 * 64;                     /* the target jumps aside */
+        int mi = -1;
+        for (int k = 0; k < ACR_GEN1_MAX_SHOTS; ++k) if (pb.shot[k].active && pb.shot[k].missile) mi = k;
+        EXPECT(mi >= 0);
+        if (mi >= 0) {
+            int worst = 0, fastest = 0, turned = 0;
+            uint16_t yaw = pb.shot[mi].yaw;
+            for (int k = 0; k < 30 && pb.shot[mi].active; ++k) {
+                acr_gen1_battle_step(&pb, none, idle);
+                if (!pb.shot[mi].active) break;
+                int d = (int)pb.shot[mi].yaw - (int)yaw;
+                d = ((d + 2048) & 4095) - 2048;
+                if (d < 0) d = -d;
+                if (d > worst) worst = d;
+                if (d) turned = 1;
+                yaw = pb.shot[mi].yaw;
+                const double v = sqrt((double)pb.shot[mi].vx * pb.shot[mi].vx + (double)pb.shot[mi].vz * pb.shot[mi].vz +
+                                      (double)pb.shot[mi].vy * pb.shot[mi].vy) / 64.0;
+                if ((int)v > fastest) fastest = (int)v;
+            }
+            EXPECT(turned && worst <= 110);
+            EXPECT(fastest <= 350 + 16);              /* + gravity before ignition / after burn-out */
+        }
+    }
+
     if (failures) { printf("%d failure(s)\n", failures); return 1; }
     printf("gen1 battle: all passed (first hit after %d steps)\n", steps);
     return 0;

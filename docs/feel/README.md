@@ -20,6 +20,7 @@ values, the disc addresses and every call that was made without the user.
 | Camera | #38 | [camera.md](camera.md) | The trailing now matches the disc's quarter-step easing, so the camera sits closer behind a moving AC. Walls and ceilings pull the camera in, as on the disc. |
 | Animations | #42 | [animations.md](animations.md) | New hit flinches (by side, ground and air), the cannon kneel and stand-up, and more poses played from the disc's 57 animations. Drawing only, with no gameplay change. |
 | Sounds and HUD | #43 | [sound-hud.md](sound-hud.md) | Footsteps on walk frames, plus turn, drive, jump and landing sounds. The boost is pitched as on the disc. Distance fade and voice priority are the game's. |
+| Projectiles, generator (2026-11-28) | this PR | [projectiles.md](projectiles.md) | Shots drawn from the disc's shot tables (picture, tint, width, streak length, trailing glow, impact flash), pellets and spread in the fight, dispenser and redirected-cannon speeds fixed, five shared generators back to Phantasma's output. Reference screenshots in `projectiles/`. |
 
 Smaller feel PRs merged in the same pass: #36 (the heavy bipeds' weapon-arm
 jump: test and doc), #37 (fight feel 3: landing, kneel, step heights, air

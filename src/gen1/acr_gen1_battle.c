@@ -1226,13 +1226,29 @@ static void fighter_step(acr_gen1_battle *b, int i, acr_gen1_actions a, int tick
     int16_t aim_pitch = 0;
     const int32_t cone = f->modern ? (int32_t)MT(b, spread, SPREAD) + f->bloom : 0;
     if (cone) dir_of(ax, ay, az, &aim_yaw, &aim_pitch);
+    /* Pellets: each its own shot with its own spread (spawners 0x8008AC30
+     * and 0x8008DEC0 loop; WG-XW11's second leaves from the other side). */
+    const int np = w->pellets > 1 ? w->pellets : 1;
+    const int two_sides = np == 2 && n == 1;
     for (int s = 0; s < n; ++s) {
         if (w->ammo && !f->ammo[f->current]) break;
         if (cone) {
             const int32_t oy = rnd(b) % (2 * cone + 1) - cone, op = (rnd(b) % (cone + 1)) - cone / 2;
             vec_of((uint16_t)((aim_yaw + oy) & 4095), (int16_t)(aim_pitch + op), &ax, &ay, &az);
         }
-        spawn_shot(b, i, f->current, n == 1 ? 0 : (s * 2 - (n - 1)) * 20, ax, ay, az);
+        for (int p = 0; p < np; ++p) {
+            if (p && w->pellet_ammo && w->ammo && !f->ammo[f->current]) break;
+            int32_t dx = ax, dy = ay, dz = az;
+            if (w->spread) {        /* (rnd & mask) - mask / 2 on each axis, not renormalised */
+                const int32_t m = w->spread, h = m >> 1;
+                dx += (int32_t)(rnd(b) & (uint32_t)m) - h;
+                dy += (int32_t)(rnd(b) & (uint32_t)m) - h;
+                dz += (int32_t)(rnd(b) & (uint32_t)m) - h;
+            }
+            const int32_t side = two_sides ? (p ? 20 : -20) : n == 1 ? 0 : (s * 2 - (n - 1)) * 20;
+            spawn_shot(b, i, f->current, side, dx, dy, dz);
+            if (p && w->pellet_ammo && w->ammo) --f->ammo[f->current];
+        }
         if (w->ammo) --f->ammo[f->current];
     }
     /* Cannon kick (VS 0x80081E80, once a trigger): the AC's motion loses

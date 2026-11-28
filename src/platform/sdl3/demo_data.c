@@ -30,6 +30,11 @@ static long get_int(const char *start, const char *end, const char *key, long fa
     return v ? strtol(v, NULL, 10) : fallback;
 }
 
+static uint32_t get_u32(const char *start, const char *end, const char *key, uint32_t fallback) {
+    const char *v = find_key(start, end, key);
+    return v ? (uint32_t)strtoul(v, NULL, 10) : fallback;
+}
+
 static void get_string(const char *start, const char *end, const char *key, char *out, size_t size) {
     out[0] = 0;
     const char *v = find_key(start, end, key);
@@ -114,6 +119,22 @@ static char *load_part(const char *import_dir, int slot, int index) {
     return ps.found[0] ? load_text(ps.found) : NULL;
 }
 
+/* Parts on both discs keep Phantasma's numbers (owner, 2026-11-28;
+ * ACG1PLUS feel-diff.md sections 1.2, 5 and 8): MoA raised these five
+ * generators' output, which made the energy refill much faster (starting
+ * AC: PP 129 standing / 46 moving, MoA 210 / 127). The import is from the
+ * MoA disc, so their PP outputs go back here (only when the file holds
+ * MoA's value). docs/feel/projectiles.md, part B. */
+static uint16_t pp_generator_output(const char *name, uint16_t output) {
+    static const struct { const char *name; uint16_t moa, pp; } k_pp_gen[] = {
+        { "GPS-VVA", 6000, 4728 }, { "GPS-V6", 6000, 4728 }, { "GRD-RX5", 6560, 5300 },
+        { "GRD-RX6", 6800, 6000 }, { "GRD-RX7", 7440, 6810 },
+    };
+    for (size_t i = 0; i < SDL_arraysize(k_pp_gen); ++i)
+        if (name && !SDL_strcmp(name, k_pp_gen[i].name) && output == k_pp_gen[i].moa) return k_pp_gen[i].pp;
+    return output;
+}
+
 static void read_part(int slot, const char *t, acr_gen1_part *p, char *name, size_t name_size) {
     const char *e = t + strlen(t);
     memset(p, 0, sizeof *p);
@@ -124,6 +145,7 @@ static void read_part(int slot, const char *t, acr_gen1_part *p, char *name, siz
     switch (slot) {
     case SLOT_GEN:
         p->energy_drain = (uint16_t)get_int(t, e, "output", 0);
+        p->energy_drain = pp_generator_output(name, p->energy_drain);
         p->stat_2c = (uint16_t)get_int(t, e, "capacity", 0);
         p->stat_2e = (uint16_t)get_int(t, e, "red_zone", 0);
         break;
@@ -281,6 +303,22 @@ int demo_load(const char *import_dir, const int parts[SLOT_COUNT], demo_ac *out,
              * are only "ARM UNIT": those keep the part's name). */
             SDL_strlcpy(out->weapon_type[out->weapons], ptype[0] && SDL_strcmp(ptype, "ARM UNIT") ? ptype : out->names[s],
                         sizeof out->weapon_type[out->weapons]);
+            {   /* presentation: how the shots look (fx.h) */
+                fx_look *lk = &out->look[out->weapons];
+                memset(lk, 0, sizeof *lk);
+                lk->family = (int8_t)get_int(t, e, "shot_family", FX_FAM_NONE);
+                lk->sprite = (uint16_t)get_int(t, e, "shot_sprite", 0);
+                lk->model = (uint16_t)get_int(t, e, "shot_model", 0);
+                const long tint = get_int(t, e, "shot_tint", 0), gt = get_int(t, e, "shot_glow_tint", 0);
+                lk->tint[0] = (uint8_t)(tint >> 16); lk->tint[1] = (uint8_t)(tint >> 8); lk->tint[2] = (uint8_t)tint;
+                lk->glow_tint[0] = (uint8_t)(gt >> 16); lk->glow_tint[1] = (uint8_t)(gt >> 8); lk->glow_tint[2] = (uint8_t)gt;
+                lk->width = (uint16_t)get_int(t, e, "shot_width", 0);
+                lk->trail = (uint16_t)get_int(t, e, "shot_trail", 0);
+                lk->glow = (uint16_t)get_int(t, e, "shot_glow", 0);
+                lk->glow_size = (uint16_t)get_int(t, e, "shot_glow_size", 0);
+                lk->hit_flash = get_u32(t, e, "hit_flash", 0);
+                lk->hit_sparks = (uint8_t)get_int(t, e, "hit_sparks", 0);
+            }
             w->attack = (uint16_t)get_int(t, e, "attack", 0);
             {   /* knockback: detail +0x16 (blade +0x32) */
                 const long imp = get_int(t, e, "impact", 0);
@@ -330,6 +368,14 @@ int demo_load(const char *import_dir, const int parts[SLOT_COUNT], demo_ac *out,
                 w->aim_table = (uint8_t)(aim < 0 || aim > 254 ? 255 : aim);
                 w->aim_y = (uint8_t)((pattern & 8) != 0 || kind == 2);
                 w->speed = (int32_t)get_int(t, e, "shot_speed", 700);
+                /* Pellets and spread (docs/feel/projectiles.md); older imports
+                 * lack them: one shot, no spread, as before. */
+                if (kind != 1) {
+                    const long pel = get_int(t, e, "pellets", 1), spr = get_int(t, e, "shot_spread", 0);
+                    w->pellets = (uint8_t)(pel < 1 ? 1 : pel > 16 ? 16 : pel);
+                    w->pellet_ammo = (uint8_t)(get_int(t, e, "shot_family", -1) == 0 && w->pellets > 1);
+                    w->spread = (uint16_t)(spr < 0 || spr > 1023 ? 0 : spr);
+                }
                 w->stance = (uint8_t)get_int(t, e, "stance", 0);
                 /* Cannon kick: base recoil (detail +2) and the cannon table's
                  * +2 for the model (32 for most; imports before the weapons
@@ -381,6 +427,9 @@ int demo_load(const char *import_dir, const int parts[SLOT_COUNT], demo_ac *out,
                 SDL_memcpy(tn, out->weapon_type[i], sizeof tn);
                 SDL_memcpy(out->weapon_type[i], out->weapon_type[j], sizeof tn);
                 SDL_memcpy(out->weapon_type[j], tn, sizeof tn);
+                const fx_look tl = out->look[i];
+                out->look[i] = out->look[j];
+                out->look[j] = tl;
             }
     /* Apply the FCS: each weapon's lock class sets its range cap, box and lock time. */
     for (int i = 0; i < out->weapons; ++i) {
@@ -536,6 +585,8 @@ static void catalog_file(catalog_walk *w, const char *path) {
                 const long v = get_int(t, e, k_spec_key[k], LONG_MIN);
                 sp->v[w->category][index][k] = v == LONG_MIN ? DEMO_SPEC_NONE : (int32_t)v;
             }
+            if (w->category == ACR_GEN1_CAT_GENERATOR && sp->v[w->category][index][DS_OUTPUT] != DEMO_SPEC_NONE)
+                sp->v[w->category][index][DS_OUTPUT] = pp_generator_output(name, (uint16_t)sp->v[w->category][index][DS_OUTPUT]);
             /* back radars keep their range in the same key as heads */
             get_string(t, e, option ? "full_name" : "type", sp->type[w->category][index], sizeof sp->type[0][0]);
             if (option) {   /* the option's own shop line */

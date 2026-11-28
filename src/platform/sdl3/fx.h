@@ -26,6 +26,29 @@ int  fx_load(const char *import_dir);
  * names are kept by pointer; call again when a build changes. */
 void fx_set_weapons(int fighter, const char (*types)[24], int count);
 
+/* How one weapon's shots look and hit, read by acr-import from the disc's
+ * shot tables (the part files: shot_family ... hit_flash; ACG1PLUS
+ * weapon-map.md; docs/feel/projectiles.md). family < 0: an older import
+ * without them, drawn by the weapon's type as before. */
+enum { FX_FAM_NONE = -1, FX_FAM_STREAK = 0, FX_FAM_BILLBOARD = 1, FX_FAM_MODEL = 2, FX_FAM_ENERGY = 3,
+       FX_FAM_DISPENSER = 4, FX_FAM_MINE = 5 };
+typedef struct fx_look {
+    int8_t   family;
+    uint16_t sprite;          /* effect atlas index (fx/sprites.txt) */
+    uint16_t model;           /* C shots: their model id (not drawn yet) */
+    uint8_t  tint[3];         /* streaks: RGB, 128 = 1.0 (0,0,0: the atlas colour) */
+    uint16_t width;           /* streak half-width / billboard size, world units */
+    uint16_t trail;           /* streaks: ticks the tail waits at the muzzle */
+    uint16_t glow, glow_size; /* B: trailing glow sprite and size (0 none) */
+    uint8_t  glow_tint[3];
+    uint32_t hit_flash;       /* impact flash word (0x8008B60C); 0 = by type */
+    uint8_t  hit_sparks;      /* B: a spark burst instead of the flash */
+} fx_look;
+
+/* The looks of a fighter's weapons, in the fight's order (kept by pointer;
+ * call again when a build changes). NULL: by type only. */
+void fx_set_looks(int fighter, const fx_look *looks, int count);
+
 /* Where a fighter's booster nozzles and blade arm are as drawn this frame
  * (world units, y up), from the posed model; the draw sets it before
  * fx_draw. Without one (no model) the effects go on a stand-in spot. */
