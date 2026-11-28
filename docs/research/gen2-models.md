@@ -122,3 +122,6 @@ unit in each, and the AC heights in metres follow. AC2's own body height
 - Gen 2 stats and handling: the opponent runs on its Gen 1 build.
 - Back units and extensions on the AC (mount markers), the low-detail
   copies, Another Age.
+
+## Animations in ac.glb (session 8, Gen 2)
+`acr-import` now writes the test AC's motion set (B 453 for ZCX-F/ROOK + ZAN-414/SLA + ELN-STVM) into `test-ac/ac.glb` as 75 named glTF animations (`02_walk_loop_dir0`, `38_land`, `56_kneel_backL`, ...; 60 fps, linear). Node map from `tools/gen2/skeleton.py`: arms and legs get each joint's rotation, the core's first mesh (waist) gets node 3, the legs' first mesh gets the pelvis (22), both get the centre's (node 1) movement. Head, arms and booster now hang under the waist so they follow its twist. Only biped sets (33 nodes) are exported; other leg types are skipped. The game draw (`gen2_ac.c`, OBJ) is still static: AC TEST animating in-game needs the renderer to use these node transforms.

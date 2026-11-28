@@ -507,7 +507,8 @@ typedef struct gnode {
 } gnode;
 
 typedef struct glb {
-    dbuf bin, acc, views, meshes, mats, texs, imgs;
+    dbuf bin, acc, views, meshes, mats, texs, imgs, anims;
+    int nanim;
     int nacc, nviews, nmesh, nmat, nimg;
     gnode nodes[GLB_MAX_NODES];
     int nnodes, roots[16], nroots;
@@ -534,6 +535,21 @@ static int g_acc(glb *g, const float *d, int count, int comps) {
         for (int i = 0; i < count; ++i)
             for (int c = 0; c < 3; ++c) { const float x = d[3 * i + c]; if (x < lo[c]) lo[c] = x; if (x > hi[c]) hi[c] = x; }
         db_printf(&g->acc, ",\"min\":[%.6g,%.6g,%.6g],\"max\":[%.6g,%.6g,%.6g]", lo[0], lo[1], lo[2], hi[0], hi[1], hi[2]);
+    }
+    db_put(&g->acc, "}", 1);
+    return g->nacc++;
+}
+
+/* Animation data: no bufferView target; SCALAR times get min/max (required by glTF). */
+static int g_acc_anim(glb *g, const float *d, int count, int comps) {
+    const int v = g_view(g, d, sizeof(float) * (size_t)count * (size_t)comps, 0);
+    static const char *const ty[] = { "", "SCALAR", "VEC2", "VEC3", "VEC4" };
+    db_printf(&g->acc, "%s{\"bufferView\":%d,\"componentType\":5126,\"count\":%d,\"type\":\"%s\"",
+              g->nacc ? "," : "", v, count, ty[comps]);
+    if (comps == 1) {
+        float lo = 1e30f, hi = -1e30f;
+        for (int i = 0; i < count; ++i) { if (d[i] < lo) lo = d[i]; if (d[i] > hi) hi = d[i]; }
+        db_printf(&g->acc, ",\"min\":[%.6g],\"max\":[%.6g]", lo, hi);
     }
     db_put(&g->acc, "}", 1);
     return g->nacc++;
@@ -614,7 +630,10 @@ static void parents_of(const char *kind, const mesh_info *mi, int n, int *par) {
  * holder given by caller). png_dir: where its textures were written as
  * <prefix>-K.png. Returns the part's node; hand (may be NULL) gets the right
  * hand's node (arms only: the last mesh on the -x side, Gen 1's right). */
-static int g_part(glb *g, const ac2_part *p, int parent, const char *png_dir, const char *png_prefix, int *hand) {
+typedef struct part_nodes { int n, node[AC2_MAX_MESHES]; float pos[AC2_MAX_MESHES][3]; } part_nodes;
+
+static int g_part(glb *g, const ac2_part *p, int parent, const char *png_dir, const char *png_prefix, int *hand,
+                  part_nodes *out) {
     static acr_ac2_tri tri[AC2_MAX_TRIS];
     mesh_info mi[AC2_MAX_MESHES];
     int meshes = 0;
@@ -696,6 +715,10 @@ static int g_part(glb *g, const ac2_part *p, int parent, const char *png_dir, co
         free(prims.p);
     }
     free(buf);
+    if (out) {
+        out->n = meshes;
+        for (int m = 0; m < meshes; ++m) { out->node[m] = node[m]; memcpy(out->pos[m], mi[m].pos, 12); }
+    }
     if (hand) {
         *hand = -1;
         for (int m = 0; m < meshes; ++m) if (mi[m].pos[0] < 0) *hand = node[m];
@@ -728,6 +751,7 @@ static int g_save(glb *g, const char *path) {
     db_printf(&js, "],\"textures\":[");     db_put(&js, g->texs.p ? g->texs.p : "", g->texs.n);
     db_printf(&js, "],\"images\":[");       db_put(&js, g->imgs.p ? g->imgs.p : "", g->imgs.n);
     db_printf(&js, "],\"samplers\":[{\"magFilter\":9729,\"minFilter\":9987,\"wrapS\":10497,\"wrapT\":10497}]");
+    if (g->nanim) { db_printf(&js, ",\"animations\":["); db_put(&js, g->anims.p, g->anims.n); db_put(&js, "]", 1); }
     db_printf(&js, ",\"accessors\":[");     db_put(&js, g->acc.p ? g->acc.p : "", g->acc.n);
     db_printf(&js, "],\"bufferViews\":[");  db_put(&js, g->views.p ? g->views.p : "", g->views.n);
     db_printf(&js, "],\"buffers\":[{\"byteLength\":%zu}]}", g->bin.n);
@@ -753,6 +777,7 @@ static int g_save(glb *g, const char *path) {
 }
 
 static void g_free(glb *g) {
+    free(g->anims.p);
     free(g->bin.p); free(g->acc.p); free(g->views.p); free(g->meshes.p); free(g->mats.p); free(g->texs.p); free(g->imgs.p);
 }
 
@@ -805,12 +830,157 @@ static int export_part(const ac2_part *p, const char *out_dir, acr_ac2_tri *tri)
     if (fclose(o.f) != 0) return 0;
     glb *g = g_new();
     if (!g) return 0;
-    g_part(g, p, -1, dir, pre, NULL);
+    g_part(g, p, -1, dir, pre, NULL, NULL);
     snprintf(path, sizeof path, "%s/%s.glb", dir, pre);
     const int ok = g_save(g, path);
     g_free(g);
     free(g);
     return ok;
+}
+
+/* ---- motion (Gen 2; docs/research/gen2-archive.md "Motion", tools/gen2/skeleton.py) ----
+ * Set file = 421 + 24 x core group + 8 x arms group + legs group (groups by shop F id,
+ * tools/gen2/motion_sets.py). The bank starts 0x8000 into the set file and runs into the
+ * next files: u32 count, 12 bytes, then 16-byte rows (u32 motion, u32 clip offset); row r
+ * holds motion r - 1. Clip: 16-byte header (u16 nodes at +8, u16 frames at +0xc), 0x30 per
+ * node (u32 key offset at +4), keys 0x80 bytes: u16 frame, u16 next frame (0xffff last),
+ * position at +0x10, rotation (radians xyz) at +0x40. */
+static const int8_t k_core_grp[6] = { 1, 1, 2, 2, 0, 0 };                                   /* F 3420- */
+static const int8_t k_arms_grp[23] = { 1, 1, 1, 1, 1, 2, 2, 2, 2, 0, 0, 0, 0, 0, 0, 1, 1, 1, 1, 1, 1, 1, 1 }; /* 3430- */
+static const int8_t k_legs_grp[31] = { 1, 1, 1, 1, 1, 2, 2, 2, 0, 0, 0, 4, 4, 4, 3, 3, 5, 5, 5, 5, 5,
+                                       6, 6, 6, 6, 6, 7, 7, 7, 7, 7 };                     /* 3460- */
+
+static int motion_set(uint32_t core_f, uint32_t arms_f, uint32_t legs_f, int *legs_grp) {
+    if (core_f < 3420 || core_f > 3425 || arms_f < 3430 || arms_f > 3452 || legs_f < 3460 || legs_f > 3490) return 0;
+    *legs_grp = k_legs_grp[legs_f - 3460];
+    return 421 + 24 * k_core_grp[core_f - 3420] + 8 * k_arms_grp[arms_f - 3430] + *legs_grp;
+}
+
+static const char *motion_name(int m, char *buf, size_t n) {
+    static const char *const fixed[76] = {
+        [0] = "rest", [33] = "turn_a", [34] = "turn_b", [35] = "walk_stop", [36] = "jump_takeoff", [37] = "jump",
+        [38] = "land", [47] = "idle_loop", [48] = "destroyed", [49] = "ob_ground_start", [50] = "ob_air_start",
+        [51] = "land_damaged", [52] = "hit_ground_q0", [53] = "hit_ground_q2", [54] = "hit_ground_q3",
+        [55] = "hit_ground_q1", [56] = "kneel_backL", [57] = "kneel_backL_rise", [58] = "kneel_backR",
+        [59] = "kneel_backR_rise", [63] = "blade_a", [64] = "blade_b", [65] = "blade_c", [66] = "ob_ground_loop",
+        [67] = "ob_air_loop", [75] = "kneel_centre",
+    };
+    static const int8_t boost[8] = { 17, 19, 20, 21, 22, 18, 23, 24 }, jump[8] = { 39, 40, 41, 42, 43, 44, 45, 46 };
+    if (m >= 1 && m <= 16) snprintf(buf, n, "%02d_walk_%s_dir%d", m, (m & 1) ? "start" : "loop", (m - 1) / 2);
+    else if (m >= 25 && m <= 32) snprintf(buf, n, "%02d_boost_stop_%d", m, m - 25);
+    else {
+        for (int d = 0; d < 8; ++d) {
+            if (boost[d] == m) { snprintf(buf, n, "%02d_boost_start_dir%d", m, d); return buf; }
+            if (jump[d] == m) { snprintf(buf, n, "%02d_jump_dir%d", m, d); return buf; }
+        }
+        snprintf(buf, n, "%02d_%s", m, m < 76 && fixed[m] ? fixed[m] : "unnamed");
+    }
+    return buf;
+}
+
+typedef struct ac2_key { float t, pos[3], rot[3]; } ac2_key;
+
+/* Keys of node `k` of the clip at `o` (count; 0 if the node has none). */
+static int clip_keys(const uint8_t *b, size_t n, size_t o, int k, ac2_key *out, int max) {
+    if (o + 0x10 + (size_t)(k + 1) * 0x30 > n) return 0;
+    const uint32_t off = le32(b + o + 0x10 + (size_t)k * 0x30 + 4);
+    if (!off) return 0;
+    int c = 0;
+    for (size_t q = o + off; q + 0x80 <= n && c < max; q += 0x80) {
+        const unsigned fr = b[q] | b[q + 1] << 8, nx = b[q + 2] | b[q + 3] << 8;
+        out[c].t = (float)fr / 60.0f;
+        for (int i = 0; i < 3; ++i) { out[c].pos[i] = lef(b + q + 0x10 + 4 * i); out[c].rot[i] = lef(b + q + 0x40 + 4 * i); }
+        if (c && out[c].t <= out[c - 1].t) break;
+        ++c;
+        if (nx == 0xffff || nx <= fr) break;
+    }
+    return c;
+}
+
+/* Biped (legs groups 0-2, 33 nodes): motion node -> test-AC glTF node. Part slots:
+ * 0 legs, 1 core; mesh index. Node 1 (centre) moves the legs' and core's first meshes,
+ * node 22 (pelvis) turns the legs' first mesh, node 3 (waist) turns the core. */
+typedef struct anim_target { int8_t motion_node, slot, mesh, what; } anim_target;   /* what: 0 rot, 1 centre move */
+static const anim_target k_biped[] = {
+    { 1, 0, 0, 1 }, { 1, 1, 0, 1 }, { 22, 0, 0, 0 }, { 3, 1, 0, 0 },
+    { 13, 2, 0, 0 }, { 14, 2, 1, 0 }, { 15, 2, 2, 0 }, { 16, 2, 3, 0 },
+    { 17, 2, 4, 0 }, { 18, 2, 5, 0 }, { 19, 2, 6, 0 }, { 20, 2, 7, 0 },
+    { 23, 0, 1, 0 }, { 24, 0, 2, 0 }, { 25, 0, 3, 0 }, { 26, 0, 4, 0 },
+    { 27, 0, 5, 0 }, { 28, 0, 6, 0 }, { 29, 0, 7, 0 }, { 30, 0, 8, 0 }, { 31, 0, 9, 0 },
+};
+
+/* Adds every clip of the set as a glTF animation. pn: part nodes for slots 0 legs, 1 core, 2 arms.
+ * Returns the number of animations written. */
+static int g_motions(glb *g, ac2_src *a, int set, const part_nodes *pn) {
+    size_t total = 0, sz[4];
+    uint8_t *f[4];
+    for (int i = 0; i < 4; ++i) { f[i] = src_read(a, (uint32_t)(set + i), &sz[i]); total += f[i] ? sz[i] : 0; }
+    uint8_t *b = malloc(total ? total : 1);
+    size_t at = 0;
+    for (int i = 0; i < 4; ++i) { if (f[i] && b) memcpy(b + at, f[i], sz[i]); at += f[i] ? sz[i] : 0; free(f[i]); }
+    if (!b || total < 0x8010) { free(b); return 0; }
+    const size_t st = 0x8000;
+    const uint32_t rows = le32(b + st);
+    if (rows < 2 || rows > 200) { free(b); return 0; }
+    enum { MAXK = 1024 };
+    ac2_key *k = malloc(sizeof *k * MAXK);
+    float *tt = malloc(sizeof(float) * MAXK), *vv = malloc(sizeof(float) * 4 * MAXK);
+    float rest_c[3] = { 0, 0, 0 };
+    int made = 0;
+    for (uint32_t r = 1; k && tt && vv && r < rows && st + 0x10 + (r + 1) * 16 <= total; ++r) {
+        const uint32_t rel = le32(b + st + 0x10 + r * 16 + 4);
+        const int m = (int)r - 1;
+        const size_t o = st + rel;
+        if (!rel || o + 0x10 > total) continue;
+        if ((b[o + 8] | b[o + 9] << 8) != 33) continue;          /* biped sets only (for now) */
+        if (m == 0) { const int c = clip_keys(b, total, o, 1, k, MAXK); if (c) memcpy(rest_c, k[0].pos, 12); }
+        dbuf ch = { 0 }, sm = { 0 };
+        int nch = 0;
+        for (size_t i = 0; i < sizeof k_biped / sizeof k_biped[0]; ++i) {
+            const anim_target *at2 = &k_biped[i];
+            const part_nodes *P = &pn[at2->slot];
+            if (at2->mesh >= P->n) continue;
+            const int c = clip_keys(b, total, o, at2->motion_node, k, MAXK);
+            if (!c) continue;
+            for (int j = 0; j < c; ++j) {
+                tt[j] = k[j].t;
+                if (at2->what == 1) {         /* rest translation + the centre's offset from its rest */
+                    const float *p0 = P->pos[at2->mesh];
+                    float d[3];
+                    for (int q = 0; q < 3; ++q) d[q] = p0[q] + k[j].pos[q] - rest_c[q];
+                    vv[3 * j] = d[0]; vv[3 * j + 1] = -d[1]; vv[3 * j + 2] = -d[2];
+                } else {
+                    float R[9], M[9];
+                    euler(k[j].rot, R);
+                    static const float S[3] = { 1, -1, -1 };
+                    for (int rr = 0; rr < 3; ++rr) for (int cc = 0; cc < 3; ++cc) M[3 * rr + cc] = S[rr] * R[3 * rr + cc] * S[cc];
+                    quat_of(M, vv + 4 * j);
+                    if (j) {                  /* keep neighbouring quaternions on the same side */
+                        const float *q0 = vv + 4 * (j - 1); float *q1 = vv + 4 * j;
+                        if (q0[0] * q1[0] + q0[1] * q1[1] + q0[2] * q1[2] + q0[3] * q1[3] < 0)
+                            for (int q = 0; q < 4; ++q) q1[q] = -q1[q];
+                    }
+                }
+            }
+            const int ai = g_acc_anim(g, tt, c, 1), ao = g_acc_anim(g, vv, c, at2->what == 1 ? 3 : 4);
+            db_printf(&sm, "%s{\"input\":%d,\"output\":%d,\"interpolation\":\"LINEAR\"}", nch ? "," : "", ai, ao);
+            db_printf(&ch, "%s{\"sampler\":%d,\"target\":{\"node\":%d,\"path\":\"%s\"}}", nch ? "," : "", nch,
+                      P->node[at2->mesh], at2->what == 1 ? "translation" : "rotation");
+            ++nch;
+        }
+        if (nch) {
+            char nm[48];
+            db_printf(&g->anims, "%s{\"name\":\"%s\",\"channels\":[", g->nanim ? "," : "", motion_name(m, nm, sizeof nm));
+            db_put(&g->anims, ch.p, ch.n);
+            db_printf(&g->anims, "],\"samplers\":[");
+            db_put(&g->anims, sm.p, sm.n);
+            db_put(&g->anims, "]}", 2);
+            ++g->nanim; ++made;
+        }
+        free(ch.p); free(sm.p);
+    }
+    free(k); free(tt); free(vv); free(b);
+    return made;
 }
 
 static int export_all(ac2_src *a, const char *out_dir, uint32_t *parts, char *err, size_t err_size) {
@@ -845,6 +1015,7 @@ static int export_all(ac2_src *a, const char *out_dir, uint32_t *parts, char *er
             return 0;
         }
     uint32_t start[NT + 1] = { 0 }, used = 0;
+    int anims = 0;
     float hand[AC2_MAX_MESHES][3];
     int arm_meshes = 0;
     acr_ac2_model_tris(p[3].data, p[3].bytes, NULL, NULL, 0, hand, AC2_MAX_MESHES, &arm_meshes);
@@ -920,12 +1091,29 @@ static int export_all(ac2_src *a, const char *out_dir, uint32_t *parts, char *er
         if (ok) {
             const int ac = g_node(g, -1, "ac2_test_ac");
             g->nodes[ac].t[1] = -floor_y / ACR_AC2_SCALE;
+            /* Skeleton for animation (tools/gen2/skeleton.py): legs and core at the AC's root,
+             * head, arms and booster hang off the core's first mesh (the waist), so they follow
+             * its twist; the weapon is on the right hand. Parts are stored assembled, so a part
+             * under a mesh node is shifted back by that mesh's position. */
+            static part_nodes pn[NT];
+            memset(pn, 0, sizeof pn);
             int hnode = -1;
-            for (int i = 0; i < NT; ++i) {
-                if (k_test[i].id == T_WEAPON) continue;
-                g_part(g, &p[i], ac, dir, k_test[i].name, k_test[i].id == T_ARMS ? &hnode : NULL);
+            g_part(g, &p[0], ac, dir, k_test[0].name, NULL, &pn[0]);          /* legs */
+            g_part(g, &p[1], ac, dir, k_test[1].name, NULL, &pn[1]);          /* core */
+            const int waist = pn[1].n ? pn[1].node[0] : ac;
+            for (int i = 2; i < NT - 1; ++i) {
+                const int root = g_part(g, &p[i], waist, dir, k_test[i].name, k_test[i].id == T_ARMS ? &hnode : NULL,
+                                        &pn[i]);
+                if (pn[1].n) { g->nodes[root].t[0] = -pn[1].pos[0][0]; g->nodes[root].t[1] = pn[1].pos[0][1];
+                               g->nodes[root].t[2] = pn[1].pos[0][2]; }
             }
-            g_part(g, &p[NT - 1], hnode >= 0 ? hnode : ac, dir, k_test[NT - 1].name, NULL);
+            g_part(g, &p[NT - 1], hnode >= 0 ? hnode : ac, dir, k_test[NT - 1].name, NULL, NULL);
+            int lg = -1;
+            const int set = motion_set(p[1].f, p[3].f, p[0].f, &lg);
+            if (set && lg <= 2) {
+                const part_nodes slots[3] = { pn[0], pn[1], pn[3] };
+                anims = g_motions(g, a, set, slots);
+            }
             snprintf(path, sizeof path, "%s/ac.glb", dir);
             ok = g_save(g, path);
             g_free(g);
@@ -942,10 +1130,10 @@ static int export_all(ac2_src *a, const char *out_dir, uint32_t *parts, char *er
                        "booster = %d   # (no package texture)\nweapon_r = %d  # [%u]\n"
                        "scale = %.1f      # AC2 units -> Gen 1 model units (same height as a Gen 1 AC)\n"
                        "height = %.0f     # model units, feet to top (Gen 1 world = a quarter)\n"
-                       "triangles = %u\ntextures = %d\n",
+                       "triangles = %u\ntextures = %d\nanimations = %d   # ac.glb, Gen 2 motion set\n",
                     T_CORE, (unsigned)p[1].f, T_HEAD, (unsigned)p[2].f, T_ARMS, (unsigned)p[3].f, T_LEGS,
                     (unsigned)p[0].f, T_BOOSTER, T_WEAPON, (unsigned)p[5].f, (double)ACR_AC2_SCALE,
-                    (double)(top - floor_y), (unsigned)drawn, textured);
+                    (double)(top - floor_y), (unsigned)drawn, textured, anims);
             ok = fclose(b) == 0;
         }
     }
