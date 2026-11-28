@@ -51,13 +51,13 @@ typedef struct acr_gen1_input {
                          sliding to a stop, no walking or boosting */
     /* Blade swing (set by the battle): 0 none, else the swing's tick + 1.
      * The swing handler (VS 0x8007EB48) replaces the movement rules: no
-     * steering, rising or gravity; ticks 0-6 keep the AC's velocity, ticks
-     * 7-11 keep it with forward held (pad mask +0x28E) and otherwise cut
-     * the horizontal speed to ACR_GEN1_SWING_CAP and slow it by
-     * ACR_GEN1_SWING_SLOW a tick (0x80014790); from tick 12 the velocity
-     * is zero (0x8003EA48), so an air slash hangs until the swing ends. */
+     * steering, rising or gravity. A ground swing drops the AC's own
+     * velocity (ticks 0-6 are root motion only, tick 7 replaces it: PP
+     * 0x8007CAF8, ACG1PLUS mapping/blade.md 4c); the lunge itself, with
+     * the forward-held push, is moved by the battle. */
     uint8_t swing;
     uint8_t swing_fwd;
+    uint8_t swing_boost;  /* air slash: boost held (drains as a rise) */
     /* The swing is an air slash (VS 0x8007F264): the battle sets the
      * velocity each tick (acr_gen1_battle.h, "Air slash"); the sim keeps it
      * and adds no gravity. */

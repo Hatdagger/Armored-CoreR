@@ -221,6 +221,14 @@ static void write_shot_c(FILE *f, uint32_t a) {
     if (vs_u16(a + 6, &v)) field(f, "shot_model", v, "the shot's 3D model (not drawn yet: a sprite stands in)");
     if (vs_u16(a + 2, &v)) field(f, "shot_width", v, "model scale");
     if (vs_u32(a + 28, &w)) field(f, "hit_flash", w, "impact flash word (0x8008B60C)");
+    /* ACG1PLUS docs/research/mapping/weapon-effects.md 2 (the C records
+     * are byte-identical on both discs). */
+    if (vs_u32(a + 12, &w) && w) {
+        field(f, "shot_light", w > 65535 ? 65535 : w, "light cast in flight (C +0x0C)");
+        field(f, "shot_light_tint", vs_u8(a + 16) << 16 | vs_u8(a + 17) << 8 | vs_u8(a + 18), "its colour (C +0x10)");
+    }
+    field(f, "shot_blast", vs_u8(a + 0x17), "explosion model on impact (C +0x17; 255 none)");
+    if (vs_u8(a + 0x17) == 0xFF && vs_u8(a + 0x18)) field(f, "shot_flare", vs_u8(a + 0x18) * 64, "white flare on impact (C +0x18 x 64)");
 }
 static void write_shot_look(FILE *f, const uint8_t *w) {
     const unsigned kind = w[0], id = w[1];
@@ -262,6 +270,13 @@ static void write_shot_look(FILE *f, const uint8_t *w) {
         else {
             field(f, "shot_family", 2, "timed shell (0x8008B1C0): drawn as a model shot");
             field(f, "shot_model", id == 3 ? 49 : 56, NULL);
+            /* Its record (PP 0x8008AA40; ACG1PLUS mapping/weapon-effects.md 3):
+             * light 1600 warm white in flight, and the burst of 3 fireballs
+             * (explosion 0) 3 ticks apart. */
+            field(f, "shot_timed", 1, "burst: three fireballs, three ticks apart");
+            field(f, "shot_blast", 0, NULL);
+            field(f, "shot_light", 1600, NULL);
+            field(f, "shot_light_tint", 0xfac896, NULL);
         }
     } else if (kind == 1) {
         const uint32_t lt = 0x800912B0u + 8u * id;
