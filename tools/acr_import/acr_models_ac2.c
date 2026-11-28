@@ -534,7 +534,7 @@ static int g_acc(glb *g, const float *d, int count, int comps) {
         float lo[3] = { 1e30f, 1e30f, 1e30f }, hi[3] = { -1e30f, -1e30f, -1e30f };
         for (int i = 0; i < count; ++i)
             for (int c = 0; c < 3; ++c) { const float x = d[3 * i + c]; if (x < lo[c]) lo[c] = x; if (x > hi[c]) hi[c] = x; }
-        db_printf(&g->acc, ",\"min\":[%.6g,%.6g,%.6g],\"max\":[%.6g,%.6g,%.6g]", lo[0], lo[1], lo[2], hi[0], hi[1], hi[2]);
+        db_printf(&g->acc, ",\"min\":[%.9g,%.9g,%.9g],\"max\":[%.9g,%.9g,%.9g]", lo[0], lo[1], lo[2], hi[0], hi[1], hi[2]);
     }
     db_put(&g->acc, "}", 1);
     return g->nacc++;
@@ -549,7 +549,7 @@ static int g_acc_anim(glb *g, const float *d, int count, int comps) {
     if (comps == 1) {
         float lo = 1e30f, hi = -1e30f;
         for (int i = 0; i < count; ++i) { if (d[i] < lo) lo = d[i]; if (d[i] > hi) hi = d[i]; }
-        db_printf(&g->acc, ",\"min\":[%.6g],\"max\":[%.6g]", lo, hi);
+        db_printf(&g->acc, ",\"min\":[%.9g],\"max\":[%.9g]", lo, hi);
     }
     db_put(&g->acc, "}", 1);
     return g->nacc++;
