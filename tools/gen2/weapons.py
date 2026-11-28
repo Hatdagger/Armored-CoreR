@@ -13,7 +13,11 @@ Fields (u16 index into the row), checked against published AC2 stats
   w7          back cannons (w11 high byte 0x23): reload time (XP0808 26). Missiles: small value,
               not reload (lock time?). Arm guns: 0 (machine guns 5)
   w8          reload time for everything else (S612 48); back cannons: large value, not decoded
+  w5          low byte max locks (S602 2, S608 8, S612 12, M444 4); high byte lock time
+              (lower = faster: S612 90, LD2 80, normal 110, S608 125, FIN-B00 255)
+  w6          low byte projectiles per lock (ZWM-M24/1MI 4, ZWM-LD2/1DA 2)
   w11         high byte = weapon class (0x23 back cannon)
+  back cannons w8: high byte probably recoil (XP0808 0x0E = published 14); low byte unknown
   w12         0x17 (23) = solid, 0x27 (39) = energy
   w13         attack power
   w14         ammo heat
@@ -42,14 +46,20 @@ def table():
 def row(b, i):
     w = struct.unpack_from('<18H', b, BASE + i * STRIDE)
     return dict(row=i, projectile=w[0] >> 8, ammo=w[2], ammo_price_or_energy=w[3],
-                reload=w[7] if (w[11] >> 8) == 0x23 and w[7] else w[8], reload_w8=w[8], energy=bool(w[12] & 0x20), attack=w[13], ammo_heat=w[14],
+                reload=w[7] if (w[11] >> 8) == 0x23 and w[7] else w[8], reload_w8=w[8], max_locks=w[5] & 0xFF, lock_time=w[5] >> 8, per_lock=w[6] & 0xFF, energy=bool(w[12] & 0x20), attack=w[13], ammo_heat=w[14],
                 stun=w[15], raw=list(w), **ballistics(b, i))
 
 def ballistics(b, i, base=BALL):
     o = base + i * BALL_STRIDE
     kind = struct.unpack_from('<H', b, o)[0]
     vel, rng = struct.unpack_from('<2f', b, o + 0x24)
-    return dict(projectile_kind=kind, velocity=round(vel * 100), range=round(rng, 2))
+    r = dict(projectile_kind=kind, velocity=round(vel * 100), range=round(rng, 2))
+    if kind == 1:   # homing missile: speeds per frame, turn rates in radians/frame
+        f = struct.unpack_from('<7f', b, o + 0x24)
+        r.update(launch_speed=f[0], lock_range=f[1], accel=f[2], guidance=f[3], max_speed=f[4],
+                 turn_rate_deg=round(f[5] * 57.2958, 2), turn_rate2_deg=round(f[6] * 57.2958, 2),
+                 lifetime=struct.unpack_from('<H', b, o + 0x20)[0])
+    return r
 
 def weapon_parts():
     out = []

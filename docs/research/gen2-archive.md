@@ -152,6 +152,9 @@ u16 words from +114 (w0 = +114, w7 = +128, w14 = +142). Checked against publishe
 - Checked against published stats: ZWG-SRF/8 521 atk / 80 ammo / 90 price / 44 reload / 93 heat; EWG-SRF-9 608/60/100/52/132; ZWG-HC-IR/K99 2515 atk / 12 ammo / 92 reload / 82 heat. All match.
 - **Reload:** w8 for arm guns, missiles and inside/extension weapons. Back cannons (w11 high byte 0x23) keep reload in **w7** (EWC-XP0808: w7 26 = published 26; w3 5100 = usage drain); their large w8 (5180, 8312…) is something else, not decoded. Missiles have small w7 values (10/18/24) that are not reload, probably lock time.
 - **Ballistics (range, velocity):** file 10 at 0x180b0 (AA 0x200f0), 0x100 bytes per record, indexed by the **same row number** as the weapon table. +0 u16 projectile kind (1 missile, 2 bullet, 4 spread); **+0x24 float velocity ÷ 100**; **+0x28 float range**. Checked: ZWG-SRF/8 1050/1000, EWG-SRF-9 1150/910, ZWG-HC-IR/K99 870/620, EWC-XP0808 range 600. For missiles +0x28 is 450-600 (lock range) and +0x24 is 1.0, so missile speed is elsewhere. The earlier "range at 0x24fca" was a coincidence: that offset is record 172 (an enemy projectile).
+- **Locks (weapon row):** w5 low byte = max locks (EWM-S602 2, S608 8, S612 12, M444 4, others 1); w5 high byte = lock time, lower is faster (LD2 80, S612 90, M24/1MU 100, normal 110 for S602/M444, M24/1MI 120, S608 125, FIN-B00 255). Matches Zaku IX's AA weapons FAQ labels in order (Fast / Normal / Barely slower / Extremely slow). w6 low byte = projectiles per lock (M24/1MI 4, LD2/1DA 2). w15 = stun is now confirmed (K99 15, SRF/8 2).
+- **Missile flight (ballistics record, kind 1):** +0x20 u16 lifetime in frames (180-600); +0x24 launch speed (1.0, M444 0.5); +0x28 lock range; +0x2c acceleration (0.045-0.075); +0x30 probably guidance strength (0.8 normal, 0.05 M444, 0.3 FIN); +0x34 max speed (3.0-3.5, FIN 1.0); +0x38/+0x3c turn rates in radians per frame, exact whole degrees (S602/S608 1°, S612 6°, M24/1MU 8°, M444/MI 2°, LD2 2-4°). Same per-frame units as gun velocity (gun 10.5 = shop 1050), so missile top speed is about 350 on the shop scale. No published missile speeds exist to check against (the FAQ says AC2 removed the travel-speed stat).
+- **Back cannon w8:** high byte is probably recoil (XP0808 0x0E1A, high 14 = published recoil 14; others LQ 20, GN44 42, FLUX 32, LNT 24, MAC 36, GCN77 16). Only one published value, so unconfirmed. Low byte unknown. Missile w7 (10 / 18 / 0) is not reload and not lock time; probably the delay between missiles in one volley.
 - Script: `tools/gen2/weapons.py` (JSON of every shop weapon with its stats).
 
 ## Textures per strip (DECODED 2026-11-27, session 3)
@@ -184,7 +187,7 @@ u16 words from +114 (w0 = +114, w7 = +128, w14 = +142). Checked against publishe
 
 ## Open questions
 - Parts record: head, core and legs fields named (see above). Still open: core w12/w16, legs turning (w17), head sensor/scan intervals, FCS lock speed/sight/reticle, and confirming the booster fields.
-- Missile speed; meaning of w8 for back cannons and w7 for missiles.
+- Confirm back-cannon recoil (need more published values); missile w7; +0x30 guidance.
 - Hierarchy confirmation (game code) and rotation order; animation data (not found yet).
 - Arms' extra shared texture (TEX0 …9fd0); boosters/back units/extensions in the glTF build.
 - The 421-492 block.
