@@ -34,6 +34,47 @@ void acr_gen1_gimmicks_parse(const char *text, acr_gen1_gimmicks *out) {
                 k->message = (uint8_t)v[9];
                 k->target = (int16_t)v[10];
             }
+        } else if (e - p > 5 && !strncmp(p, "lift ", 5)) {
+            long v[18];
+            int ok = 1;
+            const char *q = p + 5;
+            for (int k = 0; k < 18 && ok; ++k) q = num(q, e, &v[k], &ok);
+            if (ok && out->lifts < ACR_GEN1_MAX_LIFTS) {
+                acr_gen1_lift *l = &out->lift[out->lifts++];
+                memset(l, 0, sizeof *l);
+                l->area = (int16_t)v[0];
+                l->game_area = (int16_t)v[1];
+                for (int j = 0; j < 3; ++j) l->centre[j] = (int16_t)v[2 + j];
+                l->size_xz = (int16_t)v[5];
+                l->size_y = (int16_t)v[6];
+                l->speed = (uint16_t)v[7];
+                l->ya = (int16_t)v[8];
+                l->yb = (int16_t)v[9];
+                l->way = (uint8_t)(v[10] & 1);
+                l->xa = (int16_t)v[11];
+                l->za = (int16_t)v[12];
+                l->xb = (int16_t)v[13];
+                l->zb = (int16_t)v[14];
+                l->sound_move = (uint8_t)v[15];
+                l->sound_stop = (uint8_t)v[16];
+                l->sound_flip = (uint8_t)v[17];
+            }
+        } else if (e - p > 7 && !strncmp(p, "button ", 7)) {
+            long v[9];
+            int ok = 1;
+            const char *q = p + 7;
+            for (int k = 0; k < 9 && ok; ++k) q = num(q, e, &v[k], &ok);
+            if (ok && out->buttons < ACR_GEN1_MAX_BUTTONS) {
+                acr_gen1_button *b = &out->button[out->buttons++];
+                memset(b, 0, sizeof *b);
+                b->area = (int16_t)v[0];
+                b->game_area = (int16_t)v[1];
+                for (int j = 0; j < 3; ++j) b->centre[j] = (int16_t)v[2 + j];
+                b->size_xz = (int16_t)v[5];
+                b->size_y = (int16_t)v[6];
+                b->lift = (int16_t)v[7];
+                b->sound = (uint8_t)v[8];
+            }
         } else if (e - p > 5 && !strncmp(p, "door ", 5)) {
             long v[17];
             int ok = 1;
@@ -85,6 +126,9 @@ void acr_gen1_gimmicks_parse(const char *text, acr_gen1_gimmicks *out) {
         p = *e ? e + 1 : e;
     }
 }
+
+static int box_touch(const int16_t c[3], const int32_t off[3], int32_t sxz, int32_t sy, const int32_t p[3],
+                     int32_t radius, int32_t height);
 
 int acr_gen1_door_find(const acr_gen1_gimmicks *g, int game_area) {
     for (int i = 0; i < g->doors; ++i)
@@ -156,6 +200,19 @@ void acr_gen1_gimmicks_blade(acr_gen1_gimmicks *g, const int32_t player[3], int3
         if (d->radio) { if (ev) ev->radio = d->radio; }
         else if (d->count < d->ticks && d->state != 1 && d->state != 3) acr_gen1_door_set_state(g, i, 1);
     }
+    /* 0x8100 to a lift or its button: a flip. */
+    for (int i = 0; i < g->buttons; ++i) {
+        const acr_gen1_button *b = &g->button[i];
+        const int32_t z[3] = { 0, 0, 0 };
+        if (box_touch(b->centre, z, b->size_xz, b->size_y, p, radius + reach, height + 2 * reach)) {
+            const int j = acr_gen1_lift_find(g, b->lift);
+            if (j >= 0) acr_gen1_lift_flip(&g->lift[j]);
+        }
+    }
+    for (int i = 0; i < g->lifts; ++i)
+        if (box_touch(g->lift[i].centre, g->lift[i].offset, g->lift[i].size_xz, g->lift[i].size_y, p, radius + reach,
+                      height + 2 * reach))
+            acr_gen1_lift_flip(&g->lift[i]);
 }
 
 /* One step of the move (0x800A217C states 1-4 and 10): 1 while moving, 2
@@ -233,5 +290,95 @@ void acr_gen1_gimmicks_tick(acr_gen1_gimmicks *g, const int32_t player[3], int32
             ev->sound = d->sound_close;
             ev->sound_area = d->area;
         }
+    }
+}
+
+/* ---- lifts ---- */
+
+int acr_gen1_lift_find(const acr_gen1_gimmicks *g, int game_area) {
+    for (int i = 0; i < g->lifts; ++i)
+        if (g->lift[i].game_area == game_area) return i;
+    return -1;
+}
+
+static int32_t lift_y(const acr_gen1_lift *l) { return l->centre[1] + l->offset[1]; }
+
+void acr_gen1_lift_flip(acr_gen1_lift *l) {
+    if (l->vel != 0) {
+        const int32_t y = lift_y(l);
+        const int32_t gone = l->way ? y - l->ya : l->yb - y;
+        if ((int32_t)l->speed * 17 >= gone / 2) return;
+    }
+    l->way ^= 1;
+    l->blocked = 0;
+}
+
+/* Touching: the player's body against the box (centre at its foot, y
+ * down), a little slack so standing on top counts. Stand-in for the
+ * game's contact message: the collision code that sends it isn't read. */
+#define LIFT_SLACK 32
+static int box_touch(const int16_t c[3], const int32_t off[3], int32_t sxz, int32_t sy, const int32_t p[3],
+                     int32_t radius, int32_t height) {
+    const int32_t r = sxz / 2 + radius + LIFT_SLACK;
+    const int32_t dx = p[0] - (c[0] + off[0]), dz = p[2] - (c[2] + off[2]);
+    if (dx < -r || dx > r || dz < -r || dz > r) return 0;
+    const int32_t cy = c[1] + off[1];
+    return p[1] >= cy - sy - LIFT_SLACK && p[1] - height <= cy + LIFT_SLACK;
+}
+
+int acr_gen1_lift_under(const acr_gen1_lift *l, const int32_t p[3], int32_t radius) {
+    const int32_t r = l->size_xz / 2 + radius;
+    const int32_t dx = p[0] - (l->centre[0] + l->offset[0]), dz = p[2] - (l->centre[2] + l->offset[2]);
+    if (dx < -r || dx > r || dz < -r || dz > r) return 0;
+    const int32_t top = lift_y(l) - l->size_y;
+    return p[1] >= top - 64 && p[1] <= top + 64;
+}
+
+/* The tick 0x800A1F44 for one lift: its step this tick into out[]. */
+static void lift_move(acr_gen1_lift *l, int32_t out[3]) {
+    out[0] = out[1] = out[2] = 0;
+    const int32_t y = lift_y(l);
+    const int32_t left = l->way ? l->yb - y : y - l->ya;
+    int32_t sp = l->way ? l->vel : -l->vel;
+    const int32_t acc = l->speed, top = (int32_t)l->speed * 32, brake = (int32_t)l->speed * 17;
+    int32_t step;
+    if (left < brake && (sp -= acc) <= 0) {
+        if (left == 0) { l->step = 0; return; }
+        const int32_t a = left < 4 ? left : 4;
+        step = l->way ? a : -a;
+    } else {
+        if (left >= brake) { sp += acc; if (sp > top) sp = top; }
+        l->vel = (int16_t)(l->way ? sp : -sp);
+        step = (int16_t)l->vel >> 5;
+    }
+    l->step = (int16_t)step;
+    out[1] = step;
+    const int32_t dy = l->yb - l->ya;
+    if (dy) {
+        const int32_t ny = y + step - l->ya;
+        if (l->xa != l->xb) out[0] = l->xa + ny * (l->xb - l->xa) / dy - (l->centre[0] + l->offset[0]);
+        if (l->za != l->zb) out[2] = l->za + ny * (l->zb - l->za) / dy - (l->centre[2] + l->offset[2]);
+    }
+    for (int k = 0; k < 3; ++k) l->offset[k] += out[k];
+}
+
+void acr_gen1_lifts_tick(acr_gen1_gimmicks *g, const int32_t player[3], int32_t radius, int32_t height,
+                         int32_t (*move)[3]) {
+    for (int i = 0; i < g->buttons; ++i) {
+        acr_gen1_button *b = &g->button[i];
+        const int32_t z[3] = { 0, 0, 0 };
+        const int near = box_touch(b->centre, z, b->size_xz, b->size_y, player, radius, height);
+        if (near && !b->was_near) {
+            const int j = acr_gen1_lift_find(g, b->lift);
+            if (j >= 0) acr_gen1_lift_flip(&g->lift[j]);
+        }
+        b->was_near = (uint8_t)near;
+    }
+    for (int i = 0; i < g->lifts; ++i) {
+        acr_gen1_lift *l = &g->lift[i];
+        const int near = box_touch(l->centre, l->offset, l->size_xz, l->size_y, player, radius, height);
+        if (near && !l->was_near) acr_gen1_lift_flip(l);   /* 0x8100 from the player */
+        l->was_near = (uint8_t)near;
+        lift_move(l, move[i]);
     }
 }

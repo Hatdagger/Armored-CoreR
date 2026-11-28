@@ -443,7 +443,15 @@ flips back. Data +12..+18 can also move it in x / z with y. Map 18's core
 -2,250) has a call button (99, h2: 0x8100 flips the area in its link
 [0]). Map 9's 142 and map 16's 32 are lifts too. In the engine: map 18's
 68, map 16's 24 and map 9's 169 drive the missions (`moa_tick`); lifts
-are not run yet.
+run too (2026-11-27): acr-import writes `lift` and `button` lines in
+gimmicks.txt (maps 1, 5, 7, 9, 16, 18, 19; call buttons on 7, 16, 18),
+`acr_gen1_lifts_tick` runs the tick and the flip as above, and a fighter
+standing on a lift's top is carried with it. Stand-ins: the player's
+0x8100 is sent when the body first touches the lift's or button's box (and
+by the blade); nothing blocks a lift, so the 66-tick flip-back never
+happens; no sounds. Map 18 is won on the core's (96) state 1. Older
+imports re-export their stages on start (the gimmicks.txt header has no
+`# lift` line).
 
 Other set-up kinds, not read: a 12-byte controller (data with 18,246 /
 20,082 at +8: maps 1, 5, 7, 9, 16, 18, 19; map 18's switch 68 and core 96,

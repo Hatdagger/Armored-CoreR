@@ -915,7 +915,10 @@ static int write_gimmicks(const char *dir, const chunk *c8, const uint8_t *code,
                "# door <area> <game area> <quarter> <cx> <cy> <cz> <size xz> <size y> <speed> <distance>\n"
                "#      <locked radio> <axis> <open sound> <close sound> <stays open> <opens near>\n"
                "#      <partners> <partner areas...>  (game axes, y down)\n"
-               "# breakable <area> <game area> <cx> <cy> <cz> <size xz> <size y> <hp> <kind> <message> <target game area>\n");
+               "# breakable <area> <game area> <cx> <cy> <cz> <size xz> <size y> <hp> <kind> <message> <target game area>\n"
+               "# lift <area> <game area> <cx> <cy> <cz> <size xz> <size y> <speed> <y a> <y b> <way> <x a> <z a>\n"
+               "#      <x b> <z b> <move sound> <stop sound> <flip sound>\n"
+               "# button <area> <game area> <cx> <cy> <cz> <size xz> <size y> <lift game area> <sound>\n");
     if (c8->n < AREAS * AREA_SIZE || !code || code_n < 128) { fclose(f); return 1; }
     int16_t compact[AREAS];
     for (unsigned i = 0, n = 0; i < AREAS; ++i) {
@@ -935,7 +938,7 @@ static int write_gimmicks(const char *dir, const chunk *c8, const uint8_t *code,
         const uint8_t *link = tail + p, *g = tail + p + 2u * links;
         p += 2u * (links + words);
         const unsigned h = r[0x31];
-        if (h == 255 || compact[i] < 0 || words < 6) continue;
+        if (h == 255 || compact[i] < 0 || words < 1) continue;
         const uint32_t fn = u32(code + 96 + 4 * (h & 7));
         if (fn < 0x800A0DD0u || fn - 0x800A0DD0u + 24 > code_n) continue;
         const int sx0 = s16(r + 0x20) - s16(r + 0x18), sy0 = s16(r + 0x22) - s16(r + 0x1A),
@@ -949,20 +952,44 @@ static int write_gimmicks(const char *dir, const chunk *c8, const uint8_t *code,
             const uint32_t hi = u32(code + (fn - 0x800A0DD0u) + 24), lo = u32(code + (fn - 0x800A0DD0u) + 28);
             if ((hi >> 16) == 0x3C03u && (lo >> 16) == 0x2463u) {
                 const uint32_t hfn = ((hi & 0xFFFFu) << 16) + (uint32_t)(int32_t)(int16_t)(lo & 0xFFFFu);
+                /* A lift's call button (map 18 set-up 0x800A2248, handler
+                 * 0x800A1ECC): 0x8100 from the player flips the lift on
+                 * its link [0]; sound data +0 (byte). */
+                if (hfn >= 0x800A0DD0u && hfn - 0x800A0DD0u + 0x40 <= code_n &&
+                    u32(code + (hfn - 0x800A0DD0u) + 16) == 0x34028100u &&
+                    u32(code + (hfn - 0x800A0DD0u) + 0x40) == 0x8CE20028u && links >= 1) {
+                    fprintf(f, "button %d %u %d %d %d %d %d %u %u\n", compact[i], i, s16(r + 0x10), s16(r + 0x12),
+                            s16(r + 0x14), sz0 > sx0 ? sz0 : sx0, sy0, u16(link), g[0]);
+                    continue;
+                }
                 if (hfn >= 0x800A0DD0u && hfn - 0x800A0DD0u + 0x200 <= code_n &&
                     u32(code + (hfn - 0x800A0DD0u) + 20) == 0x34028000u) {
                     int sends = 0;
                     for (unsigned k = 0; k < 0x200; k += 4)
                         if (u32(code + (hfn - 0x800A0DD0u) + k) == 0x0C02424Du) sends = 1;
                     /* Only those that tell another area something (kind 1). */
-                    if (sends && g[6] == 1 && u16(g + 8) < AREAS)
+                    if (sends && words >= 5 && g[6] == 1 && u16(g + 8) < AREAS)
                         fprintf(f, "breakable %d %u %d %d %d %d %d %u %u %u %u\n", compact[i], i, s16(r + 0x10),
                                 s16(r + 0x12), s16(r + 0x14), sz0 > sx0 ? sz0 : sx0, sy0, u16(g), g[6], g[7], u16(g + 8));
                 }
             }
             continue;
         }
-        if (u32(code + (fn - 0x800A0DD0u) + 20) != 0x2404001Au) continue;   /* li a0, 26: a door */
+        /* li a0, 12 with data +7 -> state, data +0 << 5 -> top speed: a
+         * lift (map 18 set-up 0x800A21B0, tick 0x800A1F44, messages
+         * 0x800A1E54; the same code on maps 1, 5, 7, 9, 16, 18, 19). Data:
+         * u16 speed, s16 y a / y b (the centre's y at either end), byte +7
+         * way (0 toward a, 1 toward b), +8 / +9 / +10 move / stop / flip
+         * sounds, s16 +12 / +14 x / z at a, +16 / +18 at b. */
+        if (u32(code + (fn - 0x800A0DD0u) + 20) == 0x2404000Cu && fn - 0x800A0DD0u + 0x5C <= code_n &&
+            u32(code + (fn - 0x800A0DD0u) + 0x3C) == 0x90630007u && u32(code + (fn - 0x800A0DD0u) + 0x58) == 0x00031940u) {
+            if (words >= 10)
+                fprintf(f, "lift %d %u %d %d %d %d %d %u %d %d %u %d %d %d %d %u %u %u\n", compact[i], i, s16(r + 0x10),
+                        s16(r + 0x12), s16(r + 0x14), sz0 > sx0 ? sz0 : sx0, sy0, u16(g), s16(g + 2), s16(g + 4), g[7],
+                        s16(g + 12), s16(g + 14), s16(g + 16), s16(g + 18), g[8], g[9], g[10]);
+            continue;
+        }
+        if (words < 6 || u32(code + (fn - 0x800A0DD0u) + 20) != 0x2404001Au) continue;   /* li a0, 26: a door */
         const int sx = s16(r + 0x20) - s16(r + 0x18), sy = s16(r + 0x22) - s16(r + 0x1A),
                   sz = s16(r + 0x24) - s16(r + 0x1C);
         const unsigned partners = (unsigned)s16(r + 0x26);

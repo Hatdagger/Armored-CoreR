@@ -1963,7 +1963,7 @@ static void unit_tick(acr_gen1_battle *b, int ui) {
 #define GIMMICK_BLADE_REACH 300   /* stand-in: the blade's reach isn't read for doors */
 static void gimmicks_tick(acr_gen1_battle *b) {
     acr_gen1_gimmicks *g = &b->gim;
-    if (g->doors <= 0 && g->breakables <= 0) return;
+    if (g->doors <= 0 && g->breakables <= 0 && g->lifts <= 0) return;
     int32_t move[ACR_GEN1_MAX_DOORS][3];
     const int32_t p[3] = { -b->f[0].ac.x / 64, b->f[0].ac.y / 64, b->f[0].ac.z / 64 };
     /* The blade (A / blade button) against a door: the game's 0x8100 from
@@ -1978,6 +1978,28 @@ static void gimmicks_tick(acr_gen1_battle *b) {
         for (int i = 0; i < g->doors; ++i) acr_gen1_stage_place_area(b->moving, g->door[i].area, g->door[i].offset);
     if (b->moving)
         for (int i = 0; i < g->breakables; ++i) acr_gen1_stage_place_area(b->moving, g->breakable[i].area, g->breakable[i].offset);
+    if (g->lifts > 0) {
+        /* Lifts: who stands on one is carried with it (the game's move
+         * 0x800785E8 takes what rides on the area along; ours: a fighter's
+         * feet on its top, tested before the step). */
+        int32_t lmove[ACR_GEN1_MAX_LIFTS][3];
+        uint8_t on[ACR_GEN1_MAX_FIGHTERS][ACR_GEN1_MAX_LIFTS];
+        const int n = acr_gen1_battle_fighters(b);
+        for (int k = 0; k < n && k < ACR_GEN1_MAX_FIGHTERS; ++k) {
+            const int32_t fp[3] = { -b->f[k].ac.x / 64, b->f[k].ac.y / 64, b->f[k].ac.z / 64 };
+            for (int i = 0; i < g->lifts; ++i) on[k][i] = (uint8_t)acr_gen1_lift_under(&g->lift[i], fp, ACR_GEN1_STAGE_BOX_HALF);
+        }
+        acr_gen1_lifts_tick(g, p, ACR_GEN1_STAGE_BOX_HALF, ACR_GEN1_STAGE_BOX_HEIGHT, lmove);
+        for (int i = 0; i < g->lifts; ++i) {
+            if (b->moving) acr_gen1_stage_place_area(b->moving, g->lift[i].area, g->lift[i].offset);
+            for (int k = 0; k < n && k < ACR_GEN1_MAX_FIGHTERS; ++k)
+                if (on[k][i] && b->f[k].ap > 0) {
+                    b->f[k].ac.x -= lmove[i][0] * 64;   /* game x is the engine's mirrored */
+                    b->f[k].ac.y += lmove[i][1] * 64;
+                    b->f[k].ac.z += lmove[i][2] * 64;
+                }
+        }
+    }
 }
 
 static void units_step(acr_gen1_battle *b, int ticks) {

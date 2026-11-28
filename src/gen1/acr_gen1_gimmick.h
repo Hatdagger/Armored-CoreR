@@ -57,6 +57,43 @@ typedef struct acr_gen1_breakable {
     int32_t  offset[3];           /* where its area is put (moved away once broken) */
 } acr_gen1_breakable;
 
+/* A lift (the 12-byte kind: map 18 set-up 0x800A21B0, tick 0x800A1F44,
+ * messages 0x800A1E54, flip 0x800A1DB4; the same code on maps 1, 5, 7, 9,
+ * 16, 18, 19). It runs between two heights (y a, y b: its centre's y),
+ * x / z following y in a straight line when they differ. Speeds are in
+ * 1/32 units a tick: up to speed x 32, speeding up and slowing down by
+ * `speed` a tick, slowing once within speed x 17 of the end. A flip (the
+ * player bumping it, its call button, the blade) turns it round. */
+#define ACR_GEN1_MAX_LIFTS   8
+#define ACR_GEN1_MAX_BUTTONS 8
+typedef struct acr_gen1_lift {
+    int16_t  area, game_area;
+    int16_t  centre[3];           /* where the disc puts it */
+    int16_t  size_xz, size_y;     /* box: centre at its foot, size_y up */
+    uint16_t speed;               /* data +0 */
+    int16_t  ya, yb;              /* data +2 / +4 */
+    int16_t  xa, za, xb, zb;      /* data +12..+18 */
+    uint8_t  sound_move, sound_stop, sound_flip;   /* data +8 / +9 / +10 */
+    /* The controller. */
+    uint8_t  way;                 /* +16: 0 toward y a, 1 toward y b */
+    int16_t  vel;                 /* +18: 1/32 units a tick (y) */
+    int16_t  step;                /* +10: y moved this tick */
+    uint16_t blocked;             /* +26 (not used: nothing stops a lift here) */
+    uint8_t  was_near;            /* the player touching it last tick */
+    int32_t  offset[3];           /* from centre[] */
+} acr_gen1_lift;
+
+/* A lift's call button (map 18 set-up 0x800A2248, handler 0x800A1ECC):
+ * 0x8100 from the player flips the lift on its link [0]. */
+typedef struct acr_gen1_button {
+    int16_t  area, game_area;
+    int16_t  centre[3];
+    int16_t  size_xz, size_y;
+    int16_t  lift;                /* the lift's game area */
+    uint8_t  sound;
+    uint8_t  was_near;
+} acr_gen1_button;
+
 /* Kept by value in the battle, so a rollback snapshot carries the doors;
  * the stage is put where they say by acr_gen1_stage_place_area. */
 typedef struct acr_gen1_gimmicks {
@@ -66,6 +103,9 @@ typedef struct acr_gen1_gimmicks {
     acr_gen1_door door[ACR_GEN1_MAX_DOORS];
     int16_t breakables;
     acr_gen1_breakable breakable[ACR_GEN1_MAX_BREAKABLES];
+    int16_t lifts, buttons;
+    acr_gen1_lift lift[ACR_GEN1_MAX_LIFTS];
+    acr_gen1_button button[ACR_GEN1_MAX_BUTTONS];
 } acr_gen1_gimmicks;
 
 /* What a tick asks of the caller besides moving areas. */
@@ -106,6 +146,22 @@ void acr_gen1_gimmicks_blade(acr_gen1_gimmicks *g, const int32_t player[3], int3
 /* A hit of `damage` at point p (game axes): every unbroken breakable whose
  * box, grown by `reach`, holds p takes it. Returns 1 if one was hit. */
 int  acr_gen1_gimmicks_hit(acr_gen1_gimmicks *g, const int32_t p[3], int32_t reach, int32_t damage);
+
+/* Index of the lift on game area `game_area`, or -1. */
+int  acr_gen1_lift_find(const acr_gen1_gimmicks *g, int game_area);
+
+/* The flip 0x800A1DB4: a stopped lift turns round; a moving one only once
+ * it is more than twice its slowing distance from where it set off. */
+void acr_gen1_lift_flip(acr_gen1_lift *l);
+
+/* One Gen 1 tick for every lift and button. `player` as for the doors.
+ * A lift the player comes to touch (or a button the player comes to) gets
+ * 0x8100: it flips. For lift i, move[i] gets the step it moved. */
+void acr_gen1_lifts_tick(acr_gen1_gimmicks *g, const int32_t player[3], int32_t radius, int32_t height,
+                         int32_t (*move)[3]);
+
+/* 1 if feet at p (radius r) stand on lift l's top. */
+int  acr_gen1_lift_under(const acr_gen1_lift *l, const int32_t p[3], int32_t radius);
 
 /* The near test 0x800A2130 (0x80012BAC): within the door's reach across
  * and its height. */
