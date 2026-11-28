@@ -119,6 +119,22 @@ static char *load_part(const char *import_dir, int slot, int index) {
     return ps.found[0] ? load_text(ps.found) : NULL;
 }
 
+/* Parts on both discs keep Phantasma's numbers (owner, 2026-11-28;
+ * ACG1PLUS feel-diff.md sections 1.2, 5 and 8): MoA raised these five
+ * generators' output, which made the energy refill much faster (starting
+ * AC: PP 129 standing / 46 moving, MoA 210 / 127). The import is from the
+ * MoA disc, so their PP outputs go back here (only when the file holds
+ * MoA's value). docs/feel/projectiles.md, part B. */
+static uint16_t pp_generator_output(const char *name, uint16_t output) {
+    static const struct { const char *name; uint16_t moa, pp; } k_pp_gen[] = {
+        { "GPS-VVA", 6000, 4728 }, { "GPS-V6", 6000, 4728 }, { "GRD-RX5", 6560, 5300 },
+        { "GRD-RX6", 6800, 6000 }, { "GRD-RX7", 7440, 6810 },
+    };
+    for (size_t i = 0; i < SDL_arraysize(k_pp_gen); ++i)
+        if (name && !SDL_strcmp(name, k_pp_gen[i].name) && output == k_pp_gen[i].moa) return k_pp_gen[i].pp;
+    return output;
+}
+
 static void read_part(int slot, const char *t, acr_gen1_part *p, char *name, size_t name_size) {
     const char *e = t + strlen(t);
     memset(p, 0, sizeof *p);
@@ -129,6 +145,7 @@ static void read_part(int slot, const char *t, acr_gen1_part *p, char *name, siz
     switch (slot) {
     case SLOT_GEN:
         p->energy_drain = (uint16_t)get_int(t, e, "output", 0);
+        p->energy_drain = pp_generator_output(name, p->energy_drain);
         p->stat_2c = (uint16_t)get_int(t, e, "capacity", 0);
         p->stat_2e = (uint16_t)get_int(t, e, "red_zone", 0);
         break;
@@ -568,6 +585,8 @@ static void catalog_file(catalog_walk *w, const char *path) {
                 const long v = get_int(t, e, k_spec_key[k], LONG_MIN);
                 sp->v[w->category][index][k] = v == LONG_MIN ? DEMO_SPEC_NONE : (int32_t)v;
             }
+            if (w->category == ACR_GEN1_CAT_GENERATOR && sp->v[w->category][index][DS_OUTPUT] != DEMO_SPEC_NONE)
+                sp->v[w->category][index][DS_OUTPUT] = pp_generator_output(name, (uint16_t)sp->v[w->category][index][DS_OUTPUT]);
             /* back radars keep their range in the same key as heads */
             get_string(t, e, option ? "full_name" : "type", sp->type[w->category][index], sizeof sp->type[0][0]);
             if (option) {   /* the option's own shop line */
