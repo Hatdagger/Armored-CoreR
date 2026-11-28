@@ -101,6 +101,11 @@ static void test_blade_hatch(void) {
     acr_gen1_gimmick_events ev = { 0 };
     acr_gen1_gimmicks_blade(&g, at, 100, 212, 300, &ev);
     EXPECT(ev.radio == 159 && g.door[1].state == 0);
+    /* Map 0's door 61 (to the generator): the blade opens it too. */
+    acr_gen1_gimmicks_parse("door 61 61 0 263 0 14738 813 750 8 750 0 4 74 0 0 1 0\n", &g);
+    const int32_t by61[3] = { 263, 0, 13700 };
+    acr_gen1_gimmicks_blade(&g, by61, 100, 212, 300, NULL);
+    EXPECT(g.door[0].state == 1);
 }
 
 /* Map 0's generator (area 285, 3,000 HP): destroyed, it unlocks and opens
