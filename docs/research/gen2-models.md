@@ -139,8 +139,11 @@ parts, so a Gen 1 AC can fit and fire them (table `k_gen2_hand` in
   AC2 unit = ACR_AC2_SCALE / 4 world units, 60 AC2 frames a second, 22.003 Gen 1
   steps a second. RF/37: range 467 -> 9749, velocity 8.0/frame -> 455 a step,
   reload 33 frames -> a shot every 12 steps (WG-RF35: 13).
+- Impact: AC2 weapon row w15 (was "stun, probably"). Same scale as Gen 1's
+  detail +0x16: bazookas B2120/B2180 15/28, AC2 BZ-B1100/BZ-S55 15/28. RF/37 = 1
+  (WG-RF35 3).
 - Behaviour from the type until Gen 2's own is mapped: lock, sight, firing
-  animation, shot look and sound as WG-RF35 (RIFLE); impact 3 is a stand-in.
+  animation, shot look and sound as WG-RF35 (RIFLE).
 - `models/hand/40` and `models/menu/hand/40`: one piece around the grip (AC2
   keeps hand weapons at 0), joint [0,0,0] so it is drawn at the hand node.
   Textures stacked into one greyscale atlas.

@@ -989,7 +989,7 @@ static int export_hand_weapon(ac2_src *a, const gen2_hand *h, const uint8_t *f10
     const uint8_t *w = f10 + wo;
     const unsigned proj = le16(w) >> 8, ammo = le16(w + 4), ammo_price = le16(w + 6);
     const unsigned reload = le16(w + 16) & 0xFF, energy = le16(w + 24) == 0x27, attack = le16(w + 26),
-                   heat = le16(w + 28);
+                   heat = le16(w + 28), impact = le16(w + 30);
     const size_t bo = AC2_BALLISTICS + 0x100u * proj;
     if (bo + 0x2C > f10_n) return 1;
     const float vel = lef(f10 + bo + 0x24), range = lef(f10 + bo + 0x28);   /* AC2 units a frame; AC2 units */
@@ -1027,8 +1027,8 @@ static int export_hand_weapon(ac2_src *a, const gen2_hand *h, const uint8_t *f10
     fprintf(f, "energy_per_shot = %u\nammo_price     = %u\nsalvo          = 1\n", energy ? ammo_price : 0u,
             energy ? 0u : ammo_price);
     fprintf(f, "fire_interval  = %ld   # AC2 reload %u frames = %ld Gen 1 steps a shot\n", wait, reload, cadence);
-    fprintf(f, "ammo_flags     = %u\nimpact         = 3   # stand-in (WG-RF35): AC2 impact not mapped\n",
-            energy ? 0x27u : 0x17u);
+    fprintf(f, "ammo_flags     = %u\nimpact         = %u   # AC2 w15, same scale as Gen 1 (bazookas 15 / 28 in both)\n",
+            energy ? 0x27u : 0x17u, impact);
     fprintf(f, "type_id        = 6   # RIFLE\nkind           = 0\nmodel_id       = 0\nfire_pattern   = 0\n"
                "firing_anim    = 0\npost_shot_hold = %d\nsight          = 1\n", hold);
     fprintf(f, "shot_speed     = %ld   # AC2 velocity %.0f\n", speed_w, (double)vel * 100.0);
