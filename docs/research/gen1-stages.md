@@ -428,6 +428,23 @@ Map 18 (`0x800A28B8`): objects +528 and +572 (records 4, 5) both state 3
 handlers (node +44, +4). Cutscenes send messages with `1009 1 area cmd`
 (map 0: 290 cmd 1; map 18: 68 cmd 1, then 2).
 
+**Switches and lifts** (read 2026-11-27). Map 18's switch 68, map 16's
+24 and map 9's container 169 are door pieces (the 26-byte kind): 68 and
+169 stay open; 169 is locked (line 159). The scripts test the controller's
++16 state: map 18 (`0x800A27F4`) makes records 4 / 5 once 68's is not 0;
+map 16 (`0x800A3C1C`) makes record 30 once 24's is not 0. **The 12-byte
+kind is a lift** (map 18 set-up `0x800A21B0`, tick `0x800A1F44`,
+messages `0x800A1E54`): state (+16) from data +7 is the way it goes
+(0 toward data +2, 1 toward +4: y), speed data +0 x 32 at most,
+accelerating by data +0; 0x8100 (the player touching it) or 0x8200 flips
+it (`0x800A1DB4`, sound data +10); stopped by something for 66 ticks it
+flips back. Data +12..+18 can also move it in x / z with y. Map 18's core
+(96, y -2,250 to 0) wins the map on state 1, its lift 58 (-7,875 to
+-2,250) has a call button (99, h2: 0x8100 flips the area in its link
+[0]). Map 9's 142 and map 16's 32 are lifts too. In the engine: map 18's
+68, map 16's 24 and map 9's 169 drive the missions (`moa_tick`); lifts
+are not run yet.
+
 Other set-up kinds, not read: a 12-byte controller (data with 18,246 /
 20,082 at +8: maps 1, 5, 7, 9, 16, 18, 19; map 18's switch 68 and core 96,
 map 9's container), a 28-byte one (maps 1, 6) and ones without a
